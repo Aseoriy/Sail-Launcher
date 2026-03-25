@@ -1,2 +1,3 @@
 # Sail-Launcher
 simple custom game/app launcher i made mainly for pirated games that aren't in the steam launcher, it supports steam photos and descriptions and even system specs but you have to manually add the app id when adding the game too the launcher. it also supports uploading and downloading save files from google drive but you must have the [google drive windows app](https://dl.google.com/drive-file-stream/GoogleDriveSetup.exe) installed to enter the path where it downloads and uploads to.
+<img width="1603" height="1072" alt="image" src="https://github.com/user-attachments/assets/4d90bd6b-0b0a-40ab-9263-f2b07b2bacde" />
