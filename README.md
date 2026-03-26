@@ -4,4 +4,6 @@ simple custom game/app launcher i made mainly for pirated games that aren't in t
 photo of the launcher*
 
 
-<img width="1603" height="1072" alt="image" src="https://github.com/user-attachments/assets/4d90bd6b-0b0a-40ab-9263-f2b07b2bacde" />
+<img width="1624" height="1084" alt="image" src="https://github.com/user-attachments/assets/d2427c49-30b0-476f-98de-44a7866d6a2d" />
+
+<img width="1626" height="1083" alt="image" src="https://github.com/user-attachments/assets/210b1ea7-96b2-4972-82de-7ffd6c0aa39e" />
