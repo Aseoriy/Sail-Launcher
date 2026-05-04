@@ -60,6 +60,7 @@ simple custom game/app launcher i made mainly for pirated games that aren't in t
   - **Discord Rich Presence (RPC)**: Shows what you're playing on Discord, including game names and session time.
   - **Sail Hub Protocol**: Support for `sail-launcher://` links for one-click theme and plugin installs from the web.
   - **Plugin Manager**: Built-in support for extracting ZIP, RAR, and 7z archives for easy mod/plugin installation.
+  - **Friend Bar**: Sail launcher can use your token *must be grabbed manually* on steam or discord to display your friends list and their status.
 </details>
 
 <details>
