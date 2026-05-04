@@ -1,0 +1,7 @@
+{
+    "name": "Hardware Monitor",
+    "version": "1.0.1",
+    "author": "Aseoriy",
+    "description": "Adds a real-time hardware usage indicator in the top header showing CPU, RAM, and GPU activity.",
+    "main": "index.js"
+}
