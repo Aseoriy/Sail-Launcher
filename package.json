@@ -1,0 +1,51 @@
+{
+  "name": "sail-launcher",
+  "productName": "Sail Launcher",
+  "version": "4.1.7",
+  "description": "Pookie's custom launcher for games",
+  "author": "Aseoriy",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win nsis"
+  },
+  "dependencies": {
+    "7zip-min": "^3.0.1",
+    "discord-rpc": "^4.0.1",
+    "electron-updater": "^6.8.3",
+    "fs-extra": "^11.2.0",
+    "node-unrar-js": "^2.0.2"
+  },
+  "devDependencies": {
+    "electron": "^29.1.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.aseoriy.saillauncher",
+    "files": [
+      "main.js",
+      "index.html",
+      "icon.ico",
+      "node_modules/**/*"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "installerIcon": "icon.ico",
+      "uninstallerIcon": "icon.ico"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Aseoriy",
+        "repo": "Sail-Launcher"
+      }
+    ]
+  }
+}
