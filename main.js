@@ -32,17 +32,25 @@ let rpcEnabled = true;
 let rpcRetryInterval = null;
 
 function setActivity(gameName) {
-    if (!rpc || !rpcEnabled) return;
-    if (gameName) {
-        const activity = {
-            instance: false,
+    if (!rpc || !rpcEnabled) {
+        console.log(`RPC skip: rpc=${!!rpc}, enabled=${rpcEnabled}`);
+        return;
+    }
+    try {
+        const activity = gameName ? {
             details: 'Playing',
             state: gameName,
-            startTimestamp: new Date()
+            instance: false,
+        } : {
+            details: 'Browsing Library',
+            state: 'Looking for something to play',
+            instance: false,
         };
-        rpc.setActivity(activity).catch(err => console.log("RPC Error:", err));
-    } else {
-        rpc.clearActivity().catch(err => console.log("RPC Error:", err));
+        
+        console.log("Updating Discord Activity:", activity.state || "Idle");
+        rpc.setActivity(activity).catch(err => console.error("RPC setActivity Error:", err));
+    } catch (e) {
+        console.error("RPC setActivity Exception:", e);
     }
 }
 
@@ -87,20 +95,42 @@ function findBestExe(folderPath, gameName = "") {
 }
 
 function connectRPC() {
-    if (!rpcEnabled || rpc) return;
+    if (!rpcEnabled) return;
+    if (rpc) {
+        console.log("RPC already connected.");
+        return;
+    }
+    
+    console.log("Attempting to connect to Discord RPC with Client ID:", clientId);
     const tempRpc = new DiscordRPC.Client({ transport: 'ipc' });
 
     tempRpc.on('ready', () => {
-        console.log("Discord RPC Connected Successfully!");
+        console.log("Discord RPC Connected Successfully! (ready event)");
         rpc = tempRpc;
         if (rpcRetryInterval) { clearInterval(rpcRetryInterval); rpcRetryInterval = null; }
         setActivity(null);
     });
 
-    tempRpc.login({ clientId }).catch(() => {
+    tempRpc.on('error', (err) => {
+        console.error("Discord RPC Client Error:", err.message);
+        rpc = null;
+    });
+
+    tempRpc.on('disconnected', () => {
+        console.log("Discord RPC Disconnected event.");
+        rpc = null;
+        if (rpcEnabled && !rpcRetryInterval) {
+            rpcRetryInterval = setInterval(connectRPC, 15000);
+        }
+    });
+
+    tempRpc.login({ clientId }).then(() => {
+        console.log("RPC Login promise resolved.");
+    }).catch(err => {
+        console.log("Discord RPC Login Failed (promise catch):", err.message);
+        rpc = null;
         if (!rpcRetryInterval && rpcEnabled) {
-            console.log("Discord not detected. Retrying in 10s...");
-            rpcRetryInterval = setInterval(connectRPC, 10000);
+            rpcRetryInterval = setInterval(connectRPC, 15000);
         }
     });
 }
@@ -232,11 +262,13 @@ ipcMain.on('show-game-context', (e, index) => {
 
 ipcMain.handle('get-running-exes', () => {
     return new Promise(resolve => {
+        // Use tasklist with CSV format and no headers
         exec('tasklist /FO CSV /NH', (err, stdout) => {
             if (err) return resolve([]);
             const exes = stdout.split('\n').map(line => {
-                const parts = line.split('","');
-                return parts[0] ? parts[0].replace('"', '').toLowerCase() : '';
+                // Regex to match CSV parts properly even if they contain commas
+                const matches = line.match(/"([^"]*)"/);
+                return matches ? matches[1].toLowerCase() : '';
             }).filter(Boolean);
             resolve([...new Set(exes)]);
         });

@@ -3694,20 +3694,46 @@
 
             setInterval(async () => {
                 const runningExes = await ipcRenderer.invoke('get-running-exes');
-                myGames.forEach((game, index) => {
-                    if (!game.exePath) return;
+                let foundIndex = -1;
 
-                    const exeName = game.exePath.split(/[/\\]/).pop().toLowerCase();
-                    const isRunning = runningExes.includes(exeName);
+                // 1. If a game is already marked as active, check if it's still running
+                if (activeGameIndex !== null && myGames[activeGameIndex] && myGames[activeGameIndex].exePath) {
+                    const activeExe = myGames[activeGameIndex].exePath.split(/[/\\]/).pop().toLowerCase();
+                    if (runningExes.includes(activeExe)) {
+                        foundIndex = activeGameIndex;
+                    }
+                }
 
-                    if (isRunning && activeGameIndex !== index) {
-                        activeGameIndex = index;
+                // 2. If no active game found or it stopped, scan for other games in myGames
+                if (foundIndex === -1) {
+                    for (let i = 0; i < myGames.length; i++) {
+                        const g = myGames[i];
+                        if (!g.exePath) continue;
+                        const exe = g.exePath.split(/[/\\]/).pop().toLowerCase();
+                        if (runningExes.includes(exe)) {
+                            foundIndex = i;
+                            break;
+                        }
+                    }
+                }
+
+                // 3. Update state if needed
+                if (foundIndex !== -1) {
+                    if (activeGameIndex !== foundIndex) {
+                        activeGameIndex = foundIndex;
                         myGames[activeGameIndex].lastPlayed = Date.now();
                         saveToMemory();
-                        ipcRenderer.send('update-rpc', game.name);
+                        ipcRenderer.send('update-rpc', myGames[activeGameIndex].name);
                         updateGamePageActionBar(); renderGames();
                     }
-                });
+                } else {
+                    // No game is running
+                    if (activeGameIndex !== null) {
+                        activeGameIndex = null;
+                        ipcRenderer.send('update-rpc', null);
+                        updateGamePageActionBar(); renderGames();
+                    }
+                }
             }, 5000);
 
             ipcRenderer.on('context-play-game', (e, idx) => launchGame(idx));
