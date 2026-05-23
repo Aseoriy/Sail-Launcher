@@ -3217,7 +3217,9 @@
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 25px;">
                     <div class="cloud-card" id="card-google" style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); border-radius: 12px; padding: 15px; display: flex; flex-direction: column; gap: 12px; transition: 0.2s;">
                         <div style="display: flex; align-items: center; gap: 10px;">
-                            <div style="font-size: 24px;">🤖</div>
+                            <div style="width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" style="width: 24px; height: 24px; flex-shrink: 0;"><defs><radialGradient id="drive-A" cx="-254.817" cy="705.837" gradientTransform="matrix(2.827,1.6322,-1.6322,2.827,1967.2161,-1760.7166)" gradientUnits="userSpaceOnUse" r="82.973"><stop offset="0" stop-color="#ffd24d"/><stop offset="1" stop-color="#f6c338"/></radialGradient><radialGradient id="drive-B" cx="-254.82" cy="705.836" gradientTransform="matrix(2.827,1.6322,-1.6322,2.827,1967.2161,-1760.7166)" gradientUnits="userSpaceOnUse" r="82.978"><stop offset="0" stop-color="#4387fd"/><stop offset=".65" stop-color="#3078f0"/><stop offset=".91" stop-color="#2b72ea"/><stop offset="1" stop-color="#286ee6"/></radialGradient></defs><g transform="matrix(.460432 0 0 .460432 57.509647 126.82041)"><path d="M-100.704-145.738l-24.2-41.9 45.3-78.5 24.2 41.9z" fill="#0da960"/><path d="M-100.704-145.738l24.2-41.9h90.6l-24.2 41.9z" fill="url(#drive-B)"/><path d="M14.096-187.638h-48.4l-45.3-78.5h48.4z" fill="url(#drive-A)"/><path d="M-55.404-187.638h-21.1l10.5-18.3-34.7 60.2z" fill="#2d6fdd"/><path d="M-34.304-187.638h48.4l-58.9-18.3z" fill="#e5b93c"/><path d="M-66.004-205.938l10.6-18.3-24.2-41.9z" fill="#0c9b57"/></g></svg>
+                            </div>
                             <div style="flex-grow: 1;">
                                 <h4 style="margin: 0; font-size: 14px;">Google Drive</h4>
                                 <span class="cloud-status" id="status-google" style="font-size: 11px; opacity: 0.5;">Not Connected</span>
@@ -3228,7 +3230,9 @@
 
                     <div class="cloud-card" id="card-onedrive" style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); border-radius: 12px; padding: 15px; display: flex; flex-direction: column; gap: 12px; transition: 0.2s;">
                         <div style="display: flex; align-items: center; gap: 10px;">
-                            <div style="font-size: 24px;">☁️</div>
+                            <div style="width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                                <svg viewBox="0 0 24 24" style="width: 24px; height: 24px; flex-shrink: 0;"><path d="M19.349 10.611c0-.12.012-.24.012-.36 0-2.316-1.89-4.189-4.204-4.189-1.282 0-2.428.577-3.197 1.484-.693-.972-1.838-1.599-3.13-1.599-2.023 0-3.684 1.517-3.924 3.479C2.261 9.94 0 12.186 0 14.935 0 17.728 2.296 20 5.129 20h13.256C21.365 20 24 17.585 24 14.611c0-2.584-1.992-4.707-4.651-4.999l.001-.001z" fill="#0078D4"/></svg>
+                            </div>
                             <div style="flex-grow: 1;">
                                 <h4 style="margin: 0; font-size: 14px;">Microsoft OneDrive</h4>
                                 <span class="cloud-status" id="status-onedrive" style="font-size: 11px; opacity: 0.5;">Not Connected</span>
@@ -3239,7 +3243,9 @@
 
                     <div class="cloud-card" id="card-dropbox" style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); border-radius: 12px; padding: 15px; display: flex; flex-direction: column; gap: 12px; transition: 0.2s;">
                         <div style="display: flex; align-items: center; gap: 10px;">
-                            <div style="font-size: 24px;">📦</div>
+                            <div style="width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                                <svg viewBox="0 0 24 24" style="width: 24px; height: 24px; flex-shrink: 0;"><path d="M6 1.807L0 5.629l6 3.822 6.001-3.822L6 1.807zM18 1.807l-6 3.822 6 3.822 6-3.822-6-3.822zM0 13.274l6 3.822 6.001-3.822L6 9.452l-6 3.822zM18 9.452l-6 3.822 6 3.822 6-3.822-6-3.822zM6 18.371l6.001 3.822 6-3.822-6-3.822L6 18.371z" fill="#0061FE"/></svg>
+                            </div>
                             <div style="flex-grow: 1;">
                                 <h4 style="margin: 0; font-size: 14px;">Dropbox</h4>
                                 <span class="cloud-status" id="status-dropbox" style="font-size: 11px; opacity: 0.5;">Not Connected</span>
@@ -3250,7 +3256,9 @@
 
                     <div class="cloud-card" id="card-mediafire" style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); border-radius: 12px; padding: 15px; display: flex; flex-direction: column; gap: 10px; transition: 0.2s;">
                         <div style="display: flex; align-items: center; gap: 10px;">
-                            <div style="font-size: 24px;">🔥</div>
+                            <div style="width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                                <svg viewBox="0 0 24 24" style="width: 24px; height: 24px; flex-shrink: 0;"><path d="M11.13 7.171c-.496.42 2.943-.458 2.6 1.239-.332 1.633-3.62-.343-7.223-.176-1.594.073-3.054.53-3.985 1.668.973-1.108 2.901-.844 2.398-.081-1.172 1.776-3.376.497-4.92 3.975.185-.4.685-1.196 2.843-1.526 1.586-.242 4.214-.016 5.054 1.297.924 1.444-3.759 1.28-1.167 1.573 3.593.406 6.299 3.31 9.813 3.311 4.55 0 7.422-2.324 7.457-6.146.063-6.923-9.101-8.318-12.87-5.134zm6.768 7.554c-1.195-.033-2.404-.512-3.364-.98-2.365-1.155-3.338-1.553-3.338-1.608 0-.067 1.42.484 3.813-.789 1.383-.735 1.432-1.377 2.89-1.505 1.73-.152 2.962 1.13 2.962 2.478 0 1.349-1.222 2.453-2.963 2.404z" fill="#0072FF"/></svg>
+                            </div>
                             <div style="flex-grow: 1;">
                                 <h4 style="margin: 0; font-size: 14px;">Mediafire</h4>
                                 <span class="cloud-status" id="status-mediafire" style="font-size: 11px; opacity: 0.5;">Not Connected</span>
@@ -3304,6 +3312,10 @@
                         </div>
 
                         <div id="customKeysPanel" style="display: none; flex-direction: column; gap: 10px; background: rgba(0,0,0,0.15); padding: 12px; border-radius: 8px; border: 1px dashed var(--border-color);">
+                            <div style="font-size: 11px; opacity: 0.8; line-height: 1.4; color: var(--accent-color); padding-bottom: 8px; border-bottom: 1px dashed rgba(255,255,255,0.05); margin-bottom: 4px;">
+                                ℹ️ <b>OAuth Callback URI to register:</b><br>
+                                <code style="background: rgba(0,0,0,0.4); padding: 2px 6px; border-radius: 4px; font-family: monospace; display: inline-block; margin-top: 4px; border: 1px solid rgba(255,255,255,0.1);">http://localhost:53232/callback</code>
+                            </div>
                             <div style="display: flex; flex-direction: column; gap: 4px;">
                                 <label style="font-size: 11px; font-weight: bold; opacity: 0.7;">Google Drive Client ID</label>
                                 <input type="text" id="custom-google-id" style="padding: 6px; font-size: 12px; background: var(--bg-color); border: 1px solid var(--border-color); color: var(--text-color); border-radius: 6px;">
