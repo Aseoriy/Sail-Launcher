@@ -3361,11 +3361,15 @@
                             <div style="display: flex; flex-direction: column; gap: 4px;">
                                 <label style="font-size: 11px; font-weight: bold; opacity: 0.7;">Google Drive Client ID</label>
                                 <input type="text" id="custom-google-id" style="padding: 6px; font-size: 12px; background: var(--bg-color); border: 1px solid var(--border-color); color: var(--text-color); border-radius: 6px;">
+                                <label style="font-size: 11px; font-weight: bold; opacity: 0.7; margin-top: 4px;">Google Drive Client Secret <span style="font-size: 9px; opacity: 0.5;">(Only required if registered as a Web Application)</span></label>
+                                <input type="text" id="custom-google-secret" style="padding: 6px; font-size: 12px; background: var(--bg-color); border: 1px solid var(--border-color); color: var(--text-color); border-radius: 6px;">
                             </div>
                             
                             <div style="display: flex; flex-direction: column; gap: 4px; border-top: 1px dashed rgba(255,255,255,0.05); padding-top: 8px;">
                                 <label style="font-size: 11px; font-weight: bold; opacity: 0.7;">OneDrive Client ID</label>
                                 <input type="text" id="custom-onedrive-id" style="padding: 6px; font-size: 12px; background: var(--bg-color); border: 1px solid var(--border-color); color: var(--text-color); border-radius: 6px;">
+                                <label style="font-size: 11px; font-weight: bold; opacity: 0.7; margin-top: 4px;">OneDrive Client Secret <span style="font-size: 9px; opacity: 0.5;">(Only required if registered as a Web Application)</span></label>
+                                <input type="text" id="custom-onedrive-secret" style="padding: 6px; font-size: 12px; background: var(--bg-color); border: 1px solid var(--border-color); color: var(--text-color); border-radius: 6px;">
                             </div>
 
                             <div style="display: flex; flex-direction: column; gap: 4px; border-top: 1px dashed rgba(255,255,255,0.05); padding-top: 8px;">
@@ -3493,7 +3497,7 @@
             cloudSyncBlocking: true,
             cloudFolder: 'SailLauncherSaves',
             customCloudKeys: false,
-            customCloudKeysData: { google: { clientId: '' }, onedrive: { clientId: '' }, dropbox: { clientId: '', clientSecret: '' } }
+            customCloudKeysData: { google: { clientId: '', clientSecret: '' }, onedrive: { clientId: '', clientSecret: '' }, dropbox: { clientId: '', clientSecret: '' } }
         };
 
         let myGames = [];
@@ -5981,8 +5985,14 @@
             let customCreds = null;
             if (globalSettings.customCloudKeys) {
                 customCreds = {
-                    google: { clientId: document.getElementById('custom-google-id').value.trim() },
-                    onedrive: { clientId: document.getElementById('custom-onedrive-id').value.trim() },
+                    google: { 
+                        clientId: document.getElementById('custom-google-id').value.trim(),
+                        clientSecret: document.getElementById('custom-google-secret').value.trim()
+                    },
+                    onedrive: { 
+                        clientId: document.getElementById('custom-onedrive-id').value.trim(),
+                        clientSecret: document.getElementById('custom-onedrive-secret').value.trim()
+                    },
                     dropbox: { 
                         clientId: document.getElementById('custom-dropbox-id').value.trim(),
                         clientSecret: document.getElementById('custom-dropbox-secret').value.trim()
@@ -6090,7 +6100,9 @@
 
             if (globalSettings.customCloudKeysData) {
                 document.getElementById('custom-google-id').value = globalSettings.customCloudKeysData.google?.clientId || '';
+                document.getElementById('custom-google-secret').value = globalSettings.customCloudKeysData.google?.clientSecret || '';
                 document.getElementById('custom-onedrive-id').value = globalSettings.customCloudKeysData.onedrive?.clientId || '';
+                document.getElementById('custom-onedrive-secret').value = globalSettings.customCloudKeysData.onedrive?.clientSecret || '';
                 document.getElementById('custom-dropbox-id').value = globalSettings.customCloudKeysData.dropbox?.clientId || '';
                 document.getElementById('custom-dropbox-secret').value = globalSettings.customCloudKeysData.dropbox?.clientSecret || '';
             }
@@ -7504,10 +7516,22 @@
             globalSettings.customCloudKeysData.google.clientId = e.target.value;
             saveToMemory();
         });
+        document.getElementById('custom-google-secret').addEventListener('change', (e) => {
+            if (!globalSettings.customCloudKeysData) globalSettings.customCloudKeysData = { google: {}, onedrive: {}, dropbox: {} };
+            if (!globalSettings.customCloudKeysData.google) globalSettings.customCloudKeysData.google = {};
+            globalSettings.customCloudKeysData.google.clientSecret = e.target.value;
+            saveToMemory();
+        });
         document.getElementById('custom-onedrive-id').addEventListener('change', (e) => {
             if (!globalSettings.customCloudKeysData) globalSettings.customCloudKeysData = { google: {}, onedrive: {}, dropbox: {} };
             if (!globalSettings.customCloudKeysData.onedrive) globalSettings.customCloudKeysData.onedrive = {};
             globalSettings.customCloudKeysData.onedrive.clientId = e.target.value;
+            saveToMemory();
+        });
+        document.getElementById('custom-onedrive-secret').addEventListener('change', (e) => {
+            if (!globalSettings.customCloudKeysData) globalSettings.customCloudKeysData = { google: {}, onedrive: {}, dropbox: {} };
+            if (!globalSettings.customCloudKeysData.onedrive) globalSettings.customCloudKeysData.onedrive = {};
+            globalSettings.customCloudKeysData.onedrive.clientSecret = e.target.value;
             saveToMemory();
         });
         document.getElementById('custom-dropbox-id').addEventListener('change', (e) => {
