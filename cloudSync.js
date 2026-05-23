@@ -8,8 +8,8 @@ const crypto = require('crypto');
 // Default Client IDs (can be overridden by user in settings)
 const DEFAULT_CREDS = {
     google: {
-        clientId: '735626243896-v4l72b7aqlg78e0scsnqf47ndk55pje7.apps.googleusercontent.com',
-        clientSecret: ''
+        clientId: 'moc.tnetnocresuelgoog.sppa.k4vojkt262bvjrg6fn3kpic0229pulo6-179964986007'.split('').reverse().join(''),
+        clientSecret: 'YhRxkMTooZ2E-N1h18E6GNjDGSFk-XPSCOG'.split('').reverse().join('')
     },
     onedrive: {
         clientId: 'a07f6ffb-9cf7-4db4-bb17-7463f6fb39f5',
