@@ -7,8 +7,14 @@ const https = require('https');
 const http = require('http');
 const unrar = require('node-unrar-js');
 const _7z = require('7zip-min');
+try {
+    const sevenZipBin = require('7zip-bin');
+    const pathTo7zip = sevenZipBin.path7za.replace('app.asar', 'app.asar.unpacked');
+    _7z.config({ binaryPath: pathTo7zip });
+} catch (e) {
+    console.error('Failed to configure 7zip-min path:', e);
+}
 const DiscordRPC = require('discord-rpc');
-
 const args = process.argv;
 let autoLaunchGameId = null;
 const launchArg = args.find(a => a.startsWith('--launch-game-id='));
@@ -223,6 +229,97 @@ ipcMain.on('restart-app', () => {
 
 ipcMain.handle('get-user-data', () => app.getPath('userData'));
 ipcMain.handle('get-auto-launch', () => autoLaunchGameId);
+
+ipcMain.handle('search-steam-workshop', async (e, appId, query, page = 1) => {
+    return new Promise((resolve) => {
+        const https = require('https');
+        const url = `https://steamcommunity.com/workshop/browse/?appid=${appId}&searchtext=${encodeURIComponent(query)}&browsesort=trend&section=readytouseitems&p=${page}`;
+        
+        const options = {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept-Encoding': 'gzip, deflate'
+            }
+        };
+        
+        https.get(url, options, (res) => {
+            const chunks = [];
+            res.on('data', (chunk) => { chunks.push(chunk); });
+            res.on('end', () => {
+                try {
+                    const buffer = Buffer.concat(chunks);
+                    const encoding = res.headers['content-encoding'];
+                    let html = '';
+                    const zlib = require('zlib');
+                    
+                    if (encoding === 'gzip') {
+                        html = zlib.gunzipSync(buffer).toString('utf8');
+                    } else if (encoding === 'deflate') {
+                        html = zlib.inflateSync(buffer).toString('utf8');
+                    } else {
+                        html = buffer.toString('utf8');
+                    }
+                    
+                    const matches = [...html.matchAll(/data-publishedfileid="(\d+)".*?src="(.*?)".*?class="workshopItemTitle.*?>(.*?)</gs)];
+                    const items = matches.map(m => ({ id: m[1], previewUrl: m[2], title: m[3] }));
+                    resolve(items);
+                } catch(e) {
+                    console.error('Error decoding/parsing workshop search:', e);
+                    resolve([]);
+                }
+            });
+        }).on('error', (err) => {
+            console.error('HTTPS error searching workshop:', err);
+            resolve([]);
+        });
+    });
+});
+
+ipcMain.handle('download-workshop-item', async (e, appId, itemId) => {
+    return new Promise((resolve) => {
+        const steamCmdDir = path.join(app.getPath('userData'), 'steamcmd');
+        const steamCmdExe = path.join(steamCmdDir, 'steamcmd.exe');
+        
+        if (!fs.existsSync(steamCmdDir)) fs.mkdirSync(steamCmdDir, { recursive: true });
+
+        const runSteamCmd = () => {
+            const child = spawn(steamCmdExe, ['+login', 'anonymous', '+workshop_download_item', appId, itemId, '+quit']);
+            
+            child.on('close', (code) => {
+                if (code === 0 || code === 7) { // 7 is usually a success code in steamcmd indicating it needs a restart or finished with minor warnings
+                    const downloadPath = path.join(steamCmdDir, 'steamapps', 'workshop', 'content', appId, itemId);
+                    resolve({ success: true, path: downloadPath });
+                } else {
+                    resolve({ success: false, error: `SteamCMD exited with code ${code}` });
+                }
+            });
+            child.on('error', (err) => {
+                resolve({ success: false, error: err.message });
+            });
+        };
+
+        if (fs.existsSync(steamCmdExe)) {
+            runSteamCmd();
+        } else {
+            const zipPath = path.join(steamCmdDir, 'steamcmd.zip');
+            const file = fs.createWriteStream(zipPath);
+            https.get('https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip', (response) => {
+                response.pipe(file);
+                file.on('finish', () => {
+                    file.close();
+                    exec(`powershell -Command "Expand-Archive -Path '${zipPath}' -DestinationPath '${steamCmdDir}' -Force"`, { windowsHide: true }, (err) => {
+                        fs.unlinkSync(zipPath);
+                        if (err) return resolve({ success: false, error: "Failed to extract SteamCMD" });
+                        runSteamCmd();
+                    });
+                });
+            }).on('error', (err) => {
+                fs.unlink(zipPath, () => {});
+                resolve({ success: false, error: "Failed to download SteamCMD" });
+            });
+        }
+    });
+});
 
 ipcMain.handle('get-common-paths', () => {
     return { appData: app.getPath('appData'), localAppData: process.env.LOCALAPPDATA || app.getPath('appData'), documents: app.getPath('documents') };
@@ -473,6 +570,30 @@ ipcMain.on('window-max', (e) => { const win = BrowserWindow.fromWebContents(e.se
 ipcMain.on('window-close', (e, exitWhenClosed) => {
     if (exitWhenClosed) { isQuitting = true; app.quit(); }
     else { BrowserWindow.fromWebContents(e.sender)?.hide(); }
+});
+
+ipcMain.handle('get-displays', () => {
+    return screen.getAllDisplays().map(d => ({
+        id: d.id,
+        bounds: d.bounds,
+        scaleFactor: d.scaleFactor,
+        isPrimary: d.bounds.x === 0 && d.bounds.y === 0
+    }));
+});
+
+ipcMain.on('move-to-display-fullscreen', (e, displayId) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    if (!win) return;
+    
+    if (displayId) {
+        const display = screen.getAllDisplays().find(d => d.id == displayId);
+        if (display) {
+            win.setBounds(display.bounds);
+        }
+    }
+    
+    // Toggle fullscreen after moving
+    win.setFullScreen(!win.isFullScreen());
 });
 
 ipcMain.on('restart-app', () => {
@@ -771,6 +892,70 @@ else {
                         } catch (e) { }
                     });
                 });
+                resolve(games);
+            });
+        });
+    });
+
+    ipcMain.handle('import-epic-games', async () => {
+        return new Promise((resolve) => {
+            const manifestDir = path.join(process.env.PROGRAMDATA || 'C:\\ProgramData', 'Epic', 'EpicGamesLauncher', 'Data', 'Manifests');
+            if (!fs.existsSync(manifestDir)) return resolve([]);
+            
+            let games = [];
+            const files = fs.readdirSync(manifestDir).filter(f => f.endsWith('.item'));
+            files.forEach(f => {
+                try {
+                    const data = JSON.parse(fs.readFileSync(path.join(manifestDir, f), 'utf8'));
+                    if (data.bIsApplication && data.InstallLocation && data.AppName && data.DisplayName) {
+                        const exeName = data.LaunchExecutable || "";
+                        const fullExePath = exeName ? path.join(data.InstallLocation, exeName) : findBestExe(data.InstallLocation, data.DisplayName);
+                        
+                        games.push({
+                            name: data.DisplayName,
+                            exePath: fullExePath || data.InstallLocation,
+                            epicId: data.AppName
+                        });
+                    }
+                } catch(e) {}
+            });
+            resolve(games);
+        });
+    });
+
+    ipcMain.handle('import-gog-games', async () => {
+        return new Promise((resolve) => {
+            exec('reg query "HKLM\\SOFTWARE\\WOW6432Node\\GOG.com\\Games" /s', (err, stdout) => {
+                if (err) return resolve([]);
+                
+                let games = [];
+                const lines = stdout.split('\n');
+                let currentGame = {};
+                
+                lines.forEach(line => {
+                    const l = line.trim();
+                    if (l.startsWith('HKEY_')) {
+                        if (currentGame.name && currentGame.exePath) games.push({...currentGame});
+                        currentGame = {};
+                    } else if (l.includes('gameName')) {
+                        const match = l.match(/gameName\s+REG_SZ\s+(.*)/);
+                        if (match) currentGame.name = match[1].trim();
+                    } else if (l.includes('exe')) {
+                        const match = l.match(/exe\s+REG_SZ\s+(.*)/);
+                        if (match) currentGame.exePath = match[1].trim().replace(/\//g, '\\');
+                    } else if (l.includes('path')) {
+                        const match = l.match(/path\s+REG_SZ\s+(.*)/);
+                        if (match) currentGame.path = match[1].trim().replace(/\//g, '\\');
+                    }
+                });
+                
+                if (currentGame.name && currentGame.exePath) {
+                    if (currentGame.path && !path.isAbsolute(currentGame.exePath)) {
+                        currentGame.exePath = path.join(currentGame.path, currentGame.exePath);
+                    }
+                    games.push({...currentGame});
+                }
+                
                 resolve(games);
             });
         });

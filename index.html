@@ -608,12 +608,10 @@
 
         #libraryView {
             display: block;
-            animation: fadeIn 0.3s;
         }
 
         #gamePageView {
             display: none;
-            animation: fadeIn 0.3s;
         }
 
         .game-grid {
@@ -1116,7 +1114,7 @@
             backdrop-filter: blur(6px);
             justify-content: center;
             align-items: center;
-            z-index: 10000;
+            z-index: 11000;
             opacity: 0;
             transition: opacity 0.35s ease;
         }
@@ -1409,32 +1407,161 @@
         /* DEDICATED SETTINGS PAGE */
         body.dedicated-settings-page #settingsModal {
             background: var(--bg-color);
+            padding: 0;
+            top: 45px !important;
+            height: calc(100vh - 45px) !important;
+        }
+
+        body.dedicated-settings-page .custom-titlebar {
+            z-index: 12000;
         }
 
         body.dedicated-settings-page #settingsModal .modal-content {
-            width: 100vw;
-            height: 100vh;
-            max-width: none;
-            max-height: none;
-            border-radius: 0;
-            padding: 40px;
-            box-shadow: none;
-            border: none;
-            display: flex;
-            flex-direction: column;
+            width: 100vw !important;
+            height: 100% !important;
+            max-width: none !important;
+            max-height: none !important;
+            border-radius: 0 !important;
+            padding: 0 !important;
+            box-shadow: none !important;
+            border: none !important;
+            display: grid;
+            grid-template-columns: 280px 1fr;
+            grid-template-rows: 75px 1fr;
             overflow: hidden;
             margin: 0;
+            background: var(--bg-color);
+        }
+
+        body.dedicated-settings-page #settingsModal .modal-content h2 {
+            grid-column: 1 / 3;
+            grid-row: 1;
+            margin: 0 !important;
+            padding: 0 40px;
+            font-size: 26px;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            background: rgba(255, 255, 255, 0.02);
+            color: var(--text-color);
+        }
+
+        body.dedicated-settings-page #settingsModal .settings-tabs {
+            grid-column: 1;
+            grid-row: 2;
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid var(--border-color);
+            border-bottom: none;
+            margin-bottom: 0;
+            padding: 24px 16px;
+            gap: 6px;
+            background: rgba(0, 0, 0, 0.15);
+            overflow-y: auto;
+        }
+
+        body.dedicated-settings-page #settingsModal .settings-tab {
+            text-align: left;
+            padding: 12px 16px;
+            border-bottom: none;
+            border-left: 3px solid transparent;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            flex-grow: 0;
+            opacity: 0.6;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            background: transparent;
+            color: var(--text-color);
+        }
+
+        body.dedicated-settings-page #settingsModal .settings-tab:hover {
+            opacity: 1;
+            background: rgba(255, 255, 255, 0.04);
+            transform: translateX(2px);
+        }
+
+        body.dedicated-settings-page #settingsModal .settings-tab.active {
+            opacity: 1;
+            border-left-color: var(--accent);
+            background: color-mix(in srgb, var(--accent) 12%, transparent);
+            color: var(--text-color);
+            font-weight: 700;
         }
 
         body.dedicated-settings-page #settingsModal .settings-pane {
+            grid-column: 2;
+            grid-row: 2;
+            padding: 40px 60px;
             overflow-y: auto;
-            flex-grow: 1;
+            display: none;
+            box-sizing: border-box;
+            max-height: calc(100vh - 120px);
+            width: 100%;
+        }
+
+        body.dedicated-settings-page #settingsModal .settings-pane.active {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            animation: fadeIn 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        body.dedicated-settings-page #settingsModal .settings-pane > * {
+            width: 100%;
+            max-width: 680px;
+            box-sizing: border-box;
+            flex-shrink: 0;
         }
 
         body.dedicated-settings-page #settingsModal .close-x {
-            top: 20px;
-            right: 30px;
-            font-size: 30px;
+            position: absolute;
+            top: 17px;
+            right: 25px;
+            font-size: 20px;
+            z-index: 100;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border-color);
+            width: 42px;
+            height: 42px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            color: var(--text-color);
+            transition: all 0.2s ease;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+
+        body.dedicated-settings-page #settingsModal .close-x:hover {
+            background: var(--accent);
+            color: white;
+            border-color: var(--accent);
+            transform: scale(1.05);
+            box-shadow: 0 0 15px color-mix(in srgb, var(--accent) 50%, transparent);
+        }
+
+        /* TRANSPARENT SETTINGS PAGE */
+        body.transparent-settings-mode.dedicated-settings-page #settingsModal {
+            background: color-mix(in srgb, var(--bg-color) 40%, transparent) !important;
+            backdrop-filter: blur(12px) !important;
+        }
+
+        body.transparent-settings-mode.dedicated-settings-page #settingsModal .modal-content {
+            background: transparent !important;
+        }
+
+        body.transparent-settings-mode.dedicated-settings-page #settingsModal .modal-content h2 {
+            background: rgba(255, 255, 255, 0.01) !important;
+            backdrop-filter: blur(8px) !important;
+        }
+
+        body.transparent-settings-mode.dedicated-settings-page #settingsModal .settings-tabs {
+            background: rgba(0, 0, 0, 0.25) !important;
+            backdrop-filter: blur(8px) !important;
         }
 
         /* ACTION BUTTONS DROPDOWN */
@@ -1921,6 +2048,93 @@
         .steam-search-result:hover {
             background: var(--border-color) !important;
         }
+
+        /* TRANSITIONS & EXIT ANIMATIONS */
+        #libraryView, #storeView, #workshopView, #gamePageView {
+            animation: pageSlideIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+
+        @keyframes pageSlideIn {
+            from {
+                transform: translateY(12px);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        @keyframes pageSlideOut {
+            from {
+                transform: translateY(0);
+                opacity: 1;
+            }
+            to {
+                transform: translateY(12px);
+                opacity: 0;
+            }
+        }
+
+        .fade-out {
+            animation: pageSlideOut 0.15s cubic-bezier(0.7, 0, 0.84, 0) forwards !important;
+        }
+
+        /* General Modal Transitions */
+        .modal {
+            transition: opacity 0.2s ease, backdrop-filter 0.2s ease !important;
+        }
+
+        .modal.show.closing {
+            opacity: 0 !important;
+            backdrop-filter: blur(0px) !important;
+        }
+
+        @keyframes modalScaleOut {
+            from {
+                opacity: 1;
+                transform: scale(1);
+            }
+            to {
+                opacity: 0;
+                transform: scale(0.9);
+            }
+        }
+
+        .modal.show.closing .modal-content {
+            animation: modalScaleOut 0.2s cubic-bezier(0.25, 1, 0.5, 1) forwards !important;
+        }
+
+        /* Dedicated Settings Modal Transition */
+        body.dedicated-settings-page #settingsModal.show .modal-content {
+            animation: dedicatedSettingsSlideIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
+        }
+
+        body.dedicated-settings-page #settingsModal.show.closing .modal-content {
+            animation: dedicatedSettingsSlideOut 0.2s cubic-bezier(0.7, 0, 0.84, 0) forwards !important;
+        }
+
+        @keyframes dedicatedSettingsSlideIn {
+            from {
+                transform: translateY(20px);
+                opacity: 0;
+            }
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+
+        @keyframes dedicatedSettingsSlideOut {
+            from {
+                transform: translateY(0);
+                opacity: 1;
+            }
+            to {
+                transform: translateY(20px);
+                opacity: 0;
+            }
+        }
     </style>
     <style id="customThemeStyles"></style>
     <style id="customFontStyles"></style>
@@ -1964,11 +2178,13 @@
     <div class="app-container">
 
         <div class="sidebar" id="mainSidebar">
-            <div class="sidebar-header" style="justify-content: flex-start; gap: 15px;">
+            <div class="sidebar-header" style="justify-content: flex-start; gap: 12px; flex-wrap: wrap;">
                 <h2 class="sidebar-title active-tab" id="tabLibrary" onclick="switchMainTab('library')"
                     style="cursor:pointer; opacity:1;" data-i18n="library">Library</h2>
                 <h2 class="sidebar-title" id="tabStore" onclick="switchMainTab('store')"
                     style="cursor:pointer; opacity: 0.5;">Discover</h2>
+                <h2 class="sidebar-title" id="tabWorkshop" onclick="switchMainTab('workshop')"
+                    style="cursor:pointer; opacity: 0.5;">Workshop</h2>
                 <div style="flex-grow:1;"></div>
                 <button class="sidebar-toggle-btn" onclick="toggleSidebar()">☰</button>
             </div>
@@ -2042,6 +2258,44 @@
                     style="width: 100%; height: 100%; border: none; border-radius: 12px; background: var(--bg-color);"></iframe>
             </div>
 
+            <div id="workshopView" style="display: none; box-sizing: border-box; display: flex; flex-direction: column; width: 100%;">
+                <div class="header" style="margin-bottom: 25px; flex-shrink: 0; display: flex; flex-direction: column; align-items: flex-start;">
+                    <h1 style="margin: 0; font-size: 28px;">🛠️ Steam Workshop Browser</h1>
+                    <p style="font-size: 13px; opacity: 0.6; margin: 5px 0 0 0;">Download mods, maps, and assets anonymously via SteamCMD.</p>
+                </div>
+
+                <div class="toolbar" style="display: flex; gap: 15px; margin-bottom: 25px; align-items: center; flex-wrap: wrap; flex-shrink: 0; background: var(--card-bg); padding: 18px 24px; border-radius: 12px; border: 1px solid var(--border-color); width: 100%; box-sizing: border-box;">
+                    <div style="display: flex; flex-direction: column; gap: 5px; min-width: 200px;">
+                        <label style="font-size: 11px; opacity: 0.5; font-weight: bold; text-transform: uppercase;">Select Game</label>
+                        <select id="workshopGameSelect" style="width: 100%; padding: 10px 14px; background: var(--bg-color); border: 1px solid var(--border-color); color: var(--text-color); border-radius: 8px;" onchange="onWorkshopGameChange()">
+                            <option value="">Choose a game...</option>
+                        </select>
+                    </div>
+
+                    <div style="display: flex; flex-direction: column; gap: 5px; flex-grow: 1; min-width: 250px;">
+                        <label style="font-size: 11px; opacity: 0.5; font-weight: bold; text-transform: uppercase;">Search Query / Item ID</label>
+                        <div style="display: flex; gap: 10px; width: 100%;">
+                            <input type="text" id="workshopPageSearchInput" placeholder="Search mods or enter specific Item ID..." style="flex-grow: 1; padding: 10px 14px; background: var(--bg-color); border: 1px solid var(--border-color); color: var(--text-color); border-radius: 8px;" onkeydown="if(event.key === 'Enter') searchWorkshopPage()">
+                            <button class="outline" onclick="searchWorkshopPage()" style="padding: 10px 24px; border-radius: 8px;">Search</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="workshopContentArea" style="background: var(--card-bg); border-radius: 12px; border: 1px solid var(--border-color); padding: 24px; box-sizing: border-box; width: 100%;">
+                    <div id="workshopPageStatus" style="font-size: 14px; color: var(--accent); text-align: center; margin-bottom: 20px; font-weight: bold; display: none;"></div>
+                    
+                    <div id="workshopPageResults" class="game-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; width: 100%;">
+                        <!-- Dynamic items will populate here -->
+                    </div>
+
+                    <div id="workshopEmptyState" style="display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; margin: auto; max-width: 450px; opacity: 0.7; padding: 40px 0;">
+                        <div style="font-size: 48px; margin-bottom: 15px;">🔍</div>
+                        <h3 style="margin: 0 0 8px 0; font-size: 18px;">Ready to Explore</h3>
+                        <p style="font-size: 13px; margin: 0; line-height: 1.5;">Select a Steam game from your library above and enter a search query (or click search to browse trending items) to view available Workshop content.</p>
+                    </div>
+                </div>
+            </div>
+
             <div id="gamePageView">
                 <button class="outline gp-back-btn" onclick="closeGamePage()" data-i18n="backLib">⬅️ Back to
                     Library</button>
@@ -2069,6 +2323,7 @@
                         data-i18n="ready">Ready to Play</span>
                     <button id="gpSyncBtn" class="outline" style="display:none; margin-right: 10px;" data-i18n="sync">☁️
                         Sync Saves</button>
+                    <button id="gpWorkshopBtn" class="outline" style="display:none; margin-right: 10px;" onclick="openWorkshopForGame(viewingGameIndex)">🛠️ Steam Workshop</button>
                     <button class="outline" onclick="openGameSettings()" data-i18n="manage">⚙️ Manage Game</button>
                 </div>
 
@@ -2081,7 +2336,7 @@
                         <div id="gpDescContent" class="gp-expandable-content">Loading details...</div>
                     </div>
 
-                    <div class="gp-expandable">
+                    <div class="gp-expandable" id="gpSpecsContainer">
                         <h3 id="gpSpecsHeader" class="gp-expandable-header"
                             onclick="toggleExpand('gpSpecsContent', this)"><span data-i18n="reqs">System
                                 Requirements</span> <span class="caret">▽</span></h3>
@@ -2254,11 +2509,18 @@
             <button class="close-x" onclick="closeModal('addModal')">✕</button>
             <h2 id="modalTitle" style="margin-top:0;" data-i18n="addGame">Add Game</h2>
 
-            <label class="toggle-label">
-                <input type="checkbox" id="steamToggle">
-                <div class="toggle-switch"></div>
-                <span data-i18n="isSteam">Is this game on Steam?</span>
-            </label>
+            <div style="margin-bottom: 15px;">
+                <label style="font-size: 12px; opacity:0.6; display:block; margin-bottom:5px;">Platform / Store</label>
+                <select id="platformSelect" style="width: 100%;" onchange="updatePlatformUI()">
+                    <option value="custom">Custom (Default)</option>
+                    <option value="steam">Steam</option>
+                    <option value="epic">Epic Games</option>
+                    <option value="gog">GOG Galaxy</option>
+                </select>
+                <div id="platformNotice" style="font-size: 11px; opacity: 0.6; margin-top: 5px; display: none;">
+                    Note: Epic/GOG games will automatically search Steam for cover art and descriptions!
+                </div>
+            </div>
 
             <label class="toggle-label" style="margin-top: 10px;">
                 <input type="checkbox" id="romToggle">
@@ -2284,9 +2546,11 @@
                         id="browseBannerBtn">Browse</button></div>
             </div>
 
-            <div class="input-row" id="steamIdRow" style="display:none; margin-bottom: 15px; position: relative;">
-                <input type="number" id="steamAppId" data-i18n-ph="steamAppId" placeholder="Steam App ID">
-                <button class="help-btn" onclick="toggleSteamSearch()" title="Search Steam Games">🔍</button>
+            <div class="input-row" id="storeIdRow" style="display:none; margin-bottom: 15px; position: relative;">
+                <input type="number" id="steamAppId" placeholder="Steam App ID" style="display:none;">
+                <input type="text" id="epicId" placeholder="Epic Games App/Catalog ID" style="display:none;">
+                <input type="text" id="gogId" placeholder="GOG Game ID" style="display:none;">
+                <button id="steamSearchBtn" class="help-btn" onclick="toggleSteamSearch()" title="Search Steam Games" style="display:none;">🔍</button>
                 <div id="steamSearchDropdown"
                     style="display:none; position:absolute; top: 100%; right: 0; width: 300px; background: var(--modal-bg); border: 1px solid var(--border-color); border-radius: 8px; z-index: 100; box-shadow: 0 4px 12px rgba(0,0,0,0.5); padding: 10px; flex-direction: column; gap: 10px;">
                     <div style="display: flex; gap: 5px;">
@@ -2324,6 +2588,8 @@
             <button id="saveBtn" style="margin-top: 10px;" data-i18n="saveGame">Save Game</button>
         </div>
     </div>
+
+
 
     <div id="sectionModal" class="modal">
         <div class="modal-content" style="width:350px;">
@@ -2497,6 +2763,10 @@
                     Social</div>
                 <div class="settings-tab" tabindex="0" onclick="switchSettingsTab('data')" data-i18n="dataBackup">💾
                     Data & Backup</div>
+                <div class="settings-tab" tabindex="0" onclick="switchSettingsTab('library')">📚
+                    Library Management</div>
+                <div class="settings-tab" tabindex="0" onclick="switchSettingsTab('experimental')">🧪
+                    Experimental</div>
             </div>
 
             <div id="tab-appearance" class="settings-pane active">
@@ -2623,6 +2893,14 @@
                         Enable Legacy Settings Menu (Single scrollable page)
                     </label>
                 </div>
+
+                <div style="margin-bottom: 20px;">
+                    <label class="toggle-label">
+                        <input type="checkbox" id="transparentSettingsToggle">
+                        <div class="toggle-switch"></div>
+                        Transparent Settings Page Background
+                    </label>
+                </div>
             </div>
 
             <div id="tab-system" class="settings-pane">
@@ -2640,15 +2918,6 @@
                         <div class="toggle-switch"></div>
                         <span>Default to Steam when adding games</span>
                     </label>
-                </div>
-
-                <div style="margin-bottom: 20px;">
-                    <button class="outline" id="importSteamBtn"
-                        style="width: 100%; border-color: var(--primary-color); color: var(--text-color);">
-                        <span style="font-size: 16px; margin-right: 8px;">🎮</span> Auto-Import Steam Games
-                    </button>
-                    <p style="font-size: 11px; color: rgba(255,255,255,0.5); text-align: center; margin-top: 5px;">
-                        Automatically detects your Steam library folders and imports installed games.</p>
                 </div>
 
                 <div style="margin-bottom: 20px;">
@@ -2699,6 +2968,37 @@
                 </div>
             </div>
 
+            <div id="tab-library" class="settings-pane">
+                <h3 style="margin-top: 0;">📚 Library Management</h3>
+                <p style="font-size: 13px; opacity: 0.7; margin-bottom: 20px;">Scan your system for installed games and automatically import them into your Sail library.</p>
+                <div style="display: flex; gap: 10px; flex-direction: column;">
+                    <div>
+                        <button class="outline" id="importSteamBtn"
+                            style="width: 100%; border-color: var(--primary-color); color: var(--text-color);">
+                            <span style="font-size: 16px; margin-right: 8px;">🎮</span> Auto-Import Steam Games
+                        </button>
+                        <p style="font-size: 11px; color: rgba(255,255,255,0.5); text-align: center; margin-top: 5px;">
+                            Automatically detects your Steam library folders and imports installed games.</p>
+                    </div>
+                    <div>
+                        <button class="outline" id="importEpicBtn"
+                            style="width: 100%; border-color: var(--primary-color); color: var(--text-color);">
+                            <span style="font-size: 16px; margin-right: 8px;">🕹️</span> Auto-Import Epic Games
+                        </button>
+                        <p style="font-size: 11px; color: rgba(255,255,255,0.5); text-align: center; margin-top: 5px;">
+                            Automatically detects installed Epic Games.</p>
+                    </div>
+                    <div>
+                        <button class="outline" id="importGogBtn"
+                            style="width: 100%; border-color: var(--primary-color); color: var(--text-color);">
+                            <span style="font-size: 16px; margin-right: 8px;">🚀</span> Auto-Import GOG Games
+                        </button>
+                        <p style="font-size: 11px; color: rgba(255,255,255,0.5); text-align: center; margin-top: 5px;">
+                            Automatically detects installed GOG Galaxy games.</p>
+                    </div>
+                </div>
+            </div>
+
             <div id="tab-advanced" class="settings-pane">
                 <div style="margin-bottom: 20px;">
                     <label class="toggle-label">
@@ -2733,6 +3033,13 @@
                     <label style="font-size: 12px; opacity:0.6; display:block; margin-bottom:8px;">Action Buttons
                         Location</label>
                     <div id="perButtonLocationSettings" style="display: flex; flex-direction: column; gap: 6px;"></div>
+                </div>
+
+                <div style="margin-bottom: 20px;">
+                    <label style="font-size: 12px; opacity:0.6; display:block; margin-bottom:5px;">Big Picture Monitor</label>
+                    <div class="input-row">
+                        <select id="bigPictureMonitorSelect"></select>
+                    </div>
                 </div>
 
                 <div style="margin-bottom: 20px;">
@@ -2864,10 +3171,24 @@
                     style="margin-top: 30px; border-top: 1px solid var(--border-color); padding-top: 20px; display:flex; gap:10px;">
                     <button class="outline" style="flex-grow:1;"
                         onclick="require('electron').ipcRenderer.invoke('open-url', 'https://github.com/Aseoriy/Sail-Launcher')">⛵
-                        Sail Launcher v4.1.6</button>
+                        Sail Launcher v4.2.0-beta</button>
                     <button id="checkUpdateBtn" style="min-width: 150px; transition: 0.3s;"
                         data-i18n="checkUpdates">Check Updates</button>
                 </div>
+            </div>
+
+            <div id="tab-experimental" class="settings-pane">
+                <div style="margin-bottom: 20px;">
+                    <label class="toggle-label">
+                        <input type="checkbox" id="workshopDownloaderToggle">
+                        <div class="toggle-switch"></div>
+                        <span>Enable Steam Workshop Downloader</span>
+                    </label>
+                    <p style="font-size: 11px; color: rgba(255,255,255,0.5); text-align: left; margin-top: 5px;">
+                        Adds a button to the Game Page to anonymously download Steam Workshop items via SteamCMD.</p>
+                </div>
+                
+                <!-- More experimental features can go here -->
             </div>
         </div>
     </div>
@@ -2962,7 +3283,7 @@
         document.getElementById('maxBtn').addEventListener('click', () => ipcRenderer.send('window-max'));
         document.getElementById('closeBtn').addEventListener('click', () => ipcRenderer.send('window-close', globalSettings.exitWhenClosed));
 
-        const APP_VERSION = "v4.1.7";
+        const APP_VERSION = "v4.2.0-beta";
         let dataPath = '';
         let selectModeActive = false;
         let selectedGameIndices = new Set();
@@ -2978,7 +3299,8 @@
             disabledPlugins: [],
             buttonLocations: {},
             favoriteFriends: [],
-            friendsSort: 'status'
+            friendsSort: 'status',
+            transparentSettings: false
         };
 
         let myGames = [];
@@ -2991,6 +3313,9 @@
         let currentFilterSectionId = 'ALL';
         let expandedSidebarFolders = {};
         let sessionStartTimes = {};
+        let currentWorkshopPage = 1;
+        let isSearchingWorkshop = false;
+        let hasMoreWorkshopItems = true;
 
         function formatPlaytime(seconds) {
             if (!seconds) return '0 s';
@@ -3077,8 +3402,7 @@
             if (state.view === 'game' && state.gameIndex !== null) {
                 await openGamePage(state.gameIndex, true);
             } else {
-                document.getElementById('gamePageView').style.display = 'none';
-                document.getElementById('libraryView').style.display = 'block';
+                await switchMainTab('library');
                 viewingGameIndex = null;
             }
 
@@ -3232,8 +3556,8 @@
 
         async function importPlugin() {
             const result = await ipcRenderer.invoke('open-file-dialog', {
-                title: 'Import Plugin (.zip, .rar)',
-                filters: [{ name: 'Plugin Archive', extensions: ['zip', 'rar'] }]
+                title: 'Import Plugin (.zip, .rar, .7z)',
+                filters: [{ name: 'Plugin Archive', extensions: ['zip', 'rar', '7z'] }]
             });
             if (!result) return;
             try {
@@ -3244,6 +3568,8 @@
                 fs.ensureDirSync(tempDir);
                 if (result.toLowerCase().endsWith('.rar')) {
                     await ipcRenderer.invoke('extract-rar', { rarPath: result, destPath: tempDir });
+                } else if (result.toLowerCase().endsWith('.7z')) {
+                    await ipcRenderer.invoke('extract-7z', { archivePath: result, destPath: tempDir });
                 } else {
                     await ipcRenderer.invoke('extract-zip', { zipPath: result, destPath: tempDir });
                 }
@@ -3295,8 +3621,8 @@
 
         async function importPluginPack() {
             const result = await ipcRenderer.invoke('open-file-dialog', {
-                title: 'Import Plugin Pack (.zip, .rar)',
-                filters: [{ name: 'Plugin Pack', extensions: ['zip', 'rar'] }]
+                title: 'Import Plugin Pack (.zip, .rar, .7z)',
+                filters: [{ name: 'Plugin Pack', extensions: ['zip', 'rar', '7z'] }]
             });
             if (!result) return;
             try {
@@ -3304,6 +3630,8 @@
                 const pluginsDir = path.join(userDataPath, 'plugins');
                 if (result.toLowerCase().endsWith('.rar')) {
                     await ipcRenderer.invoke('extract-rar', { rarPath: result, destPath: pluginsDir });
+                } else if (result.toLowerCase().endsWith('.7z')) {
+                    await ipcRenderer.invoke('extract-7z', { archivePath: result, destPath: pluginsDir });
                 } else {
                     await ipcRenderer.invoke('extract-zip', { zipPath: result, destPath: pluginsDir });
                 }
@@ -3567,6 +3895,7 @@
             }
             if (globalSettings.hideStars === undefined) globalSettings.hideStars = false;
             if (globalSettings.legacySettings === undefined) globalSettings.legacySettings = false;
+            if (globalSettings.transparentSettings === undefined) globalSettings.transparentSettings = false;
             if (!globalSettings.tileShape) globalSettings.tileShape = 'default';
             if (globalSettings.fullTileImage === undefined) globalSettings.fullTileImage = false;
             if (!globalSettings.tileSize) globalSettings.tileSize = 'medium';
@@ -3597,6 +3926,7 @@
             document.body.classList.toggle('hide-stars', globalSettings.hideStars);
             document.body.classList.toggle('full-tile-image', globalSettings.fullTileImage);
             document.body.classList.add('tile-size-' + globalSettings.tileSize);
+            document.body.classList.toggle('transparent-settings-mode', globalSettings.transparentSettings);
 
             document.getElementById('defaultDriveFolderInput').value = globalSettings.defaultDriveFolder || '';
             document.getElementById('fontSelect').value = globalSettings.fontFamily;
@@ -3614,7 +3944,20 @@
             document.getElementById('defaultToSteamToggle').checked = globalSettings.defaultToSteam;
             document.getElementById('saveBackupCountSelect').value = globalSettings.saveBackupCount !== undefined ? globalSettings.saveBackupCount : 3;
             document.getElementById('hideStarsToggle').checked = globalSettings.hideStars;
+            document.getElementById('workshopDownloaderToggle').checked = globalSettings.workshopDownloader;
             document.getElementById('legacySettingsToggle').checked = globalSettings.legacySettings;
+            document.getElementById('transparentSettingsToggle').checked = globalSettings.transparentSettings;
+
+            // Load displays for Big Picture mode
+            try {
+                const displays = await ipcRenderer.invoke('get-displays');
+                const select = document.getElementById('bigPictureMonitorSelect');
+                select.innerHTML = '<option value="">Primary Display (Default)</option>';
+                displays.forEach((d, index) => {
+                    select.innerHTML += `<option value="${d.id}">Display ${index + 1} (${d.bounds.width}x${d.bounds.height}) ${d.isPrimary ? '[Primary]' : ''}</option>`;
+                });
+                select.value = globalSettings.bigPictureMonitor || "";
+            } catch (err) {}
             document.getElementById('dedicatedSettingsPageToggle').checked = globalSettings.dedicatedSettingsPage;
             document.getElementById('uiResizingToggle').checked = globalSettings.enableUiResizing;
             document.getElementById('uiResizingToggle').addEventListener('change', (e) => {
@@ -3785,7 +4128,7 @@
                                 alert(`❌ Couldn't apply theme: ${err.message}. The file was removed.`);
                             }
                         } else if (type === 'plugin') {
-                            if (result.fileName.endsWith('.zip') || result.fileName.endsWith('.rar')) {
+                            if (result.fileName.endsWith('.zip') || result.fileName.endsWith('.rar') || result.fileName.endsWith('.7z')) {
                                 try {
                                     const userDataPath = await ipcRenderer.invoke('get-user-data');
                                     const pluginsDir = path.join(userDataPath, 'plugins');
@@ -3794,6 +4137,8 @@
 
                                     if (result.fileName.endsWith('.rar')) {
                                         await ipcRenderer.invoke('extract-rar', { rarPath: result.path, destPath: tempDir });
+                                    } else if (result.fileName.endsWith('.7z')) {
+                                        await ipcRenderer.invoke('extract-7z', { archivePath: result.path, destPath: tempDir });
                                     } else {
                                         await ipcRenderer.invoke('extract-zip', { zipPath: result.path, destPath: tempDir });
                                     }
@@ -4101,15 +4446,25 @@
         };
 
         function openModal(modalId) {
-            document.querySelectorAll('.modal').forEach(m => m.classList.remove('show'));
-            document.getElementById(modalId).classList.add('show');
+            document.querySelectorAll('.modal').forEach(m => {
+                m.classList.remove('show');
+                m.classList.remove('closing');
+            });
+            const modal = document.getElementById(modalId);
+            if (modal) modal.classList.add('show');
             setTimeout(() => { const first = document.querySelector('.modal.show .close-x, .modal.show button, .modal.show input, .modal.show .settings-tab'); if (first) first.focus(); }, 100);
             pushNavState();
         }
         function closeModal(modalId) {
-            document.getElementById(modalId).classList.remove('show');
-            if (modalId === 'addModal') resetAddForm();
-            pushNavState();
+            const modal = document.getElementById(modalId);
+            if (!modal) return;
+            modal.classList.add('closing');
+            setTimeout(() => {
+                modal.classList.remove('show');
+                modal.classList.remove('closing');
+                if (modalId === 'addModal') resetAddForm();
+                pushNavState();
+            }, 200);
         }
 
         let currentDropdownTarget = null;
@@ -4237,13 +4592,13 @@
             document.getElementById('addModal').querySelectorAll('input[type=checkbox]').forEach(i => i.checked = false);
 
             if (globalSettings.defaultToSteam) {
-                document.getElementById('steamToggle').checked = true;
+                document.getElementById('platformSelect').value = 'steam';
                 document.getElementById('romInputsRow').style.display = 'none';
-                document.getElementById('steamIdRow').style.display = 'flex';
             } else {
+                document.getElementById('platformSelect').value = 'custom';
                 document.getElementById('romInputsRow').style.display = 'none';
-                document.getElementById('steamIdRow').style.display = 'none';
             }
+            updatePlatformUI();
             document.getElementById('customInputsRow').style.display = 'block';
 
             renderAddModalQuickPaths();
@@ -4251,12 +4606,27 @@
             editingIndex = -1; document.getElementById('modalTitle').innerText = dict[globalSettings.language || 'english'].addGame || "Add Game";
         }
 
-        document.getElementById('steamToggle').addEventListener('change', (e) => {
-            if (e.target.checked) { document.getElementById('romToggle').checked = false; document.getElementById('romInputsRow').style.display = 'none'; }
-            document.getElementById('steamIdRow').style.display = e.target.checked ? 'flex' : 'none';
-        });
+        window.updatePlatformUI = function() {
+            const platform = document.getElementById('platformSelect').value;
+            document.getElementById('storeIdRow').style.display = platform !== 'custom' ? 'flex' : 'none';
+            
+            document.getElementById('steamAppId').style.display = platform === 'steam' ? 'block' : 'none';
+            document.getElementById('steamSearchBtn').style.display = platform === 'steam' ? 'block' : 'none';
+            document.getElementById('epicId').style.display = platform === 'epic' ? 'block' : 'none';
+            document.getElementById('gogId').style.display = platform === 'gog' ? 'block' : 'none';
+            document.getElementById('platformNotice').style.display = (platform === 'epic' || platform === 'gog') ? 'block' : 'none';
+            
+            if (platform !== 'custom') {
+                document.getElementById('romToggle').checked = false;
+                document.getElementById('romInputsRow').style.display = 'none';
+            }
+        };
+
         document.getElementById('romToggle').addEventListener('change', (e) => {
-            if (e.target.checked) { document.getElementById('steamToggle').checked = false; document.getElementById('steamIdRow').style.display = 'none'; }
+            if (e.target.checked) { 
+                document.getElementById('platformSelect').value = 'custom'; 
+                updatePlatformUI();
+            }
             document.getElementById('romInputsRow').style.display = e.target.checked ? 'block' : 'none';
         });
         window.toggleSteamSearch = function () {
@@ -4666,8 +5036,42 @@
             renderSidebar();
             const game = myGames[index];
 
-            document.getElementById('libraryView').style.display = 'none';
-            document.getElementById('gamePageView').style.display = 'block';
+            if (tabTransitionTimeout) {
+                clearTimeout(tabTransitionTimeout);
+                tabTransitionTimeout = null;
+            }
+            
+            const libraryEl = document.getElementById('libraryView');
+            const storeEl = document.getElementById('storeView');
+            const workshopEl = document.getElementById('workshopView');
+            const gamePageEl = document.getElementById('gamePageView');
+            
+            const views = [libraryEl, storeEl, workshopEl, gamePageEl].filter(Boolean);
+            const activeView = views.find(v => v.style.display === 'block' || v.style.display === 'flex');
+            
+            if (activeView && activeView !== gamePageEl) {
+                activeView.classList.add('fade-out');
+                await new Promise(resolve => {
+                    tabTransitionTimeout = setTimeout(() => {
+                        views.forEach(v => {
+                            v.style.display = 'none';
+                            v.classList.remove('fade-out');
+                        });
+                        gamePageEl.style.display = 'block';
+                        resolve();
+                    }, 150);
+                });
+            } else {
+                views.forEach(v => {
+                    if (v !== gamePageEl) {
+                        v.style.display = 'none';
+                        v.classList.remove('fade-out');
+                    }
+                });
+                gamePageEl.style.display = 'block';
+                gamePageEl.classList.remove('fade-out');
+            }
+            
             document.getElementById('mainScroller').scrollTop = 0;
 
             document.getElementById('gpContentLayout').style.display = globalSettings.compactLayout ? 'none' : 'flex';
@@ -4709,8 +5113,237 @@
                     specsContent.innerHTML = `<p>Custom Executable<br>Saves Tracked: ${game.localSave ? 'Yes' : 'No'}</p>`;
                 }
             }
+
             if (!skipHistory) pushNavState();
             setTimeout(() => { const playBtn = document.getElementById('gpPlayBtn'); if (playBtn) playBtn.focus(); }, 100);
+        }
+
+        function populateWorkshopGames() {
+            const select = document.getElementById('workshopGameSelect');
+            if (!select) return;
+            select.innerHTML = '<option value="">Choose a game...</option>';
+            const steamGames = myGames.filter(g => g.steamAppId);
+            steamGames.forEach(g => {
+                const opt = document.createElement('option');
+                opt.value = g.id;
+                opt.setAttribute('data-steam-id', g.steamAppId);
+                opt.innerText = g.name;
+                select.appendChild(opt);
+            });
+        }
+
+        window.onWorkshopGameChange = function() {
+            const select = document.getElementById('workshopGameSelect');
+            const selectedGameId = select.value;
+            const emptyState = document.getElementById('workshopEmptyState');
+            const resultsDiv = document.getElementById('workshopPageResults');
+            const statusDiv = document.getElementById('workshopPageStatus');
+            
+            resultsDiv.innerHTML = '';
+            statusDiv.style.display = 'none';
+            
+            if (!selectedGameId) {
+                emptyState.style.display = 'flex';
+                return;
+            }
+            
+            emptyState.style.display = 'none';
+            searchWorkshopPage();
+        };
+        window.searchWorkshopPage = async function() {
+            const select = document.getElementById('workshopGameSelect');
+            const selectedGameId = select.value;
+            if (!selectedGameId) {
+                alert('Please select a game first.');
+                return;
+            }
+            
+            const game = myGames.find(g => g.id === selectedGameId);
+            if (!game || !game.steamAppId) return;
+            
+            const query = document.getElementById('workshopPageSearchInput').value.trim();
+            const resultsDiv = document.getElementById('workshopPageResults');
+            const statusDiv = document.getElementById('workshopPageStatus');
+            const emptyState = document.getElementById('workshopEmptyState');
+            
+            resultsDiv.innerHTML = '';
+            emptyState.style.display = 'none';
+            statusDiv.style.display = 'block';
+            statusDiv.innerText = "Searching Steam Workshop...";
+            
+            currentWorkshopPage = 1;
+            hasMoreWorkshopItems = true;
+            isSearchingWorkshop = true;
+            
+            const isDigits = /^\d+$/.test(query);
+            if (isDigits && query.length > 5) {
+                statusDiv.style.display = 'none';
+                isSearchingWorkshop = false;
+                hasMoreWorkshopItems = false;
+                resultsDiv.innerHTML = `
+                    <div style="grid-column: 1 / -1; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; display: flex; align-items: center; gap: 20px; width: 100%; box-sizing: border-box;">
+                        <div style="font-size: 32px;">📦</div>
+                        <div style="flex-grow: 1;">
+                            <h3 style="margin:0 0 5px 0;">Direct Download by ID</h3>
+                            <p style="margin:0; font-size:13px; opacity:0.7;">Item ID: ${query}</p>
+                        </div>
+                        <button class="outline" onclick="downloadWorkshopItemPage('${game.id}', '${query}')" style="padding: 10px 20px;">Download Item</button>
+                    </div>
+                `;
+                return;
+            }
+            
+            try {
+                const results = await ipcRenderer.invoke('search-steam-workshop', game.steamAppId, query, currentWorkshopPage);
+                statusDiv.style.display = 'none';
+                isSearchingWorkshop = false;
+                
+                if (!results || results.length === 0) {
+                    resultsDiv.innerHTML = '<div style="grid-column: 1/-1; text-align:center; padding: 40px; opacity: 0.6;">No workshop items found. Try a different query.</div>';
+                    hasMoreWorkshopItems = false;
+                    return;
+                }
+                
+                if (results.length < 30) {
+                    hasMoreWorkshopItems = false;
+                }
+                
+                renderWorkshopCards(results, game.id, false);
+            } catch (err) {
+                isSearchingWorkshop = false;
+                hasMoreWorkshopItems = false;
+                statusDiv.innerText = "Error searching workshop: " + err.message;
+            }
+        };
+
+        function renderWorkshopCards(results, gameId, append = false) {
+            const resultsDiv = document.getElementById('workshopPageResults');
+            if (!append) resultsDiv.innerHTML = '';
+            
+            results.forEach(item => {
+                const card = document.createElement('div');
+                card.className = 'workshop-page-card';
+                card.style.background = 'var(--card-bg)';
+                card.style.border = '1px solid var(--border-color)';
+                card.style.borderRadius = '12px';
+                card.style.overflow = 'hidden';
+                card.style.display = 'flex';
+                card.style.flexDirection = 'column';
+                card.style.transition = 'transform 0.2s, border-color 0.2s';
+                card.style.height = '100%';
+                
+                card.addEventListener('mouseenter', () => {
+                    card.style.transform = 'translateY(-3px)';
+                    card.style.borderColor = 'var(--accent)';
+                });
+                card.addEventListener('mouseleave', () => {
+                    card.style.transform = 'none';
+                    card.style.borderColor = 'var(--border-color)';
+                });
+                
+                const imgUrl = item.previewUrl || 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="200"><rect fill="%2318181b" width="400" height="200"/><text fill="%23a1a1aa" font-family="sans-serif" font-size="14" x="50%" y="50%" text-anchor="middle" dominant-baseline="middle">No Preview</text></svg>');
+                
+                card.innerHTML = `
+                    <div style="width: 100%; height: 160px; overflow: hidden; background: #000; position: relative;">
+                        <img src="${imgUrl}" style="width: 100%; height: 100%; object-fit: cover;" alt="${item.title}">
+                    </div>
+                    <div style="padding: 15px; display: flex; flex-direction: column; flex-grow: 1; justify-content: space-between; gap: 10px;">
+                        <div>
+                            <h4 style="margin: 0; font-size: 14px; line-height: 1.4; height: 38px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;">${item.title}</h4>
+                        </div>
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-top: 5px;">
+                            <span style="font-size: 11px; opacity: 0.5;">ID: ${item.id}</span>
+                            <button class="outline" onclick="downloadWorkshopItemPage('${gameId}', '${item.id}')" style="padding: 6px 12px; font-size: 12px; border-radius: 6px;">Download</button>
+                        </div>
+                    </div>
+                `;
+                resultsDiv.appendChild(card);
+            });
+        }
+
+        window.loadNextWorkshopPage = async function() {
+            if (isSearchingWorkshop || !hasMoreWorkshopItems) return;
+            
+            const select = document.getElementById('workshopGameSelect');
+            const selectedGameId = select.value;
+            if (!selectedGameId) return;
+            
+            const game = myGames.find(g => g.id === selectedGameId);
+            if (!game || !game.steamAppId) return;
+            
+            const query = document.getElementById('workshopPageSearchInput').value.trim();
+            const statusDiv = document.getElementById('workshopPageStatus');
+            
+            isSearchingWorkshop = true;
+            statusDiv.style.display = 'block';
+            statusDiv.innerText = "Loading more items...";
+            
+            try {
+                const nextPage = currentWorkshopPage + 1;
+                const results = await ipcRenderer.invoke('search-steam-workshop', game.steamAppId, query, nextPage);
+                statusDiv.style.display = 'none';
+                isSearchingWorkshop = false;
+                
+                if (!results || results.length === 0) {
+                    hasMoreWorkshopItems = false;
+                    return;
+                }
+                
+                currentWorkshopPage = nextPage;
+                if (results.length < 30) {
+                    hasMoreWorkshopItems = false;
+                }
+                
+                renderWorkshopCards(results, game.id, true);
+            } catch (err) {
+                isSearchingWorkshop = false;
+                hasMoreWorkshopItems = false;
+                statusDiv.style.display = 'none';
+                console.error("Error loading next workshop page:", err);
+            }
+        };
+
+        window.downloadWorkshopItemPage = async function(gameId, itemId) {
+            const statusDiv = document.getElementById('workshopPageStatus');
+            const game = myGames.find(g => g.id === gameId);
+            if (!game || !game.steamAppId) return;
+            
+            statusDiv.style.display = 'block';
+            statusDiv.innerText = `Downloading item ${itemId} via SteamCMD...`;
+            
+            try {
+                const result = await ipcRenderer.invoke('download-workshop-item', game.steamAppId, itemId);
+                if (result.success) {
+                    statusDiv.innerText = `✅ Item ${itemId} downloaded successfully!`;
+                    statusDiv.innerHTML += ` <button class="outline" style="padding: 2px 8px; font-size: 11px; margin-left: 10px;" onclick="ipcRenderer.invoke('show-item-in-folder', '${result.path.replace(/\\/g, '\\\\')}')">Open Folder</button>`;
+                } else {
+                    statusDiv.innerText = `❌ Download failed: ${result.error}`;
+                }
+            } catch (err) {
+                statusDiv.innerText = `❌ Download error: ${err.message}`;
+            }
+        };
+
+        window.openWorkshopForGame = function(gameIndex) {
+            const game = myGames[gameIndex];
+            if (!game || !game.steamAppId) return;
+            switchMainTab('workshop');
+            const select = document.getElementById('workshopGameSelect');
+            if (select) {
+                for (let i = 0; i < select.options.length; i++) {
+                    if (select.options[i].getAttribute('data-steam-id') === game.steamAppId) {
+                        select.selectedIndex = i;
+                        onWorkshopGameChange();
+                        break;
+                    }
+                }
+            }
+        };
+
+        function updateWorkshopVisibility() {
+            if (document.getElementById('gamePageView').style.display === 'block') {
+                openGamePage(viewingGameIndex, true);
+            }
         }
 
         async function openGameSettings() {
@@ -4886,25 +5519,80 @@
             openModal('gameSettingsModal');
         }
 
-        function switchMainTab(tab) {
+        let tabTransitionTimeout = null;
+        async function switchMainTab(tab) {
             viewingGameIndex = null;
-            document.getElementById('libraryView').style.display = tab === 'library' ? 'block' : 'none';
-            if (document.getElementById('storeView')) document.getElementById('storeView').style.display = tab === 'store' ? 'block' : 'none';
-            document.getElementById('gamePageView').style.display = 'none';
-
+            
+            if (tabTransitionTimeout) {
+                clearTimeout(tabTransitionTimeout);
+                tabTransitionTimeout = null;
+            }
+            
+            const libraryEl = document.getElementById('libraryView');
+            const storeEl = document.getElementById('storeView');
+            const workshopEl = document.getElementById('workshopView');
+            const gamePageEl = document.getElementById('gamePageView');
+            
+            const views = [libraryEl, storeEl, workshopEl, gamePageEl].filter(Boolean);
+            const activeView = views.find(v => v.style.display === 'block' || v.style.display === 'flex');
+            
+            let targetView = null;
+            if (tab === 'library') targetView = libraryEl;
+            else if (tab === 'store') targetView = storeEl;
+            else if (tab === 'workshop') targetView = workshopEl;
+            
             const tabLib = document.getElementById('tabLibrary');
             const tabStore = document.getElementById('tabStore');
+            const tabWorkshop = document.getElementById('tabWorkshop');
             if (tabLib && tabStore) {
                 tabLib.style.opacity = tab === 'library' ? '1' : '0.5';
                 tabStore.style.opacity = tab === 'store' ? '1' : '0.5';
             }
+            if (tabWorkshop) {
+                tabWorkshop.style.opacity = tab === 'workshop' ? '1' : '0.5';
+            }
+            
+            if (activeView && activeView !== targetView) {
+                activeView.classList.add('fade-out');
+                await new Promise(resolve => {
+                    tabTransitionTimeout = setTimeout(() => {
+                        views.forEach(v => {
+                            v.style.display = 'none';
+                            v.classList.remove('fade-out');
+                        });
+                        if (targetView) targetView.style.display = 'block';
+                        resolve();
+                    }, 150);
+                });
+            } else {
+                views.forEach(v => {
+                    if (v !== targetView) {
+                        v.style.display = 'none';
+                        v.classList.remove('fade-out');
+                    }
+                });
+                if (targetView) {
+                    targetView.style.display = 'block';
+                    targetView.classList.remove('fade-out');
+                }
+            }
+            
             if (tab === 'library') {
                 renderSidebar(); renderGames(); pushNavState();
             }
+            if (tab === 'workshop') {
+                populateWorkshopGames();
+                const select = document.getElementById('workshopGameSelect');
+                if (select && select.value === "") {
+                    document.getElementById('workshopPageResults').innerHTML = '';
+                    document.getElementById('workshopEmptyState').style.display = 'flex';
+                    document.getElementById('workshopPageStatus').style.display = 'none';
+                }
+            }
         }
 
-        function closeGamePage() {
-            switchMainTab('library');
+        async function closeGamePage() {
+            await switchMainTab('library');
             setTimeout(() => { const firstCard = document.querySelector('.game-card'); if (firstCard) firstCard.focus(); }, 100);
         }
 
@@ -4924,7 +5612,7 @@
 
             favBtn.innerText = game.isFavorite ? '★' : '☆';
             favBtn.style.color = game.isFavorite ? '#facc15' : 'var(--text-color)';
-
+            favBtn.onclick = () => toggleFavorite(viewingGameIndex);
             infoBtn.onclick = () => openGameInfo();
 
             if (activeGameIndex === viewingGameIndex) {
@@ -4938,6 +5626,15 @@
             if (game.localSave && (game.driveSave || globalSettings.defaultDriveFolder)) {
                 syncBtn.style.display = "block"; syncBtn.onclick = () => executeSaveRestore(viewingGameIndex, 'gpStatusText');
             } else { syncBtn.style.display = "none"; }
+
+            const workshopBtn = document.getElementById('gpWorkshopBtn');
+            if (workshopBtn) {
+                if (game.steamAppId && globalSettings.workshopDownloader) {
+                    workshopBtn.style.display = 'block';
+                } else {
+                    workshopBtn.style.display = 'none';
+                }
+            }
         }
 
         window.toggleExpand = function (contentId, headerElement) {
@@ -5458,7 +6155,7 @@
 
         document.getElementById('resetDataBtn').addEventListener('click', () => {
             if (confirm("WARNING: This will delete ALL launcher data, games, folders, and custom themes! This cannot be undone. Continue?")) {
-                myGames = []; customSections = []; globalSettings = { theme: 'theme-midnight', defaultDriveFolder: '', sidebarCollapsed: false, customThemes: [], customFont: '', fontFamily: 'Segoe UI', language: 'english', compactLayout: false, exitWhenClosed: false, disableDiscordRpc: false, enableDevTools: false, autoStart: false, hideStars: false, legacySettings: false, quickPaths: [] };
+                myGames = []; customSections = []; globalSettings = { theme: 'theme-midnight', defaultDriveFolder: '', sidebarCollapsed: false, customThemes: [], customFont: '', fontFamily: 'Segoe UI', language: 'english', compactLayout: false, exitWhenClosed: false, disableDiscordRpc: false, enableDevTools: false, autoStart: false, hideStars: false, legacySettings: false, quickPaths: [], transparentSettings: false };
                 saveToMemory(); alert("Launcher reset to factory defaults."); location.reload();
             }
         });
@@ -5492,21 +6189,42 @@
         document.getElementById('saveBtn').addEventListener('click', async () => {
             let name = document.getElementById('gameName').value;
             const exePath = document.getElementById('gamePath').value;
+            const platform = document.getElementById('platformSelect').value;
             const steamAppId = document.getElementById('steamAppId').value;
+            const epicId = document.getElementById('epicId').value;
+            const gogId = document.getElementById('gogId').value;
             const isRom = document.getElementById('romToggle').checked;
-            const isSteam = document.getElementById('steamToggle').checked;
+            
+            const isSteam = platform === 'steam';
 
-            if (exePath || isSteam) {
-                let steamImageUrl = null; let steamHeroUrl = null;
-                if (isSteam && steamAppId) {
+            if (exePath || isSteam || platform === 'epic' || platform === 'gog') {
+                let steamImageUrl = null; let steamHeroUrl = null; let searchSteamAppId = null;
+                
+                // If Steam, use exact App ID. If Epic/GOG, try to search steam for metadata
+                let targetSteamId = isSteam ? steamAppId : null;
+
+                if (!targetSteamId && (platform === 'epic' || platform === 'gog') && name) {
                     try {
-                        name = "Loading name...";
+                        const searchRes = await fetch(`https://store.steampowered.com/api/storesearch/?term=${encodeURIComponent(name)}&l=english&cc=US`);
+                        const searchJson = await searchRes.json();
+                        if (searchJson.items && searchJson.items.length > 0) {
+                            targetSteamId = searchJson.items[0].id.toString();
+                            searchSteamAppId = targetSteamId; // Store this for later
+                        }
+                    } catch(e) {}
+                }
+
+                if (targetSteamId) {
+                    try {
+                        if (isSteam) name = "Loading name...";
                         const lang = globalSettings.language || 'english';
-                        const res = await fetch(`https://store.steampowered.com/api/appdetails?appids=${steamAppId}&l=${lang}`);
+                        const res = await fetch(`https://store.steampowered.com/api/appdetails?appids=${targetSteamId}&l=${lang}`);
                         const json = await res.json();
-                        if (json[steamAppId] && json[steamAppId].success) {
-                            name = json[steamAppId].data.name; steamImageUrl = json[steamAppId].data.header_image; steamHeroUrl = `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${steamAppId}/library_hero.jpg`;
-                        } else name = "Unknown Steam Game";
+                        if (json[targetSteamId] && json[targetSteamId].success) {
+                            if (isSteam) name = json[targetSteamId].data.name; 
+                            steamImageUrl = json[targetSteamId].data.header_image; 
+                            steamHeroUrl = `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${targetSteamId}/library_hero.jpg`;
+                        } else if (isSteam) name = "Unknown Steam Game";
                     } catch (e) { }
                 }
 
@@ -5514,8 +6232,13 @@
                     id: editingIndex === -1 ? Date.now().toString() + Math.floor(Math.random() * 1000) : myGames[editingIndex].id,
                     name: name, exePath: exePath,
                     localSave: document.getElementById('localSave').value, driveSave: document.getElementById('driveSave').value,
-                    steamAppId: isSteam ? steamAppId : null, steamImageUrl: steamImageUrl, steamHeroUrl: steamHeroUrl,
-                    customBannerPath: isSteam ? null : document.getElementById('customBannerPath').value,
+                    platform: platform !== 'custom' ? platform : null,
+                    steamAppId: isSteam ? steamAppId : null, 
+                    searchSteamAppId: searchSteamAppId,
+                    epicId: platform === 'epic' ? epicId : null,
+                    gogId: platform === 'gog' ? gogId : null,
+                    steamImageUrl: steamImageUrl, steamHeroUrl: steamHeroUrl,
+                    customBannerPath: document.getElementById('customBannerPath').value || null,
                     isRom: isRom,
                     emulatorPath: isRom ? document.getElementById('emulatorPath').value : null,
                     romPath: isRom ? document.getElementById('romPath').value : null,
@@ -5545,23 +6268,24 @@
             document.getElementById('modalTitle').innerText = dict[globalSettings.language || 'english'].edit || "Edit Game";
             document.getElementById('gameName').value = game.name;
 
-            document.getElementById('steamToggle').checked = !!game.steamAppId;
             document.getElementById('romToggle').checked = !!game.isRom;
 
-            if (game.steamAppId) {
-                document.getElementById('steamAppId').value = game.steamAppId;
-                document.getElementById('steamIdRow').style.display = 'flex';
-                document.getElementById('romInputsRow').style.display = 'none';
-            } else if (game.isRom) {
+            let platform = game.platform || (game.steamAppId ? 'steam' : 'custom');
+            document.getElementById('platformSelect').value = platform;
+            
+            document.getElementById('steamAppId').value = game.steamAppId || "";
+            document.getElementById('epicId').value = game.epicId || "";
+            document.getElementById('gogId').value = game.gogId || "";
+
+            updatePlatformUI();
+
+            if (game.isRom) {
                 document.getElementById('emulatorPath').value = game.emulatorPath || "";
                 document.getElementById('romPath').value = game.romPath || "";
                 document.getElementById('customBannerPath').value = game.customBannerPath || "";
-                document.getElementById('steamIdRow').style.display = 'none';
                 document.getElementById('romInputsRow').style.display = 'block';
             } else {
                 document.getElementById('customBannerPath').value = game.customBannerPath || "";
-                document.getElementById('steamIdRow').style.display = 'none';
-                document.getElementById('romInputsRow').style.display = 'none';
             }
             document.getElementById('customInputsRow').style.display = 'block';
 
@@ -5678,12 +6402,99 @@
             btn.innerHTML = '<span style="font-size: 16px; margin-right: 8px;">🎮</span> Auto-Import Steam Games';
             btn.disabled = false;
         });
+
+        document.getElementById('importEpicBtn').addEventListener('click', async () => {
+            const btn = document.getElementById('importEpicBtn');
+            btn.innerHTML = '<span style="font-size: 16px; margin-right: 8px;">⏳</span> Scanning Epic Games...';
+            btn.disabled = true;
+            try {
+                const games = await ipcRenderer.invoke('import-epic-games');
+                if (!games || games.length === 0) {
+                    alert("No Epic Games found or Epic Launcher is not installed.");
+                } else {
+                    let imported = 0;
+                    games.forEach(g => {
+                        if (!myGames.find(existing => existing.epicId === g.epicId || existing.name === g.name)) {
+                            myGames.push({
+                                id: Date.now().toString() + Math.floor(Math.random() * 1000),
+                                name: g.name,
+                                epicId: g.epicId,
+                                exePath: g.exePath || ""
+                            });
+                            imported++;
+                        }
+                    });
+                    if (imported > 0) {
+                        saveToMemory();
+                        renderSidebar();
+                        renderGames();
+                        alert(`Successfully imported ${imported} new Epic game(s)!`);
+                    } else {
+                        alert("No new Epic games were imported.");
+                    }
+                }
+            } catch (e) {
+                alert("Failed to import Epic games.");
+            }
+            btn.disabled = false;
+            btn.innerHTML = '<span style="font-size: 16px; margin-right: 8px;">🕹️</span> Auto-Import Epic Games';
+        });
+
+        document.getElementById('importGogBtn').addEventListener('click', async () => {
+            const btn = document.getElementById('importGogBtn');
+            btn.innerHTML = '<span style="font-size: 16px; margin-right: 8px;">⏳</span> Scanning GOG Games...';
+            btn.disabled = true;
+            try {
+                const games = await ipcRenderer.invoke('import-gog-games');
+                if (!games || games.length === 0) {
+                    alert("No GOG games found.");
+                } else {
+                    let imported = 0;
+                    games.forEach(g => {
+                        if (!myGames.find(existing => existing.name === g.name)) {
+                            myGames.push({
+                                id: Date.now().toString() + Math.floor(Math.random() * 1000),
+                                name: g.name,
+                                exePath: g.exePath || ""
+                            });
+                            imported++;
+                        }
+                    });
+                    if (imported > 0) {
+                        saveToMemory();
+                        renderSidebar();
+                        renderGames();
+                        alert(`Successfully imported ${imported} new GOG game(s)!`);
+                    } else {
+                        alert("No new GOG games were imported.");
+                    }
+                }
+            } catch (e) {
+                alert("Failed to import GOG games.");
+            }
+            btn.disabled = false;
+            btn.innerHTML = '<span style="font-size: 16px; margin-right: 8px;">🚀</span> Auto-Import GOG Games';
+        });
         document.getElementById('saveBackupCountSelect').addEventListener('change', (e) => { globalSettings.saveBackupCount = parseInt(e.target.value); saveToMemory(); });
         document.getElementById('hideStarsToggle').addEventListener('change', (e) => { globalSettings.hideStars = e.target.checked; saveToMemory(); document.body.classList.toggle('hide-stars', e.target.checked); });
+        document.getElementById('workshopDownloaderToggle').addEventListener('change', (e) => { globalSettings.workshopDownloader = e.target.checked; saveToMemory(); updateWorkshopVisibility(); });
         document.getElementById('legacySettingsToggle').addEventListener('change', (e) => { globalSettings.legacySettings = e.target.checked; saveToMemory(); applyLegacySettings(); });
+        document.getElementById('transparentSettingsToggle').addEventListener('change', (e) => { globalSettings.transparentSettings = e.target.checked; saveToMemory(); document.body.classList.toggle('transparent-settings-mode', e.target.checked); });
+        document.getElementById('bigPictureMonitorSelect').addEventListener('change', (e) => { globalSettings.bigPictureMonitor = e.target.value; saveToMemory(); });
 
         document.getElementById('searchInput').addEventListener('input', renderGames);
         document.getElementById('sortFilter').addEventListener('change', renderGames);
+
+        document.getElementById('mainScroller').addEventListener('scroll', () => {
+            const scroller = document.getElementById('mainScroller');
+            const isNearBottom = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 300;
+            const workshopView = document.getElementById('workshopView');
+            if (workshopView && workshopView.style.display !== 'none') {
+                if (isNearBottom && !isSearchingWorkshop && hasMoreWorkshopItems) {
+                    loadNextWorkshopPage();
+                }
+            }
+        });
 
         function filterBySection(sectionId) {
             currentFilterSectionId = sectionId;
@@ -6224,7 +7035,8 @@
                 bpIntro.style.opacity = '1';
                 playConsoleChime();
 
-                document.documentElement.requestFullscreen().then(() => {
+                if (globalSettings.bigPictureMonitor) {
+                    require('electron').ipcRenderer.send('move-to-display-fullscreen', globalSettings.bigPictureMonitor);
                     setTimeout(() => {
                         bpIntro.style.opacity = '0';
                         setTimeout(() => {
@@ -6234,10 +7046,22 @@
                             if (firstCard) firstCard.focus();
                         }, 800);
                     }, 1800);
-                }).catch(e => {
-                    contentArea.style.animation = 'bpEnter 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) forwards';
-                    bpIntro.style.display = 'none';
-                });
+                } else {
+                    document.documentElement.requestFullscreen().then(() => {
+                        setTimeout(() => {
+                            bpIntro.style.opacity = '0';
+                            setTimeout(() => {
+                                bpIntro.style.display = 'none';
+                                contentArea.style.animation = 'bpEnter 0.8s cubic-bezier(0.2, 0.8, 0.2, 1) forwards';
+                                const firstCard = document.querySelector('.game-card');
+                                if (firstCard) firstCard.focus();
+                            }, 800);
+                        }, 1800);
+                    }).catch(e => {
+                        contentArea.style.animation = 'bpEnter 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) forwards';
+                        bpIntro.style.display = 'none';
+                    });
+                }
                 document.body.classList.add('hide-cursor');
             }
         };

@@ -290,10 +290,10 @@
             </label>
         </div>
         <div class="field">
-            <label>File (.json for themes, .zip or .rar for plugins)</label>
+            <label>File (.json for themes, .zip, .rar or .7z for plugins)</label>
             <label class="file-input-label" id="fileLabel">
                 <span id="fileLabelText">📁 Choose a file</span>
-                <input type="file" id="uploadFile" accept=".json,.zip,.rar" onchange="updateFileLabel(this, 'fileLabelText')">
+                <input type="file" id="uploadFile" accept=".json,.zip,.rar,.7z" onchange="updateFileLabel(this, 'fileLabelText')">
             </label>
         </div>
         <div id="uploadError" class="error-text" style="display:none;"></div>
@@ -326,10 +326,10 @@
             </label>
         </div>
         <div class="field">
-            <label>New File (Optional, .json, .zip, .rar)</label>
+            <label>New File (Optional, .json, .zip, .rar, .7z)</label>
             <label class="file-input-label" id="editFileLabel">
                 <span id="editFileLabelText">📁 Choose a file</span>
-                <input type="file" id="editFile" accept=".json,.zip,.rar" onchange="updateFileLabel(this, 'editFileLabelText')">
+                <input type="file" id="editFile" accept=".json,.zip,.rar,.7z" onchange="updateFileLabel(this, 'editFileLabelText')">
             </label>
         </div>
         <div id="editError" class="error-text" style="display:none;"></div>
