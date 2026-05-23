@@ -3316,6 +3316,47 @@
                                 ℹ️ <b>OAuth Callback URI to register:</b><br>
                                 <code style="background: rgba(0,0,0,0.4); padding: 2px 6px; border-radius: 4px; font-family: monospace; display: inline-block; margin-top: 4px; border: 1px solid rgba(255,255,255,0.1);">http://localhost:53232/callback</code>
                             </div>
+
+                            <div style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); border-radius: 8px; padding: 10px; margin-bottom: 5px;">
+                                <h5 style="margin: 0 0 8px 0; font-size: 11px; color: var(--accent-color); display: flex; align-items: center; gap: 6px;">
+                                    📖 Setup Instructions
+                                </h5>
+                                
+                                <details style="margin-bottom: 6px; font-size: 10.5px;">
+                                    <summary style="cursor: pointer; font-weight: bold; opacity: 0.8; outline: none; margin-bottom: 4px; user-select: none;">Google Drive Setup Guide</summary>
+                                    <ol style="margin: 4px 0; padding-left: 18px; opacity: 0.7; line-height: 1.4; display: flex; flex-direction: column; gap: 3px;">
+                                        <li>Go to the <a href="#" onclick="require('electron').ipcRenderer.invoke('open-url', 'https://console.cloud.google.com/')" style="color: var(--accent-color); text-decoration: underline;">Google Cloud Console</a>.</li>
+                                        <li>Create a project, search for <b>Google Drive API</b>, and click <b>Enable</b>.</li>
+                                        <li>Go to <b>OAuth consent screen</b>, select <b>External</b>, and configure it. Add the scope: <code style="background: rgba(0,0,0,0.2); padding: 1px 3px;">.../auth/drive.file</code>.</li>
+                                        <li>Under <b>Credentials</b>, click <b>+ Create Credentials</b> -> <b>OAuth client ID</b>.</li>
+                                        <li>Select Application type: <b>Web application</b>.</li>
+                                        <li>Under Authorized redirect URIs, add: <code style="background: rgba(0,0,0,0.2); padding: 1px 3px;">http://localhost:53232/callback</code>.</li>
+                                        <li>Copy the generated <b>Client ID</b> and paste it below.</li>
+                                    </ol>
+                                </details>
+
+                                <details style="margin-bottom: 6px; font-size: 10.5px;">
+                                    <summary style="cursor: pointer; font-weight: bold; opacity: 0.8; outline: none; margin-bottom: 4px; user-select: none;">Microsoft OneDrive Setup Guide</summary>
+                                    <ol style="margin: 4px 0; padding-left: 18px; opacity: 0.7; line-height: 1.4; display: flex; flex-direction: column; gap: 3px;">
+                                        <li>Go to the <a href="#" onclick="require('electron').ipcRenderer.invoke('open-url', 'https://portal.azure.com/')" style="color: var(--accent-color); text-decoration: underline;">Azure Portal</a> (under App registrations).</li>
+                                        <li>Click <b>New registration</b>. Set Supported account types to <b>Accounts in any organizational directory and personal Microsoft accounts</b>.</li>
+                                        <li>Under Redirect URI, select <b>Web</b> and enter: <code style="background: rgba(0,0,0,0.2); padding: 1px 3px;">http://localhost:53232/callback</code>.</li>
+                                        <li>Click Register, copy the <b>Application (client) ID</b> from the Overview page, and paste it below.</li>
+                                    </ol>
+                                </details>
+
+                                <details style="font-size: 10.5px;">
+                                    <summary style="cursor: pointer; font-weight: bold; opacity: 0.8; outline: none; margin-bottom: 4px; user-select: none;">Dropbox Setup Guide</summary>
+                                    <ol style="margin: 4px 0; padding-left: 18px; opacity: 0.7; line-height: 1.4; display: flex; flex-direction: column; gap: 3px;">
+                                        <li>Go to the <a href="#" onclick="require('electron').ipcRenderer.invoke('open-url', 'https://www.dropbox.com/developers/apps')" style="color: var(--accent-color); text-decoration: underline;">Dropbox App Console</a>.</li>
+                                        <li>Click <b>Create app</b>. Select <b>Scoped access</b> and <b>Full Dropbox</b> access.</li>
+                                        <li>Under the <b>Settings</b> tab, set OAuth 2 Redirect URIs to: <code style="background: rgba(0,0,0,0.2); padding: 1px 3px;">http://localhost:53232/callback</code>.</li>
+                                        <li>Under the <b>Permissions</b> tab, enable: <code style="background: rgba(0,0,0,0.2); padding: 1px 3px;">files.content.write</code>, <code style="background: rgba(0,0,0,0.2); padding: 1px 3px;">files.content.read</code>, and <code style="background: rgba(0,0,0,0.2); padding: 1px 3px;">files.metadata.read</code>, then click Submit.</li>
+                                        <li>Copy the <b>App key</b> (Client ID) and <b>App secret</b> (Client Secret) and paste them below.</li>
+                                    </ol>
+                                </details>
+                            </div>
+
                             <div style="display: flex; flex-direction: column; gap: 4px;">
                                 <label style="font-size: 11px; font-weight: bold; opacity: 0.7;">Google Drive Client ID</label>
                                 <input type="text" id="custom-google-id" style="padding: 6px; font-size: 12px; background: var(--bg-color); border: 1px solid var(--border-color); color: var(--text-color); border-radius: 6px;">
