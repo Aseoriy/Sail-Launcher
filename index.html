@@ -5913,6 +5913,24 @@
         };
 
         window.linkCloudAccount = async function(provider) {
+            if (!globalSettings.customCloudKeys) {
+                alert(`Authentication requires your own API credentials.\n\nPlease scroll down, toggle ON "Use Custom Client Keys", and enter your Client ID/Secret first.\n\n(Default built-in keys have been retired to prevent shared API quota limits)`);
+                return;
+            }
+
+            if (provider === 'google' && !document.getElementById('custom-google-id').value.trim()) {
+                alert("Please enter your custom Google Drive Client ID first.");
+                return;
+            }
+            if (provider === 'onedrive' && !document.getElementById('custom-onedrive-id').value.trim()) {
+                alert("Please enter your custom OneDrive Client ID first.");
+                return;
+            }
+            if (provider === 'dropbox' && (!document.getElementById('custom-dropbox-id').value.trim() || !document.getElementById('custom-dropbox-secret').value.trim())) {
+                alert("Please enter both custom Dropbox Client ID and Client Secret first.");
+                return;
+            }
+
             const btn = document.getElementById(`btn-${provider}`);
             const originalText = btn.innerText;
             btn.disabled = true;
