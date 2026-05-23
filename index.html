@@ -2135,6 +2135,12 @@
                 opacity: 0;
             }
         }
+
+        @keyframes pulse {
+            0% { transform: scale(1); opacity: 0.8; }
+            50% { transform: scale(1.05); opacity: 1; }
+            100% { transform: scale(1); opacity: 0.8; }
+        }
     </style>
     <style id="customThemeStyles"></style>
     <style id="customFontStyles"></style>
@@ -2763,6 +2769,8 @@
                     Social</div>
                 <div class="settings-tab" tabindex="0" onclick="switchSettingsTab('data')" data-i18n="dataBackup">💾
                     Data & Backup</div>
+                <div class="settings-tab" tabindex="0" onclick="switchSettingsTab('cloud')">☁️
+                    Cloud Sync</div>
                 <div class="settings-tab" tabindex="0" onclick="switchSettingsTab('library')">📚
                     Library Management</div>
                 <div class="settings-tab" tabindex="0" onclick="switchSettingsTab('experimental')">🧪
@@ -3026,6 +3034,17 @@
                         <option value="5">Keep Last 5 Backups</option>
                     </select>
                 </div>
+
+                <div style="margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <span style="font-size: 13px; font-weight: bold;">Block Process While Syncing</span>
+                        <p style="margin: 3px 0 0 0; font-size: 11px; opacity: 0.5;">Show a blocking loading screen until the cloud sync completes on launch/exit.</p>
+                    </div>
+                    <label class="toggle-label">
+                        <input type="checkbox" id="cloudSyncBlockingToggle">
+                        <div class="toggle-switch"></div>
+                    </label>
+                </div>
             </div>
 
             <div id="tab-extra" class="settings-pane">
@@ -3171,7 +3190,7 @@
                     style="margin-top: 30px; border-top: 1px solid var(--border-color); padding-top: 20px; display:flex; gap:10px;">
                     <button class="outline" style="flex-grow:1;"
                         onclick="require('electron').ipcRenderer.invoke('open-url', 'https://github.com/Aseoriy/Sail-Launcher')">⛵
-                        Sail Launcher v4.2.0-beta</button>
+                        Sail Launcher v4.2.0</button>
                     <button id="checkUpdateBtn" style="min-width: 150px; transition: 0.3s;"
                         data-i18n="checkUpdates">Check Updates</button>
                 </div>
@@ -3189,6 +3208,121 @@
                 </div>
                 
                 <!-- More experimental features can go here -->
+            </div>
+
+            <div id="tab-cloud" class="settings-pane">
+                <h3 style="margin: 0 0 15px 0;">☁️ Cloud Save Sync</h3>
+                <p style="font-size: 13px; opacity: 0.7; margin-bottom: 20px;">Link your favorite cloud providers directly to automatically sync, backup, and restore game saves.</p>
+                
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 25px;">
+                    <div class="cloud-card" id="card-google" style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); border-radius: 12px; padding: 15px; display: flex; flex-direction: column; gap: 12px; transition: 0.2s;">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <div style="font-size: 24px;">🤖</div>
+                            <div style="flex-grow: 1;">
+                                <h4 style="margin: 0; font-size: 14px;">Google Drive</h4>
+                                <span class="cloud-status" id="status-google" style="font-size: 11px; opacity: 0.5;">Not Connected</span>
+                            </div>
+                        </div>
+                        <button class="outline" id="btn-google" onclick="linkCloudAccount('google')" style="width: 100%; padding: 8px;">Link Account</button>
+                    </div>
+
+                    <div class="cloud-card" id="card-onedrive" style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); border-radius: 12px; padding: 15px; display: flex; flex-direction: column; gap: 12px; transition: 0.2s;">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <div style="font-size: 24px;">☁️</div>
+                            <div style="flex-grow: 1;">
+                                <h4 style="margin: 0; font-size: 14px;">Microsoft OneDrive</h4>
+                                <span class="cloud-status" id="status-onedrive" style="font-size: 11px; opacity: 0.5;">Not Connected</span>
+                            </div>
+                        </div>
+                        <button class="outline" id="btn-onedrive" onclick="linkCloudAccount('onedrive')" style="width: 100%; padding: 8px;">Link Account</button>
+                    </div>
+
+                    <div class="cloud-card" id="card-dropbox" style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); border-radius: 12px; padding: 15px; display: flex; flex-direction: column; gap: 12px; transition: 0.2s;">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <div style="font-size: 24px;">📦</div>
+                            <div style="flex-grow: 1;">
+                                <h4 style="margin: 0; font-size: 14px;">Dropbox</h4>
+                                <span class="cloud-status" id="status-dropbox" style="font-size: 11px; opacity: 0.5;">Not Connected</span>
+                            </div>
+                        </div>
+                        <button class="outline" id="btn-dropbox" onclick="linkCloudAccount('dropbox')" style="width: 100%; padding: 8px;">Link Account</button>
+                    </div>
+
+                    <div class="cloud-card" id="card-mediafire" style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); border-radius: 12px; padding: 15px; display: flex; flex-direction: column; gap: 10px; transition: 0.2s;">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <div style="font-size: 24px;">🔥</div>
+                            <div style="flex-grow: 1;">
+                                <h4 style="margin: 0; font-size: 14px;">Mediafire</h4>
+                                <span class="cloud-status" id="status-mediafire" style="font-size: 11px; opacity: 0.5;">Not Connected</span>
+                            </div>
+                        </div>
+                        <div id="mediafire-login-form" style="display: flex; flex-direction: column; gap: 6px;">
+                            <input type="text" id="mf-email" placeholder="Email" style="padding: 6px; font-size: 12px; background: var(--bg-color); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-color);">
+                            <input type="password" id="mf-password" placeholder="Password" style="padding: 6px; font-size: 12px; background: var(--bg-color); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-color);">
+                            <div style="display: flex; gap: 4px;">
+                                <input type="text" id="mf-app-id" placeholder="App ID" style="width: 50%; padding: 6px; font-size: 12px; background: var(--bg-color); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-color);">
+                                <input type="text" id="mf-api-key" placeholder="API Key" style="width: 50%; padding: 6px; font-size: 12px; background: var(--bg-color); border: 1px solid var(--border-color); border-radius: 6px; color: var(--text-color);">
+                            </div>
+                            <button class="outline" id="btn-mediafire" onclick="connectMediafire()" style="width: 100%; padding: 8px; font-size: 12px;">Link Mediafire</button>
+                        </div>
+                        <button class="outline" id="btn-mediafire-disconnect" onclick="unlinkCloudAccount('mediafire')" style="display: none; width: 100%; padding: 8px; font-size: 12px;">Unlink Mediafire</button>
+                    </div>
+                </div>
+
+                <div style="border-top: 1px solid var(--border-color); padding-top: 20px; display: flex; flex-direction: column; gap: 15px;">
+                    <h4 style="margin: 0 0 5px 0;">Sync Settings</h4>
+                    
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <span style="font-size: 13px; font-weight: bold;">Auto Cloud Sync on Launch/Exit</span>
+                            <p style="margin: 3px 0 0 0; font-size: 11px; opacity: 0.5;">Automatically upload/download saves when starting or stopping games.</p>
+                        </div>
+                        <label class="toggle-label">
+                            <input type="checkbox" id="cloudAutoSyncToggle">
+                            <div class="toggle-switch"></div>
+                        </label>
+                    </div>
+
+
+
+                    <div style="display: flex; flex-direction: column; gap: 5px;">
+                        <span style="font-size: 13px; font-weight: bold;">Default Cloud Sync Folder</span>
+                        <p style="margin: 0 0 5px 0; font-size: 11px; opacity: 0.5;">Name of the root save sync folder in your cloud account storage.</p>
+                        <input type="text" id="cloudFolderInput" value="SailLauncherSaves" style="padding: 10px; background: var(--bg-color); border: 1px solid var(--border-color); color: var(--text-color); border-radius: 8px; width: 100%; box-sizing: border-box;">
+                    </div>
+
+                    <div style="border-top: 1px solid var(--border-color); padding-top: 15px; margin-top: 5px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                            <div>
+                                <span style="font-size: 13px; font-weight: bold;">Use Custom Client Keys</span>
+                                <p style="margin: 3px 0 0 0; font-size: 11px; opacity: 0.5;">Configure your own private Google, OneDrive, or Dropbox application API keys.</p>
+                            </div>
+                            <label class="toggle-label">
+                                <input type="checkbox" id="customCloudKeysToggle" onchange="toggleCustomKeysPanel()">
+                                <div class="toggle-switch"></div>
+                            </label>
+                        </div>
+
+                        <div id="customKeysPanel" style="display: none; flex-direction: column; gap: 10px; background: rgba(0,0,0,0.15); padding: 12px; border-radius: 8px; border: 1px dashed var(--border-color);">
+                            <div style="display: flex; flex-direction: column; gap: 4px;">
+                                <label style="font-size: 11px; font-weight: bold; opacity: 0.7;">Google Drive Client ID</label>
+                                <input type="text" id="custom-google-id" style="padding: 6px; font-size: 12px; background: var(--bg-color); border: 1px solid var(--border-color); color: var(--text-color); border-radius: 6px;">
+                            </div>
+                            
+                            <div style="display: flex; flex-direction: column; gap: 4px; border-top: 1px dashed rgba(255,255,255,0.05); padding-top: 8px;">
+                                <label style="font-size: 11px; font-weight: bold; opacity: 0.7;">OneDrive Client ID</label>
+                                <input type="text" id="custom-onedrive-id" style="padding: 6px; font-size: 12px; background: var(--bg-color); border: 1px solid var(--border-color); color: var(--text-color); border-radius: 6px;">
+                            </div>
+
+                            <div style="display: flex; flex-direction: column; gap: 4px; border-top: 1px dashed rgba(255,255,255,0.05); padding-top: 8px;">
+                                <label style="font-size: 11px; font-weight: bold; opacity: 0.7;">Dropbox Client ID</label>
+                                <input type="text" id="custom-dropbox-id" style="padding: 6px; font-size: 12px; background: var(--bg-color); border: 1px solid var(--border-color); color: var(--text-color); border-radius: 6px;">
+                                <label style="font-size: 11px; font-weight: bold; opacity: 0.7; margin-top: 4px;">Dropbox Client Secret</label>
+                                <input type="text" id="custom-dropbox-secret" style="padding: 6px; font-size: 12px; background: var(--bg-color); border: 1px solid var(--border-color); color: var(--text-color); border-radius: 6px;">
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -3283,7 +3417,7 @@
         document.getElementById('maxBtn').addEventListener('click', () => ipcRenderer.send('window-max'));
         document.getElementById('closeBtn').addEventListener('click', () => ipcRenderer.send('window-close', globalSettings.exitWhenClosed));
 
-        const APP_VERSION = "v4.2.0-beta";
+        const APP_VERSION = "v4.2.0";
         let dataPath = '';
         let selectModeActive = false;
         let selectedGameIndices = new Set();
@@ -3300,7 +3434,12 @@
             buttonLocations: {},
             favoriteFriends: [],
             friendsSort: 'status',
-            transparentSettings: false
+            transparentSettings: false,
+            cloudAutoSync: false,
+            cloudSyncBlocking: true,
+            cloudFolder: 'SailLauncherSaves',
+            customCloudKeys: false,
+            customCloudKeysData: { google: { clientId: '' }, onedrive: { clientId: '' }, dropbox: { clientId: '', clientSecret: '' } }
         };
 
         let myGames = [];
@@ -3947,6 +4086,8 @@
             document.getElementById('workshopDownloaderToggle').checked = globalSettings.workshopDownloader;
             document.getElementById('legacySettingsToggle').checked = globalSettings.legacySettings;
             document.getElementById('transparentSettingsToggle').checked = globalSettings.transparentSettings;
+            
+            updateCloudSyncUI();
 
             // Load displays for Big Picture mode
             try {
@@ -5685,6 +5826,7 @@
                     }
                 }
             }
+            await executeCloudSaveSync(gameIndex, statusTextId);
         }
 
         async function executeSaveRestore(gameIndex, statusTextId, specificFilename) {
@@ -5751,6 +5893,301 @@
             }
         }
 
+        // --- CLOUD SYNC FUNCTIONS ---
+        let skipOauthCancelFlag = false;
+        window.skipCloudSyncOverlay = function() {
+            skipOauthCancelFlag = true;
+            document.getElementById('cloudSyncOverlay').style.display = 'none';
+        };
+
+        window.linkCloudAccount = async function(provider) {
+            const btn = document.getElementById(`btn-${provider}`);
+            const originalText = btn.innerText;
+            btn.disabled = true;
+            btn.innerText = "Connecting...";
+
+            let customCreds = null;
+            if (globalSettings.customCloudKeys) {
+                customCreds = {
+                    google: { clientId: document.getElementById('custom-google-id').value.trim() },
+                    onedrive: { clientId: document.getElementById('custom-onedrive-id').value.trim() },
+                    dropbox: { 
+                        clientId: document.getElementById('custom-dropbox-id').value.trim(),
+                        clientSecret: document.getElementById('custom-dropbox-secret').value.trim()
+                    }
+                };
+            }
+
+            const res = await ipcRenderer.invoke('cloud-link-account', { provider, customCreds });
+            btn.disabled = false;
+            btn.innerText = originalText;
+            if (res.success) {
+                alert(`Successfully linked ${provider} account: ${res.email}`);
+            } else {
+                alert(`Failed to link account: ${res.error}`);
+            }
+            updateCloudSyncUI();
+        };
+
+        window.unlinkCloudAccount = async function(provider) {
+            if (confirm(`Are you sure you want to unlink your ${provider} account?`)) {
+                await ipcRenderer.invoke('cloud-unlink-account', provider);
+                updateCloudSyncUI();
+            }
+        };
+
+        window.connectMediafire = async function() {
+            const email = document.getElementById('mf-email').value.trim();
+            const password = document.getElementById('mf-password').value.trim();
+            const appId = document.getElementById('mf-app-id').value.trim();
+            const apiKey = document.getElementById('mf-api-key').value.trim();
+
+            if (!email || !password || !appId || !apiKey) {
+                alert('Please fill in all Mediafire credentials.');
+                return;
+            }
+
+            const btn = document.getElementById('btn-mediafire');
+            btn.disabled = true;
+            btn.innerText = "Connecting...";
+
+            const res = await ipcRenderer.invoke('cloud-mediafire-login', { email, password, appId, apiKey });
+            btn.disabled = false;
+            btn.innerText = "Link Mediafire";
+            if (res.success) {
+                alert(`Successfully linked Mediafire account: ${res.email}`);
+            } else {
+                alert(`Failed to link Mediafire: ${res.error}`);
+            }
+            updateCloudSyncUI();
+        };
+
+        window.updateCloudSyncUI = async function() {
+            const status = await ipcRenderer.invoke('cloud-get-status');
+            const providers = ['google', 'onedrive', 'dropbox', 'mediafire'];
+
+            providers.forEach(p => {
+                const isLinked = status[p] && status[p].linked;
+                const email = (status[p] && status[p].email) || '';
+                
+                const statusEl = document.getElementById(`status-${p}`);
+                const btnEl = document.getElementById(`btn-${p}`);
+                const cardEl = document.getElementById(`card-${p}`);
+                
+                if (statusEl) {
+                    statusEl.innerText = isLinked ? `Connected: ${email}` : 'Not Connected';
+                    statusEl.style.color = isLinked ? '#10b981' : '';
+                }
+                
+                if (cardEl) {
+                    cardEl.style.borderColor = isLinked ? 'var(--accent)' : 'var(--border-color)';
+                }
+
+                if (p === 'mediafire') {
+                    const form = document.getElementById('mediafire-login-form');
+                    const unlinkBtn = document.getElementById('btn-mediafire-disconnect');
+                    if (isLinked) {
+                        form.style.display = 'none';
+                        unlinkBtn.style.display = 'block';
+                    } else {
+                        form.style.display = 'flex';
+                        unlinkBtn.style.display = 'none';
+                    }
+                } else {
+                    if (btnEl) {
+                        if (isLinked) {
+                            btnEl.innerText = 'Unlink Account';
+                            btnEl.className = 'outline danger-outline';
+                            btnEl.onclick = () => unlinkCloudAccount(p);
+                        } else {
+                            btnEl.innerText = 'Link Account';
+                            btnEl.className = 'outline';
+                            btnEl.onclick = () => linkCloudAccount(p);
+                        }
+                    }
+                }
+            });
+
+            document.getElementById('cloudAutoSyncToggle').checked = !!globalSettings.cloudAutoSync;
+            document.getElementById('cloudSyncBlockingToggle').checked = !!globalSettings.cloudSyncBlocking;
+            document.getElementById('cloudFolderInput').value = globalSettings.cloudFolder || 'SailLauncherSaves';
+            
+            const customKeys = !!globalSettings.customCloudKeys;
+            document.getElementById('customCloudKeysToggle').checked = customKeys;
+            document.getElementById('customKeysPanel').style.display = customKeys ? 'flex' : 'none';
+
+            if (globalSettings.customCloudKeysData) {
+                document.getElementById('custom-google-id').value = globalSettings.customCloudKeysData.google?.clientId || '';
+                document.getElementById('custom-onedrive-id').value = globalSettings.customCloudKeysData.onedrive?.clientId || '';
+                document.getElementById('custom-dropbox-id').value = globalSettings.customCloudKeysData.dropbox?.clientId || '';
+                document.getElementById('custom-dropbox-secret').value = globalSettings.customCloudKeysData.dropbox?.clientSecret || '';
+            }
+        };
+
+        window.toggleCustomKeysPanel = function() {
+            const checked = document.getElementById('customCloudKeysToggle').checked;
+            globalSettings.customCloudKeys = checked;
+            document.getElementById('customKeysPanel').style.display = checked ? 'flex' : 'none';
+            saveToMemory();
+        };
+
+        async function runCloudRestoreCheck(game) {
+            if (!globalSettings.cloudAutoSync || !game.localSave) return;
+            
+            const status = await ipcRenderer.invoke('cloud-get-status');
+            const linkedProvider = ['google', 'onedrive', 'dropbox', 'mediafire'].find(p => status[p] && status[p].linked);
+            if (!linkedProvider) return;
+
+            const customCreds = globalSettings.customCloudKeys ? globalSettings.customCloudKeysData : null;
+
+            if (globalSettings.cloudSyncBlocking) {
+                skipOauthCancelFlag = false;
+                document.getElementById('cloudSyncOverlayTitle').innerText = "Checking Cloud Saves...";
+                document.getElementById('cloudSyncOverlayStatus').innerText = `Connecting to ${linkedProvider.toUpperCase()}...`;
+                document.getElementById('cloudSyncOverlay').style.display = 'flex';
+            }
+
+            try {
+                const listRes = await ipcRenderer.invoke('cloud-list-versions', { provider: linkedProvider, gameName: game.name, customCreds });
+                if (globalSettings.cloudSyncBlocking && skipOauthCancelFlag) return;
+
+                if (listRes.success && listRes.versions && listRes.versions.length > 0) {
+                    const latestCloudVersion = listRes.versions[0];
+                    let cloudTime = 0;
+                    if (latestCloudVersion.date) {
+                        cloudTime = new Date(latestCloudVersion.date.replace(' ', 'T')).getTime();
+                    }
+
+                    let localTime = 0;
+                    if (fs.existsSync(game.localSave)) {
+                        const files = fs.readdirSync(game.localSave);
+                        files.forEach(f => {
+                            try {
+                                const mtime = fs.statSync(path.join(game.localSave, f)).mtimeMs;
+                                if (mtime > localTime) localTime = mtime;
+                            } catch(e) {}
+                        });
+                    }
+
+                    if (cloudTime > localTime + 5000) {
+                        if (globalSettings.cloudSyncBlocking) {
+                            document.getElementById('cloudSyncOverlay').style.display = 'none';
+                        }
+                        
+                        const ok = confirm(`A newer cloud save version (${latestCloudVersion.date}) was found on ${linkedProvider.toUpperCase()}.\nLocal save was last modified: ${localTime ? new Date(localTime).toLocaleString() : 'Never'}.\n\nWould you like to restore the cloud save before launching the game?`);
+                        
+                        if (ok) {
+                            if (globalSettings.cloudSyncBlocking) {
+                                document.getElementById('cloudSyncOverlayTitle').innerText = "Restoring Cloud Save...";
+                                document.getElementById('cloudSyncOverlayStatus').innerText = `Downloading save from ${linkedProvider.toUpperCase()}...`;
+                                document.getElementById('cloudSyncOverlay').style.display = 'flex';
+                            }
+                            
+                            const tempZipPath = path.join(app.getPath('temp'), `cloud_temp_${Date.now()}.zip`);
+                            const dlRes = await ipcRenderer.invoke('cloud-download-save', {
+                                provider: linkedProvider,
+                                fileId: latestCloudVersion.id,
+                                localZipPath: tempZipPath,
+                                customCreds
+                            });
+
+                            if (dlRes.success) {
+                                const fsExtra = require('fs-extra');
+                                fsExtra.ensureDirSync(game.localSave);
+                                const extractOk = await ipcRenderer.invoke('cloud-extract-zip', {
+                                    zipPath: tempZipPath,
+                                    localSavePath: game.localSave
+                                });
+                                if (extractOk) {
+                                    alert("Cloud save restored successfully!");
+                                } else {
+                                    alert("Extraction failed.");
+                                }
+                            } else {
+                                alert(`Download failed: ${dlRes.error}`);
+                            }
+                            try { fs.unlinkSync(tempZipPath); } catch(e) {}
+                        }
+                    }
+                }
+            } catch(err) {
+                console.error("Cloud check error:", err);
+            } finally {
+                if (globalSettings.cloudSyncBlocking) {
+                    document.getElementById('cloudSyncOverlay').style.display = 'none';
+                }
+            }
+        }
+
+        async function executeCloudSaveSync(gameIndex, statusTextId) {
+            const game = myGames[gameIndex];
+            if (!globalSettings.cloudAutoSync || !game.localSave) return;
+
+            const statusText = document.getElementById(statusTextId);
+            const indicator = document.getElementById('globalSyncIndicator');
+
+            const status = await ipcRenderer.invoke('cloud-get-status');
+            const linkedProvider = ['google', 'onedrive', 'dropbox', 'mediafire'].find(p => status[p] && status[p].linked);
+            if (!linkedProvider) return;
+
+            if (globalSettings.cloudSyncBlocking) {
+                skipOauthCancelFlag = false;
+                document.getElementById('cloudSyncOverlayTitle').innerText = "Uploading Cloud Save...";
+                document.getElementById('cloudSyncOverlayStatus').innerText = `Uploading saves to ${linkedProvider.toUpperCase()}...`;
+                document.getElementById('cloudSyncOverlay').style.display = 'flex';
+            } else {
+                if (statusText) statusText.innerText = "Syncing cloud save...";
+                if (indicator) indicator.style.display = 'flex';
+            }
+
+            try {
+                const tempZipDir = path.join(app.getPath('temp'), 'SailLauncherCloudSync');
+                fs.ensureDirSync(tempZipDir);
+                const safeName = game.name.replace(/[<>:"/\\|?*]+/g, '');
+                const tempZipPath = path.join(tempZipDir, `${safeName}_temp.zip`);
+                
+                if (fs.existsSync(tempZipPath)) fs.unlinkSync(tempZipPath);
+
+                const zipOk = await ipcRenderer.invoke('cloud-zip-folder', {
+                    localSavePath: game.localSave,
+                    zipPath: tempZipPath
+                });
+
+                if (!zipOk) throw new Error("Local compression failed");
+
+                const customCreds = globalSettings.customCloudKeys ? globalSettings.customCloudKeysData : null;
+                const maxVersions = globalSettings.saveBackupCount !== undefined ? globalSettings.saveBackupCount : 3;
+
+                const uploadRes = await ipcRenderer.invoke('cloud-upload-save', {
+                    provider: linkedProvider,
+                    gameName: game.name,
+                    localZipPath: tempZipPath,
+                    maxVersions,
+                    customCreds
+                });
+
+                try { fs.unlinkSync(tempZipPath); } catch(e) {}
+
+                if (uploadRes.success) {
+                    if (statusText) statusText.innerText = "Cloud Sync Complete!";
+                } else {
+                    throw new Error(uploadRes.error);
+                }
+            } catch(err) {
+                console.error("Cloud sync failed:", err);
+                if (statusText) statusText.innerText = "Cloud Sync Failed!";
+            } finally {
+                if (globalSettings.cloudSyncBlocking) {
+                    document.getElementById('cloudSyncOverlay').style.display = 'none';
+                } else {
+                    if (indicator) indicator.style.display = 'none';
+                }
+                if (statusText) {
+                    setTimeout(() => statusText.innerText = dict[globalSettings.language || 'english'].ready || "Ready to Play", 2000);
+                }
+            }
+        }
+
         async function launchGame(index) {
             const game = myGames[index]; activeGameIndex = index;
             sessionStartTimes[index] = Date.now();
@@ -5758,6 +6195,10 @@
             saveToMemory();
             window.SailAPI.executePluginsOnLaunch(game);
             if (viewingGameIndex === index) updateGamePageActionBar(); else renderGames();
+            
+            // Run Cloud Sync check
+            await runCloudRestoreCheck(game);
+
             try {
                 const result = await ipcRenderer.invoke('launch-game', {
                     exePath: game.exePath,
@@ -6981,6 +7422,35 @@
         document.getElementById('defaultDriveFolderInput').addEventListener('change', (e) => { globalSettings.defaultDriveFolder = e.target.value; saveToMemory(); });
         document.getElementById('themeSelect').addEventListener('change', (e) => { globalSettings.theme = e.target.value; saveToMemory(); applyTheme(globalSettings.theme); });
 
+        document.getElementById('cloudAutoSyncToggle').addEventListener('change', (e) => { globalSettings.cloudAutoSync = e.target.checked; saveToMemory(); });
+        document.getElementById('cloudSyncBlockingToggle').addEventListener('change', (e) => { globalSettings.cloudSyncBlocking = e.target.checked; saveToMemory(); });
+        document.getElementById('cloudFolderInput').addEventListener('change', (e) => { globalSettings.cloudFolder = e.target.value; saveToMemory(); });
+        
+        document.getElementById('custom-google-id').addEventListener('change', (e) => {
+            if (!globalSettings.customCloudKeysData) globalSettings.customCloudKeysData = { google: {}, onedrive: {}, dropbox: {} };
+            if (!globalSettings.customCloudKeysData.google) globalSettings.customCloudKeysData.google = {};
+            globalSettings.customCloudKeysData.google.clientId = e.target.value;
+            saveToMemory();
+        });
+        document.getElementById('custom-onedrive-id').addEventListener('change', (e) => {
+            if (!globalSettings.customCloudKeysData) globalSettings.customCloudKeysData = { google: {}, onedrive: {}, dropbox: {} };
+            if (!globalSettings.customCloudKeysData.onedrive) globalSettings.customCloudKeysData.onedrive = {};
+            globalSettings.customCloudKeysData.onedrive.clientId = e.target.value;
+            saveToMemory();
+        });
+        document.getElementById('custom-dropbox-id').addEventListener('change', (e) => {
+            if (!globalSettings.customCloudKeysData) globalSettings.customCloudKeysData = { google: {}, onedrive: {}, dropbox: {} };
+            if (!globalSettings.customCloudKeysData.dropbox) globalSettings.customCloudKeysData.dropbox = {};
+            globalSettings.customCloudKeysData.dropbox.clientId = e.target.value;
+            saveToMemory();
+        });
+        document.getElementById('custom-dropbox-secret').addEventListener('change', (e) => {
+            if (!globalSettings.customCloudKeysData) globalSettings.customCloudKeysData = { google: {}, onedrive: {}, dropbox: {} };
+            if (!globalSettings.customCloudKeysData.dropbox) globalSettings.customCloudKeysData.dropbox = {};
+            globalSettings.customCloudKeysData.dropbox.clientSecret = e.target.value;
+            saveToMemory();
+        });
+
         document.getElementById('moveAllToDropdownBtn').addEventListener('click', () => {
             const allBtns = document.querySelectorAll('[data-btn-id]');
             if (!globalSettings.buttonLocations) globalSettings.buttonLocations = {};
@@ -7087,6 +7557,14 @@
 
         initApp();
     </script>
+
+    <!-- Cloud Sync Overlay -->
+    <div id="cloudSyncOverlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(12, 10, 9, 0.9); backdrop-filter: blur(8px); justify-content: center; align-items: center; z-index: 99999; flex-direction: column; gap: 15px; color: var(--text-color);">
+        <div style="font-size: 40px; animation: pulse 1.5s infinite;">☁️</div>
+        <div style="font-weight: bold; font-size: 18px;" id="cloudSyncOverlayTitle">Syncing Cloud Saves...</div>
+        <div style="font-size: 13px; opacity: 0.6;" id="cloudSyncOverlayStatus">Please wait a moment.</div>
+        <button class="outline" onclick="skipCloudSyncOverlay()" style="margin-top: 15px; padding: 8px 20px; font-size: 12px; border-radius: 8px;">Skip Sync</button>
+    </div>
 </body>
 
 </html>

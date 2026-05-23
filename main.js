@@ -15,6 +15,7 @@ try {
     console.error('Failed to configure 7zip-min path:', e);
 }
 const DiscordRPC = require('discord-rpc');
+const cloudSync = require('./cloudSync');
 const args = process.argv;
 let autoLaunchGameId = null;
 const launchArg = args.find(a => a.startsWith('--launch-game-id='));
@@ -563,6 +564,147 @@ ipcMain.handle('open-save-versions-folder', (e, driveFolder, gameName) => {
         if (fs.existsSync(savesDir)) { shell.openPath(savesDir); return true; }
     } catch (err) { }
     return false;
+});
+
+// --- CLOUD SYNC IPC HANDLERS ---
+ipcMain.handle('cloud-link-account', async (e, { provider, customCreds }) => {
+    let authUrl = '';
+    if (provider === 'google') authUrl = cloudSync.googleDrive.getAuthUrl(customCreds);
+    else if (provider === 'onedrive') authUrl = cloudSync.oneDrive.getAuthUrl(customCreds);
+    else if (provider === 'dropbox') authUrl = cloudSync.dropbox.getAuthUrl(customCreds);
+    else return { success: false, error: 'Unknown provider' };
+
+    // Start local server
+    const serverPromise = cloudSync.startOauthServer();
+    
+    // Open auth window
+    const parentWin = BrowserWindow.fromWebContents(e.sender);
+    const authWin = new BrowserWindow({
+        width: 600,
+        height: 700,
+        parent: parentWin || undefined,
+        modal: true,
+        show: true,
+        title: `Link ${provider.toUpperCase()}`,
+        webPreferences: {
+            nodeIntegration: false,
+            contextIsolation: true
+        }
+    });
+    
+    authWin.loadURL(authUrl);
+
+    try {
+        const code = await Promise.race([
+            serverPromise,
+            new Promise((_, reject) => {
+                authWin.on('close', () => reject(new Error('Window closed by user')));
+            })
+        ]);
+
+        // Exchange code for tokens
+        let profile = null;
+        if (provider === 'google') profile = await cloudSync.googleDrive.exchangeCode(code, customCreds);
+        else if (provider === 'onedrive') profile = await cloudSync.oneDrive.exchangeCode(code, customCreds);
+        else if (provider === 'dropbox') profile = await cloudSync.dropbox.exchangeCode(code, customCreds);
+
+        try { authWin.destroy(); } catch(err) {}
+        return { success: true, email: profile.email };
+    } catch(err) {
+        try { authWin.destroy(); } catch(e) {}
+        return { success: false, error: err.message };
+    }
+});
+
+ipcMain.handle('cloud-mediafire-login', async (e, { email, password, appId, apiKey }) => {
+    try {
+        const profile = await cloudSync.mediaFire.connect(email, password, appId, apiKey);
+        return { success: true, email: profile.email };
+    } catch(err) {
+        return { success: false, error: err.message };
+    }
+});
+
+ipcMain.handle('cloud-unlink-account', async (e, provider) => {
+    cloudSync.deleteTokens(provider);
+    return true;
+});
+
+ipcMain.handle('cloud-get-status', async () => {
+    try {
+        const tokens = cloudSync.loadAllTokens();
+        const status = {};
+        for (const provider in tokens) {
+            status[provider] = {
+                linked: !!tokens[provider].access_token || !!tokens[provider].session_token,
+                email: tokens[provider].email || ''
+            };
+        }
+        return status;
+    } catch(e) {
+        return {};
+    }
+});
+
+ipcMain.handle('cloud-upload-save', async (e, { provider, gameName, localZipPath, maxVersions, customCreds }) => {
+    try {
+        if (provider === 'google') await cloudSync.googleDrive.uploadFile(customCreds, gameName, localZipPath, maxVersions);
+        else if (provider === 'onedrive') await cloudSync.oneDrive.uploadFile(customCreds, gameName, localZipPath, maxVersions);
+        else if (provider === 'dropbox') await cloudSync.dropbox.uploadFile(customCreds, gameName, localZipPath, maxVersions);
+        else if (provider === 'mediafire') await cloudSync.mediaFire.uploadFile(gameName, localZipPath);
+        else return { success: false, error: 'Unknown provider' };
+        return { success: true };
+    } catch(err) {
+        return { success: false, error: err.message };
+    }
+});
+
+ipcMain.handle('cloud-list-versions', async (e, { provider, gameName, customCreds }) => {
+    try {
+        let versions = [];
+        if (provider === 'google') versions = await cloudSync.googleDrive.listFiles(customCreds, gameName);
+        else if (provider === 'onedrive') versions = await cloudSync.oneDrive.listFiles(customCreds, gameName);
+        else if (provider === 'dropbox') versions = await cloudSync.dropbox.listFiles(customCreds, gameName);
+        else if (provider === 'mediafire') versions = await cloudSync.mediaFire.listFiles(gameName);
+        return { success: true, versions };
+    } catch(err) {
+        return { success: false, error: err.message };
+    }
+});
+
+ipcMain.handle('cloud-download-save', async (e, { provider, fileId, localZipPath, customCreds }) => {
+    try {
+        if (provider === 'google') await cloudSync.googleDrive.downloadFile(customCreds, fileId, localZipPath);
+        else if (provider === 'onedrive') await cloudSync.oneDrive.downloadFile(customCreds, fileId, localZipPath);
+        else if (provider === 'dropbox') await cloudSync.dropbox.downloadFile(customCreds, fileId, localZipPath);
+        else if (provider === 'mediafire') await cloudSync.mediaFire.downloadFile(fileId, localZipPath);
+        else return { success: false, error: 'Unknown provider' };
+        return { success: true };
+    } catch(err) {
+        return { success: false, error: err.message };
+    }
+});
+
+ipcMain.handle('cloud-zip-folder', async (e, { localSavePath, zipPath }) => {
+    return new Promise((resolve) => {
+        try {
+            const child = spawn('powershell.exe', ['-NoProfile', '-Command',
+                `Compress-Archive -Path "${localSavePath}\\*" -DestinationPath "${zipPath}" -Force`
+            ]);
+            child.on('close', (code) => resolve(code === 0));
+        } catch(e) { resolve(false); }
+    });
+});
+
+ipcMain.handle('cloud-extract-zip', async (e, { zipPath, localSavePath }) => {
+    return new Promise((resolve) => {
+        try {
+            const child = spawn('powershell.exe', ['-NoProfile', '-Command',
+                `Expand-Archive -Path "${zipPath}" -DestinationPath "${localSavePath}" -Force`
+            ]);
+            child.on('close', (code) => resolve(code === 0));
+        } catch(e) { resolve(false); }
+    });
 });
 
 ipcMain.on('window-min', (e) => BrowserWindow.fromWebContents(e.sender)?.minimize());
