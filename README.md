@@ -1,88 +1,104 @@
-WEBSITE FOR SHARING PLUGINS AND THEMES
-https://sailhub.netlify.app
+# Sail Launcher 🚀
 
-Sail-Launcher
-simple custom game/app launcher i made mainly for pirated games that aren't in the steam launcher, it supports steam photos and descriptions and even system specs but you have to manually add the app id when adding the game too the launcher. it also supports uploading and downloading save files from google drive but you must have the [google drive windows app](https://dl.google.com/drive-file-stream/GoogleDriveSetup.exe) installed to enter the path where it downloads and uploads to. you must make a folder in google drive where you want the save files to be then [download the google drive windows app](https://dl.google.com/drive-file-stream/GoogleDriveSetup.exe) and set it up so you can enter the folders from file explorer, then go into sail launcher and when adding a game enter the path to where your folder in google drive is "will probably be Google Drive (G:)" and when you exit the game it will automatically upload all the files/folders from the folder you selected as the local save files location. you can also press the sync button to download all of the files/folders from the selected google drive location to the selected local files location
+**Sail Hub Website**: [sailhub.netlify.app](https://sailhub.netlify.app)
 
-<details>
-<summary>Feature List</summary>
-<ul><li><details>
-  <summary>🚀 <b>Core Launching & Performance</b></summary>
+Sail Launcher is a modern, feature-rich custom game and application launcher designed to consolidate all of your games in one place. It is perfect for managing non-Steam games, DRM-free titles, and emulated retro games under a single, highly customizable interface. 
 
-  - **Advanced Launch Options**: Launch games as Administrator or with High CPU Priority (`wmic`).
-  - **Automatic EXE Detective**: Intelligently scans game folders to find the best executable automatically.
-  - **Companion App Support**: Automatically launch secondary apps (trainers, Discord, etc.) alongside your game.
-  - **Pre/Post Launch Scripts**: Run PowerShell (`.ps1`) or Batch (`.bat`/`.cmd`) scripts before or after game sessions.
-  - **Launch Splash Screen**: Premium animated loading indicator when starting games.
-  - **Command Line Support**: Support for auto-launching specific games via CLI arguments.
-  - **Desktop Shortcut Creator**: Generate custom Windows shortcuts that launch games through the Sail Launcher.
-</details>
+It automatically fetches game metadata, covers, and hero banners directly from Steam, tracks playtime, integrates with Discord Rich Presence, and features a **fully native Cloud Save Sync engine** and **Steam Workshop Hub**.
 
-<details>
-  <summary>🎮 <b>Game Library & Management</b></summary>
+---
 
-  - **Auto-Import Steam Games**: Automatically scans all Steam library folders and imports games with a single click.
-  - **Steam Metadata Integration**: Fetches game names, cover art, and hero banners directly from the Steam API.
-  - **Manual Game Entry**: Full support for adding non-Steam games, including custom banners and icons.
-  - **ROM & Emulator Support**: Dedicated mode for ROMs with support for custom emulator paths and command-line arguments.
-  - **Favorites System**: Star your favorite games to keep them pinned to the top or in a dedicated section.
-  - **Playtime Tracking**: Automatically tracks and saves total time played for every game in your library.
-  - **Running Game Detection**: Shows a real-time "Playing" status and a "Stop" button directly on game tiles.
-  - **Global Search & Sorting**: Quickly find games by name, tag, or sort by playtime, name, and recent activity.
-</details>
+## 🌟 Major Features
 
-<details>
-  <summary>🎨 <b>Premium UI & Customization</b></summary>
+### ☁️ Native Cloud Save Sync (New in v4.2.0)
+No external desktop clients or mounted drive letters are required! Sail Launcher communicates directly with cloud provider APIs to keep your saves safe and in sync across devices:
+* **Plug-and-Play Google Drive**: Link your Google Drive account instantly using the launcher's built-in OAuth keys.
+* **Microsoft OneDrive & Dropbox Support**: Configure custom client credentials to run backups over your own developer projects.
+* **Mediafire Session Sync**: Directly connect via username/password with custom Developer API credentials.
+* **Automated Sync Hooks**: Automatically checks for newer cloud saves on game launch and uploads zipped save backups on game exit.
+* **Secure Encryption**: All authentication tokens and credentials are encrypted using Electron's native `safeStorage` (Windows DPAPI) before saving.
 
-  - **Dynamic Theme Engine**: Support for 10+ built-in themes (Midnight, Neon, Cyberpunk, Forest, etc.).
-  - **Custom Theme Creator**: Build your own theme with custom colors, blur levels, border radius, and animations.
-  - **Aero-Glass Effects**: High-end glassmorphism styling with adjustable backdrop blur and transparency.
-  - **Dynamic Background Animations**: Pulse, Grid, Wave, Ripple, and "Frost Sweep" animated background effects.
-  - **Big Picture Mode**: Console-style interface with majestic boot sounds and gamepad-optimized navigation.
-  - **Custom Typography**: Support for importing your own `.ttf`/`.otf` font files.
-  - **Tile Shape Customization**: Toggle between Square, Squircle, Pill, and Circle tile shapes.
-  - **Tile Size Scaling**: Adjust the library grid to Small, Medium, or Large tiles.
-  - **Collapsible Sidebar**: Resizable and toggleable sidebar for maximum screen real estate.
-</details>
+### 🛠️ Dedicated Steam Workshop Hub (New in v4.2.0)
+Browse and install mods for your games directly inside the launcher:
+* **Dedicated Full-Page Sidebar Tab**: A beautiful, spacious grid for exploring Steam Workshop mods.
+* **Infinite Scroll Pagination**: Smooth scrolling queries pages of mods dynamically as you scroll.
+* **Automatic Extraction**: Handles zipped, raw, RAR, and `.7z` archives smoothly (includes `.asar` unpacked binary fixes so extraction works seamlessly in packaged releases).
+
+### 🎨 Customization & Frosted-Glass Visuals
+* **Frosted-Glass Mode**: Enable translucent layouts in the redesigned vertical Settings panel to view your game library directly behind a beautiful blur filter.
+* **Custom Theme Creator**: Build your own color schemes, adjusting backdrop blur, borders, fonts, and window transparency.
+* **Animated Backgrounds**: Pulse, Grid, Wave, Ripple, and Frost Sweep animations.
+* **Big Picture Mode**: Console-style interface with full gamepad navigation and booting sound effects.
+
+---
+
+## 📋 Comprehensive Feature List
 
 <details>
-  <summary>💾 <b>Backups & Cloud Sync</b></summary>
+<summary><b>Click to expand full feature details</b></summary>
+<ul>
+  <li>
+    <details>
+      <summary>🚀 <b>Core Launching & Automation</b></summary>
+      
+      - **Advanced Launch Options**: Launch games as Administrator or with High CPU Priority.
+      - **Automatic EXE Detective**: Automatically scans game directories to locate the main game executable.
+      - **Companion App Support**: Automatically open trainers, overlay applications, or Discord alongside your games.
+      - **Pre/Post Launch Scripts**: Run custom Batch (`.bat`) or PowerShell (`.ps1`) scripts before a game starts or after it exits.
+      - **Launch Splash Screen**: Premium animated splash screen transitions during launch sequences.
+      - **CLI Autolaunch**: Launch specific games directly via command-line arguments.
+      - **Desktop Shortcut Creator**: Generate custom Windows shortcuts linked directly to the launcher.
+    </details>
+  </li>
+  <li>
+    <details>
+      <summary>🎮 <b>Game Library & Management</b></summary>
 
-  - **Rolling Folder Backups**: Create ZIP backups of entire game folders with a 3-version rolling history.
-  - **Save Versioning (Cloud Sync)**: Sync game saves to a designated folder (like Google Drive) with full version history.
-  - **One-Click Restoration**: Instantly restore previous backups or save versions from the UI.
-  - **Automatic Cleanup**: Automatically deletes old backup versions to save disk space.
+      - **Auto-Import Steam Library**: Scans your local Steam directories and imports all installed games in one click.
+      - **Metadata Downloader**: Fetches details, screenshots, descriptions, and banners from Steam API.
+      - **Emulator & ROM support**: Add retro systems and run ROMs with customized command-line parameters.
+      - **Playtime Tracker**: Tracks total play hours and session lengths for every application.
+      - **Running Detection**: Real-time status updates showing which games are currently running, with a force-stop button.
+      - **Global Search & Sorting**: Search by name or tag, and sort by playtime, name, or recency.
+      - **Favorites System**: Keep your most played games starred at the top.
+    </details>
+  </li>
+  <li>
+    <details>
+      <summary>🎨 <b>Interface & Animations</b></summary>
+
+      - **10+ Built-in Themes**: Midnight, Cyberpunk, Forest, Neon, and more.
+      - **Dynamic Transitions**: Sleek slide-up and cross-fade animations on page entry, modal closures, and settings window exits.
+      - **Custom Fonts**: Support for loading external `.ttf` or `.otf` files.
+      - **Tile Shapes & Scaling**: Customize grid layouts with Squircle, Circle, Pill, or Square tiles in multiple sizes.
+      - **Resizable Sidebar**: Drag the sidebars to customize layout widths.
+    </details>
+  </li>
+  <li>
+    <details>
+      <summary>💾 <b>Backups & Version History</b></summary>
+
+      - **Rolling Local Backups**: Automatically backs up save folders locally with a 3-version rolling history.
+      - **Cloud Save Restore**: Browse versions and restore previous save states in one click from the UI.
+      - **Process Blocking Mode**: Option to display a "Syncing..." UI block on game launch/exit to ensure data safety before launching.
+    </details>
+  </li>
+  <li>
+    <details>
+      <summary>🌐 <b>Social & Protocol Integration</b></summary>
+
+      - **Discord Rich Presence (RPC)**: Shares your active game status and playtime directly to your Discord profile.
+      - **Sail Hub Protocol**: Installs themes and plugins directly from the web using `sail-launcher://` protocol links.
+      - **Friend Activity Bar**: Integrates Steam/Discord friend statuses directly in the launcher.
+    </details>
+  </li>
+</ul>
 </details>
 
-<details>
-  <summary>🌐 <b>Social & Hub Integration</b></summary>
+---
 
-  - **Discord Rich Presence (RPC)**: Shows what you're playing on Discord, including game names and session time.
-  - **Sail Hub Protocol**: Support for `sail-launcher://` links for one-click theme and plugin installs from the web.
-  - **Plugin Manager**: Built-in support for extracting ZIP, RAR, and 7z archives for easy mod/plugin installation.
-  - **Friend Bar**: Sail launcher can use your token *must be grabbed manually* on steam or discord to display your friends list and their status.
-</details>
+## 📸 Screenshots
 
-<details>
-  <summary>🛠️ <b>System Tools & Portability</b></summary>
+<img width="1625" height="1063" alt="Sail Launcher Library Overview" src="https://github.com/user-attachments/assets/22786aca-9598-48dc-b441-5c89e2343cd9" />
 
-  - **System Specs Detector**: Real-time detection of OS, CPU, GPU, RAM, and Display Resolution.
-  - **Library Statistics**: View total library playtime, most played games, and game count.
-  - **Virtual Keyboard (OSK)**: Gamepad-friendly on-screen keyboard for typing in search bars or settings.
-  - **Data Portability**: Full Export/Import functionality for your entire library and custom settings.
-  - **Minimize to Tray**: Keep the launcher running in the background for quick access.
-  - **Auto-Start**: Toggle "Launch with Windows" directly from the internal settings.
-</details>
-</li>
-<li>a list!</li></ul>
-</details>
-
-photo of the launcher*
-
-<img width="1625" height="1063" alt="image" src="https://github.com/user-attachments/assets/22786aca-9598-48dc-b441-5c89e2343cd9" />
-
-
-
-
-
-<img width="1625" height="1063" alt="image" src="https://github.com/user-attachments/assets/360e93c7-bf1b-4bb2-92e8-9d22dcf6a8f8" />
+<img width="1625" height="1063" alt="Sail Launcher Cloud Settings" src="https://github.com/user-attachments/assets/360e93c7-bf1b-4bb2-92e8-9d22dcf6a8f8" />
