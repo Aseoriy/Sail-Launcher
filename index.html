@@ -4009,17 +4009,27 @@
                 const latestTag = (response.tag_name || '').replace(/^v/i, '');
                 const currentTag = APP_VERSION.replace(/^v/i, '');
                 if (latestTag && latestTag !== currentTag) {
-                    // Compare version numbers properly
-                    const latestParts = latestTag.split('.').map(Number);
-                    const currentParts = currentTag.split('.').map(Number);
-                    let isNewer = false;
-                    for (let i = 0; i < Math.max(latestParts.length, currentParts.length); i++) {
-                        const l = latestParts[i] || 0;
-                        const c = currentParts[i] || 0;
-                        if (l > c) { isNewer = true; break; }
-                        if (l < c) break;
+                    // Compare version numbers properly, handling suffixes like -beta
+                    function isNewer(latest, current) {
+                        const [latestRelease, latestSuffix] = latest.split('-');
+                        const [currentRelease, currentSuffix] = current.split('-');
+                        const latestParts = latestRelease.split('.').map(Number);
+                        const currentParts = currentRelease.split('.').map(Number);
+                        for (let i = 0; i < Math.max(latestParts.length, currentParts.length); i++) {
+                            const l = latestParts[i] || 0;
+                            const c = currentParts[i] || 0;
+                            if (l > c) return true;
+                            if (l < c) return false;
+                        }
+                        if (latestSuffix && !currentSuffix) return false;
+                        if (!latestSuffix && currentSuffix) return true;
+                        if (latestSuffix && currentSuffix) {
+                            return latestSuffix.localeCompare(currentSuffix, undefined, { numeric: true, sensitivity: 'base' }) > 0;
+                        }
+                        return false;
                     }
-                    if (isNewer) {
+
+                    if (isNewer(latestTag, currentTag)) {
                         if (!silent && btn) {
                             btn.innerText = '🚀 Update Available!';
                             btn.style.background = 'var(--accent)';
