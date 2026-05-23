@@ -99,6 +99,7 @@ Browse and install mods for your games directly inside the launcher:
 
 ## 📸 Screenshots
 
-<img width="1625" height="1063" alt="Sail Launcher Library Overview" src="https://github.com/user-attachments/assets/22786aca-9598-48dc-b441-5c89e2343cd9" />
+<img width="2190" height="1298" alt="image" src="https://github.com/user-attachments/assets/b3a809df-aeae-4479-834e-6cead9961976" />
 
-<img width="1625" height="1063" alt="Sail Launcher Cloud Settings" src="https://github.com/user-attachments/assets/360e93c7-bf1b-4bb2-92e8-9d22dcf6a8f8" />
+<img width="2136" height="1229" alt="image" src="https://github.com/user-attachments/assets/506eaf88-3b3a-4585-86d9-1b2641be8fa1" />
+
