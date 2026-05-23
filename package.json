@@ -28,6 +28,7 @@
     "appId": "com.aseoriy.saillauncher",
     "files": [
       "main.js",
+      "cloudSync.js",
       "index.html",
       "icon.ico",
       "node_modules/**/*"
