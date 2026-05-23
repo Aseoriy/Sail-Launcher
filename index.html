@@ -3213,6 +3213,13 @@
             <div id="tab-cloud" class="settings-pane">
                 <h3 style="margin: 0 0 15px 0;">☁️ Cloud Save Sync</h3>
                 <p style="font-size: 13px; opacity: 0.7; margin-bottom: 20px;">Link your favorite cloud providers directly to automatically sync, backup, and restore game saves.</p>
+
+                <div style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.2); border-radius: 8px; padding: 10px; margin-bottom: 20px; font-size: 11.5px; line-height: 1.4; display: flex; gap: 8px; align-items: flex-start; color: #f59e0b;">
+                    <span style="font-size: 14px; line-height: 1;">⚠️</span>
+                    <div>
+                        <b>Google Drive</b> is the only provider configured with a default built-in app key. For other services (OneDrive, Dropbox, Mediafire), you must scroll down, toggle <b>Use Custom Client Keys</b>, and configure your own API credentials.
+                    </div>
+                </div>
                 
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 25px;">
                     <div class="cloud-card" id="card-google" style="background: rgba(255,255,255,0.02); border: 1px solid var(--border-color); border-radius: 12px; padding: 15px; display: flex; flex-direction: column; gap: 12px; transition: 0.2s;">
@@ -5959,22 +5966,24 @@
         };
 
         window.linkCloudAccount = async function(provider) {
-            if (!globalSettings.customCloudKeys) {
-                alert(`Authentication requires your own API credentials.\n\nPlease scroll down, toggle ON "Use Custom Client Keys", and enter your Client ID/Secret first.\n\n(Default built-in keys have been retired to prevent shared API quota limits)`);
+            if (!globalSettings.customCloudKeys && provider !== 'google') {
+                alert(`Authentication for ${provider === 'onedrive' ? 'OneDrive' : 'Dropbox'} requires your own API credentials.\n\nPlease scroll down, toggle ON "Use Custom Client Keys", and enter your Client ID/Secret first.\n\n(Only Google Drive is supported with a built-in default key)`);
                 return;
             }
 
-            if (provider === 'google' && !document.getElementById('custom-google-id').value.trim()) {
-                alert("Please enter your custom Google Drive Client ID first.");
-                return;
-            }
-            if (provider === 'onedrive' && !document.getElementById('custom-onedrive-id').value.trim()) {
-                alert("Please enter your custom OneDrive Client ID first.");
-                return;
-            }
-            if (provider === 'dropbox' && (!document.getElementById('custom-dropbox-id').value.trim() || !document.getElementById('custom-dropbox-secret').value.trim())) {
-                alert("Please enter both custom Dropbox Client ID and Client Secret first.");
-                return;
+            if (globalSettings.customCloudKeys) {
+                if (provider === 'google' && !document.getElementById('custom-google-id').value.trim()) {
+                    alert("Please enter your custom Google Drive Client ID first.");
+                    return;
+                }
+                if (provider === 'onedrive' && !document.getElementById('custom-onedrive-id').value.trim()) {
+                    alert("Please enter your custom OneDrive Client ID first.");
+                    return;
+                }
+                if (provider === 'dropbox' && (!document.getElementById('custom-dropbox-id').value.trim() || !document.getElementById('custom-dropbox-secret').value.trim())) {
+                    alert("Please enter both custom Dropbox Client ID and Client Secret first.");
+                    return;
+                }
             }
 
             const btn = document.getElementById(`btn-${provider}`);
