@@ -2175,12 +2175,13 @@
             display: none;
             position: fixed;
             border-radius: 50%;
-            filter: blur(140px);
-            opacity: 0.35;
+            opacity: 0.75;
             z-index: -2;
             pointer-events: none;
             width: 600px;
             height: 600px;
+            will-change: transform;
+            transform: translate3d(0, 0, 0);
         }
         body.glassmorphic-mode .glass-blob {
             display: block;
@@ -2188,13 +2189,13 @@
         body.glassmorphic-mode .glass-blob-1 {
             top: -120px;
             right: -120px;
-            background: radial-gradient(circle, var(--accent) 0%, transparent 70%) !important;
+            background: radial-gradient(circle, color-mix(in srgb, var(--accent) 25%, transparent) 0%, color-mix(in srgb, var(--accent) 8%, transparent) 40%, transparent 70%) !important;
             animation: driftBlob1 28s infinite alternate ease-in-out;
         }
         body.glassmorphic-mode .glass-blob-2 {
             bottom: -180px;
             left: -120px;
-            background: radial-gradient(circle, color-mix(in srgb, var(--accent) 50%, #3b82f6) 0%, transparent 70%) !important;
+            background: radial-gradient(circle, color-mix(in srgb, var(--accent) 20%, transparent) 0%, color-mix(in srgb, var(--accent) 5%, transparent) 45%, transparent 70%) !important;
             width: 650px;
             height: 650px;
             animation: driftBlob2 35s infinite alternate ease-in-out;
@@ -2202,26 +2203,26 @@
         body.glassmorphic-mode .glass-blob-3 {
             top: 30%;
             left: 20%;
-            background: radial-gradient(circle, color-mix(in srgb, var(--accent) 40%, #ec4899) 0%, transparent 70%) !important;
+            background: radial-gradient(circle, color-mix(in srgb, var(--accent) 15%, transparent) 0%, color-mix(in srgb, var(--accent) 3%, transparent) 50%, transparent 70%) !important;
             width: 500px;
             height: 500px;
             animation: driftBlob3 32s infinite alternate ease-in-out;
         }
 
         @keyframes driftBlob1 {
-            0% { transform: translate(0, 0) scale(1); }
-            50% { transform: translate(120px, 60px) scale(1.15); }
-            100% { transform: translate(-40px, 90px) scale(0.9); }
+            0% { transform: translate3d(0, 0, 0) scale(1); }
+            50% { transform: translate3d(120px, 60px, 0) scale(1.15); }
+            100% { transform: translate3d(-40px, 90px, 0) scale(0.9); }
         }
         @keyframes driftBlob2 {
-            0% { transform: translate(0, 0) scale(1); }
-            50% { transform: translate(-90px, -100px) scale(1.25); }
-            100% { transform: translate(80px, -50px) scale(0.85); }
+            0% { transform: translate3d(0, 0, 0) scale(1); }
+            50% { transform: translate3d(-90px, -100px, 0) scale(1.25); }
+            100% { transform: translate3d(80px, -50px, 0) scale(0.85); }
         }
         @keyframes driftBlob3 {
-            0% { transform: translate(0, 0) scale(1); }
-            50% { transform: translate(100px, -80px) scale(0.8); }
-            100% { transform: translate(-80px, 120px) scale(1.2); }
+            0% { transform: translate3d(0, 0, 0) scale(1); }
+            50% { transform: translate3d(100px, -80px, 0) scale(0.8); }
+            100% { transform: translate3d(-80px, 120px, 0) scale(1.2); }
         }
 
         html {
@@ -2240,6 +2241,7 @@
         /* Minimize sweep and grid lines from theme-midnight::before etc. to avoid cluttering glassmorphism */
         body.glassmorphic-mode::before {
             opacity: 0.02 !important;
+            animation: none !important;
         }
 
         body.glassmorphic-mode .sidebar {
@@ -2709,7 +2711,7 @@
             </div>
 
             <div id="storeView" style="display: none; height: 100%; width: 100%;">
-                <iframe id="storeIframe" src="https://sailhub.netlify.app"
+                <iframe id="storeIframe" src="about:blank"
                     style="width: 100%; height: 100%; border: none; border-radius: 12px; background: var(--bg-color);"></iframe>
             </div>
 
@@ -6385,6 +6387,20 @@
                     document.getElementById('workshopPageResults').innerHTML = '';
                     document.getElementById('workshopEmptyState').style.display = 'flex';
                     document.getElementById('workshopPageStatus').style.display = 'none';
+                }
+            }
+
+            // Lazy-load the store iframe only when active to save CPU
+            const storeIframe = document.getElementById('storeIframe');
+            if (storeIframe) {
+                if (tab === 'store') {
+                    if (storeIframe.src === '' || storeIframe.src === 'about:blank' || storeIframe.getAttribute('src') === 'about:blank') {
+                        storeIframe.src = 'https://sailhub.netlify.app';
+                    }
+                } else {
+                    if (storeIframe.src !== 'about:blank' && storeIframe.getAttribute('src') !== 'about:blank') {
+                        storeIframe.src = 'about:blank';
+                    }
                 }
             }
         }
