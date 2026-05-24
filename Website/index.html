@@ -339,6 +339,18 @@
 </div>
 
 <script>
+    // Sync themes with Sail Launcher parent window
+    window.addEventListener('message', (e) => {
+        if (e.data && e.data.type === 'apply-theme') {
+            const colors = e.data.colors;
+            if (colors) {
+                for (const key in colors) {
+                    document.documentElement.style.setProperty('--' + key, colors[key]);
+                }
+            }
+        }
+    });
+
 // ============================================================
 // SUPABASE CONFIG
 // ============================================================

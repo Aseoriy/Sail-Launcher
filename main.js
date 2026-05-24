@@ -200,6 +200,28 @@ function createWindow() {
     win.on('resized', debouncedSaveBounds);
     win.on('moved', debouncedSaveBounds);
 
+    win.webContents.on('will-navigate', (event, url) => {
+        if (!url.startsWith('file://') && !url.includes('index.html')) {
+            event.preventDefault();
+            shell.openExternal(url);
+        }
+    });
+
+    win.webContents.on('will-frame-navigate', (event) => {
+        if (!event.isMainFrame && !event.url.startsWith('https://sailhub.netlify.app')) {
+            event.preventDefault();
+            shell.openExternal(event.url);
+        }
+    });
+
+    win.webContents.setWindowOpenHandler(({ url }) => {
+        if (!url.startsWith('file://') && !url.includes('index.html') && !url.startsWith('https://sailhub.netlify.app')) {
+            shell.openExternal(url);
+            return { action: 'deny' };
+        }
+        return { action: 'allow' };
+    });
+
     win.loadFile('index.html');
 
     win.webContents.on('context-menu', (e, props) => {
