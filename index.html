@@ -642,7 +642,7 @@
             transform: translateY(-4px);
         }
 
-        .game-card:active {
+        .game-card:active:not(:has(.fav-btn:active)):not(:has(.tile-stop-btn:active)) {
             transform: translateY(-1px) scale(0.98);
         }
 
@@ -1960,6 +1960,34 @@
             }
         }
 
+        @keyframes iosStarPop {
+            0% {
+                transform: scale(1);
+            }
+            30% {
+                transform: scale(1.6) rotate(25deg);
+                color: #facc15;
+            }
+            60% {
+                transform: scale(0.9) rotate(-10deg);
+            }
+            100% {
+                transform: scale(1) rotate(0deg);
+            }
+        }
+
+        @keyframes iosStarUnpop {
+            0% {
+                transform: scale(1);
+            }
+            35% {
+                transform: scale(0.7) rotate(-20deg);
+            }
+            100% {
+                transform: scale(1) rotate(0deg);
+            }
+        }
+
         @keyframes moveStripes {
             0% {
                 background-position: 0 0;
@@ -2269,7 +2297,7 @@
                 inset 0 1px 0 0 color-mix(in srgb, var(--text-color) 35%, transparent) !important;
         }
 
-        body.glassmorphic-mode .game-card:active {
+        body.glassmorphic-mode .game-card:active:not(:has(.fav-btn:active)):not(:has(.tile-stop-btn:active)) {
             transform: translateY(-2px) scale(0.96) !important;
         }
 
@@ -2453,6 +2481,85 @@
 
         body.glassmorphic-mode .fade-out {
             animation: iosPageSlideOut 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
+        }
+
+        /* Smooth collapsing sidebar for glassmorphism */
+        body.glassmorphic-mode .sidebar {
+            transition: width 0.4s cubic-bezier(0.16, 1, 0.3, 1), background 0.3s, border-color 0.3s, box-shadow 0.3s !important;
+        }
+
+        body.glassmorphic-mode .sidebar * {
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        body.glassmorphic-mode .sidebar.collapsed .folder-name,
+        body.glassmorphic-mode .sidebar.collapsed .folder-actions,
+        body.glassmorphic-mode .sidebar.collapsed h2.sidebar-title,
+        body.glassmorphic-mode .sidebar.collapsed .folder-caret,
+        body.glassmorphic-mode .sidebar.collapsed .sidebar-folder-content,
+        body.glassmorphic-mode #socialSidebar.collapsed .friend-info,
+        body.glassmorphic-mode #socialSidebar.collapsed .friend-fav-btn,
+        body.glassmorphic-mode #socialSidebar.collapsed .friends-toolbar {
+            display: inline-block !important; /* override display: none */
+            max-width: 0 !important;
+            opacity: 0 !important;
+            overflow: hidden !important;
+            transform: translateX(-15px) !important;
+            pointer-events: none !important;
+            white-space: nowrap !important;
+            margin: 0 !important;
+            padding: 0 !important;
+        }
+
+        body.glassmorphic-mode .sidebar .folder-name,
+        body.glassmorphic-mode .sidebar .folder-actions,
+        body.glassmorphic-mode .sidebar h2.sidebar-title,
+        body.glassmorphic-mode .sidebar .folder-caret,
+        body.glassmorphic-mode #socialSidebar .friend-info,
+        body.glassmorphic-mode #socialSidebar .friend-fav-btn,
+        body.glassmorphic-mode #socialSidebar .friends-toolbar {
+            display: inline-block;
+            max-width: 300px;
+            opacity: 1;
+            transform: translateX(0);
+            transition: max-width 0.35s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s ease, transform 0.35s cubic-bezier(0.16, 1, 0.3, 1) !important;
+        }
+
+        body.glassmorphic-mode .sidebar-toggle-btn {
+            transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+        }
+
+        body.glassmorphic-mode .sidebar.collapsed .sidebar-toggle-btn {
+            transform: rotate(90deg) !important;
+        }
+
+        /* Translucent Modal Backdrops & Closing Animations */
+        body.glassmorphic-mode .modal {
+            background: color-mix(in srgb, var(--bg-color) 25%, transparent) !important;
+            backdrop-filter: blur(20px) saturate(180%) !important;
+            -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
+            transition: opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1), backdrop-filter 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
+        }
+
+        body.glassmorphic-mode .modal.closing {
+            opacity: 0 !important;
+            backdrop-filter: blur(0px) saturate(100%) !important;
+            -webkit-backdrop-filter: blur(0px) saturate(100%) !important;
+        }
+
+        body.glassmorphic-mode .modal.closing .modal-content {
+            animation: iosModalClose 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards !important;
+        }
+
+        @keyframes iosModalClose {
+            from {
+                transform: scale(1);
+                opacity: 1;
+            }
+            to {
+                transform: scale(0.9);
+                opacity: 0;
+            }
         }
 
         @keyframes iosPageSlideIn {
@@ -5346,8 +5453,15 @@
             }
 
             const isCollapsed = sb.classList.contains('collapsed');
-            sb.querySelectorAll('.friend-info').forEach(el => el.style.display = isCollapsed ? 'none' : 'flex');
-            sb.querySelector('.sidebar-title').style.display = isCollapsed ? 'none' : 'block';
+            if (globalSettings.glassmorphicUi) {
+                sb.querySelectorAll('.friend-info').forEach(el => el.style.display = '');
+                const title = sb.querySelector('.sidebar-title');
+                if (title) title.style.display = '';
+            } else {
+                sb.querySelectorAll('.friend-info').forEach(el => el.style.display = isCollapsed ? 'none' : 'flex');
+                const title = sb.querySelector('.sidebar-title');
+                if (title) title.style.display = isCollapsed ? 'none' : 'block';
+            }
             applyUiResizing(); // update resizer visibility
         }
 
