@@ -2196,9 +2196,14 @@
             100% { transform: translate(-80px, 120px) scale(1.2); }
         }
 
+        html {
+            background: transparent !important;
+        }
+
         body.glassmorphic-mode {
-            background: radial-gradient(circle at 0% 0%, color-mix(in srgb, var(--accent) 8%, var(--bg-color)) 0%, var(--bg-color) 70%), 
-                        radial-gradient(circle at 100% 100%, color-mix(in srgb, var(--accent) 5%, var(--bg-color)) 0%, var(--bg-color) 80%) !important;
+            background-color: transparent !important;
+            background: radial-gradient(circle at 0% 0%, color-mix(in srgb, var(--accent) 8%, color-mix(in srgb, var(--bg-color) var(--glass-opacity-percent, 40%), transparent)) 0%, color-mix(in srgb, var(--bg-color) var(--glass-opacity-percent, 40%), transparent) 70%), 
+                        radial-gradient(circle at 100% 100%, color-mix(in srgb, var(--accent) 5%, color-mix(in srgb, var(--bg-color) var(--glass-opacity-percent, 40%), transparent)) 0%, color-mix(in srgb, var(--bg-color) var(--glass-opacity-percent, 40%), transparent) 80%) !important;
             --glass-card-bg: color-mix(in srgb, var(--card-bg) 35%, transparent);
             --glass-border: color-mix(in srgb, var(--text-color) 8%, transparent);
             --glass-blur: blur(30px) saturate(210%);
@@ -2601,7 +2606,7 @@
                     style="width: 100%; height: 100%; border: none; border-radius: 12px; background: var(--bg-color);"></iframe>
             </div>
 
-            <div id="workshopView" style="display: none; box-sizing: border-box; display: flex; flex-direction: column; width: 100%;">
+            <div id="workshopView" style="display: none; box-sizing: border-box; flex-direction: column; width: 100%;">
                 <div class="header" style="margin-bottom: 25px; flex-shrink: 0; display: flex; flex-direction: column; align-items: flex-start;">
                     <h1 style="margin: 0; font-size: 28px;">🛠️ Steam Workshop Browser</h1>
                     <p style="font-size: 13px; opacity: 0.6; margin: 5px 0 0 0;">Download mods, maps, and assets anonymously via SteamCMD.</p>
@@ -6214,7 +6219,9 @@
                             v.style.display = 'none';
                             v.classList.remove('fade-out');
                         });
-                        if (targetView) targetView.style.display = 'block';
+                        if (targetView) {
+                            targetView.style.display = targetView.id === 'workshopView' ? 'flex' : 'block';
+                        }
                         resolve();
                     }, 150);
                 });
@@ -6226,7 +6233,7 @@
                     }
                 });
                 if (targetView) {
-                    targetView.style.display = 'block';
+                    targetView.style.display = targetView.id === 'workshopView' ? 'flex' : 'block';
                     targetView.classList.remove('fade-out');
                 }
             }
