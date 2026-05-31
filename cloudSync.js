@@ -241,33 +241,61 @@ const googleDrive = {
             throw err;
         }
     },
-    async getOrCreateSyncFolder(accessToken) {
-        const query = encodeURIComponent("name = 'SailLauncherSaves' and mimeType = 'application/vnd.google-apps.folder' and trashed = false");
-        const listRes = await request(`https://www.googleapis.com/drive/v3/files?q=${query}`, {
-            headers: { 'Authorization': `Bearer ${accessToken}` }
-        });
-        if (listRes.body.files && listRes.body.files.length > 0) {
-            return listRes.body.files[0].id;
-        }
-        const createRes = await request('https://www.googleapis.com/drive/v3/files', {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${accessToken}`,
-                'Content-Type': 'application/json'
+    async getOrCreateFolderByPath(accessToken, folderPath) {
+        const parts = folderPath.split('/').filter(Boolean);
+        let parentId = 'root';
+        for (const part of parts) {
+            const query = encodeURIComponent(`name = '${part}' and mimeType = 'application/vnd.google-apps.folder' and '${parentId}' in parents and trashed = false`);
+            const listRes = await request(`https://www.googleapis.com/drive/v3/files?q=${query}`, {
+                headers: { 'Authorization': `Bearer ${accessToken}` }
+            });
+            if (listRes.body.files && listRes.body.files.length > 0) {
+                parentId = listRes.body.files[0].id;
+            } else {
+                const createRes = await request('https://www.googleapis.com/drive/v3/files', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${accessToken}`,
+                        'Content-Type': 'application/json'
+                    }
+                }, {
+                    name: part,
+                    mimeType: 'application/vnd.google-apps.folder',
+                    parents: parentId === 'root' ? [] : [parentId]
+                });
+                parentId = createRes.body.id;
             }
-        }, {
-            name: 'SailLauncherSaves',
-            mimeType: 'application/vnd.google-apps.folder'
-        });
-        return createRes.body.id;
+        }
+        return parentId;
     },
-    async uploadFile(customCreds, gameName, localZipPath, maxVersions) {
+    async uploadFile(customCreds, gameName, localZipPath, maxVersions, subFolder) {
         return await this.executeWithRefresh(async (accessToken) => {
-            const parentId = await this.getOrCreateSyncFolder(accessToken);
+            const folderPath = subFolder ? `SailLauncherSaves/${subFolder}` : 'SailLauncherSaves';
+            const parentId = await this.getOrCreateFolderByPath(accessToken, folderPath);
             const safeName = gameName.replace(/[<>:"/\\|?*]+/g, '');
             const timestamp = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
-            const zipName = `${safeName}_save_${timestamp}.zip`;
+            const isJson = localZipPath.endsWith('.json');
+            const zipName = isJson ? `${safeName}.json` : `${safeName}_save_${timestamp}.zip`;
             
+            if (isJson) {
+                try {
+                    const query = encodeURIComponent(`name = '${zipName}' and '${parentId}' in parents and trashed = false`);
+                    const listRes = await request(`https://www.googleapis.com/drive/v3/files?q=${query}`, {
+                        headers: { 'Authorization': `Bearer ${accessToken}` }
+                    });
+                    if (listRes.body.files && listRes.body.files.length > 0) {
+                        for (const file of listRes.body.files) {
+                            try {
+                                await request(`https://www.googleapis.com/drive/v3/files/${file.id}`, {
+                                    method: 'DELETE',
+                                    headers: { 'Authorization': `Bearer ${accessToken}` }
+                                });
+                            } catch(e) {}
+                        }
+                    }
+                } catch(e) {}
+            }
+
             const fileMetadata = {
                 name: zipName,
                 parents: [parentId]
@@ -278,7 +306,7 @@ const googleDrive = {
             
             const multipartBody = Buffer.concat([
                 Buffer.from(`\r\n--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(fileMetadata)}\r\n`),
-                Buffer.from(`--${boundary}\r\nContent-Type: application/zip\r\n\r\n`),
+                Buffer.from(`--${boundary}\r\nContent-Type: ${isJson ? 'application/json' : 'application/zip'}\r\n\r\n`),
                 fileData,
                 Buffer.from(`\r\n--${boundary}--\r\n`)
             ]);
@@ -292,9 +320,10 @@ const googleDrive = {
                 }
             }, multipartBody);
 
-            if (maxVersions > 0) {
+            if (maxVersions > 0 && !isJson) {
                 try {
-                    const query = encodeURIComponent(`name contains '${safeName}_save_' and '${parentId}' in parents and trashed = false`);
+                    const searchPattern = `${safeName}_save_`;
+                    const query = encodeURIComponent(`name contains '${searchPattern}' and '${parentId}' in parents and trashed = false`);
                     const listRes = await request(`https://www.googleapis.com/drive/v3/files?q=${query}&orderBy=name`, {
                         headers: { 'Authorization': `Bearer ${accessToken}` }
                     });
@@ -314,23 +343,30 @@ const googleDrive = {
             return true;
         }, customCreds);
     },
-    async listFiles(customCreds, gameName) {
+    async listFiles(customCreds, gameName, subFolder) {
         return await this.executeWithRefresh(async (accessToken) => {
-            const parentId = await this.getOrCreateSyncFolder(accessToken);
+            const folderPath = subFolder ? `SailLauncherSaves/${subFolder}` : 'SailLauncherSaves';
+            const parentId = await this.getOrCreateFolderByPath(accessToken, folderPath);
             const safeName = gameName.replace(/[<>:"/\\|?*]+/g, '');
-            const query = encodeURIComponent(`name contains '${safeName}_save_' and '${parentId}' in parents and trashed = false`);
-            const listRes = await request(`https://www.googleapis.com/drive/v3/files?q=${query}&orderBy=name+desc`, {
+            const isJson = gameName === 'sail_library' || (subFolder && (subFolder === 'Themes' || subFolder === 'Config' || subFolder.startsWith('Themes') || subFolder.startsWith('Config')));
+            const searchPattern = isJson ? safeName : `${safeName}_save_`;
+            const query = encodeURIComponent(`name contains '${searchPattern}' and '${parentId}' in parents and trashed = false`);
+            const listRes = await request(`https://www.googleapis.com/drive/v3/files?q=${query}&orderBy=name+desc&fields=files(id,name,modifiedTime)`, {
                 headers: { 'Authorization': `Bearer ${accessToken}` }
             });
             if (!listRes.body.files) return [];
             return listRes.body.files.map(f => {
-                const prefix = `${safeName}_save_`;
-                let dateStr = f.name.replace(prefix, '').replace('.zip', '');
+                const suffix = isJson ? '.json' : '.zip';
                 let parsedDate = null;
-                if (dateStr.length === 19) {
+                const nameWithoutExt = f.name.substring(0, f.name.length - suffix.length);
+                const match = nameWithoutExt.match(/_(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})$/);
+                if (match) {
+                    const dateStr = match[1];
                     parsedDate = `${dateStr.slice(0, 4)}-${dateStr.slice(5, 7)}-${dateStr.slice(8, 10)} ${dateStr.slice(11, 13)}:${dateStr.slice(14, 16)}`;
+                } else if (isJson && f.modifiedTime) {
+                    parsedDate = f.modifiedTime.replace('T', ' ').substring(0, 16);
                 }
-                return { filename: f.name, date: parsedDate || dateStr, id: f.id };
+                return { filename: f.name, date: parsedDate || 'Unknown Date', id: f.id };
             });
         }, customCreds);
     },
@@ -418,29 +454,33 @@ const oneDrive = {
             throw err;
         }
     },
-    async uploadFile(customCreds, gameName, localZipPath, maxVersions) {
+    async uploadFile(customCreds, gameName, localZipPath, maxVersions, subFolder) {
         return await this.executeWithRefresh(async (accessToken) => {
             const safeName = gameName.replace(/[<>:"/\\|?*]+/g, '');
             const timestamp = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
-            const zipName = `${safeName}_save_${timestamp}.zip`;
-            const cloudPath = encodeURIComponent(`SailLauncherSaves/${zipName}`);
+            const isJson = localZipPath.endsWith('.json');
+            const zipName = isJson ? `${safeName}.json` : `${safeName}_save_${timestamp}.zip`;
+            const cloudPath = encodeURIComponent(subFolder ? `SailLauncherSaves/${subFolder}/${zipName}` : `SailLauncherSaves/${zipName}`);
 
             const fileData = fs.readFileSync(localZipPath);
             await request(`https://graph.microsoft.com/v1.0/me/drive/root:/${cloudPath}:/content`, {
                 method: 'PUT',
                 headers: {
                     'Authorization': `Bearer ${accessToken}`,
-                    'Content-Type': 'application/zip'
+                    'Content-Type': isJson ? 'application/json' : 'application/zip'
                 }
             }, fileData);
 
-            if (maxVersions > 0) {
+            if (maxVersions > 0 && !isJson) {
                 try {
-                    const listRes = await request(`https://graph.microsoft.com/v1.0/me/drive/root:/SailLauncherSaves:/children?$orderby=name`, {
+                    const listPath = encodeURIComponent(subFolder ? `SailLauncherSaves/${subFolder}` : 'SailLauncherSaves');
+                    const listRes = await request(`https://graph.microsoft.com/v1.0/me/drive/root:/${listPath}:/children?$orderby=name`, {
                         headers: { 'Authorization': `Bearer ${accessToken}` }
                     });
                     if (listRes.body.value) {
-                        const matching = listRes.body.value.filter(item => item.name.startsWith(`${safeName}_save_`) && item.name.endsWith('.zip'));
+                        const searchPattern = `${safeName}_save_`;
+                        const suffix = '.zip';
+                        const matching = listRes.body.value.filter(item => item.name.startsWith(searchPattern) && item.name.endsWith(suffix));
                         if (matching.length > maxVersions) {
                             const toDelete = matching.slice(0, matching.length - maxVersions);
                             for (const item of toDelete) {
@@ -458,24 +498,31 @@ const oneDrive = {
             return true;
         }, customCreds);
     },
-    async listFiles(customCreds, gameName) {
+    async listFiles(customCreds, gameName, subFolder) {
         return await this.executeWithRefresh(async (accessToken) => {
             try {
-                const listRes = await request(`https://graph.microsoft.com/v1.0/me/drive/root:/SailLauncherSaves:/children?$orderby=name+desc`, {
+                const listPath = encodeURIComponent(subFolder ? `SailLauncherSaves/${subFolder}` : 'SailLauncherSaves');
+                const listRes = await request(`https://graph.microsoft.com/v1.0/me/drive/root:/${listPath}:/children?$orderby=name+desc`, {
                     headers: { 'Authorization': `Bearer ${accessToken}` }
                 });
                 if (!listRes.body.value) return [];
                 const safeName = gameName.replace(/[<>:"/\\|?*]+/g, '');
+                const isJson = gameName === 'sail_library' || (subFolder && (subFolder === 'Themes' || subFolder === 'Config' || subFolder.startsWith('Themes') || subFolder.startsWith('Config')));
+                const searchPattern = isJson ? safeName : `${safeName}_save_`;
+                const suffix = isJson ? '.json' : '.zip';
                 return listRes.body.value
-                    .filter(item => item.name.startsWith(`${safeName}_save_`) && item.name.endsWith('.zip'))
+                    .filter(item => item.name.startsWith(searchPattern) && item.name.endsWith(suffix))
                     .map(item => {
-                        const prefix = `${safeName}_save_`;
-                        let dateStr = item.name.replace(prefix, '').replace('.zip', '');
                         let parsedDate = null;
-                        if (dateStr.length === 19) {
+                        const nameWithoutExt = item.name.substring(0, item.name.length - suffix.length);
+                        const match = nameWithoutExt.match(/_(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})$/);
+                        if (match) {
+                            const dateStr = match[1];
                             parsedDate = `${dateStr.slice(0, 4)}-${dateStr.slice(5, 7)}-${dateStr.slice(8, 10)} ${dateStr.slice(11, 13)}:${dateStr.slice(14, 16)}`;
+                        } else if (isJson && item.lastModifiedDateTime) {
+                            parsedDate = item.lastModifiedDateTime.replace('T', ' ').substring(0, 16);
                         }
-                        return { filename: item.name, date: parsedDate || dateStr, id: item.id };
+                        return { filename: item.name, date: parsedDate || 'Unknown Date', id: item.id };
                     });
             } catch(e) {
                 // If folder doesn't exist, OneDrive returns 404
@@ -573,15 +620,17 @@ const dropbox = {
             throw err;
         }
     },
-    async uploadFile(customCreds, gameName, localZipPath, maxVersions) {
+    async uploadFile(customCreds, gameName, localZipPath, maxVersions, subFolder) {
         return await this.executeWithRefresh(async (accessToken) => {
             const safeName = gameName.replace(/[<>:"/\\|?*]+/g, '');
             const timestamp = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
-            const zipName = `${safeName}_save_${timestamp}.zip`;
+            const isJson = localZipPath.endsWith('.json');
+            const zipName = isJson ? `${safeName}.json` : `${safeName}_save_${timestamp}.zip`;
+            const folderPath = subFolder ? `/SailLauncherSaves/${subFolder}` : '/SailLauncherSaves';
             
             const fileArg = {
-                path: `/SailLauncherSaves/${zipName}`,
-                mode: 'add',
+                path: `${folderPath}/${zipName}`,
+                mode: isJson ? 'overwrite' : 'add',
                 autorename: false,
                 mute: true
             };
@@ -597,7 +646,7 @@ const dropbox = {
                 }
             }, fileData);
 
-            if (maxVersions > 0) {
+            if (maxVersions > 0 && !isJson) {
                 try {
                     const listRes = await request('https://api.dropboxapi.com/2/files/list_folder', {
                         method: 'POST',
@@ -605,11 +654,13 @@ const dropbox = {
                             'Authorization': `Bearer ${accessToken}`,
                             'Content-Type': 'application/json'
                         }
-                    }, { path: '/SailLauncherSaves' });
+                    }, { path: folderPath });
                     
                     if (listRes.body.entries) {
+                        const searchPattern = `${safeName}_save_`;
+                        const suffix = '.zip';
                         const matching = listRes.body.entries
-                            .filter(f => f.name.startsWith(`${safeName}_save_`) && f.name.endsWith('.zip'))
+                            .filter(f => f.name.startsWith(searchPattern) && f.name.endsWith(suffix))
                             .sort((a,b) => a.name.localeCompare(b.name));
                         if (matching.length > maxVersions) {
                             const toDelete = matching.slice(0, matching.length - maxVersions);
@@ -631,29 +682,36 @@ const dropbox = {
             return true;
         }, customCreds);
     },
-    async listFiles(customCreds, gameName) {
+    async listFiles(customCreds, gameName, subFolder) {
         return await this.executeWithRefresh(async (accessToken) => {
             try {
+                const folderPath = subFolder ? `/SailLauncherSaves/${subFolder}` : '/SailLauncherSaves';
                 const listRes = await request('https://api.dropboxapi.com/2/files/list_folder', {
                     method: 'POST',
                     headers: {
                         'Authorization': `Bearer ${accessToken}`,
                         'Content-Type': 'application/json'
                     }
-                }, { path: '/SailLauncherSaves' });
+                }, { path: folderPath });
                 
                 if (!listRes.body.entries) return [];
                 const safeName = gameName.replace(/[<>:"/\\|?*]+/g, '');
+                const isJson = gameName === 'sail_library' || (subFolder && (subFolder === 'Themes' || subFolder === 'Config' || subFolder.startsWith('Themes') || subFolder.startsWith('Config')));
+                const searchPattern = isJson ? safeName : `${safeName}_save_`;
+                const suffix = isJson ? '.json' : '.zip';
                 return listRes.body.entries
-                    .filter(f => f.name.startsWith(`${safeName}_save_`) && f.name.endsWith('.zip'))
+                    .filter(f => f.name.startsWith(searchPattern) && f.name.endsWith(suffix))
                     .map(f => {
-                        const prefix = `${safeName}_save_`;
-                        let dateStr = f.name.replace(prefix, '').replace('.zip', '');
                         let parsedDate = null;
-                        if (dateStr.length === 19) {
+                        const nameWithoutExt = f.name.substring(0, f.name.length - suffix.length);
+                        const match = nameWithoutExt.match(/_(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2})$/);
+                        if (match) {
+                            const dateStr = match[1];
                             parsedDate = `${dateStr.slice(0, 4)}-${dateStr.slice(5, 7)}-${dateStr.slice(8, 10)} ${dateStr.slice(11, 13)}:${dateStr.slice(14, 16)}`;
+                        } else if (isJson && f.server_modified) {
+                            parsedDate = f.server_modified.replace('T', ' ').substring(0, 16);
                         }
-                        return { filename: f.name, date: parsedDate || dateStr, id: f.path_lower };
+                        return { filename: f.name, date: parsedDate || 'Unknown Date', id: f.path_lower };
                     })
                     .sort((a, b) => b.filename.localeCompare(a.filename)); // newest first
             } catch(e) {

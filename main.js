@@ -26,6 +26,7 @@ let activeBackupProcess = null;
 let backingUpZipPath = null;
 let tray = null;
 let isQuitting = false;
+let exitSynced = false;
 
 let exitWhenClosedSetting = false;
 let devToolsEnabled = false;
@@ -182,7 +183,7 @@ function createWindow() {
         width: state.width, height: state.height, x: state.x, y: state.y, frame: false, titleBarStyle: 'hidden', transparent: true,
         icon: path.join(__dirname, 'icon.ico'),
         show: !startHidden,
-        webPreferences: { nodeIntegration: true, contextIsolation: false, webSecurity: false }
+        webPreferences: { nodeIntegration: true, contextIsolation: false, webSecurity: false, webviewTag: true }
     });
 
     const saveBounds = () => {
@@ -224,6 +225,22 @@ function createWindow() {
 
     win.loadFile('index.html');
 
+    win.webContents.session.on('will-download', (event, item, webContents) => {
+        item.pause();
+        const filename = item.getFilename();
+        dialog.showSaveDialog(win, {
+            defaultPath: path.join(app.getPath('downloads'), filename),
+            title: 'Choose Download Location'
+        }).then(result => {
+            if (result.canceled || !result.filePath) {
+                item.cancel();
+            } else {
+                item.setSavePath(result.filePath);
+                item.resume();
+            }
+        });
+    });
+
     win.webContents.on('context-menu', (e, props) => {
         if (devToolsEnabled) {
             Menu.buildFromTemplate([{ label: 'Inspect Element', click: () => win.webContents.inspectElement(props.x, props.y) }]).popup(win);
@@ -240,6 +257,19 @@ function createWindow() {
         if (!isQuitting && !exitWhenClosedSetting) {
             event.preventDefault();
             win.hide();
+            return;
+        }
+
+        if (!exitSynced) {
+            event.preventDefault();
+            win.webContents.send('exit-sync-request');
+            setTimeout(() => {
+                if (!exitSynced) {
+                    exitSynced = true;
+                    isQuitting = true;
+                    app.quit();
+                }
+            }, 5000);
         }
     });
 }
@@ -514,12 +544,12 @@ ipcMain.handle('delete-backup', (e, exePath, gameName, backupFilename) => {
 ipcMain.handle('zip-save-to-drive', async (e, localSavePath, driveFolder, gameName, maxVersions) => {
     return new Promise((resolve) => {
         try {
-            const safeName = gameName.replace(/[<>:"/\\|?*]+/g, '');
-            const savesDir = path.join(driveFolder, safeName + '_saves');
+            const cleanName = gameName.replace(/[<>:"/\\|?*]+/g, '');
+            const savesDir = path.join(os.homedir(), 'SailLauncherSaves', cleanName, 'Saves');
             if (!fs.existsSync(savesDir)) fs.mkdirSync(savesDir, { recursive: true });
 
             const timestamp = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
-            const zipName = `${safeName}_save_${timestamp}.zip`;
+            const zipName = `${cleanName}_save_${timestamp}.zip`;
             const zipPath = path.join(savesDir, zipName);
 
             const child = spawn('powershell.exe', ['-NoProfile', '-Command',
@@ -528,7 +558,7 @@ ipcMain.handle('zip-save-to-drive', async (e, localSavePath, driveFolder, gameNa
             child.on('close', (code) => {
                 if (code === 0 && maxVersions > 0) {
                     try {
-                        const prefix = `${safeName}_save_`;
+                        const prefix = `${cleanName}_save_`;
                         let existing = fs.readdirSync(savesDir)
                             .filter(f => f.startsWith(prefix) && f.endsWith('.zip'))
                             .sort();
@@ -545,10 +575,10 @@ ipcMain.handle('zip-save-to-drive', async (e, localSavePath, driveFolder, gameNa
 
 ipcMain.handle('list-save-versions', (e, driveFolder, gameName) => {
     try {
-        const safeName = gameName.replace(/[<>:"/\\|?*]+/g, '');
-        const savesDir = path.join(driveFolder, safeName + '_saves');
+        const cleanName = gameName.replace(/[<>:"/\\|?*]+/g, '');
+        const savesDir = path.join(os.homedir(), 'SailLauncherSaves', cleanName, 'Saves');
         if (!fs.existsSync(savesDir)) return [];
-        const prefix = `${safeName}_save_`;
+        const prefix = `${cleanName}_save_`;
         return fs.readdirSync(savesDir)
             .filter(f => f.startsWith(prefix) && f.endsWith('.zip'))
             .map(f => {
@@ -566,8 +596,8 @@ ipcMain.handle('list-save-versions', (e, driveFolder, gameName) => {
 ipcMain.handle('restore-save-version', async (e, driveFolder, gameName, localSavePath, saveFilename) => {
     return new Promise((resolve) => {
         try {
-            const safeName = gameName.replace(/[<>:"/\\|?*]+/g, '');
-            const savesDir = path.join(driveFolder, safeName + '_saves');
+            const cleanName = gameName.replace(/[<>:"/\\|?*]+/g, '');
+            const savesDir = path.join(os.homedir(), 'SailLauncherSaves', cleanName, 'Saves');
             const zipPath = saveFilename ? path.join(savesDir, saveFilename) : null;
 
             if (!zipPath || !fs.existsSync(zipPath)) return resolve(false);
@@ -581,8 +611,8 @@ ipcMain.handle('restore-save-version', async (e, driveFolder, gameName, localSav
 
 ipcMain.handle('open-save-versions-folder', (e, driveFolder, gameName) => {
     try {
-        const safeName = gameName.replace(/[<>:"/\\|?*]+/g, '');
-        const savesDir = path.join(driveFolder, safeName + '_saves');
+        const cleanName = gameName.replace(/[<>:"/\\|?*]+/g, '');
+        const savesDir = path.join(os.homedir(), 'SailLauncherSaves', cleanName, 'Saves');
         if (fs.existsSync(savesDir)) { shell.openPath(savesDir); return true; }
     } catch (err) { }
     return false;
@@ -668,11 +698,11 @@ ipcMain.handle('cloud-get-status', async () => {
     }
 });
 
-ipcMain.handle('cloud-upload-save', async (e, { provider, gameName, localZipPath, maxVersions, customCreds }) => {
+ipcMain.handle('cloud-upload-save', async (e, { provider, gameName, localZipPath, maxVersions, customCreds, subFolder }) => {
     try {
-        if (provider === 'google') await cloudSync.googleDrive.uploadFile(customCreds, gameName, localZipPath, maxVersions);
-        else if (provider === 'onedrive') await cloudSync.oneDrive.uploadFile(customCreds, gameName, localZipPath, maxVersions);
-        else if (provider === 'dropbox') await cloudSync.dropbox.uploadFile(customCreds, gameName, localZipPath, maxVersions);
+        if (provider === 'google') await cloudSync.googleDrive.uploadFile(customCreds, gameName, localZipPath, maxVersions, subFolder);
+        else if (provider === 'onedrive') await cloudSync.oneDrive.uploadFile(customCreds, gameName, localZipPath, maxVersions, subFolder);
+        else if (provider === 'dropbox') await cloudSync.dropbox.uploadFile(customCreds, gameName, localZipPath, maxVersions, subFolder);
         else if (provider === 'mediafire') await cloudSync.mediaFire.uploadFile(gameName, localZipPath);
         else return { success: false, error: 'Unknown provider' };
         return { success: true };
@@ -681,12 +711,12 @@ ipcMain.handle('cloud-upload-save', async (e, { provider, gameName, localZipPath
     }
 });
 
-ipcMain.handle('cloud-list-versions', async (e, { provider, gameName, customCreds }) => {
+ipcMain.handle('cloud-list-versions', async (e, { provider, gameName, customCreds, subFolder }) => {
     try {
         let versions = [];
-        if (provider === 'google') versions = await cloudSync.googleDrive.listFiles(customCreds, gameName);
-        else if (provider === 'onedrive') versions = await cloudSync.oneDrive.listFiles(customCreds, gameName);
-        else if (provider === 'dropbox') versions = await cloudSync.dropbox.listFiles(customCreds, gameName);
+        if (provider === 'google') versions = await cloudSync.googleDrive.listFiles(customCreds, gameName, subFolder);
+        else if (provider === 'onedrive') versions = await cloudSync.oneDrive.listFiles(customCreds, gameName, subFolder);
+        else if (provider === 'dropbox') versions = await cloudSync.dropbox.listFiles(customCreds, gameName, subFolder);
         else if (provider === 'mediafire') versions = await cloudSync.mediaFire.listFiles(gameName);
         return { success: true, versions };
     } catch(err) {
@@ -734,6 +764,12 @@ ipcMain.on('window-max', (e) => { const win = BrowserWindow.fromWebContents(e.se
 ipcMain.on('window-close', (e, exitWhenClosed) => {
     if (exitWhenClosed) { isQuitting = true; app.quit(); }
     else { BrowserWindow.fromWebContents(e.sender)?.hide(); }
+});
+
+ipcMain.on('exit-sync-completed', () => {
+    exitSynced = true;
+    isQuitting = true;
+    app.quit();
 });
 
 ipcMain.handle('get-displays', () => {
