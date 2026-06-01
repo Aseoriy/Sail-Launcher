@@ -99,7 +99,7 @@ Browse and install mods for your games directly inside the launcher:
 
 ## 📸 Screenshots
 
-<img width="2190" height="1298" alt="image" src="https://github.com/user-attachments/assets/b3a809df-aeae-4479-834e-6cead9961976" />
+<img width="2350" height="1368" alt="image" src="https://github.com/user-attachments/assets/24f488b6-4e42-40af-aaef-e9037818a554" />
 
-<img width="2136" height="1229" alt="image" src="https://github.com/user-attachments/assets/506eaf88-3b3a-4585-86d9-1b2641be8fa1" />
+<img width="2350" height="1368" alt="image" src="https://github.com/user-attachments/assets/2a7ff32d-62fb-4982-8de0-c170d9c035d2" />
 
