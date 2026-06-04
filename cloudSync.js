@@ -235,8 +235,16 @@ const googleDrive = {
             return await func(tokens.access_token);
         } catch(err) {
             if (err.message && (err.message.includes('401') || err.message.includes('invalid_grant'))) {
-                const newAccessToken = await this.refreshAccessToken(customCreds);
-                return await func(newAccessToken);
+                try {
+                    const newAccessToken = await this.refreshAccessToken(customCreds);
+                    return await func(newAccessToken);
+                } catch(refreshErr) {
+                    if (refreshErr.message && refreshErr.message.includes('invalid_grant')) {
+                        deleteTokens('google');
+                        throw new Error('Cloud connection expired or revoked. Please reconnect your Google Drive account in settings.');
+                    }
+                    throw refreshErr;
+                }
             }
             throw err;
         }
@@ -448,8 +456,16 @@ const oneDrive = {
             return await func(tokens.access_token);
         } catch(err) {
             if (err.message && (err.message.includes('401') || err.message.includes('TokenExpired'))) {
-                const newAccessToken = await this.refreshAccessToken(customCreds);
-                return await func(newAccessToken);
+                try {
+                    const newAccessToken = await this.refreshAccessToken(customCreds);
+                    return await func(newAccessToken);
+                } catch(refreshErr) {
+                    if (refreshErr.message && (refreshErr.message.includes('invalid_grant') || refreshErr.message.includes('invalid_request'))) {
+                        deleteTokens('onedrive');
+                        throw new Error('Cloud connection expired or revoked. Please reconnect your OneDrive account in settings.');
+                    }
+                    throw refreshErr;
+                }
             }
             throw err;
         }
@@ -614,8 +630,16 @@ const dropbox = {
             return await func(tokens.access_token);
         } catch(err) {
             if (err.message && (err.message.includes('401') || err.message.includes('expired_access_token'))) {
-                const newAccessToken = await this.refreshAccessToken(customCreds);
-                return await func(newAccessToken);
+                try {
+                    const newAccessToken = await this.refreshAccessToken(customCreds);
+                    return await func(newAccessToken);
+                } catch(refreshErr) {
+                    if (refreshErr.message && (refreshErr.message.includes('invalid_grant') || refreshErr.message.includes('invalid_request'))) {
+                        deleteTokens('dropbox');
+                        throw new Error('Cloud connection expired or revoked. Please reconnect your Dropbox account in settings.');
+                    }
+                    throw refreshErr;
+                }
             }
             throw err;
         }

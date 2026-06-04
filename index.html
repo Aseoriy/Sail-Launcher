@@ -4172,7 +4172,7 @@
         document.getElementById('maxBtn').addEventListener('click', () => ipcRenderer.send('window-max'));
         document.getElementById('closeBtn').addEventListener('click', () => ipcRenderer.send('window-close', globalSettings.exitWhenClosed));
 
-        const APP_VERSION = "v4.2.2";
+        const APP_VERSION = "v4.2.3";
         let currentTabName = 'library';
         let skipStaggerAnimation = false;
 
@@ -4778,7 +4778,12 @@
                             btn.style.background = 'var(--accent)';
                             btn.style.color = '#fff';
                         }
-                        const doUpdate = confirm(`🚀 A new version of Sail Launcher is available!\n\nCurrent: v${currentTag}\nLatest: v${latestTag}\n\nWould you like to open the download page?`);
+                        let description = response.body ? response.body.trim() : '';
+                        if (description.length > 800) {
+                            description = description.substring(0, 800) + '\n... (truncated)';
+                        }
+                        const notes = description ? `\n\nPatchnotes:\n${description}` : '';
+                        const doUpdate = confirm(`🚀 A new version of Sail Launcher is available!\n\nCurrent: v${currentTag}\nLatest: v${latestTag}${notes}\n\nWould you like to open the download page?`);
                         if (doUpdate) {
                             ipcRenderer.invoke('open-url', response.html_url || 'https://github.com/Aseoriy/Sail-Launcher/releases/latest');
                         }
