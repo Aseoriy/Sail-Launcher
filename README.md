@@ -2,7 +2,7 @@
 
 **Sail Hub Website**: [sailhub.netlify.app](https://sailhub.netlify.app)
 
-Sail Launcher is a modern, feature-rich custom game and application launcher. It is perfect for managing non-Steam games "ones you dont own", and emulated retro games.
+Sail Launcher is a modern, feature-rich custom game and application launcher. It is perfect for managing non-Steam games "ones you dont *own*", and emulated retro games.
 
 It automatically fetches game metadata, covers, and hero banners directly from Steam, tracks playtime, integrates with Discord Rich Presence, and features a fully native Cloud Save Sync engine and Steam Workshop Hub.
 
