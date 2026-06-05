@@ -1,6 +1,7 @@
 # Sail Launcher 🚀
 
-**Sail Hub Website**: [sailhub.netlify.app](https://sailhub.netlify.app)
+Update: i have purchased a custom domain and will be using that now, the launcher will have an update soon but for now the built in discovery page is down. however - you may refer to the updated website in your web browser for the time being
+**Sail Hub Website**: [sailhub.fyi](sailhub.fyi)
 
 Sail Launcher is a modern, feature-rich custom game and application launcher. It is perfect for managing non-Steam games "ones you dont *own*", and emulated retro games.
 
