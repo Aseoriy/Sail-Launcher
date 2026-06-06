@@ -4407,10 +4407,7 @@
             colors['border'] = (styles.getPropertyValue('--border-color') || '#27272a').trim();
             colors['accent'] = (styles.getPropertyValue('--accent') || '#a855f7').trim();
             colors['accent-hover'] = (styles.getPropertyValue('--accent-hover') || '#c084fc').trim();
-            let isSearchingWorkshop = false;
-        let selectModeActive = false;
-        let selectedGameIndices = new Set();
-        let editingSourceIndex = -1; try {
+            try {
                 iframe.contentWindow.postMessage({ type: 'apply-theme', colors }, '*');
             } catch (err) {
                 console.error("Failed to post theme to iframe:", err);
@@ -4421,8 +4418,10 @@
         document.getElementById('storeIframe').addEventListener('load', syncThemeToIframe);
 
         let dataPath = '';
+        let isSearchingWorkshop = false;
         let selectModeActive = false;
         let selectedGameIndices = new Set();
+        let editingSourceIndex = -1;
 
         window.isCloudProviderConnected = false;
 
