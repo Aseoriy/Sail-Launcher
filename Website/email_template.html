@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Confirm your email - Sail Hub</title>
+  <style>
+    /* Styling resets */
+    body {
+      margin: 0;
+      padding: 0;
+      width: 100% !important;
+      -webkit-text-size-adjust: 100%;
+      -ms-text-size-adjust: 100%;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: #f8fafc;
+    }
+    img {
+      border: 0;
+      outline: none;
+      text-decoration: none;
+      display: block;
+    }
+    table {
+      border-collapse: collapse;
+      mso-table-lspace: 0pt;
+      mso-table-rspace: 0pt;
+    }
+    td {
+      mso-line-height-rule: exactly;
+    }
+    
+    /* Responsive styles */
+    @media only screen and (max-width: 600px) {
+      .container {
+        width: 100% !important;
+        max-width: 100% !important;
+      }
+      .content {
+        padding: 30px 20px !important;
+      }
+    }
+  </style>
+</head>
+<body style="background-color: #f8fafc; margin: 0; padding: 0; width: 100%;">
+  <table width="100%" border="0" cellpadding="0" cellspacing="0" style="background-color: #f8fafc; width: 100%;">
+    <tr>
+      <td align="center" style="padding: 40px 10px;">
+        <!-- Container Table -->
+        <table class="container" width="500" border="0" cellpadding="0" cellspacing="0" style="background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03); border: 1px solid #e2e8f0; width: 500px; max-width: 500px;">
+          
+          <!-- Header (Dark background so the logo looks amazing) -->
+          <tr>
+            <td align="center" style="background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 100%); background-color: #0f172a; padding: 35px 20px;">
+              <img src="https://sailhub.fyi/icon.png" alt="Sail Hub" width="80" height="80" style="width: 80px; height: 80px;" />
+            </td>
+          </tr>
+          
+          <!-- Main Content -->
+          <tr>
+            <td class="content" style="padding: 40px 35px; text-align: center; background-color: #ffffff;">
+              <h1 style="font-size: 24px; font-weight: 700; color: #0f172a; margin-top: 0; margin-bottom: 16px; line-height: 32px;">Confirm your email</h1>
+              
+              <p style="font-size: 16px; line-height: 24px; color: #334155; margin-top: 0; margin-bottom: 24px; text-align: center;">
+                Welcome to Sail Hub, pookie! We're super excited to have you. Click the button below to confirm your email and activate your account.
+              </p>
+              
+              <!-- Button -->
+              <table border="0" cellpadding="0" cellspacing="0" style="margin: 30px auto;">
+                <tr>
+                  <td align="center" style="background: linear-gradient(135deg, #7c3aed 0%, #a855f7 100%); background-color: #7c3aed; border-radius: 8px;">
+                    <a href="{{ .ConfirmationURL }}" target="_blank" style="display: inline-block; font-size: 16px; font-weight: 600; color: #ffffff; text-decoration: none; padding: 14px 32px; border-radius: 8px; background: linear-gradient(135deg, #7c3aed 0%, #a855f7 100%); border: 1px solid #7c3aed;">Confirm Email Address</a>
+                  </td>
+                </tr>
+              </table>
+              
+              <p style="font-size: 14px; line-height: 20px; color: #64748b; margin-top: 24px; margin-bottom: 0; text-align: center;">
+                If you didn't request this email, you can safely ignore it.
+              </p>
+            </td>
+          </tr>
+          
+          <!-- Footer -->
+          <tr>
+            <td style="padding: 24px 35px; background-color: #f8fafc; border-top: 1px solid #f1f5f9; text-align: center;">
+              <p style="font-size: 12px; line-height: 18px; color: #94a3b8; margin: 0;">
+                &copy; 2026 Sail Hub. All rights reserved.<br/>
+                Made with love for pookie.
+              </p>
+            </td>
+          </tr>
+          
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

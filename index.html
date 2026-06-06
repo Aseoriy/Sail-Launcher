@@ -1312,15 +1312,15 @@
         }
 
         body.tile-size-small {
-            --tile-min-width: 150px;
-            --banner-height: 90px;
-            --full-tile-height: 160px;
+            --tile-min-width: 150px !important;
+            --banner-height: 90px !important;
+            --full-tile-height: 160px !important;
         }
 
         body.tile-size-large {
-            --tile-min-width: 320px;
-            --banner-height: 180px;
-            --full-tile-height: 280px;
+            --tile-min-width: 320px !important;
+            --banner-height: 180px !important;
+            --full-tile-height: 280px !important;
         }
 
         .specs-box {
@@ -2419,6 +2419,77 @@
             box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 30%, transparent) !important;
         }
 
+        body.glassmorphic-mode select {
+            overflow-x: hidden !important;
+            overflow-y: auto !important;
+        }
+
+        select:hover {
+            border-color: var(--accent);
+            cursor: pointer;
+        }
+
+        body.glassmorphic-mode select:hover {
+            background: color-mix(in srgb, var(--text-color) 8%, transparent) !important;
+            border-color: var(--accent) !important;
+            box-shadow: 0 4px 15px color-mix(in srgb, var(--accent) 25%, transparent), inset 0 1px 2px rgba(255,255,255,0.1) !important;
+            transform: translateY(-1px) scale(1.01) !important;
+            cursor: pointer;
+        }
+
+        /* Custom select option buttons */
+        .select-option-btn {
+            width: 100%;
+            text-align: left;
+            padding: 12px 16px !important;
+            background: rgba(255, 255, 255, 0.03) !important;
+            border: 1px solid var(--border-color) !important;
+            color: var(--text-color) !important;
+            border-radius: 12px !important;
+            font-size: 14px !important;
+            cursor: pointer;
+            box-sizing: border-box;
+            transition: background-color 0.2s, border-color 0.2s !important;
+            transform: none !important;
+        }
+
+        .select-option-btn:hover {
+            background: rgba(255, 255, 255, 0.08) !important;
+            border-color: var(--border-color) !important;
+            color: var(--text-color) !important;
+            transform: none !important;
+            box-shadow: none !important;
+        }
+
+        .select-option-btn:active {
+            transform: scale(0.99) !important;
+        }
+
+        .select-option-btn.selected {
+            border-color: var(--accent) !important;
+            background: rgba(255, 255, 255, 0.05) !important;
+        }
+
+        body.glassmorphic-mode .select-option-btn {
+            background: color-mix(in srgb, var(--text-color) 4%, transparent) !important;
+            border: 1px solid color-mix(in srgb, var(--text-color) 8%, transparent) !important;
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+        }
+
+        body.glassmorphic-mode .select-option-btn:hover {
+            background: rgba(255, 255, 255, 0.08) !important;
+            border-color: color-mix(in srgb, var(--text-color) 12%, transparent) !important;
+            color: var(--text-color) !important;
+            transform: none !important;
+            box-shadow: none !important;
+        }
+
+        body.glassmorphic-mode .select-option-btn.selected {
+            border-color: var(--accent) !important;
+            background: rgba(255, 255, 255, 0.08) !important;
+        }
+
         /* Specific round pill styling for game search */
         body.glassmorphic-mode #searchInput {
             border-radius: 99px !important;
@@ -2650,6 +2721,95 @@
 </head>
 
 <body>
+    <script>
+        (function() {
+            try {
+                const syncDataRaw = localStorage.getItem('themeSettingsSync');
+                if (syncDataRaw) {
+                    const data = JSON.parse(syncDataRaw);
+                    const classes = [];
+                    if (data.theme) classes.push(data.theme);
+                    else classes.push('theme-midnight');
+                    
+                    if (data.glassmorphicUi) classes.push('glassmorphic-mode');
+                    if (data.transparentSettings) classes.push('transparent-settings-mode');
+                    if (data.disableTranslucency) classes.push('disable-translucency');
+                    if (data.hideStars) classes.push('hide-stars');
+                    if (data.fullTileImage) classes.push('full-tile-image');
+                    if (data.tileSize) classes.push('tile-size-' + data.tileSize);
+
+                    document.body.className = classes.join(' ');
+
+                    // Generate custom theme variables if custom theme
+                    if (data.theme && data.theme.startsWith('theme-custom-') && data.customThemes) {
+                        const ctId = data.theme.replace('theme-custom-', '');
+                        const ct = data.customThemes.find(t => t.id === ctId);
+                        if (ct) {
+                            function hexToRgba(hex, alphaPercent) {
+                                hex = hex.replace('#', '');
+                                if (hex.length === 3) {
+                                    hex = hex[0] + hex[0] + hex[1] + hex[1] + hex[2] + hex[2];
+                                }
+                                const r = parseInt(hex.substring(0, 2), 16);
+                                const g = parseInt(hex.substring(2, 4), 16);
+                                const b = parseInt(hex.substring(4, 6), 16);
+                                return `rgba(${r}, ${g}, ${b}, ${alphaPercent / 100})`;
+                            }
+                            function getAnimationCSS(animType, acc, bg, card) {
+                                if (animType === 'aurora') {
+                                    return `background: linear-gradient(135deg, ${bg} 0%, ${card} 50%, ${acc} 100%); background-size: 400% 400%; animation: auroraGradient 15s ease infinite;`;
+                                } else if (animType === 'pulse') {
+                                    return `background: ${bg}; animation: pulseBg 8s ease-in-out infinite alternate;`;
+                                } else if (animType === 'wave') {
+                                    return `background: linear-gradient(45deg, ${bg} 25%, ${card} 50%, ${acc} 75%); background-size: 200% 200%; animation: waveBg 10s linear infinite;`;
+                                }
+                                return `background: ${bg};`;
+                            }
+                            const gCard = hexToRgba(ct.glassCardColor || '#ffffff', ct.glassCardOpacity !== undefined ? ct.glassCardOpacity : 5);
+                            const gBorder = hexToRgba(ct.glassBorderColor || '#ffffff', ct.glassBorderOpacity !== undefined ? ct.glassBorderOpacity : 8);
+                            const gBlur = ct.glassBlur !== undefined ? ct.glassBlur : 24;
+                            
+                            // Inject custom theme variables
+                            const styleStr = `
+                                body.theme-custom { 
+                                    --bg-color: ${ct.bg}; 
+                                    --text-color: ${ct.text}; 
+                                    --card-bg: ${ct.card}; 
+                                    --border-color: ${ct.border}; 
+                                    --accent: ${ct.accent}; 
+                                    --accent-hover: ${ct.accent}dd; 
+                                    --tile-min-width: ${ct.tileWidth || 230}px; 
+                                    --banner-height: ${ct.tileHeight || 130}px; 
+                                    --full-tile-height: calc(${ct.tileHeight || 130}px + 90px); 
+                                    --glass-card-bg: ${gCard}; 
+                                    --glass-border: ${gBorder}; 
+                                    --glass-blur: ${gBlur}px; 
+                                }
+                                body.theme-custom::before { content: ""; position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: -1; pointer-events: none; ${getAnimationCSS(ct.animation, ct.accent, ct.bg, ct.card)} }
+                                .game-card, .gp-expandable, .gp-info-box, .modal-content, input[type="text"], input[type="number"], select { border-radius: ${ct.radius || 12}px !important; }
+                                button, .action-btn.sidebar-title { border-radius: ${ct.radius ? Math.max(4, ct.radius - 4) : 8}px !important; }
+                            `;
+                            const styleEl = document.createElement('style');
+                            styleEl.id = 'initialCustomThemeStyles';
+                            styleEl.innerHTML = styleStr;
+                            document.head.appendChild(styleEl);
+                        }
+                    }
+                    
+                    if (data.fontFamily && data.fontFamily !== 'Segoe UI') {
+                        const styleEl = document.createElement('style');
+                        styleEl.id = 'initialCustomFontStyles';
+                        if (data.fontFamily === 'custom' && data.customFont) {
+                            styleEl.innerHTML = `@font-face { font-family: 'AppCustomFont'; src: local('${data.customFont}'); } body * { font-family: 'AppCustomFont', sans-serif !important; }`;
+                        } else {
+                            styleEl.innerHTML = `body * { font-family: '${data.fontFamily}', sans-serif !important; }`;
+                        }
+                        document.head.appendChild(styleEl);
+                    }
+                }
+            } catch(e) { console.error("Initial theme sync load error:", e); }
+        })();
+    </script>
     <div class="glass-blob glass-blob-1"></div>
     <div class="glass-blob glass-blob-2"></div>
     <div class="glass-blob glass-blob-3"></div>
@@ -2819,15 +2979,30 @@
 
                     <!-- Add Source Toolbar -->
                     <div class="toolbar" style="display: flex; gap: 15px; margin-bottom: 25px; align-items: center; flex-wrap: wrap; flex-shrink: 0; background: var(--card-bg); padding: 18px 24px; border-radius: 12px; border: 1px solid var(--border-color); width: 100%; box-sizing: border-box;">
-                        <div style="display: flex; flex-direction: column; gap: 5px; min-width: 200px;">
+                        <div style="display: flex; flex-direction: column; gap: 5px; min-width: 150px; flex-grow: 1;">
                             <label style="font-size: 11px; opacity: 0.5; font-weight: bold; text-transform: uppercase;">Source Name</label>
-                            <input type="text" id="addSourceNameInput" placeholder="e.g. FitGirl Repacks" style="width: 100%; padding: 10px 14px; background: var(--bg-color); border: 1px solid var(--border-color); color: var(--text-color); border-radius: 8px;">
+                            <input type="text" id="addSourceNameInput" placeholder="e.g. FitGirl Repacks" style="width: 100%; padding: 10px 14px; background: var(--bg-color); border: 1px solid var(--border-color); color: var(--text-color); border-radius: 8px; box-sizing: border-box;">
                         </div>
-                        <div style="display: flex; flex-direction: column; gap: 5px; flex-grow: 1; min-width: 250px;">
+                        <div style="display: flex; flex-direction: column; gap: 5px; flex-grow: 1; min-width: 200px;">
                             <label style="font-size: 11px; opacity: 0.5; font-weight: bold; text-transform: uppercase;">Source URL</label>
+                            <input type="text" id="addSourceUrlInput" placeholder="e.g. https://fitgirl-repacks.site" style="width: 100%; padding: 10px 14px; background: var(--bg-color); border: 1px solid var(--border-color); color: var(--text-color); border-radius: 8px; box-sizing: border-box;">
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 5px; flex-grow: 1; min-width: 150px;">
+                            <label style="font-size: 11px; opacity: 0.5; font-weight: bold; text-transform: uppercase;">Cover Photo (Optional)</label>
+                            <div style="display: flex; gap: 5px; width: 100%; box-sizing: border-box;">
+                                <input type="text" id="addSourceCoverInput" placeholder="Image path..." style="flex-grow: 1; padding: 10px 14px; background: var(--bg-color); border: 1px solid var(--border-color); color: var(--text-color); border-radius: 8px; box-sizing: border-box; min-width: 0;">
+                                <button class="outline" onclick="require('electron').ipcRenderer.invoke('dialog-select-image').then(p => { if(p) document.getElementById('addSourceCoverInput').value = p; })" style="padding: 10px; box-sizing: border-box;">📂</button>
+                            </div>
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 10px; align-items: flex-start; min-width: 150px;">
+                            <label class="toggle-label" style="margin: 0; padding: 0; gap: 8px;">
+                                <input type="checkbox" id="addSourceBrowserToggle">
+                                <div class="toggle-switch"></div>
+                                <span style="font-size: 11px; font-weight: bold; text-transform: uppercase;">Open in System Browser</span>
+                            </label>
                             <div style="display: flex; gap: 10px; width: 100%;">
-                                <input type="text" id="addSourceUrlInput" placeholder="e.g. https://fitgirl-repacks.site" style="flex-grow: 1; padding: 10px 14px; background: var(--bg-color); border: 1px solid var(--border-color); color: var(--text-color); border-radius: 8px;">
-                                <button class="outline" onclick="addUserSource()" style="padding: 10px 24px; border-radius: 8px;">+ Add Source</button>
+                                <button class="outline" id="saveSourceBtn" onclick="addUserSource()" style="padding: 8px 16px; border-radius: 8px; flex-grow: 1;">+ Add Source</button>
+                                <button class="outline danger-outline" id="cancelEditSourceBtn" onclick="cancelEditSource()" style="padding: 8px 16px; border-radius: 8px; display: none;">✕ Cancel</button>
                             </div>
                         </div>
                     </div>
@@ -3125,9 +3300,11 @@
             <div class="input-row" style="margin-bottom: 10px;"><input type="text" id="shortcutIconPath"
                     data-i18n-ph="shortcutIcon" placeholder="Shortcut Icon (.ico, .exe) (Optional)"><button
                     id="browseShortcutIconBtn">Browse</button></div>
-            <div class="input-row" style="margin-bottom: 5px;"><input type="text" id="localSave"
-                    data-i18n-ph="localSave" placeholder="Local Save Folder (Optional)"><button
-                    id="browseLocalBtn">Browse</button></div>
+            <div class="input-row" style="margin-bottom: 5px; display: flex; gap: 5px;">
+                <input type="text" id="localSave" data-i18n-ph="localSave" placeholder="Local Save Folder (Optional)" style="flex-grow: 1;">
+                <button id="overrideSaveBtn" class="outline" style="display: none; white-space: nowrap;" title="Override auto-detected save path">Override</button>
+                <button id="browseLocalBtn">Browse</button>
+            </div>
 
             <div id="quickPathsContainer" style="display:flex; gap:5px; margin-bottom:15px; flex-wrap:wrap;"></div>
 
@@ -3423,14 +3600,6 @@
                 </div>
 
                 <div style="margin-bottom: 20px;">
-                    <label class="toggle-label">
-                        <input type="checkbox" id="fullTileImageToggle">
-                        <div class="toggle-switch"></div>
-                        Make entire tile the game cover (Full Photo)
-                    </label>
-                </div>
-
-                <div style="margin-bottom: 20px;">
                     <label style="font-size: 12px; opacity:0.6; display:block; margin-bottom:5px;"
                         data-i18n="tileSize">Game Tile Size</label>
                     <div class="input-row">
@@ -3475,14 +3644,6 @@
                     </div>
                 </div>
 
-                <div style="margin-bottom: 20px;">
-                    <label class="toggle-label">
-                        <input type="checkbox" id="compactPageToggle">
-                        <div class="toggle-switch"></div>
-                        <span data-i18n="compactPage">Compact Game Page (Moves details to Info button)</span>
-                    </label>
-                </div>
-
 
 
                 <div style="margin-bottom: 20px;">
@@ -3506,6 +3667,32 @@
                         <input type="checkbox" id="transparentSettingsToggle">
                         <div class="toggle-switch"></div>
                         Transparent Settings Page Background
+                    </label>
+                </div>
+
+                <div style="margin-bottom: 20px; border-top: 1px solid var(--border-color); padding-top: 20px;">
+                    <label class="toggle-label">
+                        <input type="checkbox" id="fullTileImageToggle">
+                        <div class="toggle-switch"></div>
+                        Make entire tile the game cover (Full Photo)
+                    </label>
+                </div>
+
+                <div style="margin-bottom: 20px;">
+                    <label style="font-size: 12px; opacity:0.6; display:block; margin-bottom:5px;">Game Sort Order</label>
+                    <div class="input-row">
+                        <select id="sortOrderSelect">
+                            <option value="default">Favorites First, then Alphabetical</option>
+                            <option value="alphabetical">Strict Alphabetical (Ignore Favorites)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div style="margin-bottom: 20px;">
+                    <label class="toggle-label">
+                        <input type="checkbox" id="compactPageToggle">
+                        <div class="toggle-switch"></div>
+                        <span data-i18n="compactPage">Compact Game Page (Moves details to Info button)</span>
                     </label>
                 </div>
             </div>
@@ -3798,7 +3985,7 @@
                     style="margin-top: 30px; border-top: 1px solid var(--border-color); padding-top: 20px; display:flex; gap:10px;">
                     <button class="outline" style="flex-grow:1;"
                         onclick="require('electron').ipcRenderer.invoke('open-url', 'https://github.com/Aseoriy/Sail-Launcher')">⛵
-                        Sail Launcher v4.2.2</button>
+                        Sail Launcher v4.2.4</button>
                     <button id="checkUpdateBtn" style="min-width: 150px; transition: 0.3s;"
                         data-i18n="checkUpdates">Check Updates</button>
                 </div>
@@ -3837,6 +4024,26 @@
 
                 <div style="margin-bottom: 20px;">
                     <label class="toggle-label">
+                        <input type="checkbox" id="enableSaveDetectionToggle">
+                        <div class="toggle-switch"></div>
+                        <span>Enable Save File Auto-Detection</span>
+                    </label>
+                    <p style="font-size: 11px; color: rgba(255,255,255,0.5); text-align: left; margin-top: 5px;">
+                        Automatically detect save file locations for games based on Steam App ID.</p>
+                    <div id="saveDetectionOptionsContainer" style="margin-top: 10px; display: none; padding-left: 20px; border-left: 2px solid var(--border-color);">
+                        <div style="background: rgba(255, 165, 0, 0.1); border-left: 3px solid #ffa500; padding: 10px 12px; border-radius: 6px; margin-bottom: 12px; font-size: 11px; color: #ffa500; line-height: 1.4; text-align: left; box-sizing: border-box;">
+                            ⚠️ <strong>Disclaimer:</strong> This feature is currently in beta and may not always enter the correct save file locations. Please verify the location is correct before uploading/playing.
+                        </div>
+                        <label style="font-size: 12px; opacity:0.6; display:block; margin-bottom:5px;">Detection Method</label>
+                        <select id="saveDetectionModeSelect" class="settings-select" style="width:100%; padding: 8px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); color: var(--text-color); border-radius: 4px;">
+                            <option value="auto">Built-in Folder Scanner (Fast, heuristical)</option>
+                            <option value="ludusavi">Ludusavi Database Integration (Downloads manifest locally)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div style="margin-bottom: 20px;">
+                    <label class="toggle-label">
                         <input type="checkbox" id="glassmorphicUiToggle">
                         <div class="toggle-switch"></div>
                         Enable Glassmorphic UI (iOS 26 like animations & glass style)
@@ -3846,6 +4053,9 @@
                 </div>
 
                 <div id="glassOpacityContainer" style="margin-bottom: 20px; display: none;">
+                    <div style="background: rgba(255, 165, 0, 0.1); border-left: 3px solid #ffa500; padding: 10px 12px; border-radius: 6px; margin-bottom: 12px; font-size: 11px; color: #ffa500; line-height: 1.4; text-align: left; box-sizing: border-box;">
+                        ⚠️ <strong>Disclaimer:</strong> Just so you know, this may increase cpu usage by a decent bit im still working on optimization but no promises...
+                    </div>
                     <label style="font-size: 13px; font-weight: bold; display: block; margin-bottom: 8px;">
                         Glass Translucency: <span id="glassOpacityValue">40%</span>
                     </label>
@@ -4131,7 +4341,7 @@
     <div id="selectDropdownModal" class="modal">
         <div class="modal-content" style="width: 400px; max-height: 80vh; display: flex; flex-direction: column;">
             <h2 id="selectDropdownTitle" style="margin-top: 0; margin-bottom: 15px;">Select Option</h2>
-            <div id="selectDropdownOptions" style="overflow-y: auto; display: flex; flex-direction: column; gap: 5px;">
+            <div id="selectDropdownOptions" style="overflow-y: auto; overflow-x: hidden; display: flex; flex-direction: column; gap: 8px; padding: 10px 14px;">
             </div>
             <button class="outline" onclick="closeModal('selectDropdownModal')"
                 style="margin-top: 15px;">Cancel</button>
@@ -4172,7 +4382,7 @@
         document.getElementById('maxBtn').addEventListener('click', () => ipcRenderer.send('window-max'));
         document.getElementById('closeBtn').addEventListener('click', () => ipcRenderer.send('window-close', globalSettings.exitWhenClosed));
 
-        const APP_VERSION = "v4.2.3";
+        const APP_VERSION = "v4.2.4";
         let currentTabName = 'library';
         let skipStaggerAnimation = false;
 
@@ -4197,7 +4407,10 @@
             colors['border'] = (styles.getPropertyValue('--border-color') || '#27272a').trim();
             colors['accent'] = (styles.getPropertyValue('--accent') || '#a855f7').trim();
             colors['accent-hover'] = (styles.getPropertyValue('--accent-hover') || '#c084fc').trim();
-            try {
+            let isSearchingWorkshop = false;
+        let selectModeActive = false;
+        let selectedGameIndices = new Set();
+        let editingSourceIndex = -1; try {
                 iframe.contentWindow.postMessage({ type: 'apply-theme', colors }, '*');
             } catch (err) {
                 console.error("Failed to post theme to iframe:", err);
@@ -4446,7 +4659,7 @@
         function renderPluginList() {
             const list = document.getElementById('pluginList');
             if (installedPlugins.length === 0) {
-                list.innerHTML = '<div style="text-align:center; color: var(--text-color); opacity:0.5; padding: 30px;"><p style="font-size: 2rem; margin-bottom: 10px;">🧩</p><p>No plugins installed yet.</p><p style="font-size: 12px;">Import a plugin or browse <a href="#" onclick="require(\'electron\').ipcRenderer.invoke(\'open-url\', \'https://sailhub.netlify.app\')" style="color: var(--accent);">Sail Hub</a>.</p></div>';
+                list.innerHTML = '<div style="text-align:center; color: var(--text-color); opacity:0.5; padding: 30px;"><p style="font-size: 2rem; margin-bottom: 10px;">🧩</p><p>No plugins installed yet.</p><p style="font-size: 12px;">Import a plugin or browse <a href="#" onclick="require(\'electron\').ipcRenderer.invoke(\'open-url\', \'https://sailhub.fyi\')" style="color: var(--accent);">Sail Hub</a>.</p></div>';
                 return;
             }
             list.innerHTML = installedPlugins.map(p => {
@@ -4909,6 +5122,7 @@
             document.getElementById('defaultDriveFolderInput').value = globalSettings.defaultDriveFolder || '';
             document.getElementById('fontSelect').value = globalSettings.fontFamily;
             document.getElementById('tileShapeSelect').value = globalSettings.tileShape;
+            document.getElementById('sortOrderSelect').value = globalSettings.sortOrder || 'default';
             document.getElementById('tileSizeSelect').value = globalSettings.tileSize;
             document.getElementById('customFontInput').value = globalSettings.customFont || '';
             document.getElementById('customFontWrapper').style.display = globalSettings.fontFamily === 'custom' ? 'flex' : 'none';
@@ -4946,6 +5160,9 @@
 
             document.getElementById('autoSettingsSyncToggle').checked = !!globalSettings.autoSettingsSync;
             document.getElementById('enableSourcesToggle').checked = !!globalSettings.enableSourcesPage;
+            document.getElementById('enableSaveDetectionToggle').checked = !!globalSettings.enableSaveDetection;
+            document.getElementById('saveDetectionModeSelect').value = globalSettings.saveDetectionMode || 'auto';
+            document.getElementById('saveDetectionOptionsContainer').style.display = globalSettings.enableSaveDetection ? 'block' : 'none';
             document.getElementById('enableDiscoverToggle').checked = !!globalSettings.enableDiscoverPage;
             updateLegacySettingsToggleVisibility();
             updateSourcesTabVisibility();
@@ -5158,23 +5375,31 @@
             // Intercept click & keyboard focus events on select elements for custom select dropdown modal in glassmorphic mode
             document.addEventListener('mousedown', (e) => {
                 if (!globalSettings.glassmorphicUi) return;
-                const select = e.target.closest('select');
+                const select = e.target && typeof e.target.closest === 'function' ? e.target.closest('select') : null;
                 if (select) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    select.blur();
-                    openSelectDropdown(select);
+                    try {
+                        openSelectDropdown(select);
+                        e.preventDefault();
+                        e.stopPropagation();
+                        select.blur();
+                    } catch (err) {
+                        console.error("Failing back to native select dropdown on mousedown:", err);
+                    }
                 }
             }, true);
 
             document.addEventListener('keydown', (e) => {
                 if (!globalSettings.glassmorphicUi) return;
-                const select = e.target.closest('select');
+                const select = e.target && typeof e.target.closest === 'function' ? e.target.closest('select') : null;
                 if (select && (e.key === ' ' || e.key === 'Enter')) {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    select.blur();
-                    openSelectDropdown(select);
+                    try {
+                        openSelectDropdown(select);
+                        e.preventDefault();
+                        e.stopPropagation();
+                        select.blur();
+                    } catch (err) {
+                        console.error("Failing back to native select dropdown on keydown:", err);
+                    }
                 }
             }, true);
         }
@@ -5393,6 +5618,21 @@
         }
 
         function saveToMemory() {
+            try {
+                // Synchronously mirror settings to localStorage to prevent startup theme flash
+                localStorage.setItem('themeSettingsSync', JSON.stringify({
+                    theme: globalSettings.theme,
+                    glassmorphicUi: globalSettings.glassmorphicUi,
+                    transparentSettings: globalSettings.transparentSettings,
+                    disableTranslucency: globalSettings.disableTranslucency,
+                    hideStars: globalSettings.hideStars,
+                    fullTileImage: globalSettings.fullTileImage,
+                    tileSize: globalSettings.tileSize,
+                    customThemes: globalSettings.customThemes,
+                    fontFamily: globalSettings.fontFamily,
+                    customFont: globalSettings.customFont
+                }));
+            } catch (e) { console.error("localStorage sync error:", e); }
             try {
                 fs.writeJsonSync(dataPath, { myGames, customSections, globalSettings });
                 const useLocalFolder = !window.isCloudProviderConnected || !!globalSettings.enableMultiSync;
@@ -5630,6 +5870,7 @@
                 modal.classList.remove('show');
                 modal.classList.remove('closing');
                 modal.style.zIndex = '';
+                modal.style.display = '';
                 if (modalId === 'addModal') resetAddForm();
                 
                 const idx = modalStack.indexOf(modalId);
@@ -5650,54 +5891,62 @@
 
         let currentDropdownTarget = null;
         window.openSelectDropdown = function (selectEl) {
-            currentDropdownTarget = selectEl;
-            const container = document.getElementById('selectDropdownOptions');
-            container.innerHTML = '';
+            if (!selectEl) return;
+            try {
+                currentDropdownTarget = selectEl;
+                const container = document.getElementById('selectDropdownOptions');
+                if (!container) return;
+                container.innerHTML = '';
 
-            let title = "Select Option";
-            const label = document.querySelector(`label[for="${selectEl.id}"]`);
-            if (label) title = label.innerText;
-            else {
-                const wrapper = selectEl.closest('div').previousElementSibling;
-                if (wrapper && wrapper.tagName === 'LABEL') title = wrapper.innerText;
-            }
-            document.getElementById('selectDropdownTitle').innerText = title;
+                let title = "Select Option";
+                if (selectEl.id) {
+                    const label = document.querySelector(`label[for="${selectEl.id}"]`);
+                    if (label) title = label.innerText;
+                }
+                if (title === "Select Option") {
+                    const parentDiv = selectEl.closest('div');
+                    const wrapper = parentDiv ? parentDiv.previousElementSibling : null;
+                    if (wrapper && wrapper.tagName === 'LABEL') title = wrapper.innerText;
+                }
+                const titleEl = document.getElementById('selectDropdownTitle');
+                if (titleEl) titleEl.innerText = title;
 
-            const populateOptions = (parent, prefix = '') => {
-                Array.from(parent.children).forEach(child => {
-                    if (child.tagName === 'OPTGROUP') {
-                        const groupTitle = document.createElement('div');
-                        groupTitle.style.fontWeight = 'bold';
-                        groupTitle.style.opacity = '0.6';
-                        groupTitle.style.padding = '8px 5px 2px';
-                        groupTitle.style.fontSize = '12px';
-                        groupTitle.innerText = child.label;
-                        container.appendChild(groupTitle);
-                        populateOptions(child, '  ');
-                    } else if (child.tagName === 'OPTION') {
-                        const btn = document.createElement('button');
-                        btn.className = 'outline';
-                        btn.style.textAlign = 'left';
-                        btn.style.padding = '10px';
-                        btn.style.border = '1px solid transparent';
-                        if (child.selected) {
-                            btn.style.borderColor = 'var(--accent)';
-                            btn.style.background = 'rgba(255,255,255,0.1)';
+                const populateOptions = (parent, prefix = '') => {
+                    if (!parent || !parent.children) return;
+                    Array.from(parent.children).forEach(child => {
+                        if (child.tagName === 'OPTGROUP') {
+                            const groupTitle = document.createElement('div');
+                            groupTitle.style.fontWeight = 'bold';
+                            groupTitle.style.opacity = '0.6';
+                            groupTitle.style.padding = '8px 5px 2px';
+                            groupTitle.style.fontSize = '12px';
+                            groupTitle.innerText = child.label || '';
+                            container.appendChild(groupTitle);
+                            populateOptions(child, prefix + '  ');
+                        } else if (child.tagName === 'OPTION') {
+                            const btn = document.createElement('button');
+                            btn.className = 'select-option-btn';
+                            if (child.selected) {
+                                btn.classList.add('selected');
+                            }
+                            btn.innerText = prefix + (child.text || '');
+                            btn.onclick = () => {
+                                selectEl.value = child.value;
+                                selectEl.dispatchEvent(new Event('change', { bubbles: true }));
+                                closeModal('selectDropdownModal');
+                                selectEl.focus();
+                            };
+                            container.appendChild(btn);
                         }
-                        btn.innerText = prefix + child.text;
-                        btn.onclick = () => {
-                            selectEl.value = child.value;
-                            selectEl.dispatchEvent(new Event('change', { bubbles: true }));
-                            closeModal('selectDropdownModal');
-                            selectEl.focus();
-                        };
-                        container.appendChild(btn);
-                    }
-                });
-            };
+                    });
+                };
 
-            populateOptions(selectEl);
-            openModal('selectDropdownModal');
+                populateOptions(selectEl);
+                openModal('selectDropdownModal');
+            } catch (err) {
+                console.error("Error opening select dropdown:", err);
+                throw err;
+            }
         };
 
         // --- QUICK PATH MANAGER ---
@@ -5768,7 +6017,10 @@
         }
         // --------------------------
 
+
         function resetAddForm() {
+            saveDetectionOverridden = false;
+            updateSaveDetectionUI();
             document.getElementById('addModal').querySelectorAll('input[type="text"], input[type="number"]').forEach(i => i.value = '');
             document.getElementById('addModal').querySelectorAll('input[type=checkbox]').forEach(i => i.checked = false);
 
@@ -5869,7 +6121,7 @@
 
                 if (items.length > 0) {
                     resContainer.innerHTML = items.map(item => `
-                        <div class="steam-search-result" style="display: flex; align-items: center; gap: 10px; padding: 5px; cursor: pointer; border-radius: 4px;" onclick="document.getElementById('steamAppId').value = '${item.appid}'; window.toggleSteamSearch();">
+                        <div class="steam-search-result" style="display: flex; align-items: center; gap: 10px; padding: 5px; cursor: pointer; border-radius: 4px;" onclick="window.selectSteamSearchResult('${item.appid}', '${item.name.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}')">
                             <img src="${item.logo}" style="width: 80px; height: 30px; object-fit: cover; border-radius: 2px;" onerror="this.src='${item.icon}'">
                             <span style="font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-grow: 1;">${item.name}</span>
                         </div>
@@ -6825,7 +7077,7 @@
             if (storeIframe) {
                 if (tab === 'store') {
                     if (storeIframe.src === '' || storeIframe.src === 'about:blank' || storeIframe.getAttribute('src') === 'about:blank') {
-                        storeIframe.src = 'https://sailhub.netlify.app';
+                        storeIframe.src = 'https://sailhub.fyi';
                     }
                 } else {
                     if (storeIframe.src !== 'about:blank' && storeIframe.getAttribute('src') !== 'about:blank') {
@@ -7333,19 +7585,28 @@
                     openSourcesBrowser(src.url);
                 };
                 
+                const bgStyle = src.coverPhoto ? `background: linear-gradient(to bottom, rgba(0,0,0,0.4), rgba(0,0,0,0.9)), url('file://${src.coverPhoto.replace(/\\/g, '/')}') center/cover; border-color: rgba(255,255,255,0.1);` : '';
+                
                 card.innerHTML = `
-                    <div style="display: flex; flex-direction: column; gap: 8px;">
+                    <div style="position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: -1; border-radius: inherit; ${bgStyle}"></div>
+                    <div style="display: flex; flex-direction: column; gap: 8px; position: relative; z-index: 1;">
                         <div style="display: flex; align-items: center; gap: 10px;">
-                            <span style="font-size: 24px;">🌐</span>
-                            <h3 style="margin: 0; font-size: 18px; color: var(--accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600;">${src.name}</h3>
+                            <span style="font-size: 24px;">${src.coverPhoto ? '' : '🌐'}</span>
+                            <h3 style="margin: 0; font-size: 18px; color: ${src.coverPhoto ? '#fff' : 'var(--accent)'}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 600; text-shadow: ${src.coverPhoto ? '0 2px 4px rgba(0,0,0,0.8)' : 'none'};">${src.name}</h3>
                         </div>
-                        <span style="font-size: 12px; opacity: 0.5; word-break: break-all; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${src.url}</span>
+                        <span style="font-size: 12px; opacity: ${src.coverPhoto ? '0.8' : '0.5'}; color: ${src.coverPhoto ? '#ccc' : 'inherit'}; word-break: break-all; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-shadow: ${src.coverPhoto ? '0 1px 2px rgba(0,0,0,0.8)' : 'none'};">${src.url}</span>
                     </div>
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: auto;">
-                        <span style="font-size: 11px; opacity: 0.6; color: var(--accent); font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px;">Browse Source ➜</span>
-                        <button class="outline danger-outline" onclick="deleteUserSource(${idx})" style="padding: 6px 12px; font-size: 12px; border-radius: 6px;">🗑️ Delete</button>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-top: auto; position: relative; z-index: 1;">
+                        <span style="font-size: 11px; opacity: 0.8; color: ${src.coverPhoto ? '#a855f7' : 'var(--accent)'}; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px; text-shadow: ${src.coverPhoto ? '0 1px 3px rgba(0,0,0,0.8)' : 'none'};">${src.openInSystemBrowser ? 'Open in System Browser ➜' : 'Browse Source ➜'}</span>
+                        <div style="display: flex; gap: 5px;">
+                            <button class="outline" onclick="editUserSource(${idx})" style="padding: 6px 12px; font-size: 12px; border-radius: 6px; ${src.coverPhoto ? 'background: rgba(0,0,0,0.5); border-color: rgba(255,255,255,0.2);' : ''}">✏️ Edit</button>
+                            <button class="outline danger-outline" onclick="deleteUserSource(${idx})" style="padding: 6px 12px; font-size: 12px; border-radius: 6px; ${src.coverPhoto ? 'background: rgba(0,0,0,0.5); border-color: rgba(239,68,68,0.4); color: #f87171;' : ''}">🗑️</button>
+                        </div>
                     </div>
                 `;
+                // Add position relative for the absolute background
+                card.style.position = 'relative';
+                card.style.overflow = 'hidden';
                 grid.appendChild(card);
             });
         };
@@ -7353,8 +7614,12 @@
         window.addUserSource = function() {
             const nameInput = document.getElementById('addSourceNameInput');
             const urlInput = document.getElementById('addSourceUrlInput');
+            const coverInput = document.getElementById('addSourceCoverInput');
+            const browserToggle = document.getElementById('addSourceBrowserToggle');
             const name = nameInput.value.trim();
             let url = urlInput.value.trim();
+            const coverPhoto = coverInput.value.trim() || null;
+            const openInSystemBrowser = browserToggle.checked;
             
             if (!name || !url) {
                 alert("Please enter both a source name and URL.");
@@ -7366,12 +7631,39 @@
             }
             
             if (!globalSettings.sources) globalSettings.sources = [];
-            globalSettings.sources.push({ name, url });
+            
+            if (editingSourceIndex > -1) {
+                globalSettings.sources[editingSourceIndex] = { name, url, coverPhoto, openInSystemBrowser };
+            } else {
+                globalSettings.sources.push({ name, url, coverPhoto, openInSystemBrowser });
+            }
+            
             saveToMemory();
             renderSources();
+            cancelEditSource();
+        };
+
+        window.editUserSource = function(idx) {
+            editingSourceIndex = idx;
+            const src = globalSettings.sources[idx];
+            document.getElementById('addSourceNameInput').value = src.name;
+            document.getElementById('addSourceUrlInput').value = src.url;
+            document.getElementById('addSourceCoverInput').value = src.coverPhoto || '';
+            document.getElementById('addSourceBrowserToggle').checked = !!src.openInSystemBrowser;
             
-            nameInput.value = '';
-            urlInput.value = '';
+            document.getElementById('saveSourceBtn').innerText = '💾 Save Source';
+            document.getElementById('cancelEditSourceBtn').style.display = 'inline-block';
+        };
+
+        window.cancelEditSource = function() {
+            editingSourceIndex = -1;
+            document.getElementById('addSourceNameInput').value = '';
+            document.getElementById('addSourceUrlInput').value = '';
+            document.getElementById('addSourceCoverInput').value = '';
+            document.getElementById('addSourceBrowserToggle').checked = false;
+            
+            document.getElementById('saveSourceBtn').innerText = '+ Add Source';
+            document.getElementById('cancelEditSourceBtn').style.display = 'none';
         };
 
         window.deleteUserSource = function(idx) {
@@ -7383,6 +7675,13 @@
         };
 
         window.openSourcesBrowser = function(url) {
+            // Find if this source wants system browser
+            const sourceInfo = (globalSettings.sources || []).find(s => s.url === url);
+            if (sourceInfo && sourceInfo.openInSystemBrowser) {
+                require('electron').ipcRenderer.invoke('open-url', url);
+                return;
+            }
+
             document.getElementById('sourcesMainPanel').style.display = 'none';
             const browserPanel = document.getElementById('sourcesBrowserPanel');
             browserPanel.style.display = 'flex';
@@ -7702,28 +8001,33 @@
             if (currentFilterSectionId === 'FAVORITES') {
                 const card = document.querySelector(`.game-card[data-master-index="${index}"]`);
                 if (card) {
-                    card.style.transition = 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)';
-                    card.style.transform = 'scale(0.9) translateY(20px)';
+                    card.style.transition = 'all 0.15s cubic-bezier(0.16, 1, 0.3, 1)';
+                    card.style.transform = 'scale(0.9) translateY(15px)';
                     card.style.opacity = '0';
-                    card.style.filter = 'blur(8px)';
+                    card.style.filter = 'blur(4px)';
                     setTimeout(() => {
                         skipStaggerAnimation = true;
                         renderGames();
                         skipStaggerAnimation = false;
-                    }, 300);
+                    }, 150);
                 } else {
                     renderGames();
                 }
             } else if (starBtn) {
-                // Visually toggle it WITHOUT destroying the whole grid!
+                // Visually toggle star active class immediately
                 starBtn.classList.toggle('active', myGames[index].isFavorite);
                 starBtn.style.animation = 'none';
                 void starBtn.offsetWidth; // Trigger a browser reflow
-                if (myGames[index].isFavorite) {
-                    starBtn.style.animation = globalSettings.glassmorphicUi ? 'iosStarPop 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) both' : 'starPop 0.4s ease';
-                } else {
-                    starBtn.style.animation = globalSettings.glassmorphicUi ? 'iosStarUnpop 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) both' : 'starUnpop 0.4s ease';
-                }
+                starBtn.style.animation = globalSettings.glassmorphicUi ? 
+                    (myGames[index].isFavorite ? 'iosStarPop 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) both' : 'iosStarUnpop 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) both') : 
+                    (myGames[index].isFavorite ? 'starPop 0.4s ease' : 'starUnpop 0.4s ease');
+                
+                // Re-sort the library grid after a short 150ms delay, preserving scroll and focus
+                setTimeout(() => {
+                    skipStaggerAnimation = true;
+                    renderGames();
+                    skipStaggerAnimation = false;
+                }, 150);
             }
         };
 
@@ -7759,12 +8063,18 @@
             if (sortMode === 'STEAM') filtered = filtered.filter(item => item.game.steamAppId);
             else if (sortMode === 'CUSTOM') filtered = filtered.filter(item => !item.game.steamAppId);
 
-            // Sort to display favorited games first at the top
+            // Sort to display favorited games first at the top (unless disabled), then alphabetical
             filtered.sort((a, b) => {
-                const aFav = !!a.game.isFavorite;
-                const bFav = !!b.game.isFavorite;
-                if (aFav && !bFav) return -1;
-                if (!aFav && bFav) return 1;
+                if (globalSettings.sortOrder !== 'alphabetical') {
+                    const aFav = !!a.game.isFavorite;
+                    const bFav = !!b.game.isFavorite;
+                    if (aFav && !bFav) return -1;
+                    if (!aFav && bFav) return 1;
+                }
+                const nameA = (a.game.name || '').toLowerCase();
+                const nameB = (b.game.name || '').toLowerCase();
+                if (nameA < nameB) return -1;
+                if (nameA > nameB) return 1;
                 return 0;
             });
 
@@ -7833,10 +8143,14 @@
 
                 card.addEventListener('click', (e) => {
                     if (selectModeActive) {
-                        if (selectedGameIndices.has(masterIndex)) selectedGameIndices.delete(masterIndex);
-                        else selectedGameIndices.add(masterIndex);
+                        if (selectedGameIndices.has(masterIndex)) {
+                            selectedGameIndices.delete(masterIndex);
+                            card.classList.remove('selected');
+                        } else {
+                            selectedGameIndices.add(masterIndex);
+                            card.classList.add('selected');
+                        }
                         updateSelectCount();
-                        renderGames();
                         return;
                     }
                     const starBtn = e.target.closest('.fav-btn');
@@ -7861,7 +8175,12 @@
             selectedGameIndices.clear();
             document.getElementById('selectModeControls').style.display = active ? 'flex' : 'none';
             updateSelectCount();
-            renderGames();
+            
+            const cards = document.querySelectorAll('.game-card');
+            cards.forEach(card => {
+                card.draggable = !active;
+                card.classList.remove('selected');
+            });
         };
 
         window.selectAllGames = function () {
@@ -7869,15 +8188,18 @@
             cards.forEach(card => {
                 const idx = parseInt(card.getAttribute('data-master-index'));
                 selectedGameIndices.add(idx);
+                card.classList.add('selected');
             });
             updateSelectCount();
-            renderGames();
         };
 
         window.deselectAllGames = function () {
             selectedGameIndices.clear();
+            const cards = document.querySelectorAll('.game-card');
+            cards.forEach(card => {
+                card.classList.remove('selected');
+            });
             updateSelectCount();
-            renderGames();
         };
 
         function updateSelectCount() {
@@ -8110,7 +8432,13 @@
                     isFavorite: editingIndex === -1 ? false : myGames[editingIndex].isFavorite,
                     runAsAdmin: editingIndex === -1 ? false : !!myGames[editingIndex].runAsAdmin,
                     launchArgs: editingIndex === -1 ? "" : myGames[editingIndex].launchArgs || "",
-                    companionApp: editingIndex === -1 ? "" : myGames[editingIndex].companionApp || ""
+                    companionApp: editingIndex === -1 ? "" : myGames[editingIndex].companionApp || "",
+                    playtime: editingIndex === -1 ? 0 : myGames[editingIndex].playtime || 0,
+                    lastPlayed: editingIndex === -1 ? null : myGames[editingIndex].lastPlayed || null,
+                    highPriority: editingIndex === -1 ? false : !!myGames[editingIndex].highPriority,
+                    preLaunchScript: editingIndex === -1 ? "" : myGames[editingIndex].preLaunchScript || "",
+                    postLaunchScript: editingIndex === -1 ? "" : myGames[editingIndex].postLaunchScript || "",
+                    iconData: editingIndex === -1 ? null : myGames[editingIndex].iconData || null
                 };
 
                 if (isRom) {
@@ -8161,6 +8489,13 @@
             document.getElementById('driveSave').value = game.driveSave || "";
             document.getElementById('playDetectionPath').value = game.playDetectionPath || "";
             document.querySelectorAll('.game-tag-cb').forEach(cb => cb.checked = game.tags && game.tags.includes(cb.value));
+
+            saveDetectionOverridden = false;
+            updateSaveDetectionUI();
+            if (!game.localSave && game.steamAppId) {
+                runAutoSaveDetection();
+            }
+
             openModal('addModal');
         };
 
@@ -8356,6 +8691,16 @@
             globalSettings.enableSourcesPage = e.target.checked;
             saveToMemory();
             updateSourcesTabVisibility();
+        });
+        document.getElementById('enableSaveDetectionToggle').addEventListener('change', (e) => {
+            globalSettings.enableSaveDetection = e.target.checked;
+            saveToMemory();
+            document.getElementById('saveDetectionOptionsContainer').style.display = e.target.checked ? 'block' : 'none';
+            updateSaveDetectionUI();
+        });
+        document.getElementById('saveDetectionModeSelect').addEventListener('change', (e) => {
+            globalSettings.saveDetectionMode = e.target.value;
+            saveToMemory();
         });
         document.getElementById('enableDiscoverToggle').addEventListener('change', (e) => {
             globalSettings.enableDiscoverPage = e.target.checked;
@@ -8635,6 +8980,11 @@
         }
 
         function applyTheme(themeId) {
+            const initThemeStyle = document.getElementById('initialCustomThemeStyles');
+            if (initThemeStyle) initThemeStyle.remove();
+            const initFontStyle = document.getElementById('initialCustomFontStyles');
+            if (initFontStyle) initFontStyle.remove();
+
             let classesToKeep = [];
             if (document.body.classList.contains('big-picture-mode')) classesToKeep.push('big-picture-mode');
             if (document.body.classList.contains('hide-cursor')) classesToKeep.push('hide-cursor');
@@ -8955,6 +9305,103 @@
         document.getElementById('browseShortcutIconBtn').addEventListener('click', async () => { const p = await ipcRenderer.invoke('dialog-select-icon'); if (p) document.getElementById('shortcutIconPath').value = p; });
         document.getElementById('browseBannerBtn').addEventListener('click', async () => { const p = await ipcRenderer.invoke('dialog-select-image'); if (p) document.getElementById('customBannerPath').value = p; });
         document.getElementById('browseLocalBtn').addEventListener('click', async () => { const p = await ipcRenderer.invoke('dialog-select-folder'); if (p) document.getElementById('localSave').value = p; });
+        let saveDetectionOverridden = false;
+        window.updateSaveDetectionUI = function() {
+            const localSaveInput = document.getElementById('localSave');
+            const browseBtn = document.getElementById('browseLocalBtn');
+            const overrideBtn = document.getElementById('overrideSaveBtn');
+            
+            const isDetectionEnabled = !!globalSettings.enableSaveDetection;
+            
+            if (isDetectionEnabled) {
+                overrideBtn.style.display = 'inline-block';
+                if (saveDetectionOverridden) {
+                    localSaveInput.disabled = false;
+                    localSaveInput.style.opacity = '1';
+                    localSaveInput.style.cursor = 'text';
+                    browseBtn.disabled = false;
+                    browseBtn.style.opacity = '1';
+                    overrideBtn.innerText = "Re-detect";
+                } else {
+                    localSaveInput.disabled = true;
+                    localSaveInput.style.opacity = '0.5';
+                    localSaveInput.style.cursor = 'not-allowed';
+                    browseBtn.disabled = true;
+                    browseBtn.style.opacity = '0.5';
+                    overrideBtn.innerText = "Override";
+                }
+            } else {
+                overrideBtn.style.display = 'none';
+                localSaveInput.disabled = false;
+                localSaveInput.style.opacity = '1';
+                localSaveInput.style.cursor = 'text';
+                browseBtn.disabled = false;
+                browseBtn.style.opacity = '1';
+            }
+        };
+
+        window.runAutoSaveDetection = async function() {
+            if (!globalSettings.enableSaveDetection) return;
+            if (saveDetectionOverridden) return;
+            const steamAppId = document.getElementById('steamAppId').value.trim();
+            if (!steamAppId) return;
+
+            let gameName = document.getElementById('gameName').value.trim();
+            if (!gameName) {
+                try {
+                    const res = await fetch(`https://store.steampowered.com/api/appdetails?appids=${steamAppId}`);
+                    const json = await res.json();
+                    if (json && json[steamAppId] && json[steamAppId].success) {
+                        gameName = json[steamAppId].data.name;
+                        document.getElementById('gameName').value = gameName;
+                    }
+                } catch (err) {
+                    console.error("Failed to fetch game name for save detection:", err);
+                }
+            }
+
+            if (!gameName) return;
+
+            const mode = globalSettings.saveDetectionMode || 'auto';
+            const channel = mode === 'ludusavi' ? 'detect-saves-ludusavi' : 'detect-saves-auto';
+
+            const localSaveInput = document.getElementById('localSave');
+            const originalPlaceholder = localSaveInput.placeholder;
+            localSaveInput.placeholder = "Detecting save location...";
+
+            try {
+                const res = await ipcRenderer.invoke(channel, gameName);
+                if (res.success && res.paths && res.paths.length > 0) {
+                    localSaveInput.value = res.paths[0];
+                }
+            } catch (err) {
+                console.error("Error auto-detecting saves:", err);
+            } finally {
+                localSaveInput.placeholder = originalPlaceholder;
+            }
+        };
+
+        window.selectSteamSearchResult = function(appid, name) {
+            document.getElementById('steamAppId').value = appid;
+            document.getElementById('gameName').value = name;
+            document.getElementById('steamAppId').dispatchEvent(new Event('input'));
+            window.toggleSteamSearch();
+        };
+
+        document.getElementById('overrideSaveBtn').addEventListener('click', (e) => {
+            e.preventDefault();
+            saveDetectionOverridden = !saveDetectionOverridden;
+            updateSaveDetectionUI();
+            if (!saveDetectionOverridden) {
+                runAutoSaveDetection();
+            }
+        });
+
+        document.getElementById('steamAppId').addEventListener('input', () => {
+            if (!saveDetectionOverridden) {
+                runAutoSaveDetection();
+            }
+        });
         document.getElementById('browseDriveBtn').addEventListener('click', async () => { const p = await ipcRenderer.invoke('dialog-select-folder'); if (p) document.getElementById('driveSave').value = p; });
         document.getElementById('browseEmulatorBtn').addEventListener('click', async () => { const p = await ipcRenderer.invoke('dialog-select-file'); if (p) document.getElementById('emulatorPath').value = p; });
         document.getElementById('browseRomBtn').addEventListener('click', async () => { const p = await ipcRenderer.invoke('dialog-select-file'); if (p) document.getElementById('romPath').value = p; });
@@ -8964,6 +9411,7 @@
         document.getElementById('customFontInput').addEventListener('change', (e) => { globalSettings.customFont = e.target.value; saveToMemory(); applyFont(globalSettings.fontFamily, e.target.value); });
         document.getElementById('fontSelect').addEventListener('change', (e) => { const val = e.target.value; globalSettings.fontFamily = val; document.getElementById('customFontWrapper').style.display = val === 'custom' ? 'flex' : 'none'; saveToMemory(); applyFont(val, globalSettings.customFont); });
         document.getElementById('tileShapeSelect').addEventListener('change', (e) => { globalSettings.tileShape = e.target.value; saveToMemory(); applyTileShape(e.target.value); });
+        document.getElementById('sortOrderSelect').addEventListener('change', (e) => { globalSettings.sortOrder = e.target.value; saveToMemory(); renderGames(); });
         document.getElementById('tileSizeSelect').addEventListener('change', (e) => {
             document.body.classList.remove('tile-size-small', 'tile-size-medium', 'tile-size-large');
             globalSettings.tileSize = e.target.value;

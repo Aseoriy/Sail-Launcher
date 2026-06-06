@@ -202,21 +202,31 @@ function createWindow() {
     win.on('moved', debouncedSaveBounds);
 
     win.webContents.on('will-navigate', (event, url) => {
-        if (!url.startsWith('file://') && !url.includes('index.html')) {
+        if (!url.startsWith('http://') && !url.startsWith('https://')) {
+            return;
+        }
+        if (!url.startsWith('https://sailhub.fyi')) {
             event.preventDefault();
             shell.openExternal(url);
         }
     });
 
     win.webContents.on('will-frame-navigate', (event) => {
-        if (!event.isMainFrame && !event.url.startsWith('https://sailhub.netlify.app')) {
+        const url = event.url;
+        if (!url.startsWith('http://') && !url.startsWith('https://')) {
+            return;
+        }
+        if (!event.isMainFrame && !url.startsWith('https://sailhub.fyi')) {
             event.preventDefault();
-            shell.openExternal(event.url);
+            shell.openExternal(url);
         }
     });
 
     win.webContents.setWindowOpenHandler(({ url }) => {
-        if (!url.startsWith('file://') && !url.includes('index.html') && !url.startsWith('https://sailhub.netlify.app')) {
+        if (!url.startsWith('http://') && !url.startsWith('https://')) {
+            return { action: 'allow' };
+        }
+        if (!url.startsWith('https://sailhub.fyi')) {
             shell.openExternal(url);
             return { action: 'deny' };
         }
@@ -313,8 +323,15 @@ ipcMain.handle('search-steam-workshop', async (e, appId, query, page = 1) => {
                         html = buffer.toString('utf8');
                     }
                     
-                    const matches = [...html.matchAll(/data-publishedfileid="(\d+)".*?src="(.*?)".*?class="workshopItemTitle.*?>(.*?)</gs)];
-                    const items = matches.map(m => ({ id: m[1], previewUrl: m[2], title: m[3] }));
+                    // Steam updated to React SSR/hydration. Parse DOM structure.
+                    let matches = [...html.matchAll(/href="https:\/\/steamcommunity\.com\/sharedfiles\/filedetails\/\?id=(\d+)"[^>]*>\s*<img src="([^"]+)"[^>]*alt="([^"]*)"/g)];
+                    let items = matches.map(m => ({ id: m[1], previewUrl: m[2], title: m[3] }));
+                    
+                    // Fallback to legacy parser
+                    if (items.length === 0) {
+                        const legacyMatches = [...html.matchAll(/data-publishedfileid="(\d+)".*?src="(.*?)".*?class="workshopItemTitle.*?>(.*?)</gs)];
+                        items = legacyMatches.map(m => ({ id: m[1], previewUrl: m[2], title: m[3] }));
+                    }
                     resolve(items);
                 } catch(e) {
                     console.error('Error decoding/parsing workshop search:', e);
@@ -868,6 +885,129 @@ ipcMain.handle('open-url', (e, url) => shell.openExternal(url));
 ipcMain.handle('show-item-in-folder', (e, itemPath) => shell.showItemInFolder(itemPath));
 
 ipcMain.handle('kill-process', (e, targetExeName) => exec(`taskkill /F /T /IM "${targetExeName}"`));
+
+let ludusaviManifestCache = null;
+
+async function getLudusaviManifest() {
+    if (ludusaviManifestCache) return ludusaviManifestCache;
+    
+    const manifestPath = path.join(app.getPath('userData'), 'ludusavi_manifest.json');
+    
+    try {
+        if (fs.existsSync(manifestPath)) {
+            const stats = fs.statSync(manifestPath);
+            const ageDays = (Date.now() - stats.mtimeMs) / (1000 * 60 * 60 * 24);
+            if (ageDays < 7) {
+                ludusaviManifestCache = fs.readJsonSync(manifestPath);
+                return ludusaviManifestCache;
+            }
+        }
+    } catch(e) {}
+    
+    try {
+        const res = await fetch('https://raw.githubusercontent.com/mtkennerly/ludusavi-manifest/master/data/manifest.json');
+        if (res.ok) {
+            const json = await res.json();
+            fs.writeJsonSync(manifestPath, json);
+            ludusaviManifestCache = json;
+            return json;
+        }
+    } catch(e) {
+        console.error("Ludusavi fetch error:", e);
+    }
+    
+    if (fs.existsSync(manifestPath)) {
+        ludusaviManifestCache = fs.readJsonSync(manifestPath);
+        return ludusaviManifestCache;
+    }
+    return null;
+}
+
+function resolveLudusaviPath(rawPath) {
+    let p = rawPath;
+    p = p.replace(/<winAppData>/gi, process.env.APPDATA || '');
+    p = p.replace(/<winLocalAppData>/gi, process.env.LOCALAPPDATA || '');
+    p = p.replace(/<winDocuments>/gi, path.join(process.env.USERPROFILE || '', 'Documents'));
+    p = p.replace(/<winPublic>/gi, 'C:\\Users\\Public');
+    p = p.replace(/<winProgramData>/gi, process.env.PROGRAMDATA || '');
+    p = p.replace(/<winDir>/gi, process.env.windir || '');
+    p = p.replace(/<winProfile>/gi, process.env.USERPROFILE || '');
+    p = p.replace(/<osUserName>/gi, process.env.USERNAME || '');
+    p = p.replace(/\//g, '\\');
+    return p;
+}
+
+ipcMain.handle('detect-saves-ludusavi', async (e, gameName) => {
+    const manifest = await getLudusaviManifest();
+    if (!manifest) return { success: false, error: "Failed to download Ludusavi database." };
+    
+    const gameKey = Object.keys(manifest).find(k => k.toLowerCase() === gameName.toLowerCase());
+    if (!gameKey) return { success: true, paths: [] };
+    
+    const gameData = manifest[gameKey];
+    if (!gameData.files) return { success: true, paths: [] };
+    
+    const dirs = new Set();
+    for (const rawPath of Object.keys(gameData.files)) {
+        if (!rawPath.toLowerCase().includes('<win') && !rawPath.toLowerCase().includes('<os')) continue;
+        
+        let resolved = resolveLudusaviPath(rawPath);
+        let dirPath = resolved;
+        if (resolved.includes('*')) {
+            dirPath = resolved.substring(0, resolved.indexOf('*'));
+        }
+        
+        dirPath = path.normalize(dirPath).replace(/\\$/, '');
+        
+        try {
+            if (fs.existsSync(dirPath)) {
+                if (fs.statSync(dirPath).isDirectory()) dirs.add(dirPath);
+                else dirs.add(path.dirname(dirPath));
+            } else {
+                dirs.add(path.dirname(dirPath));
+            }
+        } catch(e) {
+            dirs.add(path.dirname(dirPath));
+        }
+    }
+    
+    return { success: true, paths: [...dirs] };
+});
+
+ipcMain.handle('detect-saves-auto', async (e, gameName) => {
+    const searchDirs = [
+        path.join(process.env.APPDATA || ''),
+        path.join(process.env.LOCALAPPDATA || ''),
+        path.join(process.env.LOCALAPPDATA || '', 'Low'),
+        path.join(process.env.USERPROFILE || '', 'Documents'),
+        path.join(process.env.USERPROFILE || '', 'Documents', 'My Games'),
+        path.join(process.env.USERPROFILE || '', 'Saved Games')
+    ].filter(Boolean);
+    
+    const results = [];
+    const normalizedTarget = gameName.toLowerCase().replace(/[^a-z0-9]/g, '');
+    
+    // Very simple heuristic folder scanner
+    for (const baseDir of searchDirs) {
+        try {
+            if (!fs.existsSync(baseDir)) continue;
+            const items = fs.readdirSync(baseDir, { withFileTypes: true });
+            for (const item of items) {
+                if (!item.isDirectory()) continue;
+                const dirNameNorm = item.name.toLowerCase().replace(/[^a-z0-9]/g, '');
+                
+                // If folder name closely matches game name
+                if (dirNameNorm && (normalizedTarget.includes(dirNameNorm) || dirNameNorm.includes(normalizedTarget))) {
+                    results.push(path.join(baseDir, item.name));
+                }
+            }
+        } catch (err) {
+            // Ignore access denied errors
+        }
+    }
+    
+    return { success: true, paths: results };
+});
 
 function runScript(scriptPath, wait = true) {
     if (!scriptPath || !fs.existsSync(scriptPath)) return Promise.resolve();

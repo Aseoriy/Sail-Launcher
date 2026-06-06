@@ -225,8 +225,8 @@
         <button class="modal-close" onclick="hideModal('loginModal')">✕</button>
         <h2>Welcome Back</h2>
         <div class="field">
-            <label>Email</label>
-            <input type="email" id="loginEmail" placeholder="you@example.com">
+            <label>Email or Username</label>
+            <input type="text" id="loginEmail" placeholder="you@example.com or CoolGamer42">
         </div>
         <div class="field">
             <label>Password</label>
@@ -234,8 +234,28 @@
         </div>
         <div id="loginError" class="error-text" style="display:none;"></div>
         <button class="btn btn-accent" style="width:100%;justify-content:center;margin-top:8px;" onclick="logIn()">Log In</button>
+        <a href="#" onclick="showForgotPassword()" style="display: block; font-size: 0.82rem; color: var(--accent); margin-top: 12px; text-align: center; text-decoration: none;">Forgot password?</a>
     </div>
 </div>
+
+<!-- ========== FORGOT PASSWORD MODAL ========== -->
+<div class="modal-overlay" id="forgotPasswordModal">
+    <div class="modal">
+        <button class="modal-close" onclick="hideModal('forgotPasswordModal')">✕</button>
+        <h2>Reset Password</h2>
+        <p style="font-size: 0.88rem; color: var(--muted); margin-bottom: 16px; line-height: 1.4;">
+            Enter your email address and we'll send you a link to reset your password.
+        </p>
+        <div class="field">
+            <label>Email Address</label>
+            <input type="email" id="forgotEmail" placeholder="you@example.com">
+        </div>
+        <div id="forgotError" class="error-text" style="display:none;"></div>
+        <div id="forgotSuccess" class="success-text" style="display:none;"></div>
+        <button class="btn btn-accent" id="forgotBtn" style="width:100%;justify-content:center;margin-top:8px;" onclick="sendResetEmail()">Send Reset Link</button>
+    </div>
+</div>
+
 
 <!-- ========== SIGNUP MODAL ========== -->
 <div class="modal-overlay" id="signupModal">
@@ -408,9 +428,25 @@ async function signUp() {
 }
 
 async function logIn() {
-    const email = document.getElementById('loginEmail').value.trim();
+    const identifier = document.getElementById('loginEmail').value.trim();
     const password = document.getElementById('loginPassword').value;
-    if (!email || !password) return showError('loginError', 'Both fields are required.');
+    if (!identifier || !password) return showError('loginError', 'Both fields are required.');
+
+    let email = identifier;
+
+    // If no @ symbol, treat it as a username and look up their email
+    if (!identifier.includes('@')) {
+        const { data: profile, error: lookupError } = await sb
+            .from('profiles')
+            .select('email')
+            .ilike('username', identifier)
+            .single();
+
+        if (lookupError || !profile || !profile.email) {
+            return showError('loginError', 'No account found with that username.');
+        }
+        email = profile.email;
+    }
 
     const { error } = await sb.auth.signInWithPassword({ email, password });
     if (error) return showError('loginError', error.message);
@@ -418,6 +454,43 @@ async function logIn() {
     hideModal('loginModal');
     await refreshAuth();
 }
+
+function showForgotPassword() {
+    hideModal('loginModal');
+    showModal('forgotPasswordModal');
+}
+
+async function sendResetEmail() {
+    const email = document.getElementById('forgotEmail').value.trim();
+    if (!email) return showError('forgotError', 'Email address is required.');
+
+    const btn = document.getElementById('forgotBtn');
+    btn.disabled = true;
+    btn.textContent = 'Sending...';
+
+    let redirectUrl = window.location.origin + window.location.pathname;
+    if (redirectUrl.endsWith('index.html')) {
+        redirectUrl = redirectUrl.slice(0, -10) + 'auth.html';
+    } else if (redirectUrl.endsWith('/')) {
+        redirectUrl = redirectUrl + 'auth.html';
+    } else {
+        redirectUrl = redirectUrl + '/auth.html';
+    }
+
+    const { error } = await sb.auth.resetPasswordForEmail(email, {
+        redirectTo: redirectUrl
+    });
+
+    btn.disabled = false;
+    btn.textContent = 'Send Reset Link';
+
+    if (error) {
+        showError('forgotError', error.message);
+    } else {
+        showSuccess('forgotSuccess', 'Password reset email sent! Check your inbox.');
+    }
+}
+
 
 async function logOut() {
     await sb.auth.signOut();
