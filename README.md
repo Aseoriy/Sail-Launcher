@@ -1,6 +1,5 @@
 # Sail Launcher 🚀
 
-Update: i have purchased a custom domain and will be using that now, the launcher will have an update soon that uses the new domain but for now it is using the old one. however - you may refer to the updated website in your web browser for the time being
 **Sail Hub Website**: [sailhub.fyi](https://sailhub.fyi)
 
 Sail Launcher is a modern, feature-rich custom game and application launcher. It is perfect for managing non-Steam games "ones you dont *own*", and emulated retro games.
