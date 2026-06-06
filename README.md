@@ -32,7 +32,7 @@ It automatically fetches game metadata, covers, and hero banners directly from S
       <summary>🎮 <b>Game Library & Management</b></summary>
       <ul>
         <li><b>Auto-Import Steam Library</b>: Scans your local Steam directories and imports all installed games in one click.</li>
-        <li><b>Save File Detection</b>: Automatically detects save file locations when entering a steam app id (**currently in beta**).</li>
+        <li><b>Save File Detection</b>: Automatically detects save file locations when entering a steam app id (currently in beta).</li>
         <li><b>Library Sorting</b>: Sorts your library alphabetically or by favorites.</li>
         <li><b>Metadata Downloader</b>: Fetches details, screenshots, descriptions, and banners from Steam API.</li>
         <li><b>Emulator & ROM support</b>: Add retro systems and run ROMs with customized command-line parameters.</li>
