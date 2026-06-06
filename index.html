@@ -4036,7 +4036,7 @@
                         </div>
                         <label style="font-size: 12px; opacity:0.6; display:block; margin-bottom:5px;">Detection Method</label>
                         <select id="saveDetectionModeSelect" class="settings-select" style="width:100%; padding: 8px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); color: var(--text-color); border-radius: 4px;">
-                            <option value="auto">Built-in Folder Scanner (Fast, heuristical)</option>
+                            <option value="auto">Built-in Folder Scanner (my personal recommendation)</option>
                             <option value="ludusavi">Ludusavi Database Integration (Downloads manifest locally)</option>
                         </select>
                     </div>
@@ -7582,7 +7582,7 @@
                     if (e.target.tagName.toLowerCase() === 'button' || e.target.closest('button')) {
                         return;
                     }
-                    openSourcesBrowser(src.url);
+                    openSourcesBrowser(src.url, !!src.openInSystemBrowser);
                 };
                 
                 const bgStyle = src.coverPhoto ? `background: linear-gradient(to bottom, rgba(0,0,0,0.4), rgba(0,0,0,0.9)), url('file://${src.coverPhoto.replace(/\\/g, '/')}') center/cover; border-color: rgba(255,255,255,0.1);` : '';
@@ -7674,11 +7674,9 @@
             }
         };
 
-        window.openSourcesBrowser = function(url) {
-            // Find if this source wants system browser
-            const sourceInfo = (globalSettings.sources || []).find(s => s.url === url);
-            if (sourceInfo && sourceInfo.openInSystemBrowser) {
-                require('electron').ipcRenderer.invoke('open-url', url);
+        window.openSourcesBrowser = function(url, openInSystemBrowser) {
+            if (openInSystemBrowser) {
+                ipcRenderer.invoke('open-url', url);
                 return;
             }
 
