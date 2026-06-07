@@ -3,41 +3,57 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sail Hub - Themes & Plugins</title>
-    <meta name="description" content="Browse and install community-created themes and plugins for Sail Launcher.">
+    <title>Sail Launcher - Custom Game & App Launcher</title>
+    <meta name="description" content="Organize, launch, and customize your entire game library with Sail Launcher. Native cloud saves (with google drive), emulation, and mod workshop integration.">
     
     <!-- Icons & Cover Photo -->
     <link rel="icon" type="image/png" href="icon.png">
     <link rel="apple-touch-icon" href="icon.png">
-    <meta property="og:title" content="Sail Hub - Themes & Plugins">
-    <meta property="og:description" content="Browse and install community-created themes and plugins for Sail Launcher.">
+    <meta property="og:title" content="Sail Launcher - Custom Game & App Launcher">
+    <meta property="og:description" content="Organize, launch, and customize your entire game library with Sail Launcher. Native cloud saves (with google drive), emulation, and mod workshop integration.">
     <meta property="og:image" content="icon.png">
-    <meta property="og:url" content="https://aseoriy.github.io/Sail-Launcher/">
+    <meta property="og:url" content="https://sailhub.fyi/">
     <meta property="og:type" content="website">
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:image" content="icon.png">
 
+    <!-- Fonts & Supabase -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    
     <style>
         :root {
-            --bg: #09090b; --text: #fafafa; --card: #18181b;
-            --border: #27272a; --accent: #a855f7; --accent-hover: #c084fc;
-            --muted: #a1a1aa; --danger: #ef4444;
+            --bg: #0b0b0f; 
+            --text: #fafafa; 
+            --card: rgba(24, 24, 27, 0.45);
+            --border: rgba(255, 255, 255, 0.08); 
+            --accent: #a855f7; 
+            --accent-hover: #c084fc;
+            --accent-rgb: 168, 85, 247;
+            --muted: #a1a1aa; 
+            --danger: #ef4444;
         }
         * { margin: 0; padding: 0; box-sizing: border-box; }
+        html { scroll-behavior: smooth; }
         body {
             background: var(--bg); color: var(--text);
-            font-family: 'Segoe UI', system-ui, sans-serif;
+            font-family: 'Inter', system-ui, sans-serif;
             min-height: 100vh; display: flex; flex-direction: column;
+            overflow-x: hidden;
         }
         body::before {
             content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
-            background: radial-gradient(circle at 50% 50%, var(--accent), transparent 60%);
-            animation: pulse 6s infinite alternate; opacity: 0.12;
+            background: radial-gradient(circle at 50% 20%, rgba(var(--accent-rgb), 0.12), transparent 50%),
+                        radial-gradient(circle at 80% 80%, rgba(var(--accent-rgb), 0.06), transparent 40%);
+            animation: pulseBg 10s infinite alternate;
         }
-        @keyframes pulse { 0%{transform:scale(1);opacity:.08} 100%{transform:scale(1.2);opacity:.18} }
-        @keyframes fadeIn { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
-        @keyframes modalIn { from{opacity:0;transform:scale(.9)} to{opacity:1;transform:scale(1)} }
+        @keyframes pulseBg { 0%{opacity:.8} 100%{opacity:1} }
+        @keyframes fadeIn { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:translateY(0)} }
+        @keyframes modalIn { from{opacity:0;transform:scale(.95)} to{opacity:1;transform:scale(1)} }
+
+        h1, h2, h3, h4, .logo { font-family: 'Outfit', sans-serif; }
 
         /* Scrollbar */
         ::-webkit-scrollbar { width: 10px; }
@@ -47,143 +63,191 @@
 
         /* Navbar */
         .navbar {
-            background: rgba(9,9,11,.85); backdrop-filter: blur(14px);
+            background: rgba(11, 11, 15, 0.8); backdrop-filter: blur(16px);
             border-bottom: 1px solid var(--border); padding: 14px 40px;
             display: flex; justify-content: space-between; align-items: center;
             position: sticky; top: 0; z-index: 100;
         }
-        .logo { font-size: 1.5rem; font-weight: 700; letter-spacing: 1px; color: var(--text); text-decoration: none; display: flex; align-items: center; gap: 8px; }
+        .logo { font-size: 1.5rem; font-weight: 700; letter-spacing: 0.5px; color: var(--text); text-decoration: none; display: flex; align-items: center; gap: 10px; }
+        .logo img { height: 32px; width: auto; object-fit: contain; }
         .logo span { color: var(--accent); }
-        .nav-right { display: flex; align-items: center; gap: 12px; }
-        .search-bar {
-            background: var(--card); border: 1px solid var(--border); color: var(--text);
-            padding: 9px 18px; border-radius: 999px; width: 280px; outline: none; transition: .3s;
-        }
-        .search-bar:focus { border-color: var(--accent); box-shadow: 0 0 12px rgba(168,85,247,.25); }
+        .nav-links { display: flex; gap: 24px; align-items: center; }
+        .nav-links a { color: var(--muted); text-decoration: none; font-size: 0.95rem; font-weight: 500; transition: 0.2s; }
+        .nav-links a:hover { color: var(--text); }
+        
+        .nav-right { display: flex; align-items: center; gap: 14px; }
 
         /* Buttons */
         .btn {
-            padding: 9px 18px; border-radius: 8px; border: 1px solid var(--border);
-            background: transparent; color: var(--text); font-weight: 600; cursor: pointer;
-            transition: .2s; font-size: .9rem; text-decoration: none; display: inline-flex; align-items: center; gap: 6px;
+            padding: 10px 20px; border-radius: 8px; border: 1px solid var(--border);
+            background: rgba(255, 255, 255, 0.03); color: var(--text); font-weight: 600; cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); font-size: .92rem; text-decoration: none; 
+            display: inline-flex; align-items: center; gap: 8px; font-family: 'Inter', sans-serif;
         }
-        .btn:hover { border-color: var(--accent); color: var(--accent); transform: translateY(-1px); }
-        .btn-accent { background: var(--accent); border-color: var(--accent); color: #fff; }
-        .btn-accent:hover { background: var(--accent-hover); border-color: var(--accent-hover); color: #fff; }
+        .btn:hover { border-color: rgba(168, 85, 247, 0.4); color: var(--accent-hover); transform: translateY(-1px); background: rgba(168, 85, 247, 0.03); }
+        .btn-accent { background: var(--accent); border-color: var(--accent); color: #fff; box-shadow: 0 4px 14px rgba(168, 85, 247, 0.3); }
+        .btn-accent:hover { background: var(--accent-hover); border-color: var(--accent-hover); color: #fff; box-shadow: 0 6px 20px rgba(168, 85, 247, 0.4); }
         .btn-danger { border-color: var(--danger); color: var(--danger); }
-        .btn-danger:hover { background: var(--danger); color: #fff; }
-        .btn-sm { padding: 6px 12px; font-size: .8rem; }
-        .btn:disabled { opacity: .5; cursor: not-allowed; transform: none !important; }
+        .btn-danger:hover { background: var(--danger); color: #fff; border-color: var(--danger); }
+        .btn-sm { padding: 7px 14px; font-size: .82rem; border-radius: 6px; }
+        .btn:disabled { opacity: .6; cursor: not-allowed; transform: none !important; box-shadow: none !important; }
 
-        /* Container & Hero */
-        .container { max-width: 1200px; margin: 0 auto; padding: 40px 20px; flex-grow: 1; width: 100%; }
-        .hero { text-align: center; margin-bottom: 50px; }
-        .hero h1 { font-size: 3rem; margin-bottom: 10px; text-shadow: 0 0 20px rgba(168,85,247,.4); }
-        .hero p { color: var(--muted); font-size: 1.1rem; max-width: 600px; margin: 0 auto; }
-
-        /* Tabs */
-        .tabs { display: flex; gap: 10px; margin-bottom: 30px; border-bottom: 1px solid var(--border); padding-bottom: 12px; }
-        .tab {
-            background: transparent; border: none; color: var(--muted); font-size: 1rem;
-            font-weight: 600; cursor: pointer; padding: 8px 14px; border-radius: 8px; transition: .2s;
+        /* Inline spinner for buttons */
+        .spinner-inline {
+            width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.3);
+            border-radius: 50%; border-top-color: #fff; animation: spin-inline 0.8s linear infinite;
+            display: inline-block; vertical-align: middle;
         }
-        .tab:hover { color: var(--text); background: rgba(255,255,255,.04); }
-        .tab.active { color: var(--accent); background: rgba(168,85,247,.1); }
+        @keyframes spin-inline { to { transform: rotate(360deg); } }
 
-        /* Grid & Cards */
-        .grid { display: grid; grid-template-columns: repeat(auto-fill,minmax(280px,1fr)); gap: 22px; }
-        .card {
-            background: var(--card); border: 1px solid var(--border); border-radius: 12px;
-            overflow: hidden; transition: .3s cubic-bezier(.4,0,.2,1); display: flex; flex-direction: column;
-            animation: fadeIn .4s ease;
+        /* General Sections */
+        .container { max-width: 1200px; margin: 0 auto; padding: 40px 20px; width: 100%; }
+        
+        /* Hero Section */
+        .hero-section {
+            padding: 80px 20px 60px 20px; display: flex; flex-direction: column;
+            align-items: center; text-align: center; position: relative;
         }
-        .card:hover { transform: translateY(-5px); border-color: var(--accent); box-shadow: 0 10px 30px rgba(0,0,0,.5), 0 0 12px rgba(168,85,247,.15); }
-        .card-img-wrap { width: 100%; height: 155px; overflow: hidden; position: relative; background: #111; }
-        .card-img { width: 100%; height: 100%; object-fit: cover; transition: .3s; }
-        .card:hover .card-img { transform: scale(1.05); }
-        .card-badge {
-            position: absolute; top: 10px; right: 10px; background: rgba(0,0,0,.7); backdrop-filter: blur(4px);
-            padding: 3px 9px; border-radius: 6px; font-size: .72rem; font-weight: bold; border: 1px solid rgba(255,255,255,.1);
+        .hero-badge {
+            background: rgba(168, 85, 247, 0.08); border: 1px solid rgba(168, 85, 247, 0.2);
+            color: #d8b4fe; padding: 6px 14px; border-radius: 99px; font-size: 0.85rem;
+            font-weight: 600; margin-bottom: 24px; display: inline-flex; align-items: center; gap: 6px;
+            animation: fadeIn 0.6s ease;
         }
-        .card-badge.theme { color: #38bdf8; border-color: rgba(56,189,248,.3); }
-        .card-badge.plugin { color: #f43f5e; border-color: rgba(244,63,94,.3); }
-        .card-body { padding: 18px; flex-grow: 1; display: flex; flex-direction: column; }
-        .card-title { font-size: 1.15rem; margin-bottom: 4px; }
-        .card-meta { font-size: .82rem; color: var(--muted); margin-bottom: 12px; display: flex; justify-content: space-between; }
-        .card-desc { font-size: .88rem; color: #d4d4d8; line-height: 1.5; flex-grow: 1; margin-bottom: 16px; }
-        .card-actions { display: flex; gap: 8px; }
-        .card-actions .btn { flex-grow: 1; justify-content: center; }
+        .hero-section h1 {
+            font-size: 3.8rem; font-weight: 800; line-height: 1.1; letter-spacing: -1.5px;
+            max-width: 900px; margin-bottom: 20px; background: linear-gradient(to right, #ffffff 30%, #e9d5ff 100%);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+            animation: fadeIn 0.7s ease;
+        }
+        .hero-section p {
+            color: var(--muted); font-size: 1.22rem; line-height: 1.6; max-width: 700px;
+            margin-bottom: 36px; animation: fadeIn 0.8s ease;
+        }
+        .hero-ctas {
+            display: flex; gap: 16px; margin-bottom: 60px; animation: fadeIn 0.9s ease;
+            flex-wrap: wrap; justify-content: center;
+        }
+        .hero-mockup {
+            max-width: 1000px; width: 100%; border-radius: 16px; border: 1px solid var(--border);
+            overflow: hidden; background: rgba(20, 20, 25, 0.5);
+            box-shadow: 0 30px 60px rgba(0,0,0,0.6), 0 0 100px rgba(168, 85, 247, 0.03);
+            padding: 8px; backdrop-filter: blur(10px); transition: all 0.4s ease;
+            animation: fadeIn 1s ease;
+        }
+        .hero-mockup:hover {
+            transform: translateY(-4px); border-color: rgba(168, 85, 247, 0.25);
+            box-shadow: 0 40px 80px rgba(0,0,0,0.7), 0 0 120px rgba(168, 85, 247, 0.08);
+        }
+        .hero-mockup img { width: 100%; height: auto; border-radius: 10px; display: block; }
 
-        /* Modal */
+        /* Features Section */
+        .features-section {
+            padding: 100px 20px; max-width: 1200px; margin: 0 auto;
+            border-top: 1px solid var(--border);
+        }
+        .section-header { text-align: center; margin-bottom: 60px; }
+        .section-header h2 { font-size: 2.6rem; font-weight: 800; margin-bottom: 14px; letter-spacing: -0.5px; }
+        .section-header p { color: var(--muted); font-size: 1.15rem; max-width: 650px; margin: 0 auto; line-height: 1.5; }
+        
+        .features-grid {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 24px;
+        }
+        .feature-card {
+            background: var(--card); border: 1px solid var(--border); border-radius: 16px;
+            padding: 30px; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            display: flex; flex-direction: column; gap: 16px;
+        }
+        .feature-card:hover {
+            transform: translateY(-4px); border-color: rgba(168, 85, 247, 0.25);
+            background: rgba(24, 24, 27, 0.6);
+            box-shadow: 0 20px 40px rgba(0,0,0,0.4), 0 0 30px rgba(168, 85, 247, 0.04);
+        }
+        .feature-icon-wrapper {
+            width: 48px; height: 48px; border-radius: 12px;
+            background: rgba(168, 85, 247, 0.08); border: 1px solid rgba(168, 85, 247, 0.2);
+            display: flex; align-items: center; justify-content: center; color: var(--accent);
+        }
+        .feature-icon-wrapper svg { width: 22px; height: 22px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+        .feature-card h3 { font-size: 1.25rem; font-weight: 700; letter-spacing: -0.2px; }
+        .feature-card p { color: var(--muted); font-size: 0.96rem; line-height: 1.6; }
+
+        /* Modal Overlay */
         .modal-overlay {
-            display: none; position: fixed; inset: 0; background: rgba(0,0,0,.8);
-            justify-content: center; align-items: center; z-index: 200;
+            display: none; position: fixed; inset: 0; background: rgba(0,0,0,.85);
+            backdrop-filter: blur(8px); justify-content: center; align-items: center; z-index: 200;
         }
         .modal-overlay.show { display: flex; }
         .modal {
-            background: var(--card); border: 1px solid var(--border); border-radius: 14px;
-            padding: 30px; width: 440px; max-width: 92vw; max-height: 88vh; overflow-y: auto;
-            animation: modalIn .3s ease; position: relative;
+            background: #121216; border: 1px solid var(--border); border-radius: 16px;
+            padding: 32px; width: 450px; max-width: 92vw; max-height: 88vh; overflow-y: auto;
+            animation: modalIn .3s cubic-bezier(0.16, 1, 0.3, 1); position: relative;
+            box-shadow: 0 30px 70px rgba(0,0,0,0.8), 0 0 50px rgba(168, 85, 247, 0.1);
         }
-        .modal h2 { margin-bottom: 20px; font-size: 1.4rem; }
+        .modal h2 { margin-bottom: 20px; font-size: 1.45rem; font-weight: 700; letter-spacing: -0.3px; }
         .modal-close {
-            position: absolute; top: 14px; right: 14px; background: none; border: none;
-            color: var(--muted); font-size: 1.2rem; cursor: pointer; padding: 4px 8px; border-radius: 6px; transition: .2s;
+            position: absolute; top: 18px; right: 18px; background: none; border: none;
+            color: var(--muted); font-size: 1.1rem; cursor: pointer; padding: 6px 10px; border-radius: 6px; transition: .2s;
         }
         .modal-close:hover { color: var(--danger); background: rgba(239,68,68,.1); }
 
         /* Form Fields */
-        .field { margin-bottom: 16px; }
-        .field label { display: block; font-size: .82rem; color: var(--muted); margin-bottom: 6px; }
+        .field { margin-bottom: 18px; }
+        .field label { display: block; font-size: .84rem; color: var(--muted); margin-bottom: 6px; font-weight: 600; }
         .field input, .field select, .field textarea {
-            width: 100%; padding: 10px 14px; background: var(--bg); border: 1px solid var(--border);
-            color: var(--text); border-radius: 8px; outline: none; transition: .2s; font-family: inherit;
+            width: 100%; padding: 11px 14px; background: rgba(255,255,255,0.02); border: 1px solid var(--border);
+            color: var(--text); border-radius: 8px; outline: none; transition: .2s; font-family: inherit; font-size: 0.95rem;
         }
-        .field input:focus, .field select:focus, .field textarea:focus { border-color: var(--accent); }
-        .field textarea { resize: vertical; min-height: 70px; }
-        .field-row { display: flex; gap: 10px; }
-        .field-row .field { flex: 1; }
-        .field .file-input-label {
-            display: flex; align-items: center; justify-content: center; gap: 8px;
-            padding: 10px; border: 1px dashed var(--border); border-radius: 8px; cursor: pointer;
-            color: var(--muted); transition: .2s; font-size: .9rem;
-        }
-        .field .file-input-label:hover { border-color: var(--accent); color: var(--accent); }
-        .field input[type="file"] { display: none; }
-        .error-text { color: var(--danger); font-size: .82rem; margin-top: 6px; }
-        .success-text { color: #10b981; font-size: .82rem; margin-top: 6px; }
+        .field input:focus, .field select:focus, .field textarea:focus { border-color: var(--accent); background: rgba(255, 255, 255, 0.04); }
+        .error-text { color: var(--danger); font-size: .84rem; margin-top: 8px; }
+        .success-text { color: #10b981; font-size: .84rem; margin-top: 8px; }
 
         /* User chip in navbar */
         .user-chip {
-            display: flex; align-items: center; gap: 8px; background: rgba(255,255,255,.05);
-            padding: 6px 14px; border-radius: 999px; font-size: .88rem; border: 1px solid var(--border);
+            display: flex; align-items: center; gap: 10px; background: rgba(255,255,255,.03);
+            padding: 6px 14px; border-radius: 999px; font-size: .9rem; border: 1px solid var(--border);
         }
-        .user-chip .avatar { width: 24px; height: 24px; border-radius: 50%; background: var(--accent); display: flex; align-items: center; justify-content: center; font-size: .7rem; color: #fff; font-weight: bold; }
-
-        /* Empty State */
-        .empty { grid-column: 1/-1; text-align: center; color: var(--muted); padding: 60px 20px; }
-        .empty p { font-size: 1.1rem; }
+        .user-chip .avatar { width: 24px; height: 24px; border-radius: 50%; background: var(--accent); display: flex; align-items: center; justify-content: center; font-size: .75rem; color: #fff; font-weight: bold; }
 
         /* Footer */
-        footer { text-align: center; padding: 24px; border-top: 1px solid var(--border); color: var(--muted); font-size: .85rem; }
-        footer a { color: var(--accent); text-decoration: none; }
-        footer a:hover { text-decoration: underline; }
+        footer { text-align: center; padding: 40px 20px; border-top: 1px solid var(--border); color: var(--muted); font-size: .88rem; margin-top: auto; }
+        footer a { color: var(--accent); text-decoration: none; font-weight: 500; }
+        footer a:hover { color: var(--accent-hover); text-decoration: underline; }
 
-        /* Responsive */
+        /* Responsive styling */
+        @media (max-width: 960px) {
+            .navbar { padding: 14px 24px; }
+            .nav-links { display: none; }
+            .hero-section h1 { font-size: 3rem; }
+        }
         @media (max-width: 640px) {
-            .navbar { padding: 12px 16px; flex-wrap: wrap; gap: 10px; }
-            .search-bar { width: 100%; order: 3; }
-            .hero h1 { font-size: 2rem; }
+            .navbar { padding: 12px 16px; }
+            .hero-section { padding: 50px 14px 30px 14px; }
+            .hero-section h1 { font-size: 2.2rem; }
+            .hero-section p { font-size: 1.05rem; }
+            .hero-ctas { width: 100%; flex-direction: column; }
+            .hero-ctas .btn { width: 100%; justify-content: center; }
             .container { padding: 20px 14px; }
+            .features-grid { grid-template-columns: 1fr; }
         }
     </style>
 </head>
 <body>
 
 <nav class="navbar">
-    <a href="#" class="logo">⛵ Sail <span>Hub</span></a>
+    <a href="#" class="logo">
+        <img src="icon.png" alt="Sail Launcher Logo">
+        Sail <span>Launcher</span>
+    </a>
+    
+    <div class="nav-links">
+        <a href="#" class="active">Home</a>
+        <a href="#features">Features</a>
+        <a href="/plugins">Themes & Plugins</a>
+        <a href="https://github.com/Aseoriy/Sail-Launcher" target="_blank">GitHub</a>
+    </div>
+
     <div class="nav-right">
-        <input type="text" id="searchInput" class="search-bar" placeholder="🔍 Search themes & plugins...">
         <!-- Auth buttons (shown/hidden by JS) -->
         <div id="authBtns">
             <button class="btn btn-sm" onclick="showModal('loginModal')">Log In</button>
@@ -194,29 +258,116 @@
                 <div class="avatar" id="userAvatar">?</div>
                 <span id="userName">User</span>
             </div>
-            <button class="btn btn-accent btn-sm" onclick="showModal('uploadModal')">📤 Upload</button>
+            <a href="/plugins" class="btn btn-accent btn-sm">📤 Upload</a>
             <button class="btn btn-sm btn-danger" onclick="logOut()">Log Out</button>
         </div>
     </div>
 </nav>
 
-<div class="container">
-    <div class="hero">
-        <h1>Customize Your Experience</h1>
-        <p>Discover community-created themes and powerful plugins for Sail Launcher.</p>
+<!-- HERO SECTION -->
+<section class="hero-section">
+    <div class="hero-badge">
+        <span>🚀</span> Sail Launcher v4.2.6 Is The Latest Release!
+    </div>
+    <h1>Super Cool Game/App Launcher!!!</h1>
+    <p>Organize your Steam titles, retro emulation games, and apps in one pretty cool, glassmorphic UI. It uses auto-metadata scraping, cloud save sync, and a native mod workshop (kinda).</p>
+    
+    <div class="hero-ctas">
+        <button class="btn btn-accent" onclick="downloadInstaller(this)">
+            <svg style="width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round;" viewBox="0 0 24 24">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+            Download for Windows
+        </button>
+        <a href="/plugins" class="btn">
+            <svg style="width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round;" viewBox="0 0 24 24">
+                <rect x="3" y="3" width="7" height="9"></rect>
+                <rect x="14" y="3" width="7" height="5"></rect>
+                <rect x="14" y="12" width="7" height="9"></rect>
+                <rect x="3" y="16" width="7" height="5"></rect>
+            </svg>
+            Browse Themes & Plugins
+        </a>
+        <a href="https://github.com/Aseoriy/Sail-Launcher" target="_blank" class="btn">
+            <svg style="width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round;" viewBox="0 0 24 24">
+                <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path>
+            </svg>
+            Browse GitHub
+        </a>
     </div>
 
-    <div class="tabs" id="filterTabs">
-        <button class="tab active" data-filter="all">All Items</button>
-        <button class="tab" data-filter="theme">🎨 Themes</button>
-        <button class="tab" data-filter="plugin">⚙️ Plugins</button>
+    <div class="hero-mockup">
+        <img src="overview.png" alt="Sail Launcher Interface Overview">
     </div>
+</section>
 
-    <div class="grid" id="itemsGrid"></div>
-</div>
+<!-- FEATURES SECTION -->
+<section class="features-section" id="features">
+    <div class="section-header">
+        <h2>Sail launcher was made by the one and only Aseoriy!!!</h2>
+        <p>An open-source game/app manager with script/mod support, and cloud services with a pretty yummy design.</p>
+    </div>
+    
+    <div class="features-grid">
+        <!-- Feature 1 -->
+        <div class="feature-card">
+            <div class="feature-icon-wrapper">
+                <svg viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 12h4M8 10v4M15 11h.01M18 13h.01"/></svg>
+            </div>
+            <h3>Library & Emulation Import</h3>
+            <p>Automatically imports your Steam library with 1 click. Fetches cover photos, banners, and descriptions, and supports retro emulator systems with custom parameters.</p>
+        </div>
+        <!-- Feature 2 -->
+        <div class="feature-card">
+            <div class="feature-icon-wrapper">
+                <svg viewBox="0 0 24 24"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+            </div>
+            <h3>Native Cloud Save Sync</h3>
+            <p>Direct API integration for backing up and restoring save files with Google Drive, OneDrive, or Dropbox. Auto-syncs launcher configurations. Tokens are encrypted using Electron's native safeStorage.</p>
+        </div>
+        <!-- Feature 3 -->
+        <div class="feature-card">
+            <div class="feature-icon-wrapper">
+                <svg viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+            </div>
+            <h3>Workshop & Mod Downloader</h3>
+            <p>An in-app browser interface for community mods. Downloads files anonymously from SteamCMD and extracts `.zip`, `.rar`, and `.7z` folders automatically into your game directories (please work).</p>
+        </div>
+        <!-- Feature 4 -->
+        <div class="feature-card">
+            <div class="feature-icon-wrapper">
+                <svg viewBox="0 0 24 24"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="M12 6v6l4 2"/></svg>
+            </div>
+            <h3>Themes & Micro-Animations</h3>
+            <p>It has a frosted glass ui with custom spring animations, background waves, pulse, or rippling flows. Personalize tile shapes (Squircle, Pill, Circle) and select from 10+ built in themes, you can also use a seperate ui from an older version of the launcher.</p>
+        </div>
+        <!-- Feature 5 -->
+        <div class="feature-card">
+            <div class="feature-icon-wrapper">
+                <svg viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+            </div>
+            <h3>Custom Pre/Post Scripts</h3>
+            <p>Automate companion programs (trainers, overlay screens, Discord) and trigger custom Batch (`.bat`) or PowerShell (`.ps1`) scripts that run on game launch and end on closure events.</p>
+        </div>
+        <!-- Feature 6 -->
+        <div class="feature-card">
+            <div class="feature-icon-wrapper">
+                <svg viewBox="0 0 24 24"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+            </div>
+            <h3>Discord RPC & Web Sources</h3>
+            <p>Broadcast active gaming states, playtime, and graphics to friends. Link your favorite modding and cataloging websites to navigate them smoothly inside the launcher's built-in web container.</p>
+        </div>
+    </div>
+</section>
 
+<!-- FOOTER -->
 <footer>
-    <p>Built for <a href="https://github.com/Aseoriy/Sail-Launcher">Sail Launcher</a>. Want to submit your own? Log in and click Upload!</p>
+    <p style="margin-top: 14px; font-size: 0.84rem; opacity: 0.8;">
+        <a href="/privacy" style="margin-right: 10px;">Privacy Policy</a> &bull; 
+        <a href="/terms" style="margin-left: 10px;">Terms of Service</a>
+    </p>
 </footer>
 
 <!-- ========== LOGIN MODAL ========== -->
@@ -256,7 +407,6 @@
     </div>
 </div>
 
-
 <!-- ========== SIGNUP MODAL ========== -->
 <div class="modal-overlay" id="signupModal">
     <div class="modal">
@@ -280,102 +430,10 @@
     </div>
 </div>
 
-<!-- ========== UPLOAD MODAL ========== -->
-<div class="modal-overlay" id="uploadModal">
-    <div class="modal">
-        <button class="modal-close" onclick="hideModal('uploadModal')">✕</button>
-        <h2>📤 Upload to Sail Hub</h2>
-        <div class="field-row">
-            <div class="field">
-                <label>Name</label>
-                <input type="text" id="uploadName" placeholder="My Awesome Theme">
-            </div>
-            <div class="field" style="flex:.6;">
-                <label>Type</label>
-                <select id="uploadType">
-                    <option value="theme">🎨 Theme</option>
-                    <option value="plugin">⚙️ Plugin</option>
-                </select>
-            </div>
-        </div>
-        <div class="field">
-            <label>Description</label>
-            <textarea id="uploadDesc" placeholder="Describe what your theme/plugin does..."></textarea>
-        </div>
-        <div class="field">
-            <label>Preview Image</label>
-            <label class="file-input-label" id="previewLabel">
-                <span id="previewLabelText">📷 Choose an image (.png, .jpg, .webp)</span>
-                <input type="file" id="uploadPreview" accept="image/*" onchange="updateFileLabel(this, 'previewLabelText')">
-            </label>
-        </div>
-        <div class="field">
-            <label>File (.json for themes, .zip, .rar or .7z for plugins)</label>
-            <label class="file-input-label" id="fileLabel">
-                <span id="fileLabelText">📁 Choose a file</span>
-                <input type="file" id="uploadFile" accept=".json,.zip,.rar,.7z" onchange="updateFileLabel(this, 'fileLabelText')">
-            </label>
-        </div>
-        <div id="uploadError" class="error-text" style="display:none;"></div>
-        <div id="uploadSuccess" class="success-text" style="display:none;"></div>
-        <button class="btn btn-accent" id="uploadBtn" style="width:100%;justify-content:center;margin-top:8px;" onclick="uploadItem()">🚀 Publish</button>
-    </div>
-</div>
-
-<!-- ========== EDIT MODAL ========== -->
-<div class="modal-overlay" id="editModal">
-    <div class="modal">
-        <button class="modal-close" onclick="hideModal('editModal')">✕</button>
-        <h2>✏️ Edit Item</h2>
-        <input type="hidden" id="editItemId">
-        <div class="field-row">
-            <div class="field">
-                <label>Name</label>
-                <input type="text" id="editName">
-            </div>
-        </div>
-        <div class="field">
-            <label>Description</label>
-            <textarea id="editDesc"></textarea>
-        </div>
-        <div class="field">
-            <label>New Preview Image (Optional)</label>
-            <label class="file-input-label" id="editPreviewLabel">
-                <span id="editPreviewLabelText">📷 Choose an image (.png, .jpg, .webp)</span>
-                <input type="file" id="editPreview" accept="image/*" onchange="updateFileLabel(this, 'editPreviewLabelText')">
-            </label>
-        </div>
-        <div class="field">
-            <label>New File (Optional, .json, .zip, .rar, .7z)</label>
-            <label class="file-input-label" id="editFileLabel">
-                <span id="editFileLabelText">📁 Choose a file</span>
-                <input type="file" id="editFile" accept=".json,.zip,.rar,.7z" onchange="updateFileLabel(this, 'editFileLabelText')">
-            </label>
-        </div>
-        <div id="editError" class="error-text" style="display:none;"></div>
-        <div id="editSuccess" class="success-text" style="display:none;"></div>
-        <button class="btn btn-accent" id="editBtn" style="width:100%;justify-content:center;margin-top:8px;" onclick="submitEdit()">💾 Save Changes</button>
-    </div>
-</div>
-
 <script>
-    // Sync themes with Sail Launcher parent window
-    window.addEventListener('message', (e) => {
-        if (e.data && e.data.type === 'apply-theme') {
-            const colors = e.data.colors;
-            if (colors) {
-                for (const key in colors) {
-                    document.documentElement.style.setProperty('--' + key, colors[key]);
-                }
-            }
-        }
-    });
-
 // ============================================================
 // SUPABASE CONFIG
 // ============================================================
-// ⚠️  REPLACE THESE with your real Supabase project values!
-//     Find them at: supabase.com → your project → Settings → API
 const SUPABASE_URL = 'https://vglpzpffejwgttlqrums.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZnbHB6cGZmZWp3Z3R0bHFydW1zIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzczMTUwNDUsImV4cCI6MjA5Mjg5MTA0NX0.2g1thhc4pbrRP8LbYPpOsTACj2VNMzldXbrIArBdVqE';
 
@@ -386,8 +444,6 @@ const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 // ============================================================
 let currentUser = null;
 let currentProfile = null;
-let currentFilter = 'all';
-let allItems = [];
 
 // ============================================================
 // MODAL HELPERS
@@ -395,15 +451,10 @@ let allItems = [];
 function showModal(id) { document.getElementById(id).classList.add('show'); }
 function hideModal(id) {
     document.getElementById(id).classList.remove('show');
-    // Clear errors
     document.querySelectorAll('.error-text, .success-text').forEach(el => { el.style.display = 'none'; el.textContent = ''; });
 }
 function showError(id, msg) { const el = document.getElementById(id); el.textContent = msg; el.style.display = 'block'; }
 function showSuccess(id, msg) { const el = document.getElementById(id); el.textContent = msg; el.style.display = 'block'; }
-function updateFileLabel(input, spanId) {
-    const span = document.getElementById(spanId);
-    if (input.files[0]) span.textContent = '✅ ' + input.files[0].name;
-}
 
 // ============================================================
 // AUTH
@@ -416,7 +467,6 @@ async function signUp() {
     if (!username || !email || !password) return showError('signupError', 'All fields are required.');
     if (password.length < 6) return showError('signupError', 'Password must be at least 6 characters.');
 
-    // Pass username as metadata — the database trigger will auto-create the profile row
     const { data, error } = await sb.auth.signUp({
         email,
         password,
@@ -434,7 +484,6 @@ async function logIn() {
 
     let email = identifier;
 
-    // If no @ symbol, treat it as a username and look up their email
     if (!identifier.includes('@')) {
         const { data: profile, error: lookupError } = await sb
             .from('profiles')
@@ -468,14 +517,7 @@ async function sendResetEmail() {
     btn.disabled = true;
     btn.textContent = 'Sending...';
 
-    let redirectUrl = window.location.origin + window.location.pathname;
-    if (redirectUrl.endsWith('index.html')) {
-        redirectUrl = redirectUrl.slice(0, -10) + 'auth.html';
-    } else if (redirectUrl.endsWith('/')) {
-        redirectUrl = redirectUrl + 'auth.html';
-    } else {
-        redirectUrl = redirectUrl + '/auth.html';
-    }
+    let redirectUrl = window.location.origin + '/auth';
 
     const { error } = await sb.auth.resetPasswordForEmail(email, {
         redirectTo: redirectUrl
@@ -490,7 +532,6 @@ async function sendResetEmail() {
         showSuccess('forgotSuccess', 'Password reset email sent! Check your inbox.');
     }
 }
-
 
 async function logOut() {
     await sb.auth.signOut();
@@ -527,249 +568,70 @@ function updateAuthUI() {
 }
 
 // ============================================================
-// UPLOAD
+// DIRECT INSTALLER DOWNLOAD
 // ============================================================
-async function uploadItem() {
-    if (!currentUser) return showError('uploadError', 'You must be logged in.');
-
-    const name = document.getElementById('uploadName').value.trim();
-    const type = document.getElementById('uploadType').value;
-    const desc = document.getElementById('uploadDesc').value.trim();
-    const previewFile = document.getElementById('uploadPreview').files[0];
-    const mainFile = document.getElementById('uploadFile').files[0];
-
-    if (!name || !desc || !mainFile) return showError('uploadError', 'Name, description, and file are required.');
-
-    const btn = document.getElementById('uploadBtn');
+async function downloadInstaller(btn) {
+    if (btn.disabled) return;
+    
+    const originalContent = btn.innerHTML;
     btn.disabled = true;
-    btn.textContent = 'Uploading...';
-
+    btn.innerHTML = `<span class="spinner-inline"></span> Fetching Installer...`;
+    
     try {
-        const ts = Date.now();
-
-        // Upload main file
-        const filePath = `${currentUser.id}/${ts}_${mainFile.name}`;
-        const { error: fileErr } = await sb.storage.from('files').upload(filePath, mainFile);
-        if (fileErr) throw new Error('File upload failed: ' + fileErr.message);
-        const file_url = sb.storage.from('files').getPublicUrl(filePath).data.publicUrl;
-
-        // Upload preview (optional)
-        let preview_url = null;
-        if (previewFile) {
-            const prevPath = `${currentUser.id}/${ts}_${previewFile.name}`;
-            const { error: prevErr } = await sb.storage.from('previews').upload(prevPath, previewFile);
-            if (prevErr) throw new Error('Preview upload failed: ' + prevErr.message);
-            preview_url = sb.storage.from('previews').getPublicUrl(prevPath).data.publicUrl;
-        }
-
-        // Insert database row
-        const { error: dbErr } = await sb.from('items').insert({
-            author_id: currentUser.id, name, description: desc, type, file_url, preview_url
-        });
-        if (dbErr) throw new Error('Database insert failed: ' + dbErr.message);
-
-        showSuccess('uploadSuccess', 'Published successfully! 🎉');
-        // Clear form
-        document.getElementById('uploadName').value = '';
-        document.getElementById('uploadDesc').value = '';
-        document.getElementById('uploadPreview').value = '';
-        document.getElementById('uploadFile').value = '';
-        document.getElementById('previewLabelText').textContent = '📷 Choose an image (.png, .jpg, .webp)';
-        document.getElementById('fileLabelText').textContent = '📁 Choose a file';
-
-        await fetchItems();
-    } catch (err) {
-        showError('uploadError', err.message);
-    } finally {
-        btn.disabled = false;
-        btn.textContent = '🚀 Publish';
-    }
-}
-
-// ============================================================
-// FETCH & RENDER
-// ============================================================
-async function fetchItems() {
-    const { data, error } = await sb
-        .from('items')
-        .select('*, profiles(username)')
-        .order('created_at', { ascending: false });
-
-    if (!error && data) {
-        allItems = data;
-        renderItems();
-    }
-}
-
-function renderItems() {
-    const grid = document.getElementById('itemsGrid');
-    const search = document.getElementById('searchInput').value.toLowerCase();
-
-    const filtered = allItems.filter(item => {
-        const matchType = currentFilter === 'all' || item.type === currentFilter;
-        const matchSearch = item.name.toLowerCase().includes(search) ||
-                            (item.description || '').toLowerCase().includes(search) ||
-                            (item.profiles?.username || '').toLowerCase().includes(search);
-        return matchType && matchSearch;
-    });
-
-    if (filtered.length === 0) {
-        grid.innerHTML = '<div class="empty"><p>No items found. Be the first to upload!</p></div>';
-        return;
-    }
-
-    grid.innerHTML = filtered.map(item => {
-        const badge = item.type === 'theme' ? '🎨 Theme' : '⚙️ Plugin';
-        const author = item.profiles?.username || 'Unknown';
-        const preview = item.preview_url || 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="200"><rect fill="%2318181b" width="400" height="200"/><text fill="%23a1a1aa" font-family="sans-serif" font-size="14" x="50%" y="50%" text-anchor="middle" dominant-baseline="middle">No Preview</text></svg>');
-        const installLink = 'sail-launcher://install-' + item.type + '?url=' + encodeURIComponent(item.file_url);
-
-        const canEdit = currentUser && (currentUser.id === item.author_id || (currentProfile && currentProfile.username === 'Aseoriy'));
+        const response = await fetch('https://api.github.com/repos/Aseoriy/Sail-Launcher/releases/latest');
+        if (!response.ok) throw new Error('GitHub API error');
+        const data = await response.json();
         
-        return '<div class="card">' +
-            '<div class="card-img-wrap">' +
-                '<span class="card-badge ' + item.type + '">' + badge + '</span>' +
-                '<img class="card-img" src="' + preview + '" alt="' + item.name + ' preview" loading="lazy">' +
-            '</div>' +
-            '<div class="card-body">' +
-                '<h3 class="card-title">' + item.name + '</h3>' +
-                '<div class="card-meta">' +
-                    '<span>By ' + author + '</span>' +
-                    '<span>📥 ' + (item.downloads || 0) + '</span>' +
-                '</div>' +
-                '<p class="card-desc">' + (item.description || '') + '</p>' +
-                '<div class="card-actions">' +
-                    '<button class="btn btn-sm" onclick="downloadFile(\'' + item.file_url + '\', \'' + item.name.replace(/'/g, '') + '\', \'' + item.id + '\')">⬇ Download</button>' +
-                    '<a href="' + installLink + '" class="btn btn-accent btn-sm" onclick="trackDownload(\'' + item.id + '\')">🚀 Install</a>' +
-                    (canEdit ? 
-                        '<button class="btn btn-sm" title="Edit" onclick="openEditModal(\'' + item.id + '\')">✏️</button>' +
-                        '<button class="btn btn-sm" title="Delete" style="color:var(--danger);" onclick="deleteItem(\'' + item.id + '\')">🗑️</button>' 
-                    : '') +
-                '</div>' +
-            '</div>' +
-        '</div>';
-    }).join('');
-}
-
-async function downloadFile(url, name, itemId) {
-    try {
-        const response = await fetch(url);
-        const blob = await response.blob();
-        const ext = url.split('.').pop().split('?')[0];
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = name + '.' + ext;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        URL.revokeObjectURL(a.href);
-        // Track the download count
-        await sb.rpc('increment_downloads', { item_id: itemId });
-    } catch(err) { console.error('Download failed:', err); }
-}
-
-async function trackDownload(itemId) {
-    await sb.rpc('increment_downloads', { item_id: itemId });
-}
-
-window.openEditModal = function(id) {
-    const item = allItems.find(i => i.id === id);
-    if (!item) return;
-    document.getElementById('editItemId').value = item.id;
-    document.getElementById('editName').value = item.name;
-    document.getElementById('editDesc').value = item.description || '';
-    document.getElementById('editPreviewLabelText').textContent = '📷 Choose an image (.png, .jpg, .webp)';
-    document.getElementById('editPreview').value = '';
-    document.getElementById('editFileLabelText').textContent = '📁 Choose a file';
-    document.getElementById('editFile').value = '';
-    showModal('editModal');
-};
-
-window.deleteItem = async function(id) {
-    if (!confirm('Are you sure you want to delete this item? This cannot be undone.')) return;
-    try {
-        const { error } = await sb.from('items').delete().eq('id', id);
-        if (error) throw error;
-        alert('Item deleted successfully!');
-        fetchItems();
-    } catch(err) {
-        alert('Failed to delete: ' + err.message);
-    }
-};
-
-window.submitEdit = async function() {
-    const id = document.getElementById('editItemId').value;
-    const name = document.getElementById('editName').value.trim();
-    const desc = document.getElementById('editDesc').value.trim();
-    const previewFile = document.getElementById('editPreview').files[0];
-    const mainFile = document.getElementById('editFile').files[0];
-    const btn = document.getElementById('editBtn');
-
-    if (!name) return showError('editError', 'Name is required.');
-
-    btn.disabled = true;
-    btn.textContent = 'Saving...';
-
-    try {
-        const item = allItems.find(i => i.id === id);
-        let preview_url = item.preview_url;
-        let file_url = item.file_url;
-        const ts = Date.now();
-
-        if (previewFile) {
-            const prevPath = `${currentUser.id}/${ts}_edit_${previewFile.name}`;
-            const { error: upErr } = await sb.storage.from('previews').upload(prevPath, previewFile);
-            if (upErr) throw upErr;
-            const { data: pubData } = sb.storage.from('previews').getPublicUrl(prevPath);
-            preview_url = pubData.publicUrl;
+        // Find Windows executable assets
+        const asset = data.assets.find(a => 
+            a.name.endsWith('.exe') && 
+            (a.name.toLowerCase().includes('setup') || a.name.toLowerCase().includes('installer') || a.name.toLowerCase().includes('sail'))
+        ) || data.assets.find(a => a.name.endsWith('.exe'));
+        
+        if (asset && asset.browser_download_url) {
+            window.location.href = asset.browser_download_url;
+        } else {
+            window.open('https://github.com/Aseoriy/Sail-Launcher/releases', '_blank');
         }
-
-        if (mainFile) {
-            const filePath = `${currentUser.id}/${ts}_edit_${mainFile.name}`;
-            const { error: upErr } = await sb.storage.from('files').upload(filePath, mainFile);
-            if (upErr) throw upErr;
-            const { data: pubData } = sb.storage.from('files').getPublicUrl(filePath);
-            file_url = pubData.publicUrl;
-        }
-
-        const { error } = await sb.from('items').update({
-            name, description: desc, preview_url, file_url
-        }).eq('id', id);
-
-        if (error) throw error;
-
-        showSuccess('editSuccess', 'Item updated successfully!');
+    } catch (err) {
+        console.error('Failed to resolve latest installer URL:', err);
+        window.open('https://github.com/Aseoriy/Sail-Launcher/releases', '_blank');
+    } finally {
         setTimeout(() => {
-            hideModal('editModal');
-            fetchItems();
             btn.disabled = false;
-            btn.textContent = '💾 Save Changes';
-        }, 1500);
-
-    } catch(err) {
-        showError('editError', err.message);
-        btn.disabled = false;
-        btn.textContent = '💾 Save Changes';
+            btn.innerHTML = originalContent;
+        }, 2000);
     }
-};
+}
 
 // ============================================================
 // EVENT LISTENERS
 // ============================================================
-document.getElementById('searchInput').addEventListener('input', renderItems);
-
-document.getElementById('filterTabs').addEventListener('click', e => {
-    if (!e.target.classList.contains('tab')) return;
-    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-    e.target.classList.add('active');
-    currentFilter = e.target.dataset.filter;
-    renderItems();
-});
-
-// Close modals on overlay click
 document.querySelectorAll('.modal-overlay').forEach(overlay => {
     overlay.addEventListener('click', e => {
         if (e.target === overlay) hideModal(overlay.id);
+    });
+});
+
+// Smooth scroll adjustments for internal anchors
+document.querySelectorAll('.nav-links a[href^="#"]').forEach(anchor => {
+    anchor.addEventListener('click', function (e) {
+        e.preventDefault();
+        const targetId = this.getAttribute('href');
+        if (targetId === '#') {
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        } else {
+            const targetElement = document.querySelector(targetId);
+            if (targetElement) {
+                const navHeight = document.querySelector('.navbar').offsetHeight || 70;
+                const elementPosition = targetElement.getBoundingClientRect().top;
+                const offsetPosition = elementPosition + window.pageYOffset - navHeight;
+                window.scrollTo({
+                    top: offsetPosition,
+                    behavior: 'smooth'
+                });
+            }
+        }
     });
 });
 
@@ -778,7 +640,6 @@ document.querySelectorAll('.modal-overlay').forEach(overlay => {
 // ============================================================
 (async () => {
     await refreshAuth();
-    await fetchItems();
 })();
 </script>
 </body>

@@ -124,7 +124,7 @@
 <body>
 
     <div class="card">
-        <div class="logo">⛵</div>
+        <div class="logo"><img src="icon.png" alt="Sail Logo" style="height: 52px; width: auto; vertical-align: middle;"></div>
 
         <!-- ================= VERIFYING STATE ================= -->
         <div id="verifyingSection" class="section active">
@@ -187,7 +187,7 @@
     }
 
     function goHome() {
-        window.location.href = 'index.html';
+        window.location.href = '/';
     }
 
     // Check for explicit error redirect first
@@ -261,7 +261,7 @@
             
             // Clean hash and redirect home
             setTimeout(() => {
-                window.location.href = 'index.html';
+                window.location.href = '/';
             }, 2000);
         }
     }

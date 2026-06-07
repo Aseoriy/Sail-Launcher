@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Privacy Policy - Sail Hub</title>
+    <meta name="description" content="Privacy Policy for Sail Hub and Sail Launcher.">
+    <link rel="icon" type="image/png" href="icon.png">
+    
+    <style>
+        :root {
+            --bg: #09090b; --text: #fafafa; --card: #18181b;
+            --border: #27272a; --accent: #a855f7; --accent-hover: #c084fc;
+            --muted: #a1a1aa; --danger: #ef4444;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: var(--bg); color: var(--text);
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            min-height: 100vh; display: flex; flex-direction: column;
+            line-height: 1.6;
+        }
+        body::before {
+            content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+            background: radial-gradient(circle at 50% 50%, var(--accent), transparent 60%);
+            animation: pulse 6s infinite alternate; opacity: 0.12;
+        }
+        @keyframes pulse { 0%{transform:scale(1);opacity:.08} 100%{transform:scale(1.2);opacity:.18} }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 10px; }
+        ::-webkit-scrollbar-track { background: var(--bg); }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 5px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+
+        /* Navbar */
+        .navbar {
+            background: rgba(9,9,11,.85); backdrop-filter: blur(14px);
+            border-bottom: 1px solid var(--border); padding: 14px 40px;
+            display: flex; justify-content: space-between; align-items: center;
+            position: sticky; top: 0; z-index: 100;
+        }
+        .logo { font-size: 1.5rem; font-weight: 700; letter-spacing: 1px; color: var(--text); text-decoration: none; display: flex; align-items: center; gap: 8px; }
+        .logo span { color: var(--accent); }
+        
+        .btn {
+            padding: 9px 18px; border-radius: 8px; border: 1px solid var(--border);
+            background: transparent; color: var(--text); font-weight: 600; cursor: pointer;
+            transition: .2s; font-size: .9rem; text-decoration: none; display: inline-flex; align-items: center; gap: 6px;
+        }
+        .btn:hover { border-color: var(--accent); color: var(--accent); transform: translateY(-1px); }
+
+        /* Content Container */
+        .container {
+            max-width: 800px; margin: 40px auto; padding: 0 20px; flex-grow: 1; width: 100%;
+        }
+        .content-card {
+            background: rgba(24, 24, 27, 0.75);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 40px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.5), 0 0 50px rgba(168,85,247,0.05);
+        }
+        
+        h1 {
+            font-size: 2.2rem; margin-bottom: 10px; text-shadow: 0 0 20px rgba(168,85,247,.3);
+            font-weight: 700;
+        }
+        .last-updated {
+            color: var(--muted); font-size: 0.9rem; margin-bottom: 30px; border-bottom: 1px solid var(--border);
+            padding-bottom: 15px;
+        }
+        
+        h2 {
+            font-size: 1.4rem; color: var(--text); margin-top: 30px; margin-bottom: 12px;
+            border-left: 3px solid var(--accent); padding-left: 10px;
+        }
+        p {
+            color: #d4d4d8; margin-bottom: 16px; font-size: 1rem;
+        }
+        ul, ol {
+            margin-bottom: 16px; padding-left: 24px; color: #d4d4d8;
+        }
+        li {
+            margin-bottom: 8px;
+        }
+
+        .highlight-box {
+            background: rgba(168, 85, 247, 0.06);
+            border: 1px solid rgba(168, 85, 247, 0.2);
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        .highlight-box h3 {
+            color: var(--accent);
+            margin-bottom: 8px;
+            font-size: 1.1rem;
+        }
+
+        /* Footer */
+        footer { text-align: center; padding: 24px; border-top: 1px solid var(--border); color: var(--muted); font-size: .85rem; margin-top: auto; }
+        footer a { color: var(--accent); text-decoration: none; }
+        footer a:hover { text-decoration: underline; }
+
+        @media (max-width: 640px) {
+            .navbar { padding: 12px 16px; }
+            .content-card { padding: 24px 16px; }
+            h1 { font-size: 1.8rem; }
+            .container { margin: 20px auto; }
+        }
+    </style>
+</head>
+<body>
+
+<nav class="navbar">
+    <a href="/" class="logo"><img src="icon.png" alt="Sail Logo" style="height: 28px; width: auto; object-fit: contain;"> Sail <span>Hub</span></a>
+    <div>
+        <a href="/" class="btn">← Back to Hub</a>
+    </div>
+</nav>
+
+<div class="container">
+    <div class="content-card">
+        <h1>Privacy Policy</h1>
+        <div class="last-updated">Last Updated: June 7, 2026</div>
+
+        <p>At Sail Hub, we value your privacy and are committed to protecting your personal data. This Privacy Policy describes how we collect, use, and share information when you use the Sail Hub website (the "Site") and the Sail Launcher desktop application (the "App").</p>
+
+        <h2>1. Google OAuth & Google Drive Integration</h2>
+        <p>The Sail Launcher App offers an optional feature that allows you to link your Google account via Google OAuth to backup, sync, and restore your game save files directly to your personal Google Drive.</p>
+        
+        <div class="highlight-box">
+            <h3>Google Drive Data Disclosures</h3>
+            <ul>
+                <li><strong>Scope of Access:</strong> We request access to your Google Drive (specifically limited to files created or opened by the App, or files you select for backup). This permission is used solely to save, retrieve, and sync your game save files.</li>
+                <li><strong>Local Credential Storage:</strong> Your Google OAuth tokens, access credentials, and profile information are stored exclusively locally on your own device. They are never sent to, processed by, or stored on our servers (Sail Hub / Supabase).</li>
+                <li><strong>No Content Sharing or Sale:</strong> We do not collect, view, monitor, share, or sell any files in your Google Drive. All data transfers occur directly between the Sail Launcher App on your machine and the Google Drive APIs.</li>
+            </ul>
+        </div>
+
+        <h2>2. Information We Collect</h2>
+        <p>When you interact with our website, we may collect the following information:</p>
+        <ul>
+            <li><strong>Account Information:</strong> When you sign up for a Sail Hub account to upload themes or plugins, we collect your email address, username, and password hash. This authentication and database storage is securely managed via Supabase.</li>
+            <li><strong>User-Generated Content:</strong> If you upload themes or plugins to Sail Hub, we store the uploaded files, preview images, name, and description. These uploads are publicly displayed on the website.</li>
+            <li><strong>Usage Statistics:</strong> We automatically track public statistics, such as download counts and installation counts, to rank popular items. We do not track individual user download histories.</li>
+        </ul>
+
+        <h2>3. How We Use Your Information</h2>
+        <p>We use the collected information for the following purposes:</p>
+        <ul>
+            <li>To operate, maintain, and improve the Sail Hub website and service.</li>
+            <li>To authenticate users and secure accounts.</li>
+            <li>To enable the sharing, downloading, and automatic installation of community-created themes and plugins.</li>
+            <li>To handle user requests, delete content, and respond to support questions.</li>
+        </ul>
+
+        <h2>4. Data Sharing and Third Parties</h2>
+        <p>We do not sell, trade, or rent your personal information to others. We share data only in the following contexts:</p>
+        <ul>
+            <li><strong>Publicly Available Content:</strong> Any username, theme, plugin, preview image, and description you publish will be visible to all visitors of the website.</li>
+            <li><strong>Service Providers:</strong> We use Supabase as our backend database and authentication provider. Your account details are securely stored on Supabase in accordance with their privacy practices.</li>
+            <li><strong>Google APIs:</strong> If you choose to link Google Drive in the App, the App communicates directly with Google services to manage your save files.</li>
+        </ul>
+
+        <h2>5. Cookies and Local Storage</h2>
+        <p>We use local storage and cookies on your device to maintain your logged-in session and store preferences. You can disable cookies in your browser settings, but doing so may prevent you from logging in or uploading items.</p>
+
+        <h2>6. Your Rights & Data Deletion</h2>
+        <p>You have the right to access, correct, or delete your account and uploaded files at any time. If you wish to delete your account or any files you have uploaded, you can manage them directly through your dashboard or contact us at <a href="mailto:support@sailhub.fyi">support@sailhub.fyi</a>, and we will process your request promptly.</p>
+
+        <h2>7. Contact Us</h2>
+        <p>If you have any questions or concerns about this Privacy Policy or how your data is handled, please contact us at:</p>
+        <p>Email: <strong><a href="mailto:support@sailhub.fyi">support@sailhub.fyi</a></strong></p>
+    </div>
+</div>
+
+<footer>
+    <p>&copy; 2026 Sail Hub. Built for <a href="https://github.com/Aseoriy/Sail-Launcher">Sail Launcher</a>.</p>
+</footer>
+
+</body>
+</html>

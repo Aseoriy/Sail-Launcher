@@ -2714,6 +2714,126 @@
                 filter: blur(3px);
             }
         }
+
+        /* REMOTE ALERTS BANNER CSS */
+        .launcher-alert-banner {
+            position: sticky;
+            top: -30px;
+            margin-top: -10px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 15px;
+            padding: 12px 20px;
+            margin-bottom: 20px;
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+            background: rgba(255, 255, 255, 0.08);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            animation: slideDownAlert 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+            z-index: 9999;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+            transition: all 0.3s ease;
+        }
+        
+        @keyframes slideDownAlert {
+            from {
+                opacity: 0;
+                transform: translateY(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .launcher-alert-banner.closing {
+            opacity: 0;
+            transform: translateY(-20px);
+            margin-bottom: -60px; /* Collapse the height space smoothly */
+            padding-top: 0;
+            padding-bottom: 0;
+            height: 0;
+            overflow: hidden;
+            border-color: transparent;
+            box-shadow: none;
+        }
+
+        .launcher-alert-banner.info {
+            border-color: rgba(59, 130, 246, 0.3);
+            background: linear-gradient(90deg, rgba(59, 130, 246, 0.08) 0%, rgba(59, 130, 246, 0.02) 100%);
+            color: #93c5fd;
+        }
+        .launcher-alert-banner.info .alert-icon { color: #3b82f6; }
+
+        .launcher-alert-banner.warning {
+            border-color: rgba(245, 158, 11, 0.3);
+            background: linear-gradient(90deg, rgba(245, 158, 11, 0.08) 0%, rgba(245, 158, 11, 0.02) 100%);
+            color: #fde047;
+        }
+        .launcher-alert-banner.warning .alert-icon { color: #f59e0b; }
+
+        .launcher-alert-banner.critical {
+            border-color: rgba(239, 68, 68, 0.4);
+            background: linear-gradient(90deg, rgba(239, 68, 68, 0.12) 0%, rgba(239, 68, 68, 0.03) 100%);
+            color: #fca5a5;
+            box-shadow: 0 0 15px rgba(239, 68, 68, 0.15);
+        }
+        .launcher-alert-banner.critical .alert-icon { color: #ef4444; text-shadow: 0 0 8px rgba(239, 68, 68, 0.5); }
+
+        .launcher-alert-content {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 13px;
+            font-weight: 500;
+            line-height: 1.4;
+            flex-grow: 1;
+        }
+
+        .launcher-alert-banner .alert-icon {
+            font-size: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .launcher-alert-banner .alert-action-btn {
+            background: var(--accent);
+            color: var(--bg-color);
+            border: none;
+            padding: 6px 14px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: transform 0.2s, filter 0.2s;
+            white-space: nowrap;
+        }
+        .launcher-alert-banner .alert-action-btn:hover {
+            transform: scale(1.05);
+            filter: brightness(1.1);
+        }
+
+        .launcher-alert-banner .alert-close-btn {
+            background: transparent;
+            border: none;
+            color: inherit;
+            opacity: 0.6;
+            cursor: pointer;
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 4px;
+            border-radius: 4px;
+            transition: opacity 0.2s, background-color 0.2s;
+        }
+        .launcher-alert-banner .alert-close-btn:hover {
+            opacity: 1;
+            background: rgba(255, 255, 255, 0.08);
+        }
     </style>
     <style id="customThemeStyles"></style>
     <style id="customFontStyles"></style>
@@ -2874,6 +2994,7 @@
         <div class="resizer" id="mainResizer" style="display:none;"></div>
 
         <div class="main-content-area" id="mainScroller">
+            <div id="launcherAlertContainer"></div>
 
             <div id="libraryView">
                 <div class="header">
@@ -3527,6 +3648,23 @@
         </div>
     </div>
 
+    <div id="devPasswordModal" class="modal" style="z-index: 10100;">
+        <div class="modal-content" style="width: 380px; text-align: center; padding: 25px; border-radius: 16px; border: 1px solid var(--border-color); background: var(--modal-bg);">
+            <button class="close-x" onclick="closeDevPasswordModal(false)">✕</button>
+            <div style="font-size: 40px; margin-bottom: 10px;">🔑</div>
+            <h2 style="margin-top: 0; font-size: 18px; color: var(--accent);">Developer Access</h2>
+            <p style="font-size: 12px; opacity: 0.8; margin-bottom: 20px;">Please enter the developer password to enable Developer Mode.</p>
+            <div style="margin-bottom: 20px; text-align: left;">
+                <input type="password" id="devPasswordInput" placeholder="Password..." style="width: 100%; padding: 12px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); color: var(--text-color); border-radius: 8px; box-sizing: border-box; text-align: center; font-size: 16px;">
+                <p id="devPasswordError" style="color: #ef4444; font-size: 11px; margin: 5px 0 0 0; text-align: center; display: none;">❌ Incorrect password!</p>
+            </div>
+            <div style="display: flex; gap: 10px;">
+                <button onclick="closeDevPasswordModal(false)" class="outline" style="flex: 1; padding: 10px 0; border-radius: 8px;">Cancel</button>
+                <button onclick="submitDevPassword()" style="flex: 1; padding: 10px 0; border-radius: 8px;">Submit</button>
+            </div>
+        </div>
+    </div>
+
     <div id="settingsModal" class="modal">
         <div class="modal-content" style="width: 850px; max-width: 90vw;">
             <button class="close-x" onclick="closeModal('settingsModal')">✕</button>
@@ -3551,6 +3689,8 @@
                     Library Management</div>
                 <div class="settings-tab" tabindex="0" onclick="switchSettingsTab('experimental')">🧪
                     Experimental</div>
+                <div class="settings-tab" tabindex="0" onclick="switchSettingsTab('alerts')" id="tabButtonAlerts" style="display: none;">📢
+                    Alerts Manager</div>
             </div>
 
             <div id="tab-appearance" class="settings-pane active">
@@ -3678,13 +3818,25 @@
                     </label>
                 </div>
 
-                <div style="margin-bottom: 20px;">
-                    <label style="font-size: 12px; opacity:0.6; display:block; margin-bottom:5px;">Game Sort Order</label>
-                    <div class="input-row">
-                        <select id="sortOrderSelect">
-                            <option value="default">Favorites First, then Alphabetical</option>
-                            <option value="alphabetical">Strict Alphabetical (Ignore Favorites)</option>
+                <div style="margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; gap: 20px;">
+                    <div style="flex-grow: 1;">
+                        <label style="font-size: 12px; opacity:0.6; display:block; margin-bottom:5px;">Game Sort Order</label>
+                        <select id="sortOrderSelect" style="width: 100%;">
+                            <option value="alphabetical">Alphabetical (A-Z)</option>
+                            <option value="alphabetical-desc">Alphabetical (Z-A)</option>
+                            <option value="newest">Newly Added</option>
+                            <option value="oldest">Oldest Added</option>
+                            <option value="playtime">Most Playtime</option>
+                            <option value="playtime-asc">Least Playtime</option>
+                            <option value="recent">Recently Played</option>
                         </select>
+                    </div>
+                    <div style="flex-shrink: 0; display: flex; flex-direction: column; align-items: flex-end; gap: 5px;">
+                        <label style="font-size: 12px; opacity:0.6; display:block;">Favorites First</label>
+                        <label class="toggle-label" style="margin: 0; padding: 0;">
+                            <input type="checkbox" id="favoritesFirstToggle">
+                            <div class="toggle-switch"></div>
+                        </label>
                     </div>
                 </div>
 
@@ -3740,6 +3892,30 @@
                         <button class="outline" style="padding: 4px 10px; font-size: 12px;"
                             onclick="resetUiSizes()">Reset Sizes</button>
                     </div>
+                </div>
+
+                <div style="margin-bottom: 20px;">
+                    <label class="toggle-label">
+                        <input type="checkbox" id="legacyUiToggle">
+                        <div class="toggle-switch"></div>
+                        <span>Use Legacy UI (Disable glassmorphic design)</span>
+                    </label>
+                    <p style="font-size: 11px; color: rgba(255,255,255,0.5); text-align: left; margin-top: 5px;">
+                        Turns off the modern translucent glass panels, fixed background blobs, and spring animations, reverting back to the flat legacy interface design.</p>
+                </div>
+
+                <div id="glassOpacityContainer" style="margin-bottom: 20px; display: none;">
+                    <div style="background: rgba(255, 165, 0, 0.1); border-left: 3px solid #ffa500; padding: 10px 12px; border-radius: 6px; margin-bottom: 12px; font-size: 11px; color: #ffa500; line-height: 1.4; text-align: left; box-sizing: border-box;">
+                        ⚠️ <strong>Disclaimer:</strong> Just so you know, this may increase cpu usage by a decent bit im still working on optimization but no promises...
+                    </div>
+                    <label style="font-size: 13px; font-weight: bold; display: block; margin-bottom: 8px;">
+                        Glass Translucency: <span id="glassOpacityValue">40%</span>
+                    </label>
+                    <div style="display: flex; align-items: center; gap: 15px;">
+                        <input type="range" id="glassOpacitySlider" min="5" max="90" step="5" value="40" style="flex-grow: 1; accent-color: var(--accent);">
+                    </div>
+                    <p style="font-size: 11px; color: rgba(255,255,255,0.5); text-align: left; margin-top: 5px;">
+                        Adjust the opacity of the glass panels. Lower values make the interface more transparent, revealing the background more clearly.</p>
                 </div>
 
                 <div style="margin-bottom: 20px;">
@@ -3985,13 +4161,23 @@
                     style="margin-top: 30px; border-top: 1px solid var(--border-color); padding-top: 20px; display:flex; gap:10px;">
                     <button class="outline" style="flex-grow:1;"
                         onclick="require('electron').ipcRenderer.invoke('open-url', 'https://github.com/Aseoriy/Sail-Launcher')">⛵
-                        Sail Launcher v4.2.5</button>
+                        Sail Launcher v4.2.6</button>
                     <button id="checkUpdateBtn" style="min-width: 150px; transition: 0.3s;"
                         data-i18n="checkUpdates">Check Updates</button>
                 </div>
             </div>
 
             <div id="tab-experimental" class="settings-pane">
+                <div style="margin-bottom: 20px;">
+                    <label class="toggle-label">
+                        <input type="checkbox" id="developerModeToggle">
+                        <div class="toggle-switch"></div>
+                        <span>Enable Developer Mode</span>
+                    </label>
+                    <p style="font-size: 11px; color: rgba(255,255,255,0.5); text-align: left; margin-top: 5px;">
+                        Enables developer-only options like the Alerts Manager. Password required.</p>
+                </div>
+
                 <div style="margin-bottom: 20px;">
                     <label class="toggle-label">
                         <input type="checkbox" id="workshopDownloaderToggle">
@@ -4042,29 +4228,6 @@
                     </div>
                 </div>
 
-                <div style="margin-bottom: 20px;">
-                    <label class="toggle-label">
-                        <input type="checkbox" id="glassmorphicUiToggle">
-                        <div class="toggle-switch"></div>
-                        Enable Glassmorphic UI (iOS 26 like animations & glass style)
-                    </label>
-                    <p style="font-size: 11px; color: rgba(255,255,255,0.5); text-align: left; margin-top: 5px;">
-                        Transforms the interface into translucent glass panels with glowing fixed background blobs and physics-based spring animations.</p>
-                </div>
-
-                <div id="glassOpacityContainer" style="margin-bottom: 20px; display: none;">
-                    <div style="background: rgba(255, 165, 0, 0.1); border-left: 3px solid #ffa500; padding: 10px 12px; border-radius: 6px; margin-bottom: 12px; font-size: 11px; color: #ffa500; line-height: 1.4; text-align: left; box-sizing: border-box;">
-                        ⚠️ <strong>Disclaimer:</strong> Just so you know, this may increase cpu usage by a decent bit im still working on optimization but no promises...
-                    </div>
-                    <label style="font-size: 13px; font-weight: bold; display: block; margin-bottom: 8px;">
-                        Glass Translucency: <span id="glassOpacityValue">40%</span>
-                    </label>
-                    <div style="display: flex; align-items: center; gap: 15px;">
-                        <input type="range" id="glassOpacitySlider" min="5" max="90" step="5" value="40" style="flex-grow: 1; accent-color: var(--accent);">
-                    </div>
-                    <p style="font-size: 11px; color: rgba(255,255,255,0.5); text-align: left; margin-top: 5px;">
-                        Adjust the opacity of the glass panels. Lower values make the interface more transparent, revealing the background more clearly.</p>
-                </div>
 
                 <div style="margin-bottom: 20px;">
                     <label class="toggle-label">
@@ -4288,6 +4451,57 @@
                     </div>
                 </div>
             </div>
+
+            <div id="tab-alerts" class="settings-pane">
+                <h3 style="margin-top: 0;">📢 Alerts Manager</h3>
+                <p style="font-size: 13px; opacity: 0.7; margin-bottom: 20px;">Publish notifications or hotfix alerts directly to all Sail Launcher users.</p>
+                
+                <div style="border: 1px solid var(--border-color); border-radius: 8px; padding: 15px; display: flex; flex-direction: column; gap: 12px; background: rgba(255, 255, 255, 0.02);">
+                    <div style="display: flex; flex-direction: column; gap: 4px;">
+                        <label style="font-size: 12px; font-weight: bold; opacity: 0.8;">Supabase Service Role Key (Admin Secret)</label>
+                        <input type="password" id="adminServiceRoleKeyInput" placeholder="Paste your service_role API key from Supabase here..." style="padding: 10px; background: var(--bg-color); border: 1px solid var(--border-color); color: var(--text-color); border-radius: 8px; width: 100%; box-sizing: border-box;">
+                        <p style="font-size: 11px; opacity: 0.5; margin: 3px 0 0 0;">This key is stored locally in your app settings and is never shared or committed to Github. It is required to bypass Row Level Security and publish alerts.</p>
+                    </div>
+                    
+                    <div style="border-top: 1px solid rgba(255, 255, 255, 0.1); padding-top: 12px; margin-top: 8px; display: flex; flex-direction: column; gap: 12px;">
+                        <div style="display: flex; flex-direction: column; gap: 4px;">
+                            <label style="font-size: 12px; font-weight: bold; opacity: 0.8;">Alert Message</label>
+                            <textarea id="adminAlertMessage" placeholder="E.g., Hotfix 4.2.6 has been released to fix a cloud sync bug. Please update!" rows="3" style="padding: 10px; background: var(--bg-color); border: 1px solid var(--border-color); color: var(--text-color); border-radius: 8px; width: 100%; box-sizing: border-box; font-family: inherit; resize: vertical;"></textarea>
+                        </div>
+                        
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                            <div style="display: flex; flex-direction: column; gap: 4px;">
+                                <label style="font-size: 12px; font-weight: bold; opacity: 0.8;">Severity / Type</label>
+                                <select id="adminAlertType" style="padding: 10px; background: var(--bg-color); border: 1px solid var(--border-color); color: var(--text-color); border-radius: 8px; width: 100%;">
+                                    <option value="info">ℹ️ Info (Blue)</option>
+                                    <option value="warning">⚠️ Warning (Gold)</option>
+                                    <option value="critical">🚨 Critical / Alert (Red)</option>
+                                </select>
+                            </div>
+                            <div style="display: flex; flex-direction: column; gap: 4px;">
+                                <label style="font-size: 12px; font-weight: bold; opacity: 0.8;">Status</label>
+                                <select id="adminAlertActive" style="padding: 10px; background: var(--bg-color); border: 1px solid var(--border-color); color: var(--text-color); border-radius: 8px; width: 100%;">
+                                    <option value="true">Active (Shows to users)</option>
+                                    <option value="false">Inactive (Hides alert)</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                            <div style="display: flex; flex-direction: column; gap: 4px;">
+                                <label style="font-size: 12px; font-weight: bold; opacity: 0.8;">Action Button Text (Optional)</label>
+                                <input type="text" id="adminAlertActionText" placeholder="E.g., Download Hotfix" style="padding: 10px; background: var(--bg-color); border: 1px solid var(--border-color); color: var(--text-color); border-radius: 8px; width: 100%; box-sizing: border-box;">
+                            </div>
+                            <div style="display: flex; flex-direction: column; gap: 4px;">
+                                <label style="font-size: 12px; font-weight: bold; opacity: 0.8;">Action URL (Optional)</label>
+                                <input type="text" id="adminAlertActionUrl" placeholder="E.g., https://github.com/..." style="padding: 10px; background: var(--bg-color); border: 1px solid var(--border-color); color: var(--text-color); border-radius: 8px; width: 100%; box-sizing: border-box;">
+                            </div>
+                        </div>
+                        
+                        <button class="outline" id="publishAlertBtn" onclick="publishAlertFromAdmin()" style="margin-top: 8px; width: 100%; padding: 12px; font-weight: bold; background: var(--accent); color: var(--bg-color); border: none;">📢 Publish Alert</button>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -4382,7 +4596,7 @@
         document.getElementById('maxBtn').addEventListener('click', () => ipcRenderer.send('window-max'));
         document.getElementById('closeBtn').addEventListener('click', () => ipcRenderer.send('window-close', globalSettings.exitWhenClosed));
 
-        const APP_VERSION = "v4.2.5";
+        const APP_VERSION = "v4.2.6";
         let currentTabName = 'library';
         let skipStaggerAnimation = false;
 
@@ -4443,7 +4657,7 @@
             customCloudKeys: false,
             customCloudKeysData: { google: { clientId: '', clientSecret: '' }, onedrive: { clientId: '', clientSecret: '' }, dropbox: { clientId: '', clientSecret: '' } },
             enableMultiSync: false,
-            glassmorphicUi: false,
+            glassmorphicUi: true,
             betaUpdates: false,
             disableTranslucency: false,
             autoSettingsSync: true,
@@ -5024,6 +5238,141 @@
 
         document.getElementById('checkUpdateBtn').addEventListener('click', () => checkForUpdates(false));
 
+        window.updateAlertsTabVisibility = function() {
+            const tabButton = document.getElementById('tabButtonAlerts');
+            if (tabButton) {
+                const isDevMode = !!globalSettings.developerModeActive;
+                tabButton.style.display = isDevMode ? 'block' : 'none';
+                
+                const alertsPane = document.getElementById('tab-alerts');
+                if (!isDevMode && alertsPane && alertsPane.classList.contains('active')) {
+                    switchSettingsTab('appearance', true);
+                }
+            }
+        }
+
+        async function checkRemoteAlerts() {
+            try {
+                const res = await fetch('https://vglpzpffejwgttlqrums.supabase.co/rest/v1/alerts?active=eq.true&order=created_at.desc&limit=1', {
+                    headers: {
+                        'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZnbHB6cGZmZWp3Z3R0bHFydW1zIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzczMTUwNDUsImV4cCI6MjA5Mjg5MTA0NX0.2g1thhc4pbrRP8LbYPpOsTACj2VNMzldXbrIArBdVqE',
+                        'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZnbHB6cGZmZWp3Z3R0bHFydW1zIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzczMTUwNDUsImV4cCI6MjA5Mjg5MTA0NX0.2g1thhc4pbrRP8LbYPpOsTACj2VNMzldXbrIArBdVqE'
+                    }
+                });
+                const data = await res.json();
+                const container = document.getElementById('launcherAlertContainer');
+                if (!container) return;
+
+                if (Array.isArray(data) && data.length > 0) {
+                    const alert = data[0];
+                    const dismissedList = globalSettings.dismissedAlerts || [];
+                    if (dismissedList.includes(alert.id.toString())) {
+                        container.innerHTML = '';
+                        return;
+                    }
+
+                    let icon = 'ℹ️';
+                    if (alert.type === 'warning') icon = '⚠️';
+                    else if (alert.type === 'critical') icon = '🚨';
+
+                    let actionHtml = '';
+                    if (alert.action_url && alert.action_text) {
+                        actionHtml = `<button class="alert-action-btn" onclick="require('electron').ipcRenderer.invoke('open-url', '${alert.action_url}')">${alert.action_text}</button>`;
+                    }
+
+                    container.innerHTML = `
+                        <div class="launcher-alert-banner ${alert.type || 'info'}" id="alert-banner-${alert.id}">
+                            <div class="launcher-alert-content">
+                                <span class="alert-icon">${icon}</span>
+                                <span>${alert.message}</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                ${actionHtml}
+                                <button class="alert-close-btn" onclick="dismissAlert('${alert.id}')" title="Dismiss Alert">✕</button>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    container.innerHTML = '';
+                }
+            } catch (err) {
+                console.error('Failed to fetch remote alerts:', err);
+            }
+        }
+
+        window.dismissAlert = function(alertId) {
+            const banner = document.getElementById(`alert-banner-${alertId}`);
+            if (banner) {
+                banner.classList.add('closing');
+                setTimeout(() => {
+                    const container = document.getElementById('launcherAlertContainer');
+                    if (container) container.innerHTML = '';
+                }, 300);
+            }
+            if (!globalSettings.dismissedAlerts) globalSettings.dismissedAlerts = [];
+            if (!globalSettings.dismissedAlerts.includes(alertId.toString())) {
+                globalSettings.dismissedAlerts.push(alertId.toString());
+                saveToMemory();
+            }
+        }
+
+        window.publishAlertFromAdmin = async function() {
+            const key = globalSettings.supabaseServiceRoleKey;
+            if (!key) {
+                alert("❌ Please enter your Supabase Service Role Key first.");
+                return;
+            }
+            const message = document.getElementById('adminAlertMessage').value.trim();
+            if (!message) {
+                alert("❌ Please enter an alert message.");
+                return;
+            }
+            const type = document.getElementById('adminAlertType').value;
+            const active = document.getElementById('adminAlertActive').value === 'true';
+            const actionText = document.getElementById('adminAlertActionText').value.trim() || null;
+            const actionUrl = document.getElementById('adminAlertActionUrl').value.trim() || null;
+
+            const btn = document.getElementById('publishAlertBtn');
+            btn.disabled = true;
+            btn.innerText = "Publishing...";
+
+            try {
+                const res = await fetch('https://vglpzpffejwgttlqrums.supabase.co/rest/v1/alerts', {
+                    method: 'POST',
+                    headers: {
+                        'apikey': key,
+                        'Authorization': `Bearer ${key}`,
+                        'Content-Type': 'application/json',
+                        'Prefer': 'return=representation'
+                    },
+                    body: JSON.stringify({
+                        message,
+                        type,
+                        active,
+                        action_text: actionText,
+                        action_url: actionUrl
+                    })
+                });
+
+                if (res.ok) {
+                    alert("✅ Alert published successfully!");
+                    document.getElementById('adminAlertMessage').value = '';
+                    document.getElementById('adminAlertActionText').value = '';
+                    document.getElementById('adminAlertActionUrl').value = '';
+                    checkRemoteAlerts();
+                } else {
+                    const error = await res.json();
+                    alert(`❌ Failed to publish: ${error.message || res.statusText}`);
+                }
+            } catch (err) {
+                console.error("Error publishing alert:", err);
+                alert(`❌ Network error: ${err.message}`);
+            } finally {
+                btn.disabled = false;
+                btn.innerText = "📢 Publish Alert";
+            }
+        }
+
         async function initApp() {
             const userDataPath = await ipcRenderer.invoke('get-user-data');
             dataPath = path.join(userDataPath, 'sail_library.json');
@@ -5037,14 +5386,20 @@
                 }
             } catch (e) { }
 
+            if (!globalSettings.dismissedAlerts) globalSettings.dismissedAlerts = [];
+            if (globalSettings.supabaseServiceRoleKey === undefined) globalSettings.supabaseServiceRoleKey = '';
+            if (globalSettings.favoritesFirst === undefined) globalSettings.favoritesFirst = true;
+            if (globalSettings.developerModeActive === undefined) globalSettings.developerModeActive = false;
+
             // Sync configuration file from cloud if there is a newer version
             await syncConfigFromCloudIfNeeded();
 
             let modified = false;
-            myGames.forEach(g => {
+            myGames.forEach((g, i) => {
                 if (!g.id) { g.id = Date.now().toString() + Math.floor(Math.random() * 1000); modified = true; }
                 if (g.playtime === undefined) { g.playtime = 0; modified = true; }
                 if (g.lastPlayed === undefined) { g.lastPlayed = null; modified = true; }
+                if (g.addedAt === undefined) { g.addedAt = Date.now() - (myGames.length - i) * 60000; modified = true; }
                 if (g.sectionId !== undefined && !g.tags) {
                     g.tags = g.sectionId ? [g.sectionId] : [];
                     delete g.sectionId;
@@ -5073,7 +5428,7 @@
             if (globalSettings.legacySettings === undefined) globalSettings.legacySettings = false;
             if (globalSettings.transparentSettings === undefined) globalSettings.transparentSettings = false;
             if (globalSettings.enableMultiSync === undefined) globalSettings.enableMultiSync = false;
-            if (globalSettings.glassmorphicUi === undefined) globalSettings.glassmorphicUi = false;
+            if (globalSettings.glassmorphicUi === undefined) globalSettings.glassmorphicUi = true;
             if (!globalSettings.tileShape) globalSettings.tileShape = 'default';
             if (globalSettings.fullTileImage === undefined) globalSettings.fullTileImage = false;
             if (!globalSettings.tileSize) globalSettings.tileSize = 'medium';
@@ -5137,9 +5492,12 @@
             updateDisableLocalSavesUI();
             document.getElementById('hideStarsToggle').checked = globalSettings.hideStars;
             document.getElementById('workshopDownloaderToggle').checked = globalSettings.workshopDownloader;
+            document.getElementById('favoritesFirstToggle').checked = globalSettings.favoritesFirst !== false;
+            document.getElementById('developerModeToggle').checked = !!globalSettings.developerModeActive;
+            updateAlertsTabVisibility();
             document.getElementById('legacySettingsToggle').checked = globalSettings.legacySettings;
             document.getElementById('transparentSettingsToggle').checked = globalSettings.transparentSettings;
-            document.getElementById('glassmorphicUiToggle').checked = !!globalSettings.glassmorphicUi;
+            document.getElementById('legacyUiToggle').checked = !globalSettings.glassmorphicUi;
             document.body.classList.toggle('glassmorphic-mode', !!globalSettings.glassmorphicUi);
 
             document.getElementById('disableTranslucencyToggle').checked = !!globalSettings.disableTranslucency;
@@ -5219,6 +5577,17 @@
 
             renderQuickPathsManager();
             renderSidebar(); renderGames(); pushNavState();
+
+            // Alerts Manager Key listener and initial load
+            document.getElementById('adminServiceRoleKeyInput').value = globalSettings.supabaseServiceRoleKey || '';
+            document.getElementById('adminServiceRoleKeyInput').addEventListener('input', (e) => {
+                globalSettings.supabaseServiceRoleKey = e.target.value.trim();
+                saveToMemory();
+            });
+
+            // Check for active announcements/alerts
+            checkRemoteAlerts();
+            setInterval(checkRemoteAlerts, 10 * 60 * 1000);
 
             const autoId = await ipcRenderer.invoke('get-auto-launch');
             if (autoId) {
@@ -7075,7 +7444,7 @@
             if (storeIframe) {
                 if (tab === 'store') {
                     if (storeIframe.src === '' || storeIframe.src === 'about:blank' || storeIframe.getAttribute('src') === 'about:blank') {
-                        storeIframe.src = 'https://sailhub.fyi';
+                        storeIframe.src = 'https://sailhub.fyi/plugins';
                     }
                 } else {
                     if (storeIframe.src !== 'about:blank' && storeIframe.getAttribute('src') !== 'about:blank') {
@@ -8059,19 +8428,61 @@
             if (sortMode === 'STEAM') filtered = filtered.filter(item => item.game.steamAppId);
             else if (sortMode === 'CUSTOM') filtered = filtered.filter(item => !item.game.steamAppId);
 
-            // Sort to display favorited games first at the top (unless disabled), then alphabetical
+            // Advanced sorting (with Favorites First toggle support)
+            const favoritesFirst = globalSettings.favoritesFirst !== false;
+            const order = globalSettings.sortOrder || 'default';
+
             filtered.sort((a, b) => {
-                if (globalSettings.sortOrder !== 'alphabetical') {
+                if (favoritesFirst) {
                     const aFav = !!a.game.isFavorite;
                     const bFav = !!b.game.isFavorite;
                     if (aFav && !bFav) return -1;
                     if (!aFav && bFav) return 1;
                 }
-                const nameA = (a.game.name || '').toLowerCase();
-                const nameB = (b.game.name || '').toLowerCase();
-                if (nameA < nameB) return -1;
-                if (nameA > nameB) return 1;
-                return 0;
+
+                switch (order) {
+                    case 'alphabetical':
+                    case 'default': {
+                        const nameA = (a.game.name || '').toLowerCase();
+                        const nameB = (b.game.name || '').toLowerCase();
+                        return nameA.localeCompare(nameB);
+                    }
+                    case 'alphabetical-desc': {
+                        const nameA = (a.game.name || '').toLowerCase();
+                        const nameB = (b.game.name || '').toLowerCase();
+                        return nameB.localeCompare(nameA);
+                    }
+                    case 'newest': {
+                        const dateA = a.game.addedAt || 0;
+                        const dateB = b.game.addedAt || 0;
+                        return dateB - dateA;
+                    }
+                    case 'oldest': {
+                        const dateA = a.game.addedAt || 0;
+                        const dateB = b.game.addedAt || 0;
+                        return dateA - dateB;
+                    }
+                    case 'playtime': {
+                        const playA = a.game.playtime || 0;
+                        const playB = b.game.playtime || 0;
+                        return playB - playA;
+                    }
+                    case 'playtime-asc': {
+                        const playA = a.game.playtime || 0;
+                        const playB = b.game.playtime || 0;
+                        return playA - playB;
+                    }
+                    case 'recent': {
+                        const lastA = a.game.lastPlayed || 0;
+                        const lastB = b.game.lastPlayed || 0;
+                        return lastB - lastA;
+                    }
+                    default: {
+                        const nameA = (a.game.name || '').toLowerCase();
+                        const nameB = (b.game.name || '').toLowerCase();
+                        return nameA.localeCompare(nameB);
+                    }
+                }
             });
 
             filtered.forEach((item, i) => {
@@ -8334,7 +8745,7 @@
 
         document.getElementById('resetDataBtn').addEventListener('click', () => {
             if (confirm("WARNING: This will delete ALL launcher data, games, folders, and custom themes! This cannot be undone. Continue?")) {
-                myGames = []; customSections = []; globalSettings = { theme: 'theme-midnight', defaultDriveFolder: '', sidebarCollapsed: false, customThemes: [], customFont: '', fontFamily: 'Segoe UI', language: 'english', compactLayout: false, exitWhenClosed: false, disableDiscordRpc: false, enableDevTools: false, autoStart: false, hideStars: false, legacySettings: false, quickPaths: [], transparentSettings: false, enableMultiSync: false, glassmorphicUi: false, autoSettingsSync: true, enableSourcesPage: false, enableDiscoverPage: true, buttonLocations: { sailHub: 'hidden', systemSpecs: 'hidden' }, sources: [{ name: 'FitGirl Repacks', url: 'https://fitgirl-repacks.site' }] };
+                myGames = []; customSections = []; globalSettings = { theme: 'theme-midnight', defaultDriveFolder: '', sidebarCollapsed: false, customThemes: [], customFont: '', fontFamily: 'Segoe UI', language: 'english', compactLayout: false, exitWhenClosed: false, disableDiscordRpc: false, enableDevTools: false, autoStart: false, hideStars: false, legacySettings: false, quickPaths: [], transparentSettings: false, enableMultiSync: false, glassmorphicUi: true, autoSettingsSync: true, enableSourcesPage: false, enableDiscoverPage: true, buttonLocations: { sailHub: 'hidden', systemSpecs: 'hidden' }, sources: [{ name: 'FitGirl Repacks', url: 'https://fitgirl-repacks.site' }] };
                 saveToMemory(); alert("Launcher reset to factory defaults."); location.reload();
             }
         });
@@ -8426,6 +8837,7 @@
                     shortcutIcon: document.getElementById('shortcutIconPath').value,
                     tags: Array.from(document.querySelectorAll('.game-tag-cb:checked')).map(cb => cb.value),
                     isFavorite: editingIndex === -1 ? false : myGames[editingIndex].isFavorite,
+                    addedAt: editingIndex === -1 ? Date.now() : myGames[editingIndex].addedAt || Date.now(),
                     runAsAdmin: editingIndex === -1 ? false : !!myGames[editingIndex].runAsAdmin,
                     launchArgs: editingIndex === -1 ? "" : myGames[editingIndex].launchArgs || "",
                     companionApp: editingIndex === -1 ? "" : myGames[editingIndex].companionApp || "",
@@ -8577,7 +8989,8 @@
                                 steamAppId: g.steamAppId,
                                 exePath: g.exePath || "", // <-- THIS IS THE MAGIC FIX!
                                 steamHeroUrl: `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${g.steamAppId}/library_hero.jpg`,
-                                steamImageUrl: `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${g.steamAppId}/header.jpg`
+                                steamImageUrl: `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${g.steamAppId}/header.jpg`,
+                                addedAt: Date.now()
                             });
                             imported++;
                         }
@@ -8614,7 +9027,8 @@
                                 id: Date.now().toString() + Math.floor(Math.random() * 1000),
                                 name: g.name,
                                 epicId: g.epicId,
-                                exePath: g.exePath || ""
+                                exePath: g.exePath || "",
+                                addedAt: Date.now()
                             });
                             imported++;
                         }
@@ -8650,7 +9064,8 @@
                             myGames.push({
                                 id: Date.now().toString() + Math.floor(Math.random() * 1000),
                                 name: g.name,
-                                exePath: g.exePath || ""
+                                exePath: g.exePath || "",
+                                addedAt: Date.now()
                             });
                             imported++;
                         }
@@ -8705,15 +9120,74 @@
         });
         document.getElementById('legacySettingsToggle').addEventListener('change', (e) => { globalSettings.legacySettings = e.target.checked; saveToMemory(); applyLegacySettings(); });
         document.getElementById('transparentSettingsToggle').addEventListener('change', (e) => { globalSettings.transparentSettings = e.target.checked; saveToMemory(); document.body.classList.toggle('transparent-settings-mode', e.target.checked); });
-        document.getElementById('glassmorphicUiToggle').addEventListener('change', (e) => { 
-            globalSettings.glassmorphicUi = e.target.checked; 
+        document.getElementById('legacyUiToggle').addEventListener('change', (e) => { 
+            globalSettings.glassmorphicUi = !e.target.checked; 
             saveToMemory(); 
-            document.body.classList.toggle('glassmorphic-mode', e.target.checked); 
+            document.body.classList.toggle('glassmorphic-mode', globalSettings.glassmorphicUi); 
             const container = document.getElementById('glassOpacityContainer');
-            if (container) container.style.display = e.target.checked ? 'block' : 'none';
+            if (container) container.style.display = globalSettings.glassmorphicUi ? 'block' : 'none';
             applyGlassOpacity();
             syncThemeToIframe();
             renderGames(); 
+        });
+        let devPasswordCallback = null;
+
+        window.closeDevPasswordModal = function(success = false) {
+            closeModal('devPasswordModal');
+            document.getElementById('devPasswordError').style.display = 'none';
+            document.getElementById('devPasswordInput').value = '';
+            
+            if (devPasswordCallback) {
+                devPasswordCallback(success);
+                devPasswordCallback = null;
+            }
+        };
+
+        window.submitDevPassword = function() {
+            const pwd = document.getElementById('devPasswordInput').value;
+            if (pwd === "SailLauncherIsPeak034!") {
+                closeDevPasswordModal(true);
+            } else {
+                document.getElementById('devPasswordError').style.display = 'block';
+                document.getElementById('devPasswordInput').value = '';
+                document.getElementById('devPasswordInput').focus();
+            }
+        };
+
+        // Add key listener for Enter key in the password input
+        document.getElementById('devPasswordInput').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                submitDevPassword();
+            }
+        });
+
+        document.getElementById('developerModeToggle').addEventListener('change', (e) => {
+            if (e.target.checked) {
+                document.getElementById('developerModeToggle').checked = false; // keep unchecked until authenticated
+                devPasswordCallback = (success) => {
+                    if (success) {
+                        document.getElementById('developerModeToggle').checked = true;
+                        globalSettings.developerModeActive = true;
+                        saveToMemory();
+                        updateAlertsTabVisibility();
+                        alert("Developer Mode enabled!");
+                    } else {
+                        document.getElementById('developerModeToggle').checked = false;
+                        globalSettings.developerModeActive = false;
+                        saveToMemory();
+                        updateAlertsTabVisibility();
+                    }
+                };
+                openModal('devPasswordModal');
+                setTimeout(() => {
+                    document.getElementById('devPasswordInput').focus();
+                }, 150);
+            } else {
+                globalSettings.developerModeActive = false;
+                saveToMemory();
+                updateAlertsTabVisibility();
+                alert("Developer Mode disabled.");
+            }
         });
         document.getElementById('glassOpacitySlider').addEventListener('input', (e) => {
             globalSettings.glassOpacity = parseInt(e.target.value);
@@ -9490,11 +9964,42 @@
 
             let pendingRedirectUrl = '';
 
+            const adBlockList = [
+                'doubleclick.net', 'google-analytics.com', 'googlesyndication.com',
+                'googleadservices.com', 'googletagservices.com', 'adservice.google.com',
+                'adsystem.com', 'popads.net', 'propellerads.com', 'exoclick.com',
+                'adnxs.com', 'adroll.com', 'adskeeper.co.uk', 'adsterra.com',
+                'mgid.com', 'outbrain.com', 'taboola.com', 'criteo.com',
+                'amazon-adsystem.com', 'carbonads.net', 'buysellads.com',
+                'adcolony.com', 'unityads', 'applovin.com', 'ironsrc.com',
+                'trafficjunky.com', 'a.orstatic.com', 'onclickads.net',
+                'onclickperformance.com', 'juicyads.com', 'ero-advertising.com',
+                'exosrv.com', 'ad-delivery.net', 'nativeads.com', 'adzerk.net',
+                'smartadserver.com', 'onclickgo.com', 'onclickalgo.com', 'ad-revenue.com',
+                'ad-delivery', 'adcontent', 'analytics', 'popcash.net', 'bidvertiser.com',
+                'revenuehits.com', 'skimlinks.com', 'fastclick.net', 'exponential.com',
+                'burstnet.com', 'media.net', 'infolinks.com', 'tribalfusion.com',
+                'adbrite.com', 'valueclick.com', 'openx.net', 'plugrush.com',
+                'coinad.com', 'adshares.net', 'ad-score.com', 'leadbolt.com',
+                'startappservice.com', 'yandex.ru', 'an.yandex.ru', 'admaven.com',
+                'activerevenuelink.com', 'popmyads.com', 'exo-ad.com'
+            ];
+
+            function isAdUrl(url) {
+                if (!url) return false;
+                const urlLower = url.toLowerCase();
+                return adBlockList.some(domain => urlLower.includes(domain));
+            }
+
             if (webview) {
                 webview.addEventListener('new-window', (e) => {
                     try {
                         const urlObj = new URL(e.url);
                         if (urlObj.protocol === 'http:' || urlObj.protocol === 'https:') {
+                            if (isAdUrl(e.url)) {
+                                console.log("Blocked ad/pop-under popup:", e.url);
+                                return;
+                            }
                             pendingRedirectUrl = e.url;
                             document.getElementById('sourcesConfirmText').innerText = `A page wants to open a new link:\n${e.url}\n\nHow would you like to open it?`;
                             openModal('sourcesConfirmModal');

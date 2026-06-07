@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Terms of Service - Sail Hub</title>
+    <meta name="description" content="Terms of Service for Sail Hub and Sail Launcher.">
+    <link rel="icon" type="image/png" href="icon.png">
+    
+    <style>
+        :root {
+            --bg: #09090b; --text: #fafafa; --card: #18181b;
+            --border: #27272a; --accent: #a855f7; --accent-hover: #c084fc;
+            --muted: #a1a1aa; --danger: #ef4444;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: var(--bg); color: var(--text);
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            min-height: 100vh; display: flex; flex-direction: column;
+            line-height: 1.6;
+        }
+        body::before {
+            content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+            background: radial-gradient(circle at 50% 50%, var(--accent), transparent 60%);
+            animation: pulse 6s infinite alternate; opacity: 0.12;
+        }
+        @keyframes pulse { 0%{transform:scale(1);opacity:.08} 100%{transform:scale(1.2);opacity:.18} }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 10px; }
+        ::-webkit-scrollbar-track { background: var(--bg); }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 5px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+
+        /* Navbar */
+        .navbar {
+            background: rgba(9,9,11,.85); backdrop-filter: blur(14px);
+            border-bottom: 1px solid var(--border); padding: 14px 40px;
+            display: flex; justify-content: space-between; align-items: center;
+            position: sticky; top: 0; z-index: 100;
+        }
+        .logo { font-size: 1.5rem; font-weight: 700; letter-spacing: 1px; color: var(--text); text-decoration: none; display: flex; align-items: center; gap: 8px; }
+        .logo span { color: var(--accent); }
+        
+        .btn {
+            padding: 9px 18px; border-radius: 8px; border: 1px solid var(--border);
+            background: transparent; color: var(--text); font-weight: 600; cursor: pointer;
+            transition: .2s; font-size: .9rem; text-decoration: none; display: inline-flex; align-items: center; gap: 6px;
+        }
+        .btn:hover { border-color: var(--accent); color: var(--accent); transform: translateY(-1px); }
+
+        /* Content Container */
+        .container {
+            max-width: 800px; margin: 40px auto; padding: 0 20px; flex-grow: 1; width: 100%;
+        }
+        .content-card {
+            background: rgba(24, 24, 27, 0.75);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 40px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.5), 0 0 50px rgba(168,85,247,0.05);
+        }
+        
+        h1 {
+            font-size: 2.2rem; margin-bottom: 10px; text-shadow: 0 0 20px rgba(168,85,247,.3);
+            font-weight: 700;
+        }
+        .last-updated {
+            color: var(--muted); font-size: 0.9rem; margin-bottom: 30px; border-bottom: 1px solid var(--border);
+            padding-bottom: 15px;
+        }
+        
+        h2 {
+            font-size: 1.4rem; color: var(--text); margin-top: 30px; margin-bottom: 12px;
+            border-left: 3px solid var(--accent); padding-left: 10px;
+        }
+        p {
+            color: #d4d4d8; margin-bottom: 16px; font-size: 1rem;
+        }
+        ul {
+            margin-bottom: 16px; padding-left: 24px; color: #d4d4d8;
+        }
+        li {
+            margin-bottom: 8px;
+        }
+
+        .highlight-box {
+            background: rgba(239, 68, 68, 0.04);
+            border: 1px solid rgba(239, 68, 68, 0.15);
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+        }
+        .highlight-box h3 {
+            color: var(--danger);
+            margin-bottom: 8px;
+            font-size: 1.1rem;
+        }
+
+        /* Footer */
+        footer { text-align: center; padding: 24px; border-top: 1px solid var(--border); color: var(--muted); font-size: .85rem; margin-top: auto; }
+        footer a { color: var(--accent); text-decoration: none; }
+        footer a:hover { text-decoration: underline; }
+
+        @media (max-width: 640px) {
+            .navbar { padding: 12px 16px; }
+            .content-card { padding: 24px 16px; }
+            h1 { font-size: 1.8rem; }
+            .container { margin: 20px auto; }
+        }
+    </style>
+</head>
+<body>
+
+<nav class="navbar">
+    <a href="/" class="logo"><img src="icon.png" alt="Sail Logo" style="height: 28px; width: auto; object-fit: contain;"> Sail <span>Hub</span></a>
+    <div>
+        <a href="/" class="btn">← Back to Hub</a>
+    </div>
+</nav>
+
+<div class="container">
+    <div class="content-card">
+        <h1>Terms of Service</h1>
+        <div class="last-updated">Last Updated: June 7, 2026</div>
+
+        <p>Welcome to Sail Hub! By using the Sail Hub website (the "Site") and the Sail Launcher application (the "App"), you agree to comply with and be bound by the following Terms of Service. Please review these terms carefully.</p>
+
+        <h2>1. Account Registration and Security</h2>
+        <p>To upload themes or plugins, you must create a Sail Hub account. You agree to provide accurate and complete information during registration. You are solely responsible for maintaining the confidentiality of your account password and for all activities that occur under your account.</p>
+        <p>We use Supabase for account registration and user session management. You agree to notify us immediately of any unauthorized use of your account or security breach.</p>
+
+        <h2>2. User Content Uploads & Rules</h2>
+        <p>You retain intellectual property ownership of the themes, designs, configurations, and plugins you upload to Sail Hub. However, by uploading content, you grant Sail Hub a worldwide, non-exclusive, royalty-free, transferable license to store, host, display, and distribute your content to other users of the Site and App.</p>
+        
+        <div class="highlight-box">
+            <h3>Prohibited Content & Activities</h3>
+            <p>You agree not to upload any content that:</p>
+            <ul>
+                <li>Contains malware, viruses, trojans, spyware, malicious scripts, ransomware, or code that executes unauthorized system commands.</li>
+                <li>Infringes upon any patents, trademarks, copyrights, trade secrets, or other proprietary rights of any third party.</li>
+                <li>Is designed to disrupt, damage, or limit the functionality of Sail Launcher or other users' systems.</li>
+                <li>Violates any applicable local, national, or international laws.</li>
+            </ul>
+        </div>
+
+        <h2>3. Third-Party Integrations & Services</h2>
+        <p>Sail Launcher incorporates third-party integrations, such as the Google Drive API, to facilitate cloud-based backups of your game save files. Your use of these third-party features is subject to the terms of service of the respective providers (such as the Google Terms of Service).</p>
+
+        <h2>4. Disclaimers and Warranties</h2>
+        <p><strong>THE SITE AND THE APP ARE PROVIDED "AS IS" AND "AS AVAILABLE" WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED.</strong></p>
+        <p>Sail Hub does not guarantee that the services will be uninterrupted, error-free, or completely secure. We do not review every line of code in community-uploaded themes and plugins. You acknowledge that downloading and installing themes or plugins is done at your own risk and that you are solely responsible for any damage to your computer system or loss of data, including game save files, that may result.</p>
+
+        <h2>5. Limitation of Liability</h2>
+        <p>To the maximum extent permitted by applicable law, Sail Hub and its creators shall not be liable for any direct, indirect, incidental, special, consequential, or exemplary damages, including but not limited to damages for loss of profits, goodwill, use, data, or other intangible losses resulting from the use of or inability to use our services.</p>
+
+        <h2>6. Termination of Service</h2>
+        <p>We reserve the right, without notice and at our sole discretion, to suspend or terminate your account, delete your uploaded files, or block your access to Sail Hub if we believe you have violated these Terms of Service or engaged in activities harmful to the community.</p>
+
+        <h2>7. Changes to the Terms</h2>
+        <p>We reserve the right to modify or replace these Terms of Service at any time. We will indicate the date of the latest update at the top of this page. Your continued use of the Site or App after changes are posted constitutes your acceptance of the revised Terms.</p>
+
+        <h2>8. Contact Us</h2>
+        <p>If you have any questions about these Terms of Service, please contact us at:</p>
+        <p>Email: <strong><a href="mailto:support@sailhub.fyi">support@sailhub.fyi</a></strong></p>
+    </div>
+</div>
+
+<footer>
+    <p>&copy; 2026 Sail Hub. Built for <a href="https://github.com/Aseoriy/Sail-Launcher">Sail Launcher</a>.</p>
+</footer>
+
+</body>
+</html>

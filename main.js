@@ -233,6 +233,32 @@ function createWindow() {
         return { action: 'allow' };
     });
 
+    // Setup Ad Blocker for Webview and Main Window
+    const adBlockList = [
+        'doubleclick.net', 'google-analytics.com', 'googlesyndication.com',
+        'googleadservices.com', 'googletagservices.com', 'adservice.google.com',
+        'adsystem.com', 'popads.net', 'propellerads.com', 'exoclick.com',
+        'adnxs.com', 'adroll.com', 'adskeeper.co.uk', 'adsterra.com',
+        'mgid.com', 'outbrain.com', 'taboola.com', 'criteo.com',
+        'amazon-adsystem.com', 'carbonads.net', 'buysellads.com',
+        'adcolony.com', 'unityads', 'applovin.com', 'ironsrc.com',
+        'trafficjunky.com', 'a.orstatic.com', 'onclickads.net',
+        'onclickperformance.com', 'juicyads.com', 'ero-advertising.com',
+        'exosrv.com', 'ad-delivery.net', 'nativeads.com', 'adzerk.net',
+        'smartadserver.com', 'onclickgo.com', 'onclickalgo.com', 'ad-revenue.com',
+        'ad-delivery', 'adcontent', 'analytics'
+    ];
+
+    win.webContents.session.webRequest.onBeforeRequest({ urls: ['*://*/*'] }, (details, callback) => {
+        const url = details.url.toLowerCase();
+        const shouldBlock = adBlockList.some(domain => url.includes(domain));
+        if (shouldBlock) {
+            callback({ cancel: true });
+        } else {
+            callback({ cancel: false });
+        }
+    });
+
     win.loadFile('index.html');
 
     win.webContents.session.on('will-download', (event, item, webContents) => {
