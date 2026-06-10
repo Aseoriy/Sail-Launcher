@@ -11,6 +11,8 @@
             --border-color: #27272a;
             --accent: #a855f7;
             --accent-hover: #c084fc;
+            /* Secondary glass-depth accent (cyan) used by the design polish layer */
+            --accent2: #22d3ee;
             --tile-min-width: 230px;
             --banner-height: 130px;
             --full-tile-height: 220px;
@@ -2856,6 +2858,7 @@
                     if (data.disableTranslucency) classes.push('disable-translucency');
                     if (data.hideStars) classes.push('hide-stars');
                     if (data.fullTileImage) classes.push('full-tile-image');
+                    if (data.verticalCards) classes.push('vertical-cards');
                     if (data.tileSize) classes.push('tile-size-' + data.tileSize);
 
                     document.body.className = classes.join(' ');
@@ -2933,6 +2936,7 @@
     <div class="glass-blob glass-blob-1"></div>
     <div class="glass-blob glass-blob-2"></div>
     <div class="glass-blob glass-blob-3"></div>
+    <div class="glass-blob glass-blob-4"></div>
 
     <div id="bpIntro" style="display: none;">
         <div class="bp-logo-anim">SAIL OS</div>
@@ -2942,7 +2946,11 @@
         <div class="titlebar-title">
             <button class="nav-arrow" id="navBackBtn" onclick="navBack()">❮</button>
             <button class="nav-arrow" id="navFwdBtn" onclick="navFwd()">❯</button>
-            <span style="margin-left: 5px;">⛵ Sail Launcher</span>
+            <span class="tb-brand" style="margin-left: 5px;">
+                <img src="icon.ico" class="tb-logo" alt="Sail Launcher" onerror="this.style.display='none'">
+                <span class="tb-brand-name">Sail Launcher</span>
+                <span class="tb-version" id="tbVersion"></span>
+            </span>
             <div id="topHeaderActionButtonsContainer"
                 style="display: none; align-items: center; gap: 5px; position: absolute; left: calc(var(--main-sidebar-total-width, 270px)); -webkit-app-region: no-drag; z-index: 10005;">
             </div>
@@ -2958,6 +2966,7 @@
             <div id="globalSyncIndicator"
                 style="display:none; align-items: center; margin-right: 15px; font-size: 12px; opacity: 0.8;"
                 title="Cloud Sync in Progress"><span class="spin-icon">🔄</span> Syncing to Cloud...</div>
+            <button class="titlebar-btn" id="muteBtn" title="Mute / unmute launcher sounds">🔊</button>
             <button class="titlebar-btn" id="minBtn">─</button>
             <button class="titlebar-btn" id="maxBtn">□</button>
             <button class="titlebar-btn close" id="closeBtn">✕</button>
@@ -2976,8 +2985,10 @@
                     style="cursor:pointer; opacity: 0.5; display: none;">Discover</h2>
                 <h2 class="sidebar-title" id="tabWorkshop" onclick="switchMainTab('workshop')"
                     style="cursor:pointer; opacity: 0.5;">Workshop</h2>
-                <h2 class="sidebar-title" id="tabSources" onclick="switchMainTab('sources')"
-                    style="cursor:pointer; opacity: 0.5; display: none;">Sources</h2>
+                <h2 class="sidebar-title" id="tabDownloads" onclick="switchMainTab('downloads')"
+                    style="cursor:pointer; opacity: 0.5;">Store</h2>
+                <h2 class="sidebar-title" id="tabDownloadsMgr" onclick="switchMainTab('downloadsmgr')"
+                    style="cursor:pointer; opacity: 0.5;">Downloads</h2>
                 <div style="flex-grow:1;"></div>
                 <button class="sidebar-toggle-btn" onclick="toggleSidebar()">☰</button>
             </div>
@@ -3044,6 +3055,8 @@
                     <button class="outline" onclick="toggleSelectMode(false)" style="padding: 5px 15px; font-size: 13px;">Cancel</button>
                 </div>
 
+                <div id="continuePlayingCard" class="continue-card" style="display:none;" tabindex="0"></div>
+
                 <div class="game-grid" id="gameGrid"></div>
             </div>
 
@@ -3090,51 +3103,10 @@
                 </div>
             </div>
 
+            <!-- In-app download browser (reused by the Download page; the old Sources management page was removed) -->
             <div id="sourcesView" style="display: none; height: 100%; width: 100%; box-sizing: border-box; flex-direction: column;">
-                <!-- Main Panel -->
-                <div id="sourcesMainPanel" style="display: flex; flex-direction: column; width: 100%; box-sizing: border-box;">
-                    <div class="header" style="margin-bottom: 25px; flex-shrink: 0; display: flex; flex-direction: column; align-items: flex-start;">
-                        <h1 style="margin: 0; font-size: 28px;">🌐 Web Sources</h1>
-                        <p style="font-size: 13px; opacity: 0.6; margin: 5px 0 0 0;">Add and browse custom websites to download games and content directly.</p>
-                    </div>
-
-                    <!-- Add Source Toolbar -->
-                    <div class="toolbar" style="display: flex; gap: 15px; margin-bottom: 25px; align-items: center; flex-wrap: wrap; flex-shrink: 0; background: var(--card-bg); padding: 18px 24px; border-radius: 12px; border: 1px solid var(--border-color); width: 100%; box-sizing: border-box;">
-                        <div style="display: flex; flex-direction: column; gap: 5px; min-width: 150px; flex-grow: 1;">
-                            <label style="font-size: 11px; opacity: 0.5; font-weight: bold; text-transform: uppercase;">Source Name</label>
-                            <input type="text" id="addSourceNameInput" placeholder="e.g. FitGirl Repacks" style="width: 100%; padding: 10px 14px; background: var(--bg-color); border: 1px solid var(--border-color); color: var(--text-color); border-radius: 8px; box-sizing: border-box;">
-                        </div>
-                        <div style="display: flex; flex-direction: column; gap: 5px; flex-grow: 1; min-width: 200px;">
-                            <label style="font-size: 11px; opacity: 0.5; font-weight: bold; text-transform: uppercase;">Source URL</label>
-                            <input type="text" id="addSourceUrlInput" placeholder="e.g. https://fitgirl-repacks.site" style="width: 100%; padding: 10px 14px; background: var(--bg-color); border: 1px solid var(--border-color); color: var(--text-color); border-radius: 8px; box-sizing: border-box;">
-                        </div>
-                        <div style="display: flex; flex-direction: column; gap: 5px; flex-grow: 1; min-width: 150px;">
-                            <label style="font-size: 11px; opacity: 0.5; font-weight: bold; text-transform: uppercase;">Cover Photo (Optional)</label>
-                            <div style="display: flex; gap: 5px; width: 100%; box-sizing: border-box;">
-                                <input type="text" id="addSourceCoverInput" placeholder="Image path..." style="flex-grow: 1; padding: 10px 14px; background: var(--bg-color); border: 1px solid var(--border-color); color: var(--text-color); border-radius: 8px; box-sizing: border-box; min-width: 0;">
-                                <button class="outline" onclick="require('electron').ipcRenderer.invoke('dialog-select-image').then(p => { if(p) document.getElementById('addSourceCoverInput').value = p; })" style="padding: 10px; box-sizing: border-box;">📂</button>
-                            </div>
-                        </div>
-                        <div style="display: flex; flex-direction: column; gap: 10px; align-items: flex-start; min-width: 150px;">
-                            <label class="toggle-label" style="margin: 0; padding: 0; gap: 8px;">
-                                <input type="checkbox" id="addSourceBrowserToggle">
-                                <div class="toggle-switch"></div>
-                                <span style="font-size: 11px; font-weight: bold; text-transform: uppercase;">Open in System Browser</span>
-                            </label>
-                            <div style="display: flex; gap: 10px; width: 100%;">
-                                <button class="outline" id="saveSourceBtn" onclick="addUserSource()" style="padding: 8px 16px; border-radius: 8px; flex-grow: 1;">+ Add Source</button>
-                                <button class="outline danger-outline" id="cancelEditSourceBtn" onclick="cancelEditSource()" style="padding: 8px 16px; border-radius: 8px; display: none;">✕ Cancel</button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Sources Content Grid -->
-                    <div style="background: var(--card-bg); border-radius: 12px; border: 1px solid var(--border-color); padding: 24px; box-sizing: border-box; width: 100%; min-height: 300px; flex-grow: 1; display: flex; flex-direction: column;">
-                        <div id="sourcesGrid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; width: 100%;">
-                            <!-- Dynamic sources list will populate here -->
-                        </div>
-                    </div>
-                </div>
+                <!-- Hidden stub kept so the browser panel logic has a valid container reference -->
+                <div id="sourcesMainPanel" style="display: none;"></div>
 
                 <!-- Browser Panel -->
                 <div id="sourcesBrowserPanel" style="display: none; flex-direction: column; flex-grow: 1; height: calc(100% - 10px); width: 100%; box-sizing: border-box;">
@@ -3146,6 +3118,87 @@
                         <button class="outline danger-outline" onclick="closeSourcesBrowser()" style="padding: 8px 15px;">✕ Close Browser</button>
                     </div>
                     <webview id="sourceWebview" src="about:blank" style="flex-grow: 1; height: 100%; border: none; border-radius: 12px; background: white;" allowpopups></webview>
+                </div>
+            </div>
+
+            <div id="downloadsView" style="display: none; box-sizing: border-box; flex-direction: column; width: 100%;">
+                <!-- Search Panel -->
+                <div id="downloadSearchPanel" style="display: flex; flex-direction: column; width: 100%;">
+                    <div class="header" style="margin-bottom: 25px; flex-shrink: 0; display: flex; flex-direction: row; align-items: center; justify-content: space-between; gap: 15px;">
+                        <div style="display: flex; flex-direction: column; align-items: flex-start;">
+                            <h1 style="margin: 0; font-size: 28px;">🛒 Store</h1>
+                            <p style="font-size: 13px; opacity: 0.6; margin: 5px 0 0 0;">Search multiple repack &amp; download sources at once, then download in one click. Active downloads appear in the <b>Downloads</b> tab.</p>
+                        </div>
+                        <button class="outline" onclick="openDownloadSettings()" style="padding: 10px 16px; border-radius: 8px; flex-shrink: 0;">⚙️ Download Settings</button>
+                    </div>
+
+                    <div class="toolbar" style="display: flex; flex-direction: column; gap: 15px; margin-bottom: 25px; align-items: stretch; flex-shrink: 0; background: var(--card-bg); padding: 18px 24px; border-radius: 12px; border: 1px solid var(--border-color); width: 100%; box-sizing: border-box;">
+                        <div style="display: flex; gap: 10px; width: 100%; align-items: center;">
+                            <input type="text" id="downloadSearchInput" placeholder="🔍 Search for a game (e.g. Hades, Elden Ring)..." style="flex-grow: 1; padding: 12px 16px; background: var(--bg-color); border: 1px solid var(--border-color); color: var(--text-color); border-radius: 8px; font-size: 15px;" onkeydown="if(event.key === 'Enter') runDownloadSearch()">
+                            <button id="downloadSearchBtn" onclick="runDownloadSearch()" style="padding: 12px 28px; border-radius: 8px; font-size: 15px;">Search</button>
+                        </div>
+                        <div id="downloadSourceToggles" style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
+                            <span style="font-size: 11px; opacity: 0.5; font-weight: bold; text-transform: uppercase; margin-right: 4px;">Sources:</span>
+                            <!-- source chips injected here -->
+                        </div>
+                    </div>
+
+                    <div style="background: var(--card-bg); border-radius: 12px; border: 1px solid var(--border-color); padding: 24px; box-sizing: border-box; width: 100%; min-height: 300px; flex-grow: 1; display: flex; flex-direction: column;">
+                        <div id="downloadStatus" style="font-size: 14px; color: var(--accent); text-align: center; margin-bottom: 20px; font-weight: bold; display: none;"></div>
+
+                        <div id="downloadResults" class="game-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 20px; width: 100%;">
+                            <!-- result cards injected here -->
+                        </div>
+
+                        <div id="downloadEmptyState" style="display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; margin: auto; max-width: 460px; opacity: 0.7; padding: 40px 0;">
+                            <div style="font-size: 48px; margin-bottom: 15px;">🏴‍☠️</div>
+                            <h3 style="margin: 0 0 8px 0; font-size: 18px;">Search to get started</h3>
+                            <p style="font-size: 13px; margin: 0; line-height: 1.5;">Type a game name above and hit Search. Results from SteamGG, FitGirl and Online-Fix will appear here. Click a result to open its store-style page and download.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Full Game Detail Panel (Steam store style) -->
+                <div id="downloadDetailPanel" style="display: none; flex-direction: column; width: 100%;">
+                    <div style="position: sticky; top: 0; z-index: 20; background: var(--bg-color); padding: 10px 0 10px 0; margin-bottom: 8px;">
+                        <button class="outline" onclick="closeDownloadDetail()" style="align-self: flex-start; padding: 8px 16px; border-radius: 8px;">⬅️ Back to results</button>
+                    </div>
+
+                    <div style="position: relative; width: 100%; border-radius: 14px; overflow: hidden; border: 1px solid var(--border-color); margin-bottom: 22px;">
+                        <img id="ddpHero" src="" style="width: 100%; max-height: 340px; object-fit: cover; display: block; background: #000;">
+                        <div style="position: absolute; inset: 0; background: linear-gradient(to top, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.2) 60%, rgba(0,0,0,0.4) 100%);"></div>
+                        <div style="position: absolute; bottom: 0; left: 0; right: 0; padding: 24px 28px; display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; flex-wrap: wrap;">
+                            <div style="min-width: 0;">
+                                <span id="ddpSource" style="font-size: 11px; font-weight: bold; padding: 4px 12px; border-radius: 99px; color: #fff;">Source</span>
+                                <h1 id="ddpTitle" style="margin: 10px 0 0 0; font-size: 30px; color: #fff; text-shadow: 0 2px 8px rgba(0,0,0,0.6);">Game Title</h1>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; gap: 22px; align-items: flex-start; flex-wrap: wrap;">
+                        <!-- left: description + screenshots -->
+                        <div style="flex: 1 1 420px; min-width: 0; display: flex; flex-direction: column; gap: 18px;">
+                            <div style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px;">
+                                <h3 style="margin: 0 0 12px 0; font-size: 16px;">About This Game</h3>
+                                <div id="ddpDescription" style="font-size: 13px; line-height: 1.6; opacity: 0.85; max-height: 360px; overflow-y: auto;">Loading description...</div>
+                            </div>
+                            <div id="ddpScreensWrap" style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px; display: none;">
+                                <h3 style="margin: 0 0 12px 0; font-size: 16px;">Screenshots</h3>
+                                <div id="ddpScreens" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px;"></div>
+                            </div>
+                        </div>
+
+                        <!-- right: download box -->
+                        <div style="flex: 0 0 320px; max-width: 100%; display: flex; flex-direction: column; gap: 16px;">
+                            <div style="background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 12px; padding: 20px;">
+                                <h3 style="margin: 0 0 14px 0; font-size: 16px;">Download</h3>
+                                <div id="ddpMeta" style="display: flex; flex-direction: column; gap: 8px; font-size: 12px; margin-bottom: 16px;"></div>
+                                <div id="ddpDownloadArea">
+                                    <div style="text-align: center; opacity: 0.6; font-size: 13px; padding: 10px 0;">Loading download options...</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
@@ -3197,6 +3250,22 @@
                     </div>
                 </div>
             </div>
+
+            <div id="downloadsManagerView" style="display: none; box-sizing: border-box; flex-direction: column; width: 100%;">
+                <div class="header" style="margin-bottom: 25px; flex-shrink: 0; display: flex; flex-direction: row; align-items: center; justify-content: space-between; gap: 15px;">
+                    <div style="display: flex; flex-direction: column; align-items: flex-start;">
+                        <h1 style="margin: 0; font-size: 28px;">⬇️ Downloads</h1>
+                        <p style="font-size: 13px; opacity: 0.6; margin: 5px 0 0 0;">Active, queued and completed downloads. Start new ones from the <b>Store</b> tab.</p>
+                    </div>
+                    <button class="outline" onclick="openDownloadSettings()" style="padding: 10px 16px; border-radius: 8px; flex-shrink: 0;">⚙️ Download Settings</button>
+                </div>
+                <div id="downloadsPageBody" style="display: flex; flex-direction: column; gap: 14px; width: 100%;"></div>
+                <div id="downloadsPageEmpty" style="display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; margin: auto; max-width: 460px; opacity: 0.7; padding: 60px 0;">
+                    <div style="font-size: 48px; margin-bottom: 15px;">📭</div>
+                    <h3 style="margin: 0 0 8px 0; font-size: 18px;">No downloads yet</h3>
+                    <p style="font-size: 13px; margin: 0; line-height: 1.5;">Head to the <b>Store</b> tab, search for a game and hit Download. Progress shows up here and in the dock.</p>
+                </div>
+            </div>
         </div>
 
         <div class="resizer" id="socialResizer" style="display:none;"></div>
@@ -3239,6 +3308,75 @@
 
     <div id="detailsModal" class="modal">
         <div class="modal-content" id="detailsContent" style="width: 600px; max-width: 90vw;"></div>
+    </div>
+
+    <div id="downloadSettingsModal" class="modal" style="z-index: 10040;">
+        <div class="modal-content" style="width: 560px; max-width: 92vw; max-height: 88vh; overflow-y: auto;">
+            <button class="close-x" onclick="closeModal('downloadSettingsModal')">✕</button>
+            <h2 style="margin-top: 0;">📥 Download Settings</h2>
+            <p style="font-size: 13px; opacity: 0.6; margin-top: -8px;">Configure how games are downloaded and installed.</p>
+
+            <label style="font-size: 12px; font-weight: bold; text-transform: uppercase; opacity: 0.6;">Installation Directory</label>
+            <div style="display: flex; gap: 8px; margin: 6px 0 18px 0;">
+                <input type="text" id="dlInstallDirInput" placeholder="Default: app data / SailDownloads" style="flex-grow: 1; padding: 10px 12px; background: var(--bg-color); border: 1px solid var(--border-color); color: var(--text-color); border-radius: 8px;">
+                <button class="outline" onclick="browseDownloadDir()" style="padding: 10px 14px; border-radius: 8px;">📂</button>
+            </div>
+
+            <label style="font-size: 12px; font-weight: bold; text-transform: uppercase; opacity: 0.6;">Max Download Speed (KB/s, 0 = unlimited)</label>
+            <input type="number" id="dlMaxSpeedInput" min="0" placeholder="0" style="width: 100%; padding: 10px 12px; margin: 6px 0 18px 0; background: var(--bg-color); border: 1px solid var(--border-color); color: var(--text-color); border-radius: 8px; box-sizing: border-box;">
+
+            <label class="toggle-label" style="display: flex; align-items: center; gap: 10px; margin-bottom: 14px;">
+                <input type="checkbox" id="dlAutoAddToggle"><div class="toggle-switch"></div>
+                <span style="font-size: 14px;">Automatically add games to library after install</span>
+            </label>
+            <label class="toggle-label" style="display: flex; align-items: center; gap: 10px; margin-bottom: 14px;">
+                <input type="checkbox" id="dlAutoExtractToggle"><div class="toggle-switch"></div>
+                <span style="font-size: 14px;">Auto-extract archives after download</span>
+            </label>
+            <label class="toggle-label" style="display: flex; align-items: center; gap: 10px; margin-bottom: 14px;">
+                <input type="checkbox" id="dlAutoInstallToggle"><div class="toggle-switch"></div>
+                <span style="font-size: 14px;">Auto-install repacks (FitGirl/DODI) after download</span>
+            </label>
+            <p style="font-size: 11px; opacity: 0.55; margin: -6px 0 16px 30px; line-height: 1.5;">Runs the repack's setup.exe silently into the install folder, then deletes the leftover setup/.bin files and adds the finished game automatically. The install step is CPU-heavy and may show one Windows permission prompt to approve.</p>
+            <label class="toggle-label" style="display: flex; align-items: center; gap: 10px; margin-bottom: 14px;">
+                <input type="checkbox" id="dlSkipRedistToggle"><div class="toggle-switch"></div>
+                <span style="font-size: 14px;">Skip prerequisites during auto-install (DirectX / C++ / site popup)</span>
+            </label>
+            <p style="font-size: 11px; opacity: 0.55; margin: -6px 0 16px 30px; line-height: 1.5;">Tells the repack installer to deselect its optional tasks, so it won't re-run the DirectX/Visual C++ installers or open the FitGirl website after installing. Turn this off if a game fails to launch because it needs a runtime you don't have. (Some repacks force a runtime regardless — that's controlled by the repack, not the launcher.)</p>
+            <label class="toggle-label" style="display: flex; align-items: center; gap: 10px; margin-bottom: 14px;">
+                <input type="checkbox" id="dlAdBlockToggle"><div class="toggle-switch"></div>
+                <span style="font-size: 14px;">Block ads &amp; pop-ups in the in-app browser</span>
+            </label>
+            <label class="toggle-label" style="display: flex; align-items: center; gap: 10px; margin-bottom: 14px;">
+                <input type="checkbox" id="dlEnableDodiToggle"><div class="toggle-switch"></div>
+                <span style="font-size: 14px;">Enable DODI Repacks source</span>
+            </label>
+            <p style="font-size: 11px; opacity: 0.55; margin: -6px 0 16px 30px; line-height: 1.5;">DODI is blocked by Cloudflare for in-app search. When enabled, searching DODI opens it in the in-app browser so you can pass the Cloudflare check manually.</p>
+
+            <label class="toggle-label" style="display: flex; align-items: center; gap: 10px; margin-bottom: 14px;">
+                <input type="checkbox" id="dlEnableOnlineFixToggle"><div class="toggle-switch"></div>
+                <span style="font-size: 14px;">Enable Online-Fix source</span>
+            </label>
+            <p style="font-size: 11px; margin: -6px 0 16px 30px; line-height: 1.5; color: #f59e0b;">⚠️ Online-Fix doesn't work correctly right now — its downloads are behind a login + captcha + JavaScript popup that can't be auto-resolved yet. It's off by default; enable only to browse/search. You'll need to download manually from the site.</p>
+
+            <label style="font-size: 12px; font-weight: bold; text-transform: uppercase; opacity: 0.6;">Max Concurrent Downloads</label>
+            <input type="number" id="dlMaxConcurrentInput" min="1" max="10" value="3" style="width: 100%; padding: 10px 12px; margin: 6px 0 18px 0; background: var(--bg-color); border: 1px solid var(--border-color); color: var(--text-color); border-radius: 8px; box-sizing: border-box;">
+
+            <div style="height:1px;background:var(--border-color);margin:4px 0 18px 0;opacity:0.5;"></div>
+
+            <label class="toggle-label" style="display: flex; align-items: center; gap: 10px; margin-bottom: 14px;">
+                <input type="checkbox" id="dlAutoSwitchToggle"><div class="toggle-switch"></div>
+                <span style="font-size: 14px;">Switch to Downloads tab automatically when a download starts</span>
+            </label>
+            <label class="toggle-label" style="display: flex; align-items: center; gap: 10px; margin-bottom: 14px;">
+                <input type="checkbox" id="dlNotifyCompleteToggle"><div class="toggle-switch"></div>
+                <span style="font-size: 14px;">Show desktop notification when a download finishes</span>
+            </label>
+
+            <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px;">
+                <button onclick="saveDownloadSettings()" style="padding: 10px 22px; border-radius: 8px;">Save</button>
+            </div>
+        </div>
     </div>
 
     <div id="helpModal" class="modal" style="z-index: 10005;">
@@ -3818,6 +3956,16 @@
                     </label>
                 </div>
 
+                <div style="margin-bottom: 20px;">
+                    <label class="toggle-label">
+                        <input type="checkbox" id="verticalCardsToggle">
+                        <div class="toggle-switch"></div>
+                        Vertical (Poster) Game Cards
+                    </label>
+                    <p style="font-size: 11px; color: rgba(255,255,255,0.5); text-align: left; margin-top: 5px;">
+                        Off = wide landscape cards that show the full cover photo. On = tall 3:4 poster tiles like a console store.</p>
+                </div>
+
                 <div style="margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; gap: 20px;">
                     <div style="flex-grow: 1;">
                         <label style="font-size: 12px; opacity:0.6; display:block; margin-bottom:5px;">Game Sort Order</label>
@@ -3905,9 +4053,6 @@
                 </div>
 
                 <div id="glassOpacityContainer" style="margin-bottom: 20px; display: none;">
-                    <div style="background: rgba(255, 165, 0, 0.1); border-left: 3px solid #ffa500; padding: 10px 12px; border-radius: 6px; margin-bottom: 12px; font-size: 11px; color: #ffa500; line-height: 1.4; text-align: left; box-sizing: border-box;">
-                        ⚠️ <strong>Disclaimer:</strong> Just so you know, this may increase cpu usage by a decent bit im still working on optimization but no promises...
-                    </div>
                     <label style="font-size: 13px; font-weight: bold; display: block; margin-bottom: 8px;">
                         Glass Translucency: <span id="glassOpacityValue">40%</span>
                     </label>
@@ -4161,7 +4306,7 @@
                     style="margin-top: 30px; border-top: 1px solid var(--border-color); padding-top: 20px; display:flex; gap:10px;">
                     <button class="outline" style="flex-grow:1;"
                         onclick="require('electron').ipcRenderer.invoke('open-url', 'https://github.com/Aseoriy/Sail-Launcher')">⛵
-                        Sail Launcher v4.2.6</button>
+                        Sail Launcher v5.0.0-beta-1</button>
                     <button id="checkUpdateBtn" style="min-width: 150px; transition: 0.3s;"
                         data-i18n="checkUpdates">Check Updates</button>
                 </div>
@@ -4198,7 +4343,8 @@
                         Adds a 'Discover' tab to the sidebar showing custom Sail Launcher web resources.</p>
                 </div>
 
-                <div style="margin-bottom: 20px;">
+                <!-- Sources page removed in v5 (replaced by the Download tab); toggle hidden but kept for compatibility -->
+                <div style="margin-bottom: 20px; display: none;">
                     <label class="toggle-label">
                         <input type="checkbox" id="enableSourcesToggle">
                         <div class="toggle-switch"></div>
@@ -4578,6 +4724,13 @@
                     onclick="require('electron').ipcRenderer.send('restart-app')"
                     style="flex-grow:1; border-color: #f59e0b; color: #f59e0b;">🔄 Restart Launcher</button>
             </div>
+            <div id="pluginInstallProgress" style="display:none; margin-bottom: 15px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                    <span id="pluginInstallLabel" style="font-size:12px; font-weight:bold; color:var(--accent);">Installing…</span>
+                    <span id="pluginInstallPct" style="font-size:12px; opacity:0.7;"></span>
+                </div>
+                <div class="install-track"><div id="pluginInstallFill" class="install-fill" style="width:0%;"></div></div>
+            </div>
             <div id="pluginList"
                 style="overflow-y: auto; display: flex; flex-direction: column; gap: 10px; flex-grow: 1; min-height: 100px;">
             </div>
@@ -4596,7 +4749,22 @@
         document.getElementById('maxBtn').addEventListener('click', () => ipcRenderer.send('window-max'));
         document.getElementById('closeBtn').addEventListener('click', () => ipcRenderer.send('window-close', globalSettings.exitWhenClosed));
 
-        const APP_VERSION = "v4.2.6";
+        // Mute toggle for launcher sounds (the Big Picture boot chime). Reflects + persists
+        // globalSettings.muteSounds and updates its icon. Synced again after settings load.
+        window.syncMuteBtn = function () {
+            const btn = document.getElementById('muteBtn');
+            if (!btn) return;
+            const muted = !!globalSettings.muteSounds;
+            btn.textContent = muted ? '🔇' : '🔊';
+            btn.title = muted ? 'Launcher sounds muted — click to unmute' : 'Mute launcher sounds';
+        };
+        document.getElementById('muteBtn').addEventListener('click', () => {
+            globalSettings.muteSounds = !globalSettings.muteSounds;
+            saveToMemory();
+            window.syncMuteBtn();
+        });
+
+        const APP_VERSION = "v5.0.0-beta-1";
         let currentTabName = 'library';
         let skipStaggerAnimation = false;
 
@@ -4642,7 +4810,7 @@
             theme: 'theme-midnight', defaultDriveFolder: '', sidebarCollapsed: false, customThemes: [],
             customFont: '', fontFamily: 'Segoe UI', language: 'english', compactLayout: false,
             exitWhenClosed: false, disableDiscordRpc: false, enableDevTools: false, autoStart: false,
-            hideStars: false, legacySettings: false, quickPaths: [], tileShape: 'default', fullTileImage: false, tileSize: 'medium',
+            hideStars: false, legacySettings: false, quickPaths: [], tileShape: 'default', fullTileImage: false, tileSize: 'medium', verticalCards: false,
             showSurpriseMe: false, showStats: false, showDynamicFolders: true, showFavoritesFolder: true, recentDays: 30,
             steamApiKey: '', steamId: '', discordToken: '', showSocialSidebar: true, actionButtonsLocation: 'bottom',
             dedicatedSettingsPage: true, enableUiResizing: false, mainSidebarWidth: 230, socialSidebarWidth: 230,
@@ -4918,12 +5086,43 @@
             } catch (e) { alert('Failed to delete plugin: ' + e.message); }
         }
 
+        // Drives the plugin-install progress bar. Returns a stop(ok) finisher.
+        function startInstallProgress(label) {
+            const wrap = document.getElementById('pluginInstallProgress');
+            const fill = document.getElementById('pluginInstallFill');
+            const pctEl = document.getElementById('pluginInstallPct');
+            const labelEl = document.getElementById('pluginInstallLabel');
+            if (!wrap || !fill) return { set() {}, done() {} };
+            wrap.style.display = 'block';
+            if (labelEl) labelEl.textContent = label || 'Installing…';
+            let p = 0;
+            fill.style.width = '0%';
+            // Creep toward 90% while the (progress-less) extraction runs.
+            const timer = setInterval(() => {
+                p = Math.min(90, p + Math.random() * 12 + 4);
+                fill.style.width = p + '%';
+                if (pctEl) pctEl.textContent = Math.round(p) + '%';
+            }, 180);
+            return {
+                set(text) { if (labelEl) labelEl.textContent = text; },
+                done(ok) {
+                    clearInterval(timer);
+                    fill.style.width = '100%';
+                    fill.style.background = ok ? '#10b981' : '#ef4444';
+                    if (pctEl) pctEl.textContent = ok ? 'Done' : 'Failed';
+                    if (labelEl) labelEl.textContent = ok ? '✓ Installed' : '✕ Install failed';
+                    setTimeout(() => { wrap.style.display = 'none'; fill.style.background = ''; }, 1400);
+                }
+            };
+        }
+
         async function importPlugin() {
             const result = await ipcRenderer.invoke('open-file-dialog', {
                 title: 'Import Plugin (.zip, .rar, .7z)',
                 filters: [{ name: 'Plugin Archive', extensions: ['zip', 'rar', '7z'] }]
             });
             if (!result) return;
+            const prog = startInstallProgress('Extracting plugin archive…');
             try {
                 const userDataPath = await ipcRenderer.invoke('get-user-data');
                 const pluginsDir = path.join(userDataPath, 'plugins');
@@ -4937,6 +5136,7 @@
                 } else {
                     await ipcRenderer.invoke('extract-zip', { zipPath: result, destPath: tempDir });
                 }
+                prog.set('Installing files…');
                 // Find plugin.json (might be in root or in a subfolder)
                 let pluginRoot = tempDir;
                 if (!fs.existsSync(path.join(tempDir, 'plugin.json'))) {
@@ -4950,6 +5150,7 @@
                 }
                 if (!fs.existsSync(path.join(pluginRoot, 'plugin.json'))) {
                     fs.removeSync(tempDir);
+                    prog.done(false);
                     return alert('Invalid plugin: no plugin.json found in the archive.');
                 }
                 const manifest = fs.readJsonSync(path.join(pluginRoot, 'plugin.json'));
@@ -4963,8 +5164,9 @@
                 installedPlugins = installedPlugins.filter(p => p._folderName !== folderName);
                 installedPlugins.push(manifest);
                 renderPluginList();
+                prog.done(true);
                 alert(`✅ Plugin "${manifest.name}" imported! Restart the launcher to activate it.`);
-            } catch (e) { alert('Import failed: ' + e.message); }
+            } catch (e) { prog.done(false); alert('Import failed: ' + e.message); }
         }
 
         async function exportPluginPack() {
@@ -5390,6 +5592,10 @@
             if (globalSettings.supabaseServiceRoleKey === undefined) globalSettings.supabaseServiceRoleKey = '';
             if (globalSettings.favoritesFirst === undefined) globalSettings.favoritesFirst = true;
             if (globalSettings.developerModeActive === undefined) globalSettings.developerModeActive = false;
+            // Launcher sounds are muted by default (the Big Picture boot chime was intrusive);
+            // the 🔊 titlebar button toggles this. Existing users keep their saved preference.
+            if (globalSettings.muteSounds === undefined) globalSettings.muteSounds = true;
+            if (window.syncMuteBtn) window.syncMuteBtn();
 
             // Sync configuration file from cloud if there is a newer version
             await syncConfigFromCloudIfNeeded();
@@ -5431,6 +5637,7 @@
             if (globalSettings.glassmorphicUi === undefined) globalSettings.glassmorphicUi = true;
             if (!globalSettings.tileShape) globalSettings.tileShape = 'default';
             if (globalSettings.fullTileImage === undefined) globalSettings.fullTileImage = false;
+            if (globalSettings.verticalCards === undefined) globalSettings.verticalCards = false;
             if (!globalSettings.tileSize) globalSettings.tileSize = 'medium';
             if (globalSettings.showSurpriseMe === undefined || globalSettings.showSurpriseMe === null) globalSettings.showSurpriseMe = false;
             if (globalSettings.showStats === undefined || globalSettings.showStats === null) globalSettings.showStats = false;
@@ -5469,6 +5676,7 @@
             applyTranslations(); applyLegacySettings();
             document.body.classList.toggle('hide-stars', globalSettings.hideStars);
             document.body.classList.toggle('full-tile-image', globalSettings.fullTileImage);
+            document.body.classList.toggle('vertical-cards', globalSettings.verticalCards);
             document.body.classList.add('tile-size-' + globalSettings.tileSize);
             document.body.classList.toggle('transparent-settings-mode', globalSettings.transparentSettings);
 
@@ -5546,6 +5754,7 @@
 
             if (globalSettings.dedicatedSettingsPage) document.body.classList.add('dedicated-settings-page');
             document.getElementById('fullTileImageToggle').checked = globalSettings.fullTileImage;
+            { const vc = document.getElementById('verticalCardsToggle'); if (vc) vc.checked = globalSettings.verticalCards; }
 
             document.getElementById('showSurpriseMeToggle').checked = globalSettings.showSurpriseMe;
             document.getElementById('showStatsToggle').checked = globalSettings.showStats;
@@ -5644,6 +5853,16 @@
 
                 if (!confirm(`Install ${type} "${fileName}" from Sail Hub?`)) return;
 
+                // Progress toast (design overhaul); settles to done/fail before each alert.
+                window.sailHubProgress && window.sailHubProgress.start(fileName, type);
+                const hubAlert = (msg) => {
+                    if (window.sailHubProgress) {
+                        if (msg.indexOf('✅') === 0) window.sailHubProgress.done();
+                        else window.sailHubProgress.fail();
+                    }
+                    alert(msg);
+                };
+
                 try {
                     const result = await ipcRenderer.invoke('hub-download-file', { fileUrl, type });
                     if (result && result.success) {
@@ -5662,14 +5881,14 @@
                                     applyTheme(globalSettings.theme);
                                     saveToMemory();
                                     try { fs.unlinkSync(result.path); } catch (e) { }
-                                    alert(`✅ Theme "${themeData.name}" installed and applied!`);
+                                    hubAlert(`✅ Theme "${themeData.name}" installed and applied!`);
                                 } else {
                                     try { fs.unlinkSync(result.path); } catch (e) { }
-                                    alert(`❌ Invalid theme file. It was removed.`);
+                                    hubAlert(`❌ Invalid theme file. It was removed.`);
                                 }
                             } catch (err) {
                                 try { fs.unlinkSync(result.path); } catch (e) { }
-                                alert(`❌ Couldn't apply theme: ${err.message}. The file was removed.`);
+                                hubAlert(`❌ Couldn't apply theme: ${err.message}. The file was removed.`);
                             }
                         } else if (type === 'plugin') {
                             if (result.fileName.endsWith('.zip') || result.fileName.endsWith('.rar') || result.fileName.endsWith('.7z')) {
@@ -5700,7 +5919,7 @@
 
                                     if (!fs.existsSync(path.join(pluginRoot, 'plugin.json'))) {
                                         fs.removeSync(tempDir);
-                                        alert('❌ Invalid plugin: no plugin.json found in the archive.');
+                                        hubAlert('❌ Invalid plugin: no plugin.json found in the archive.');
                                         return;
                                     }
 
@@ -5716,23 +5935,23 @@
                                     fs.moveSync(pluginRoot, finalPath, { overwrite: true });
                                     if (fs.existsSync(tempDir)) fs.removeSync(tempDir);
 
-                                    alert(`✅ Plugin "${manifest.name}" installed!\n\nRestart the launcher to load it.`);
+                                    hubAlert(`✅ Plugin "${manifest.name}" installed!\n\nRestart the launcher to load it.`);
                                 } catch (err) {
                                     try { fs.unlinkSync(result.path); } catch (e) { }
-                                    alert(`❌ Plugin extraction failed: ${err.message}`);
+                                    hubAlert(`❌ Plugin extraction failed: ${err.message}`);
                                 }
                             } else {
                                 try { fs.unlinkSync(result.path); } catch (e) { }
-                                alert(`❌ Unsupported plugin format.`);
+                                hubAlert(`❌ Unsupported plugin format.`);
                             }
                         } else {
-                            alert(`✅ Installed!\n\nSaved to: ${result.path}\n\nRestart the launcher to load it.`);
+                            hubAlert(`✅ Installed!\n\nSaved to: ${result.path}\n\nRestart the launcher to load it.`);
                         }
                     } else {
-                        alert('❌ Installation failed. Please try downloading manually.');
+                        hubAlert('❌ Installation failed. Please try downloading manually.');
                     }
                 } catch (err) {
-                    alert('❌ Installation failed: ' + err);
+                    hubAlert('❌ Installation failed: ' + err);
                 }
             });
 
@@ -5938,8 +6157,18 @@
             const sidebarWidth = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--main-sidebar-total-width')) || 270;
             const finalLeft = Math.max(sidebarWidth, maxRight + 15);
 
-            if (topContainer) topContainer.style.left = finalLeft + 'px';
+            // Place the "Menu ☰" dropdown first, then push the inline top-header
+            // action buttons to the right of it so they don't overlap the menu.
+            const dropdownVisible = dropdownContainer && getComputedStyle(dropdownContainer).display !== 'none';
             if (dropdownContainer) dropdownContainer.style.left = finalLeft + 'px';
+            if (topContainer) {
+                let leftForTop = finalLeft;
+                if (dropdownVisible) {
+                    const dw = dropdownContainer.getBoundingClientRect().width || 60;
+                    leftForTop = finalLeft + dw + 12;
+                }
+                topContainer.style.left = leftForTop + 'px';
+            }
         }
 
         // Auto-reposition if plugins are loaded dynamically into the titlebar
@@ -5983,6 +6212,57 @@
                 });
             });
         }
+
+        // Bridge so the separate Download-tab script (which can't see these lexically
+        // scoped variables) can read settings and add downloaded games to the library.
+        window.sailDownloadBridge = {
+            getSettings() {
+                return {
+                    installDir: globalSettings.dlInstallDir || '',
+                    maxSpeed: Number(globalSettings.dlMaxSpeed) || 0,
+                    autoAdd: globalSettings.dlAutoAdd !== false,
+                    autoExtract: globalSettings.dlAutoExtract !== false,
+                    autoInstall: globalSettings.dlAutoInstall !== false,
+                    skipRedist: globalSettings.dlSkipRedist !== false,
+                    adBlock: globalSettings.dlAdBlock !== false,
+                    enableDodi: !!globalSettings.dlEnableDodi,
+                    enableOnlineFix: !!globalSettings.dlEnableOnlineFix,
+                    maxConcurrent: Number(globalSettings.dlMaxConcurrent) || 3,
+                    enabledSources: globalSettings.dlEnabledSources || null
+                };
+            },
+            saveSettings(s) {
+                globalSettings.dlInstallDir = s.installDir || '';
+                globalSettings.dlMaxSpeed = Number(s.maxSpeed) || 0;
+                globalSettings.dlAutoAdd = !!s.autoAdd;
+                globalSettings.dlAutoExtract = !!s.autoExtract;
+                globalSettings.dlAutoInstall = !!s.autoInstall;
+                globalSettings.dlSkipRedist = !!s.skipRedist;
+                globalSettings.dlAdBlock = !!s.adBlock;
+                globalSettings.dlEnableDodi = !!s.enableDodi;
+                globalSettings.dlEnableOnlineFix = !!s.enableOnlineFix;
+                globalSettings.dlMaxConcurrent = Number(s.maxConcurrent) || 3;
+                saveToMemory();
+            },
+            saveEnabledSources(obj) { globalSettings.dlEnabledSources = obj; saveToMemory(); },
+            // Persist a single download gate flag immediately (used by instant-apply toggles).
+            setDownloadGate(key, val) { globalSettings[key] = !!val; saveToMemory(); },
+            getOnlineFixAuthed() { return !!globalSettings.dlOnlineFixAuthed; },
+            setOnlineFixAuthed(v) { globalSettings.dlOnlineFixAuthed = !!v; saveToMemory(); },
+            gameExists(name, exePath) {
+                const n = String(name || '').toLowerCase();
+                const p = String(exePath || '').toLowerCase();
+                return myGames.some(x =>
+                    (p && x.exePath && x.exePath.toLowerCase() === p) ||
+                    (n && x.name && x.name.toLowerCase() === n));
+            },
+            addGame(g) {
+                myGames.push(g);
+                saveToMemory();
+                try { renderSidebar(); } catch (e) {}
+                try { renderGames(); } catch (e) {}
+            }
+        };
 
         function saveToMemory() {
             try {
@@ -6737,8 +7017,20 @@
                 };
 
                 const platformIcon = f.platform === 'Steam' ? '🎮' : '💬';
+                // Map the status string to a presence type for the colour dot.
+                // green = playing, blue = online, yellow = away/idle, red = dnd, gray = offline.
+                const s = (f.status || '').toLowerCase();
+                let dotType = 'online';
+                if (s.startsWith('playing:')) dotType = 'playing';
+                else if (s === 'do not disturb' || s === 'dnd') dotType = 'dnd';
+                else if (s === 'away' || s === 'idle') dotType = 'away';
+                else if (s === 'offline') dotType = 'offline';
+                else if (s === 'online') dotType = 'online';
                 el.innerHTML = `
-                <img src="${f.avatar}" class="friend-avatar" onerror="this.src='https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_1280.png'">
+                <div class="friend-av-wrap">
+                    <img src="${f.avatar}" class="friend-avatar" onerror="this.src='https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_1280.png'">
+                    <span class="friend-dot ${dotType}" title="${f.status}"></span>
+                </div>
                 <div class="friend-info">
                     <span class="friend-name">${f.name}</span>
                     <span class="friend-status" title="${f.status}">${platformIcon} ${f.status}</span>
@@ -7345,7 +7637,7 @@
         async function switchMainTab(tab) {
             viewingGameIndex = null;
             
-            const tabIndices = { 'library': 0, 'store': 1, 'workshop': 2, 'sources': 3 };
+            const tabIndices = { 'library': 0, 'store': 1, 'workshop': 2, 'downloads': 3, 'downloadsmgr': 4, 'sources': 5 };
             const fromIdx = tabIndices[currentTabName] || 0;
             const toIdx = tabIndices[tab] || 0;
             
@@ -7368,32 +7660,36 @@
             const libraryEl = document.getElementById('libraryView');
             const storeEl = document.getElementById('storeView');
             const workshopEl = document.getElementById('workshopView');
+            const downloadsEl = document.getElementById('downloadsView');
+            const downloadsMgrEl = document.getElementById('downloadsManagerView');
             const sourcesEl = document.getElementById('sourcesView');
             const gamePageEl = document.getElementById('gamePageView');
-            
-            const views = [libraryEl, storeEl, workshopEl, sourcesEl, gamePageEl].filter(Boolean);
+
+            const views = [libraryEl, storeEl, workshopEl, downloadsEl, downloadsMgrEl, sourcesEl, gamePageEl].filter(Boolean);
             const activeView = views.find(v => v.style.display === 'block' || v.style.display === 'flex');
-            
+
             let targetView = null;
             if (tab === 'library') targetView = libraryEl;
             else if (tab === 'store') targetView = storeEl;
             else if (tab === 'workshop') targetView = workshopEl;
+            else if (tab === 'downloads') targetView = downloadsEl;
+            else if (tab === 'downloadsmgr') targetView = downloadsMgrEl;
             else if (tab === 'sources') targetView = sourcesEl;
-            
+
             const tabLib = document.getElementById('tabLibrary');
             const tabStore = document.getElementById('tabStore');
             const tabWorkshop = document.getElementById('tabWorkshop');
+            const tabDownloads = document.getElementById('tabDownloads');
             const tabSources = document.getElementById('tabSources');
-            if (tabLib && tabStore) {
-                tabLib.style.opacity = tab === 'library' ? '1' : '0.5';
-                tabStore.style.opacity = tab === 'store' ? '1' : '0.5';
-            }
-            if (tabWorkshop) {
-                tabWorkshop.style.opacity = tab === 'workshop' ? '1' : '0.5';
-            }
-            if (tabSources) {
-                tabSources.style.opacity = tab === 'sources' ? '1' : '0.5';
-            }
+            const tabDownloadsMgr = document.getElementById('tabDownloadsMgr');
+            // Sync opacity + the active-tab pill (moves between nav items).
+            const tabMap = { library: tabLib, store: tabStore, workshop: tabWorkshop, downloads: tabDownloads, downloadsmgr: tabDownloadsMgr, sources: tabSources };
+            Object.entries(tabMap).forEach(([key, el]) => {
+                if (!el) return;
+                const active = key === tab;
+                el.style.opacity = active ? '1' : '0.5';
+                el.classList.toggle('active-tab', active);
+            });
             
             if (activeView && activeView !== targetView) {
                 activeView.classList.add('fade-out');
@@ -7404,7 +7700,7 @@
                             v.classList.remove('fade-out');
                         });
                         if (targetView) {
-                            targetView.style.display = (targetView.id === 'workshopView' || targetView.id === 'sourcesView') ? 'flex' : 'block';
+                            targetView.style.display = (targetView.id === 'workshopView' || targetView.id === 'sourcesView' || targetView.id === 'downloadsView' || targetView.id === 'downloadsManagerView') ? 'flex' : 'block';
                         }
                         resolve();
                     }, 80);
@@ -7417,7 +7713,7 @@
                     }
                 });
                 if (targetView) {
-                    targetView.style.display = (targetView.id === 'workshopView' || targetView.id === 'sourcesView') ? 'flex' : 'block';
+                    targetView.style.display = (targetView.id === 'workshopView' || targetView.id === 'sourcesView' || targetView.id === 'downloadsView' || targetView.id === 'downloadsManagerView') ? 'flex' : 'block';
                     targetView.classList.remove('fade-out');
                 }
             }
@@ -7434,11 +7730,14 @@
                     document.getElementById('workshopPageStatus').style.display = 'none';
                 }
             }
-            if (tab === 'sources') {
-                closeSourcesBrowser();
-                renderSources();
+            if (tab === 'downloads') {
+                renderDownloadSourceChips();
+                setTimeout(() => { const i = document.getElementById('downloadSearchInput'); if (i) i.focus(); }, 100);
             }
-            
+            if (tab === 'downloadsmgr') {
+                renderDownloadsPage();
+            }
+
             // Lazy-load the store iframe only when active to save CPU
             const storeIframe = document.getElementById('storeIframe');
             if (storeIframe) {
@@ -8059,9 +8358,22 @@
         window.closeSourcesBrowser = function() {
             const webview = document.getElementById('sourceWebview');
             webview.src = 'about:blank';
-            
+
             document.getElementById('sourcesBrowserPanel').style.display = 'none';
-            document.getElementById('sourcesMainPanel').style.display = 'flex';
+            // The Sources management page was removed — return to the Download page.
+            switchMainTab('downloads');
+            // If we came here to log into Online-Fix, re-run the pending search now.
+            if (window.__dlPendingQuery) {
+                window.__dlOnlineFixAuthed = true;
+                if (window.sailDownloadBridge && window.sailDownloadBridge.setOnlineFixAuthed) window.sailDownloadBridge.setOnlineFixAuthed(true);
+                const q = window.__dlPendingQuery;
+                window.__dlPendingQuery = null;
+                setTimeout(() => {
+                    const input = document.getElementById('downloadSearchInput');
+                    if (input) input.value = q;
+                    if (typeof window.runDownloadSearch === 'function') window.runDownloadSearch();
+                }, 300);
+            }
         };
 
         window.toggleCustomKeysPanel = function() {
@@ -8308,6 +8620,7 @@
 
                 } else if (!isRunning && sessionStartTimes[idx]) {
                     // GAME JUST CLOSED!
+                    const sessionStartedAt = sessionStartTimes[idx];
                     let elapsed = (Date.now() - sessionStartTimes[idx]) / 1000;
                     g.playtime = (g.playtime || 0) + elapsed;
                     delete sessionStartTimes[idx];
@@ -8319,12 +8632,35 @@
                         ipcRenderer.send('update-rpc', null);
                     }
 
+                    // First-launch save scan: a downloaded game has no save files until it's
+                    // been played once. After the FIRST play session ends, scan the common
+                    // save locations and attach the matching folder to game.localSave.
+                    if (g.saveScanPending && !g.localSave) {
+                        maybeScanSavesAfterFirstPlay(idx, sessionStartedAt);
+                    }
+
                     // FIX 2: UI updates for EVERY game that closes!
                     if (viewingGameIndex === idx) updateGamePageActionBar(); else renderGames();
                     executeSaveSync(idx, viewingGameIndex === idx ? 'gpStatusText' : `status-${idx}`);
                 }
             });
         }, 5000);
+
+        // After a downloaded game's first play session, ask the backend to find its save
+        // folder and store it on the game. Clears saveScanPending either way so we only try
+        // once per game (the user can still set a save folder manually later via Edit).
+        async function maybeScanSavesAfterFirstPlay(idx, sessionStartedAt) {
+            const g = myGames[idx];
+            if (!g || !g.saveScanPending) return;
+            try {
+                const found = await ipcRenderer.invoke('scan-game-saves', g.name, sessionStartedAt || 0);
+                if (found && !g.localSave) g.localSave = found;
+            } catch (e) { /* best-effort */ }
+            g.saveScanPending = false;
+            saveToMemory();
+            if (viewingGameIndex === idx) { try { updateGamePageActionBar(); } catch (e) {} openGamePage(idx); }
+            else renderGames();
+        }
 
         async function forceStopGame(index) {
             const game = myGames[index];
@@ -8575,6 +8911,47 @@
 
                 gameGrid.appendChild(card);
             });
+
+            renderContinuePlaying();
+        }
+
+        // "Continue playing" featured banner — shows the most recently played
+        // game at the top of the library home (only on the unfiltered All view).
+        function gameCoverUrl(game) {
+            if (game.customBannerPath) return 'file://' + game.customBannerPath.replace(/\\/g, '/');
+            if (game.steamHeroUrl) return game.steamHeroUrl;
+            if (game.steamAppId) return `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${game.steamAppId}/library_hero.jpg`;
+            if (game.iconData) return game.iconData;
+            return '';
+        }
+        function renderContinuePlaying() {
+            const el = document.getElementById('continuePlayingCard');
+            if (!el) return;
+            const searchQuery = (document.getElementById('searchInput') || {}).value || '';
+            const onHome = (currentFilterSectionId === 'ALL') && !searchQuery && !selectModeActive;
+            // most recently played game across the whole library
+            let bestIdx = -1, bestTime = 0;
+            for (let i = 0; i < myGames.length; i++) {
+                const g = myGames[i];
+                if (g.lastPlayed && (g.playtime || 0) > 0 && g.lastPlayed > bestTime) { bestTime = g.lastPlayed; bestIdx = i; }
+            }
+            if (!onHome || bestIdx === -1) { el.style.display = 'none'; return; }
+            const g = myGames[bestIdx];
+            const cover = gameCoverUrl(g);
+            const running = (typeof activeGameIndex !== 'undefined' && activeGameIndex === bestIdx);
+            const hrs = (g.playtime || 0) > 0 ? formatPlaytime(g.playtime) : '';
+            const lastStr = g.lastPlayed ? new Date(g.lastPlayed).toLocaleDateString() : '';
+            el.style.display = 'block';
+            el.style.backgroundImage = cover ? `linear-gradient(100deg, rgba(6,6,10,0.92) 18%, rgba(6,6,10,0.45) 58%, transparent), url("${cover}")` : 'none';
+            el.innerHTML = `
+                <div class="continue-card-body">
+                    <span class="continue-kicker">${running ? '● Now playing' : 'Continue playing'}</span>
+                    <h2 class="continue-title">${g.name || ''}</h2>
+                    <div class="continue-meta">${hrs ? '🕒 ' + hrs : ''}${hrs && lastStr ? ' &nbsp;•&nbsp; ' : ''}${lastStr ? 'Last played ' + lastStr : ''}</div>
+                    <span class="continue-cta">${running ? '🎮 Resume' : '▶ Play'} ${g.name || ''}</span>
+                </div>`;
+            el.onclick = () => openGamePage(bestIdx);
+            el.onkeydown = (e) => { if (e.key === 'Enter') openGamePage(bestIdx); };
         }
 
         window.toggleSelectMode = function (active) {
@@ -8967,6 +9344,7 @@
         document.getElementById('compactPageToggle').addEventListener('change', (e) => { globalSettings.compactLayout = e.target.checked; saveToMemory(); if (document.getElementById('gamePageView').style.display === 'block') openGamePage(viewingGameIndex, true); });
         document.getElementById('disableDiscordRpcToggle').addEventListener('change', (e) => { globalSettings.disableDiscordRpc = e.target.checked; saveToMemory(); ipcRenderer.send('set-rpc-setting', e.target.checked); });
         document.getElementById('fullTileImageToggle').addEventListener('change', (e) => { globalSettings.fullTileImage = e.target.checked; saveToMemory(); document.body.classList.toggle('full-tile-image', e.target.checked); });
+        { const vc = document.getElementById('verticalCardsToggle'); if (vc) vc.addEventListener('change', (e) => { globalSettings.verticalCards = e.target.checked; saveToMemory(); document.body.classList.toggle('vertical-cards', e.target.checked); }); }
         document.getElementById('exitWhenClosedToggle').addEventListener('change', (e) => { globalSettings.exitWhenClosed = e.target.checked; saveToMemory(); ipcRenderer.send('set-exit-behavior', e.target.checked); });
         document.getElementById('keepListCoversToggle').addEventListener('change', (e) => { globalSettings.keepListCovers = e.target.checked; saveToMemory(); document.body.classList.toggle('keep-list-covers', e.target.checked); });
         document.getElementById('defaultToSteamToggle').addEventListener('change', (e) => { globalSettings.defaultToSteam = e.target.checked; saveToMemory(); });
@@ -10089,6 +10467,7 @@
 
         function playConsoleChime() {
             try {
+                if (globalSettings.muteSounds) return;   // user muted launcher sounds
                 const AudioContext = window.AudioContext || window.webkitAudioContext;
                 if (!AudioContext) return;
                 const ctx = new AudioContext();
@@ -10180,6 +10559,1234 @@
         initApp();
     </script>
 
+    <!-- ============================================================
+         Download Games tab — unified repack/source search & links
+         Sources: SteamGG, FitGirl, Online-Fix, DODI
+         ============================================================ -->
+    <style>
+        @keyframes dlFadeUp { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes dlPanelIn { from { opacity: 0; transform: translateY(10px) scale(0.995); } to { opacity: 1; transform: none; } }
+        @keyframes dlDockIn { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: none; } }
+        @keyframes dlShimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+        @keyframes dlSpin { to { transform: rotate(360deg); } }
+
+        #downloadResults .dl-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 14px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            cursor: pointer;
+            position: relative;
+            opacity: 0;
+            animation: dlFadeUp 0.45s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+            transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.28s ease, border-color 0.28s ease;
+            will-change: transform;
+        }
+        #downloadResults .dl-card:hover {
+            transform: translateY(-6px);
+            box-shadow: 0 14px 34px rgba(0, 0, 0, 0.45);
+        }
+        .dl-card .dl-cover-wrap { position: relative; width: 100%; aspect-ratio: 16 / 10; overflow: hidden; background: #0c0c10; }
+        .dl-card .dl-cover { width: 100%; height: 100%; object-fit: cover; transition: transform 0.5s cubic-bezier(0.22, 1, 0.36, 1); }
+        .dl-card:hover .dl-cover { transform: scale(1.09); }
+        .dl-card .dl-cover-grad { position: absolute; inset: 0; background: linear-gradient(to top, rgba(0,0,0,0.82) 0%, rgba(0,0,0,0.15) 45%, transparent 100%); }
+        .dl-card .dl-badge {
+            position: absolute; top: 10px; left: 10px;
+            font-size: 10px; font-weight: 800; letter-spacing: 0.3px;
+            padding: 4px 10px; border-radius: 99px; color: #fff;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.4); backdrop-filter: blur(4px);
+        }
+        .dl-card .dl-play {
+            position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+            opacity: 0; transition: opacity 0.28s ease; pointer-events: none;
+        }
+        .dl-card .dl-play span {
+            background: rgba(0,0,0,0.55); border: 1.5px solid rgba(255,255,255,0.85);
+            color: #fff; padding: 8px 18px; border-radius: 99px; font-size: 13px; font-weight: 700;
+            transform: translateY(8px); transition: transform 0.28s cubic-bezier(0.22,1,0.36,1); backdrop-filter: blur(3px);
+        }
+        .dl-card:hover .dl-play { opacity: 1; }
+        .dl-card:hover .dl-play span { transform: translateY(0); }
+        .dl-card .dl-title { margin: 0; font-size: 13.5px; font-weight: 600; line-height: 1.35; padding: 12px 14px 14px; height: 62px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+
+        .dl-chip { box-shadow: 0 2px 6px rgba(0,0,0,0.15); }
+        .dl-chip:hover { filter: brightness(1.12); transform: translateY(-1px); }
+        .dl-chip { transition: filter 0.15s ease, transform 0.15s ease, background 0.15s ease, color 0.15s ease, opacity 0.15s ease; }
+
+        #downloadSearchInput { transition: border-color 0.2s ease, box-shadow 0.2s ease; }
+        #downloadSearchInput:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(124, 92, 255, 0.18); }
+
+        #downloadDetailPanel { animation: dlPanelIn 0.4s cubic-bezier(0.22, 1, 0.36, 1); }
+        #ddpScreens img { transition: transform 0.25s ease, box-shadow 0.25s ease; }
+        #ddpScreens img:hover { transform: scale(1.03); box-shadow: 0 8px 20px rgba(0,0,0,0.4); }
+
+        #downloadDock { animation: dlDockIn 0.35s cubic-bezier(0.22, 1, 0.36, 1); }
+        .dl-progress-bar { background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 55%, #fff)); background-size: 200% 100%; animation: dlShimmer 1.6s linear infinite; }
+        .dl-ddl-btn { transition: transform 0.18s ease, box-shadow 0.18s ease, filter 0.18s ease; }
+        .dl-ddl-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 22px rgba(124,92,255,0.4); filter: brightness(1.05); }
+        .dl-spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(128,128,128,0.3); border-top-color: var(--accent); border-radius: 50%; animation: dlSpin 0.7s linear infinite; vertical-align: middle; }
+    </style>
+    <script>
+    (function () {
+        const { ipcRenderer } = require('electron');
+
+        const DL_PLACEHOLDER = 'data:image/svg+xml,' + encodeURIComponent(
+            '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="225"><rect fill="#18181b" width="400" height="225"/><text fill="#a1a1aa" font-family="sans-serif" font-size="16" x="50%" y="50%" text-anchor="middle" dominant-baseline="middle">No Image</text></svg>'
+        );
+
+        const DL_HOSTS = /magnet:|megadb|buzzheavier|gofile|datanodes|1fichier|pixeldrain|akirabox|filekeeper|filecrypt|mediafire|mega\.nz|qiwi|multiup|fuckingfast|bowfile|hexload|torrent|\.torrent/i;
+
+        // Decode HTML entities (REST API titles come with &#8217; &amp; etc.)
+        function dlDecodeEntities(s) {
+            if (!s) return '';
+            const t = document.createElement('textarea');
+            t.innerHTML = s;
+            return t.value;
+        }
+
+        function dlClean(name) {
+            return (name || '')
+                .replace(/\s*\(.*?(repack|fitgirl|dodi).*?\)\s*/ig, ' ')
+                .replace(/\s*Free Download.*$/i, '')
+                .replace(/\s+/g, ' ')
+                .trim();
+        }
+
+        function dlAbs(href, base) {
+            if (!href) return '';
+            if (href.startsWith('magnet:')) return href;
+            if (href.startsWith('//')) return 'https:' + href;
+            try { return new URL(href, base).href; } catch (e) { return href; }
+        }
+
+        function dlImgSrc(imgEl, base) {
+            if (!imgEl) return DL_PLACEHOLDER;
+            let cand = imgEl.getAttribute('data-src') || imgEl.getAttribute('data-lazy-src') ||
+                imgEl.getAttribute('data-back-webp') || imgEl.getAttribute('data-back') ||
+                imgEl.getAttribute('src') || '';
+            // srcset fallback (take first URL)
+            if (!cand) { const ss = imgEl.getAttribute('data-srcset') || imgEl.getAttribute('srcset'); if (ss) cand = ss.split(',')[0].trim().split(/\s+/)[0]; }
+            const abs = dlAbs(cand, base);
+            return abs || DL_PLACEHOLDER;
+        }
+
+        // Resolve a card cover from a result container: SteamRIP stores it as a
+        // data-back / data-back-webp attribute or CSS background, not an <img>.
+        function dlContainerImage(c, base) {
+            const dataAttrs = ['data-back-webp', 'data-back', 'data-bg', 'data-lazy-bg', 'data-src'];
+            // attribute on the container itself
+            for (const a of dataAttrs) { const v = c.getAttribute && c.getAttribute(a); if (v) return dlAbs(v, base); }
+            // attribute on any descendant
+            for (const a of dataAttrs) { const el = c.querySelector('[' + a + ']'); if (el) { const v = el.getAttribute(a); if (v) return dlAbs(v, base); } }
+            // a real <img>
+            const img = c.querySelector('img');
+            if (img) { const s = dlImgSrc(img, base); if (s && s !== DL_PLACEHOLDER) return s; }
+            // inline background-image: url(...)
+            const styled = (c.getAttribute && c.getAttribute('style')) ? c : c.querySelector('[style*="background"]');
+            if (styled) { const st = styled.getAttribute('style') || ''; const mm = st.match(/url\((['"]?)([^'")]+)\1\)/i); if (mm) return dlAbs(mm[2], base); }
+            return DL_PLACEHOLDER;
+        }
+
+        function dlHostLabel(url) {
+            if (url.startsWith('magnet:')) return 'Magnet / Torrent';
+            try { return new URL(url).hostname.replace(/^www\./, ''); } catch (e) { return 'Download link'; }
+        }
+
+        // Generic search-result parser driven by per-source selectors
+        function genericResults(doc, base, containerSel, titleSel, max) {
+            const out = [];
+            const seen = new Set();
+            doc.querySelectorAll(containerSel).forEach(c => {
+                const link = c.querySelector(titleSel);
+                if (!link) return;
+                const url = dlAbs(link.getAttribute('href'), base);
+                if (!url || seen.has(url) || /\/(category|tag|author|page)\//i.test(url)) return;
+                const name = dlClean(link.textContent);
+                if (!name) return;
+                seen.add(url);
+                out.push({ name, url, image: dlContainerImage(c, base) });
+            });
+            return out.slice(0, max || 12);
+        }
+
+        // --- Source definitions -------------------------------------------
+        const DL_SOURCES = {
+            steamgg: {
+                name: 'SteamGG', color: '#14b8a6',
+                searchUrl: q => `https://steamgg.net/?s=${encodeURIComponent(q)}`,
+                // SteamGG's search page is JS-rendered, but it's WordPress — its REST API
+                // returns clean JSON, so we search through that instead of scraping HTML.
+                searchFn: async (query) => {
+                    const url = `https://steamgg.net/wp-json/wp/v2/posts?search=${encodeURIComponent(query)}&per_page=12&_embed=1`;
+                    const res = await ipcRenderer.invoke('scrape-fetch', url);
+                    if (!res || !res.ok || !res.html) return [];
+                    let arr; try { arr = JSON.parse(res.html); } catch (e) { return []; }
+                    if (!Array.isArray(arr)) return [];
+                    return arr.map(p => {
+                        let image = DL_PLACEHOLDER;
+                        try { image = p._embedded['wp:featuredmedia'][0].source_url || image; } catch (e) {}
+                        const name = dlClean(dlDecodeEntities((p.title && p.title.rendered) || ''));
+                        return { name, url: p.link, image };
+                    }).filter(x => x.name && x.url);
+                },
+                // Game pages render the host buttons (Pixeldrain/Datanode/Akira/Buzzheavier)
+                // server-side as real <a> links — grab every known-host link.
+                detail: (doc, base) => {
+                    const links = [], seen = new Set();
+                    doc.querySelectorAll('a[href^="magnet:"]').forEach(a => {
+                        const href = a.getAttribute('href');
+                        if (!seen.has(href)) { seen.add(href); links.push({ label: 'Magnet / Torrent', type: 'magnet', url: href }); }
+                    });
+                    const scope = doc.querySelector('.entry-content, .post-content, article, main') || doc;
+                    scope.querySelectorAll('a[href]').forEach(a => {
+                        let href = dlAbs(a.getAttribute('href') || '', base);
+                        if (!href || href.startsWith('magnet:') || !DL_HOSTS.test(href) || seen.has(href)) return;
+                        seen.add(href);
+                        links.push({ label: dlHostLabel(href), type: 'web', url: href });
+                    });
+                    return links;
+                }
+            },
+            fitgirl: {
+                name: 'FitGirl', color: '#ec4899',
+                searchUrl: q => `https://fitgirl-repacks.site/?s=${encodeURIComponent(q)}`,
+                results: doc => genericResults(doc, 'https://fitgirl-repacks.site',
+                    'article', 'h1.entry-title a, h2.entry-title a, .entry-title a'),
+                detail: wpDetail
+            },
+            onlinefix: {
+                name: 'Online-Fix', color: '#f59e0b', loginNote: true, renderOnly: true,
+                searchUrl: q => `https://online-fix.me/index.php?do=search&subaction=search&story=${encodeURIComponent(q)}`,
+                results: doc => {
+                    const base = 'https://online-fix.me';
+                    // Online-Fix game pages have the exact shape /games/<cat>/<id>-<slug>.html.
+                    const GAME_RE = /\/games\/[^\/]+\/\d+-[^\/]+\.html$/i;
+                    // Only look inside the main search-results column. The sidebar/footer
+                    // carry "latest/popular/related" game widgets that were leaking in as
+                    // bogus results (e.g. searching "phasmo" returning Baby Steps etc.).
+                    const scope = doc.querySelector('#dle-content') || doc.querySelector('#content, .content, main') || doc.body || doc;
+                    const EXCLUDE = /related|similar|popular|latest|lastnews|sidebar|aside|side-|speedbar|navigation|\bnav\b|\bmenu\b|footer|header|block-/i;
+                    const out = [], seen = new Set();
+                    scope.querySelectorAll('a[href]').forEach(a => {
+                        // skip anchors living inside a sidebar / related-games widget
+                        let p = a, bad = false;
+                        for (let i = 0; i < 7 && p && p !== scope; i++) {
+                            const cls = (typeof p.className === 'string' ? p.className : '') + ' ' + (p.id || '');
+                            if (EXCLUDE.test(cls)) { bad = true; break; }
+                            p = p.parentElement;
+                        }
+                        if (bad) return;
+                        let href = (a.getAttribute('href') || '').trim();
+                        if (!href) return;
+                        if (!href.startsWith('http')) href = href.startsWith('/') ? base + href : base + '/' + href;
+                        const clean = href.split('#')[0];
+                        if (!GAME_RE.test(clean) || seen.has(clean)) return;
+                        // Prefer the anchor's own title text; fall back to a heading in its row
+                        let name = dlClean(a.textContent);
+                        if (!name || name.length < 3) {
+                            const row = a.closest('article, .news, .short, li, div');
+                            const h = row && row.querySelector('h1, h2, h3, .title');
+                            name = dlClean(h ? h.textContent : '');
+                        }
+                        if (!name || name.length < 3) return;
+                        seen.add(clean);
+                        out.push({ name, url: clean, image: dlContainerImage(a.closest('article, .news, .short, li, div') || doc.body, base) });
+                    });
+                    return out.slice(0, 12);
+                },
+                detail: (doc, base) => [] // login-walled; falls back to opening the page
+            },
+            dodi: {
+                name: 'DODI', color: '#8b5cf6',
+                searchUrl: q => `https://dodi-repacks.site/?s=${encodeURIComponent(q)}`,
+                results: doc => genericResults(doc, 'https://dodi-repacks.site',
+                    'article', 'h1.entry-title a, h2.entry-title a, .entry-title a'),
+                detail: wpDetail
+            }
+        };
+
+        // Shared detail parser for WordPress repack sites (FitGirl / DODI)
+        function wpDetail(doc, base) {
+            const links = [];
+            const seen = new Set();
+            doc.querySelectorAll('a[href^="magnet:"]').forEach(a => {
+                const href = a.getAttribute('href');
+                if (seen.has(href)) return;
+                seen.add(href);
+                links.push({ label: 'Magnet / Torrent', type: 'magnet', url: href });
+            });
+            doc.querySelectorAll('.entry-content a, .su-spoiler-content a, ul li a').forEach(a => {
+                let href = dlAbs(a.getAttribute('href') || '', base);
+                if (!href || href.startsWith('magnet:') || !DL_HOSTS.test(href) || seen.has(href)) return;
+                seen.add(href);
+                links.push({ label: dlHostLabel(href), type: 'web', url: href });
+            });
+            return links;
+        }
+
+        // DODI + Online-Fix are OFF by default (Cloudflare / login+captcha). Toggle them on in Download Settings.
+        const dlEnabled = { steamgg: true, fitgirl: true, onlinefix: false, dodi: false };
+        let dlSearchToken = 0;
+
+        let dlAdBlockSynced = false;
+        function loadDlEnabledFromSettings() {
+            const s = (window.sailDownloadBridge && window.sailDownloadBridge.getSettings()) || {};
+            // restore persisted Online-Fix login state (survives launcher restarts)
+            if (typeof window.__dlOnlineFixAuthed === 'undefined') {
+                window.__dlOnlineFixAuthed = !!(window.sailDownloadBridge && window.sailDownloadBridge.getOnlineFixAuthed && window.sailDownloadBridge.getOnlineFixAuthed());
+            }
+            if (s.enabledSources) {
+                Object.keys(dlEnabled).forEach(k => { if (typeof s.enabledSources[k] === 'boolean') dlEnabled[k] = s.enabledSources[k]; });
+            }
+            // DODI / Online-Fix only available when explicitly enabled in settings
+            if (!s.enableDodi) dlEnabled.dodi = false;
+            if (!s.enableOnlineFix) dlEnabled.onlinefix = false;
+            // sync ad-block preference with main process once settings are loaded
+            if (!dlAdBlockSynced && window.sailDownloadBridge) {
+                dlAdBlockSynced = true;
+                ipcRenderer.invoke('set-adblock', s.adBlock !== false);
+            }
+        }
+
+        window.renderDownloadSourceChips = function () {
+            loadDlEnabledFromSettings();
+            const wrap = document.getElementById('downloadSourceToggles');
+            if (!wrap) return;
+            const settings0 = (window.sailDownloadBridge && window.sailDownloadBridge.getSettings()) || {};
+            const dodiEnabledInSettings = !!settings0.enableDodi;
+            const onlineFixEnabledInSettings = !!settings0.enableOnlineFix;
+            const optInVisible = (id) => (id === 'dodi' ? dodiEnabledInSettings : id === 'onlinefix' ? onlineFixEnabledInSettings : true);
+            if (wrap.querySelector('.dl-chip')) {
+                // already built — just sync opt-in visibility + chip states
+                wrap.querySelectorAll('.dl-chip').forEach(chip => {
+                    const id = chip.dataset.id;
+                    chip.style.display = optInVisible(id) ? '' : 'none';
+                    const on = dlEnabled[id];
+                    const color = DL_SOURCES[id].color;
+                    chip.style.background = on ? color : 'transparent';
+                    chip.style.color = on ? '#fff' : color;
+                    chip.style.opacity = on ? '1' : '0.7';
+                });
+                return;
+            }
+            Object.keys(DL_SOURCES).forEach(id => {
+                const src = DL_SOURCES[id];
+                const chip = document.createElement('button');
+                chip.className = 'dl-chip';
+                chip.dataset.id = id;
+                chip.style.cssText = 'padding:6px 14px;border-radius:99px;font-size:12px;font-weight:bold;cursor:pointer;border:1px solid ' + src.color + ';transition:opacity .15s;';
+                chip.textContent = src.name;
+                const on0 = dlEnabled[id];
+                chip.style.background = on0 ? src.color : 'transparent';
+                chip.style.color = on0 ? '#fff' : src.color;
+                chip.style.opacity = on0 ? '1' : '0.7';
+                if (!optInVisible(id)) chip.style.display = 'none';
+                chip.onclick = () => {
+                    dlEnabled[id] = !dlEnabled[id];
+                    chip.style.background = dlEnabled[id] ? src.color : 'transparent';
+                    chip.style.color = dlEnabled[id] ? '#fff' : src.color;
+                    chip.style.opacity = dlEnabled[id] ? '1' : '0.7';
+                    if (window.sailDownloadBridge) window.sailDownloadBridge.saveEnabledSources(Object.assign({}, dlEnabled));
+                };
+                wrap.appendChild(chip);
+            });
+        };
+
+        const DL_CHALLENGE = /just a moment|checking your browser|attention required|cf-browser-verification|challenge-platform|enable javascript and cookies|verifying you are human|ddos-guard/i;
+
+        // Fetch a page as a DOM. Fast HTTP first; if it's blocked (Cloudflare 403/503,
+        // a JS-challenge page, or suspiciously small) fall back to a hidden Chromium
+        // render that solves the challenge and carries any login session.
+        async function dlFetchDoc(url, opts) {
+            opts = opts || {};
+            let res = opts.forceRender ? null : await ipcRenderer.invoke('scrape-fetch', url);
+            const blocked = !res || !res.ok || !res.html || res.html.length < 1500 ||
+                res.status === 403 || res.status === 503 || DL_CHALLENGE.test(res.html || '');
+            if (blocked) {
+                const r2 = await ipcRenderer.invoke('scrape-render', url);
+                // Accept the render result if: no challenge keywords, OR the HTML is large enough
+                // to be real page content (DDoS-Guard embeds its script on legitimate pages too).
+                const r2ok = r2 && r2.ok && r2.html && (!DL_CHALLENGE.test(r2.html) || r2.html.length > 60000);
+                if (r2ok) res = r2;
+                else if (!res || !res.ok) return { doc: null, error: (r2 && (r2.error || 'blocked')) || (res && ('HTTP ' + res.status)) || 'Request failed' };
+            }
+            if (!res || !res.ok || !res.html) {
+                return { doc: null, error: (res && (res.error || ('HTTP ' + res.status))) || 'Request failed' };
+            }
+            const doc = new DOMParser().parseFromString(res.html, 'text/html');
+            return { doc, error: null };
+        }
+
+        window.runDownloadSearch = async function () {
+            const query = document.getElementById('downloadSearchInput').value.trim();
+            const resultsEl = document.getElementById('downloadResults');
+            const statusEl = document.getElementById('downloadStatus');
+            const emptyEl = document.getElementById('downloadEmptyState');
+            if (!query) { document.getElementById('downloadSearchInput').focus(); return; }
+
+            const active = Object.keys(dlEnabled).filter(id => dlEnabled[id]);
+            if (active.length === 0) { alert('Enable at least one source first.'); return; }
+
+            const token = ++dlSearchToken;
+            resultsEl.innerHTML = '';
+            dlCardIndex = 0;
+            emptyEl.style.display = 'none';
+            statusEl.style.display = 'block';
+            statusEl.innerHTML = `<span class="dl-spinner"></span> Searching ${active.length} source${active.length > 1 ? 's' : ''}...`;
+
+            if (dlEnabled.onlinefix) showOnlineFixNotice(query);
+
+            let total = 0;
+            let done = 0;
+            await Promise.all(active.map(async id => {
+                const src = DL_SOURCES[id];
+                try {
+                    // Sources with a custom search (e.g. SteamGG's REST API) bypass HTML scraping.
+                    if (src.searchFn) {
+                        const items = await src.searchFn(query) || [];
+                        if (token !== dlSearchToken) return;
+                        if (!items.length) renderSourceFallback(id, query, 'No results');
+                        else items.forEach(it => { renderDownloadCard(id, it); total++; });
+                        return; // finally{} still runs (done++ + status)
+                    }
+                    const { doc, error } = await dlFetchDoc(src.searchUrl(query), { forceRender: !!src.renderOnly });
+                    if (token !== dlSearchToken) return;
+                    // If the rendered Online-Fix page proves we're logged in, remember it
+                    // permanently and drop the login banner.
+                    if (id === 'onlinefix' && dlOnlineFixLoggedIn(doc)) {
+                        window.__dlOnlineFixAuthed = true;
+                        if (window.sailDownloadBridge && window.sailDownloadBridge.setOnlineFixAuthed) window.sailDownloadBridge.setOnlineFixAuthed(true);
+                        const b = document.getElementById('onlineFixNoticeBanner');
+                        if (b) b.remove();
+                    }
+                    if (error || !doc) { renderSourceFallback(id, query, error || 'blocked'); done++; return; }
+                    const items = src.results(doc) || [];
+                    if (items.length === 0) { renderSourceFallback(id, query, 'No results'); }
+                    items.forEach(it => { renderDownloadCard(id, it); total++; });
+                } catch (e) {
+                    if (token === dlSearchToken) renderSourceFallback(id, query, e.message);
+                } finally {
+                    done++;
+                    if (token === dlSearchToken) {
+                        statusEl.textContent = done < active.length
+                            ? `Searching... (${done}/${active.length} sources, ${total} results)`
+                            : `Found ${total} result${total === 1 ? '' : 's'} across ${active.length} source${active.length > 1 ? 's' : ''}.`;
+                    }
+                }
+            }));
+            if (token === dlSearchToken && total === 0 && !resultsEl.children.length) {
+                emptyEl.style.display = 'flex';
+                emptyEl.querySelector('h3').textContent = 'No results found';
+                statusEl.style.display = 'none';
+            }
+        };
+
+        // True only when the rendered page clearly shows a logged-in session.
+        // (We never auto-set "logged out" to avoid false negatives nagging the user.)
+        function dlOnlineFixLoggedIn(doc) {
+            if (!doc) return false;
+            if (doc.querySelector('a[href*="logout"], a[href*="do=logout"], a[onclick*="logout"]')) return true;
+            const html = (doc.body && doc.body.innerHTML) || '';
+            return /do=logout|action=logout|\bвыход\b/i.test(html);
+        }
+
+        // Online-Fix requires a logged-in session for search + downloads to work.
+        function showOnlineFixNotice(query) {
+            if (typeof window.__dlOnlineFixAuthed === 'undefined') {
+                window.__dlOnlineFixAuthed = !!(window.sailDownloadBridge && window.sailDownloadBridge.getOnlineFixAuthed && window.sailDownloadBridge.getOnlineFixAuthed());
+            }
+            if (window.__dlOnlineFixAuthed) return;
+            if (document.getElementById('onlineFixNoticeBanner')) return;
+            const resultsEl = document.getElementById('downloadResults');
+            const banner = document.createElement('div');
+            banner.id = 'onlineFixNoticeBanner';
+            banner.style.cssText = 'grid-column:1/-1;background:rgba(245,158,11,0.10);border:1px solid #f59e0b;border-radius:12px;padding:14px 18px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;';
+            banner.innerHTML = `
+                <span style="font-size:22px;">🔐</span>
+                <div style="flex:1;min-width:200px;">
+                    <div style="font-weight:bold;font-size:13px;margin-bottom:2px;">Online-Fix requires you to be logged in</div>
+                    <div style="font-size:12px;opacity:0.7;line-height:1.4;">Online-Fix only shows search results &amp; downloads to logged-in members. Log in once in the in-app browser, then come back and search.</div>
+                </div>`;
+            const loginBtn = document.createElement('button');
+            loginBtn.style.cssText = 'padding:9px 16px;border-radius:8px;font-size:12px;font-weight:bold;border:none;background:#f59e0b;color:#111;cursor:pointer;white-space:nowrap;';
+            loginBtn.textContent = '🔓 Log in to Online-Fix';
+            loginBtn.onclick = () => openOnlineFixLogin(query);
+            const dismiss = document.createElement('button');
+            dismiss.className = 'outline';
+            dismiss.style.cssText = 'padding:9px 12px;border-radius:8px;font-size:12px;white-space:nowrap;';
+            dismiss.textContent = '✕';
+            dismiss.title = 'Dismiss';
+            dismiss.onclick = () => banner.remove();
+            banner.appendChild(loginBtn);
+            banner.appendChild(dismiss);
+            resultsEl.appendChild(banner);
+        }
+
+        // Open the in-app browser to the Online-Fix login page; once the user
+        // closes the browser, re-run the pending search (now authenticated).
+        window.openOnlineFixLogin = function (query) {
+            window.__dlPendingQuery = (query || document.getElementById('downloadSearchInput').value || '').trim();
+            openDownloadInAppBrowser('https://online-fix.me/');
+        };
+
+        function renderSourceFallback(id, query, reason) {
+            const src = DL_SOURCES[id];
+            const resultsEl = document.getElementById('downloadResults');
+            const card = document.createElement('div');
+            card.style.cssText = 'background:var(--bg-color);border:1px dashed var(--border-color);border-radius:12px;padding:18px;display:flex;flex-direction:column;gap:10px;justify-content:center;text-align:center;';
+            const badge = `<span style="font-size:11px;font-weight:bold;padding:3px 10px;border-radius:99px;background:${src.color};color:#fff;align-self:center;">${src.name}</span>`;
+            card.innerHTML = `${badge}<p style="margin:0;font-size:12px;opacity:0.6;">Couldn't read results here${reason ? ' (' + reason + ')' : ''}.</p>`;
+            const btn = document.createElement('button');
+            btn.className = 'outline';
+            btn.style.cssText = 'padding:8px 14px;font-size:12px;border-radius:8px;';
+            btn.textContent = '🌐 Search on site';
+            btn.onclick = () => openDownloadInAppBrowser(src.searchUrl(query));
+            card.appendChild(btn);
+            resultsEl.appendChild(card);
+        }
+
+        let dlCardIndex = 0;
+        function renderDownloadCard(id, item) {
+            const src = DL_SOURCES[id];
+            const resultsEl = document.getElementById('downloadResults');
+            const card = document.createElement('div');
+            card.className = 'dl-card';
+            card.style.animationDelay = Math.min(dlCardIndex++ * 35, 500) + 'ms';
+            card.onclick = () => openDownloadDetail(id, item);
+
+            const cover = document.createElement('div');
+            cover.className = 'dl-cover-wrap';
+            const img = document.createElement('img');
+            img.className = 'dl-cover';
+            img.src = item.image || DL_PLACEHOLDER;
+            img.loading = 'lazy';
+            img.onerror = () => { img.onerror = null; img.src = DL_PLACEHOLDER; };
+            const grad = document.createElement('div'); grad.className = 'dl-cover-grad';
+            const badge = document.createElement('span'); badge.className = 'dl-badge'; badge.style.background = src.color; badge.textContent = src.name;
+            const play = document.createElement('div'); play.className = 'dl-play'; play.innerHTML = '<span>▶ View</span>';
+            cover.appendChild(img); cover.appendChild(grad); cover.appendChild(badge); cover.appendChild(play);
+
+            const title = document.createElement('h4');
+            title.className = 'dl-title';
+            title.textContent = item.name;
+
+            card.appendChild(cover);
+            card.appendChild(title);
+            resultsEl.appendChild(card);
+        }
+
+        window.openDownloadInAppBrowser = function (url) {
+            // Reuse the in-app webview browser (formerly the Sources tab)
+            Promise.resolve(window.switchMainTab && window.switchMainTab('sources')).then(() => {
+                if (window.openSourcesBrowser) window.openSourcesBrowser(url, false);
+            });
+        };
+
+        // ---- Full game detail page (Steam-store style) -------------------
+        let dlCurrent = null;
+        let dlDetailToken = 0; // bumps each time a detail page opens; kills stale async writes
+
+        window.closeDownloadDetail = function () {
+            document.getElementById('downloadDetailPanel').style.display = 'none';
+            document.getElementById('downloadSearchPanel').style.display = 'flex';
+        };
+
+        function scrapeMeta(doc) {
+            const meta = { description: '', screenshots: [], size: '' };
+            const content = doc.querySelector('.entry-content, .post-content, article .content, #the-post, article, main');
+            // description: gather first paragraphs of text
+            let text = '';
+            const scope = content || doc.body;
+            if (scope) {
+                const ps = scope.querySelectorAll('p');
+                for (const p of ps) {
+                    const t = (p.textContent || '').trim();
+                    if (t.length > 40) text += t + '\n\n';
+                    if (text.length > 1400) break;
+                }
+                if (!text) {
+                    const md = doc.querySelector('meta[name="description"], meta[property="og:description"]');
+                    if (md) text = md.getAttribute('content') || '';
+                }
+            }
+            meta.description = text.trim();
+            // size
+            const bodyText = (scope ? scope.textContent : '') || '';
+            let sm = bodyText.match(/(?:Repack Size|Final Size|Download Size|Game Size|Size)\s*:?\s*~?\s*([\d.,]+\s*(?:GB|MB))/i);
+            if (!sm) sm = bodyText.match(/([\d.,]+\s*GB)/i);
+            if (sm) meta.size = sm[1].replace(/\s+/g, ' ').trim();
+            // screenshots
+            const imgs = (scope || doc).querySelectorAll('img');
+            const seen = new Set();
+            imgs.forEach(im => {
+                let s = im.getAttribute('data-src') || im.getAttribute('data-lazy-src') || im.getAttribute('src') || '';
+                if (!s) return;
+                if (s.startsWith('//')) s = 'https:' + s;
+                if (!/^https?:/.test(s)) return;
+                if (/(logo|icon|avatar|gravatar|emoji|smile|button|banner-|ad[-_]|placeholder)/i.test(s)) return;
+                if (im.width && im.width < 200) return;
+                if (seen.has(s)) return;
+                seen.add(s);
+                if (meta.screenshots.length < 6) meta.screenshots.push(s);
+            });
+            return meta;
+        }
+
+        function estTime(sizeStr) {
+            if (!sizeStr) return '';
+            const m = sizeStr.match(/([\d.,]+)\s*(GB|MB)/i);
+            if (!m) return '';
+            let mb = parseFloat(m[1].replace(',', '.'));
+            if (/gb/i.test(m[2])) mb *= 1024;
+            const secs = mb / 10; // ~10 MB/s reference
+            if (secs < 90) return '~' + Math.max(1, Math.round(secs)) + 's at 10 MB/s';
+            const mins = Math.round(secs / 60);
+            if (mins < 90) return '~' + mins + ' min at 10 MB/s';
+            return '~' + (mins / 60).toFixed(1) + ' h at 10 MB/s';
+        }
+
+        // Files we never download (online-fix bundles a generic steam-fix separately).
+        const DL_SKIP_FILE_RE = /fix[_\s.-]*repair[_\s.-]*steam[_\s.-]*(v\d+[_\s.-]*)?generic|repair[_\s.-]*steam[_\s.-]*generic/i;
+
+        function dlHostOf(url) {
+            if (!url) return '';
+            if (url.startsWith('magnet:')) return 'magnet';
+            try { return new URL(url).hostname.replace(/^www\./, ''); } catch (e) { return ''; }
+        }
+        function dlPartNum(s) {
+            const m = (s || '').match(/part0*(\d+)/i) || (s || '').match(/\.(\d{3})(?:\.[a-z0-9]+)?$/i) || (s || '').match(/\.r(\d{2})$/i);
+            return m ? parseInt(m[1], 10) : 0;
+        }
+        // Higher = better host for the auto 1-click (aria2-friendly, no captcha/token wall).
+        // Hosts permanently blocked by Cloudflare's interactive human-check — we can
+        // never get a direct link, so replace the download button with "Browse".
+        function isCFBlockedHost(host) {
+            return /datanodes|akirabox|buzzheavier|bzzhr/i.test(host || '');
+        }
+
+        function dlHostScore(host) {
+            if (host === 'magnet') return 30;
+            // ordered by how reliably our HTTP scrapers resolve each host
+            if (/pixeldrain/i.test(host)) return 100;
+            if (/fuckingfast/i.test(host)) return 95;
+            if (/filekeeper/i.test(host)) return 92;  // XFS op=download2 → signed CDN link, no captcha
+            if (/gofile/i.test(host)) return 90;   // computed-token API, multi-part folders
+            if (/mediafire/i.test(host)) return 70;
+            if (/1fichier|hexload|vikingfile|rootz|multiup|bowfile|mega/i.test(host)) return 45;
+            // datanodes, akirabox & buzzheavier are now behind a manual Cloudflare human-check
+            // → can't auto-download; keep them last so 1-click only falls back to them.
+            if (/datanodes|akirabox|buzzheavier|bzzhr/i.test(host)) return 20;
+            return 40;
+        }
+        // Group raw links into downloadable "sets": one set per file-host (all its
+        // parts), plus one magnet set. For repack sources (FitGirl/DODI) the magnet
+        // is the ONLY complete download (the filehoster links are partial split
+        // parts that need setup.exe + the whole set), so we make it the default —
+        // matching how Black-Pearl handles FitGirl.
+        function groupDownloadSets(links, sourceId) {
+            const magnets = [], byHost = {};
+            (links || []).forEach(l => {
+                if (l.type === 'page') return;
+                if (l.type === 'magnet') { magnets.push(l); return; }
+                if (DL_SKIP_FILE_RE.test((l.label || '') + ' ' + (l.url || ''))) return;
+                const h = dlHostOf(l.url);
+                if (!h) return;
+                (byHost[h] = byHost[h] || []).push(l);
+            });
+            const sets = [];
+            Object.keys(byHost).forEach(h => {
+                // de-dupe by url, sort parts by detected part number
+                const seen = new Set();
+                const parts = byHost[h].filter(p => !seen.has(p.url) && seen.add(p.url))
+                    .sort((a, b) => dlPartNum(a.label || a.url) - dlPartNum(b.label || b.url));
+                sets.push({ host: h, kind: 'http', parts, score: dlHostScore(h) });
+            });
+            if (magnets.length) sets.push({ host: 'Magnet / Torrent', kind: 'magnet', parts: [magnets[0]], score: dlHostScore('magnet') });
+            const repack = sourceId === 'fitgirl' || sourceId === 'dodi';
+            const rank = (s) => s.score + (s.parts.length > 1 ? 8 : 0) + (repack && s.kind === 'magnet' ? 1000 : 0);
+            sets.sort((a, b) => rank(b) - rank(a));
+            return sets;
+        }
+
+        window.openDownloadDetail = async function (id, item) {
+            const src = DL_SOURCES[id];
+            const myToken = ++dlDetailToken; // anything async below must re-check this
+            dlCurrent = { id, item, src };
+            document.getElementById('downloadSearchPanel').style.display = 'none';
+            document.getElementById('downloadDetailPanel').style.display = 'flex';
+            document.getElementById('mainScroller').scrollTop = 0;
+
+            document.getElementById('ddpHero').src = item.image || DL_PLACEHOLDER;
+            document.getElementById('ddpHero').onerror = function () { this.onerror = null; this.src = DL_PLACEHOLDER; };
+            document.getElementById('ddpTitle').textContent = item.name;
+            const srcBadge = document.getElementById('ddpSource');
+            srcBadge.textContent = src.name;
+            srcBadge.style.background = src.color;
+            document.getElementById('ddpDescription').textContent = 'Loading description...';
+            document.getElementById('ddpScreensWrap').style.display = 'none';
+            document.getElementById('ddpScreens').innerHTML = '';
+            document.getElementById('ddpMeta').innerHTML = '';
+            document.getElementById('ddpDownloadArea').innerHTML = '<div style="text-align:center;opacity:0.6;font-size:13px;padding:10px 0;">Loading download options...</div>';
+
+            let links = [], meta = { description: '', screenshots: [], size: '' }, error = null;
+            try {
+                const { doc, error: fe } = await dlFetchDoc(item.url, { forceRender: !!src.renderOnly });
+                if (myToken !== dlDetailToken) return; // user navigated away — abandon
+                if (fe || !doc) error = fe || 'Could not load page';
+                else { links = src.detail(doc, item.url) || []; meta = scrapeMeta(doc); }
+            } catch (e) { error = e.message; }
+            if (myToken !== dlDetailToken) return;
+
+            // Online-Fix hides downloads behind a "Hosters" popup — resolve it in the
+            // main process (clicks the button, captures the popup, scrapes host links).
+            if (id === 'onlinefix') {
+                document.getElementById('ddpDownloadArea').innerHTML = '<div style="text-align:center;opacity:0.6;font-size:13px;padding:10px 0;"><span class="dl-spinner"></span> Fetching hosters (this can take ~20s)...</div>';
+                try {
+                    const r = await ipcRenderer.invoke('resolve-onlinefix', item.url);
+                    if (myToken !== dlDetailToken) return; // stale — a different game is open now
+                    if (r && r.loggedIn) {
+                        window.__dlOnlineFixAuthed = true;
+                        if (window.sailDownloadBridge && window.sailDownloadBridge.setOnlineFixAuthed) window.sailDownloadBridge.setOnlineFixAuthed(true);
+                    }
+                    const files = (r && r.files) || [];
+                    if (files.length) {
+                        links = files.map(f => ({ label: f.name || dlHostLabel(f.url), type: f.url.startsWith('magnet:') ? 'magnet' : 'web', url: f.url, host: f.host }));
+                        error = null;
+                    } else if (!links.length) {
+                        error = (r && r.loggedIn === false) ? 'You must be logged in to Online-Fix to see hosters.' : (error || 'No hosters found on this page.');
+                    }
+                } catch (e) { if (!links.length) error = e.message; }
+            }
+            if (myToken !== dlDetailToken) return;
+
+            // description
+            const descEl = document.getElementById('ddpDescription');
+            descEl.textContent = meta.description || (error ? 'Could not load the description (' + error + ').' : 'No description available for this title.');
+
+            // screenshots
+            if (meta.screenshots.length) {
+                const sc = document.getElementById('ddpScreens');
+                sc.innerHTML = '';
+                meta.screenshots.forEach(url => {
+                    const im = document.createElement('img');
+                    im.src = url; im.loading = 'lazy';
+                    im.style.cssText = 'width:100%;height:130px;object-fit:cover;border-radius:8px;cursor:pointer;background:#000;';
+                    im.onerror = () => im.remove();
+                    im.onclick = () => ipcRenderer.invoke('open-url', url);
+                    sc.appendChild(im);
+                });
+                document.getElementById('ddpScreensWrap').style.display = 'block';
+            }
+
+            // meta box
+            const metaEl = document.getElementById('ddpMeta');
+            const rows = [['Source', src.name]];
+            if (meta.size) rows.push(['Download Size', meta.size]);
+            const et = estTime(meta.size);
+            if (et) rows.push(['Est. Time', et]);
+            metaEl.innerHTML = rows.map(r => `<div style="display:flex;justify-content:space-between;gap:10px;"><span style="opacity:0.55;">${r[0]}</span><span style="font-weight:bold;text-align:right;">${r[1]}</span></div>`).join('');
+
+            // download area
+            const area = document.getElementById('ddpDownloadArea');
+            area.innerHTML = '';
+            if (src.loginNote) {
+                const note = document.createElement('div');
+                note.style.cssText = 'background:rgba(245,158,11,0.12);border:1px solid #f59e0b;border-radius:8px;padding:10px 12px;font-size:11px;margin-bottom:12px;line-height:1.5;';
+                note.textContent = '⚠️ Online-Fix needs a free account. Use "Open Page" and log in, then download from there.';
+                area.appendChild(note);
+            }
+
+            const sets = groupDownloadSets(links, id);
+            if (sets.length) {
+                const best = sets[0];
+                const dlBtn = document.createElement('button');
+                dlBtn.className = 'dl-ddl-btn';
+                dlBtn.style.cssText = 'width:100%;padding:14px;border-radius:10px;font-size:15px;font-weight:bold;margin-bottom:12px;background:var(--accent);border:none;color:#fff;cursor:pointer;';
+                if (isCFBlockedHost(best.host)) {
+                    dlBtn.innerHTML = '🌐 Browse — ' + best.host + ' (Cloudflare check required)';
+                    dlBtn.onclick = () => openDownloadInAppBrowser(item.url);
+                } else {
+                    const tag = best.kind === 'magnet' ? '' : ' — ' + best.host + (best.parts.length > 1 ? ' (' + best.parts.length + ' parts)' : '');
+                    dlBtn.innerHTML = (best.kind === 'magnet' ? '🧲 ' : '⬇️ ') + 'Download (1-Click)' + tag;
+                    dlBtn.onclick = () => startGameDownloadSet(item, best, id);
+                }
+                area.appendChild(dlBtn);
+
+                if (sets.length > 1) {
+                    const more = document.createElement('div');
+                    more.style.cssText = 'font-size:11px;opacity:0.5;text-transform:uppercase;font-weight:bold;margin:10px 0 8px 0;';
+                    more.textContent = 'Other download options';
+                    area.appendChild(more);
+                    sets.slice(1).forEach(set => area.appendChild(buildSetRow(set, item, id)));
+                }
+            } else {
+                const p = document.createElement('p');
+                p.style.cssText = 'font-size:12px;opacity:0.7;margin:0 0 12px 0;line-height:1.5;';
+                p.textContent = error ? ('Could not auto-read links (' + error + '). Open the page to download manually.') : 'No direct links detected. Open the page to download manually.';
+                area.appendChild(p);
+            }
+            area.appendChild(buildLinkRow({ label: 'Open game page', type: 'page', url: item.url }, item, id));
+        };
+
+        // A grouped host set: one "Download all" action that grabs every part.
+        function buildSetRow(set, item, sourceId) {
+            const row = document.createElement('div');
+            row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--bg-color);border:1px solid var(--border-color);border-radius:8px;margin-bottom:8px;';
+            const icon = document.createElement('span');
+            icon.style.cssText = 'font-size:18px;flex-shrink:0;';
+            icon.textContent = set.kind === 'magnet' ? '🧲' : '⬇️';
+            const label = document.createElement('div');
+            label.style.cssText = 'flex-grow:1;min-width:0;';
+            label.innerHTML = `<div style="font-size:12px;font-weight:bold;">${set.host}</div><div style="font-size:10px;opacity:0.45;">${set.parts.length} file${set.parts.length > 1 ? 's' : ''}</div>`;
+            const actions = document.createElement('div');
+            actions.style.cssText = 'display:flex;gap:5px;flex-shrink:0;';
+            const b = document.createElement('button');
+            b.className = 'outline';
+            b.style.cssText = 'padding:6px 10px;font-size:11px;border-radius:6px;white-space:nowrap;';
+            if (isCFBlockedHost(set.host)) {
+                b.textContent = '🌐 Browse';
+                b.onclick = () => openDownloadInAppBrowser(item.url);
+            } else {
+                b.textContent = set.parts.length > 1 ? '⬇️ Download all' : '⬇️ Download';
+                b.onclick = () => startGameDownloadSet(item, set, sourceId);
+            }
+            actions.appendChild(b);
+            if (set.kind === 'magnet') {
+                const c = document.createElement('button');
+                c.className = 'outline';
+                c.style.cssText = 'padding:6px 10px;font-size:11px;border-radius:6px;';
+                c.textContent = '📋';
+                c.onclick = () => navigator.clipboard.writeText(set.parts[0].url);
+                actions.appendChild(c);
+            }
+            row.appendChild(icon); row.appendChild(label); row.appendChild(actions);
+            return row;
+        }
+
+        function buildLinkRow(link, item, sourceId) {
+            const row = document.createElement('div');
+            row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--bg-color);border:1px solid var(--border-color);border-radius:8px;margin-bottom:8px;';
+            const icon = document.createElement('span');
+            icon.style.cssText = 'font-size:18px;flex-shrink:0;';
+            icon.textContent = link.type === 'magnet' ? '🧲' : (link.type === 'page' ? '🌐' : '⬇️');
+            const label = document.createElement('div');
+            label.style.cssText = 'flex-grow:1;min-width:0;';
+            label.innerHTML = `<div style="font-size:12px;font-weight:bold;">${link.label}</div><div style="font-size:10px;opacity:0.45;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${link.url}</div>`;
+            const actions = document.createElement('div');
+            actions.style.cssText = 'display:flex;gap:5px;flex-shrink:0;';
+            const mk = (text, fn) => { const b = document.createElement('button'); b.className = 'outline'; b.style.cssText = 'padding:6px 10px;font-size:11px;border-radius:6px;white-space:nowrap;'; b.textContent = text; b.onclick = fn; return b; };
+
+            if (link.type === 'magnet') {
+                actions.appendChild(mk('⬇️ Download', () => startGameDownload(item, link, sourceId)));
+                actions.appendChild(mk('📋', () => navigator.clipboard.writeText(link.url)));
+            } else if (link.type === 'page') {
+                actions.appendChild(mk('Open Page', () => openDownloadInAppBrowser(link.url)));
+                actions.appendChild(mk('Browser', () => ipcRenderer.invoke('open-url', link.url)));
+            } else {
+                actions.appendChild(mk('⬇️ Download', () => startGameDownload(item, link, sourceId)));
+                actions.appendChild(mk('Open', () => openDownloadInAppBrowser(link.url)));
+                actions.appendChild(mk('📋', () => navigator.clipboard.writeText(link.url)));
+            }
+            row.appendChild(icon); row.appendChild(label); row.appendChild(actions);
+            return row;
+        }
+
+        // ---- Download manager + dock -------------------------------------
+        const dlQueue = new Map();
+
+        function ensureDock() {
+            let dock = document.getElementById('downloadDock');
+            if (dock) return dock;
+            dock = document.createElement('div');
+            dock.id = 'downloadDock';
+            dock.style.cssText = 'position:fixed;bottom:18px;right:18px;width:360px;max-width:calc(100vw - 36px);max-height:60vh;background:var(--card-bg,#1a1a1f);border:1px solid var(--border-color,#333);border-radius:12px;box-shadow:0 10px 40px rgba(0,0,0,0.5);z-index:10030;display:flex;flex-direction:column;overflow:hidden;';
+            dock.innerHTML = '<div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-bottom:1px solid var(--border-color);cursor:pointer;" id="dockHeader"><span style="font-weight:bold;font-size:14px;">⬇️ Downloads</span><span style="opacity:0.6;font-size:18px;line-height:1;" id="dockToggle">▾</span></div><div id="dockBody" style="overflow-y:auto;padding:8px;"></div>';
+            document.body.appendChild(dock);
+            dock.querySelector('#dockHeader').onclick = () => {
+                const b = dock.querySelector('#dockBody');
+                const t = dock.querySelector('#dockToggle');
+                const hidden = b.style.display === 'none';
+                b.style.display = hidden ? 'block' : 'none';
+                t.textContent = hidden ? '▾' : '▸';
+            };
+            return dock;
+        }
+
+        function fmtState(d) {
+            if (d.state === 'queued') return 'Queued...';
+            if (d.state === 'resolving') return d.label || 'Resolving link...';
+            if (d.state === 'installing') return d.label || 'Setting up engine...';
+            if (d.state === 'downloading') return `${d.percent || 0}%${d.partCount > 1 ? ' · part ' + (d.part || 1) + '/' + d.partCount : ''} · ${d.speed || '0B'}/s${d.eta ? ' · ETA ' + d.eta : ''}`;
+            if (d.state === 'processing') return d.label || 'Extracting...';
+            if (d.state === 'done') return d.warning ? '✓ Done (with warning)' : '✓ Installed';
+            if (d.state === 'error') return '✕ ' + (d.error || 'Failed');
+            return '';
+        }
+
+        // Session-scoped download history (cleared on launcher restart).
+        const dlHistory = [];
+        function addToHistory(d) {
+            if (!d || dlHistory.some(h => h.id === d.id)) return;
+            dlHistory.unshift({ id: d.id, name: d.name, image: d.image, folder: d.folder, exePath: d.exePath, completedAt: Date.now(), warning: d.warning });
+            if (dlHistory.length > 50) dlHistory.pop();
+        }
+
+        // Track last-seen state per download so we can detect pure progress ticks
+        // vs real state changes (resolving→downloading, downloading→done, etc.).
+        const dlPrevState = new Map();
+
+        // Targeted in-place update for the bar + label during active downloads.
+        // Called on every progress tick to avoid rebuilding the whole DOM (which
+        // fired the entrance animation and caused the visual "ouhh" every second).
+        function patchActiveRow(id) {
+            const d = dlQueue.get(id); if (!d) return;
+            const pct = d.percent || 0;
+            const dockRow = document.querySelector(`[data-dl-id="${id}"]`);
+            if (dockRow) {
+                const bar = dockRow.querySelector('.dl-bar-inner');
+                const st = dockRow.querySelector('.dl-state-text');
+                if (bar) bar.style.width = pct + '%';
+                if (st) st.innerHTML = fmtState(d);
+            }
+            const pageRow = document.querySelector(`[data-dlp-id="${id}"]`);
+            if (pageRow) {
+                const bar = pageRow.querySelector('.dl-bar-inner');
+                const st = pageRow.querySelector('.dl-state-text');
+                if (bar) bar.style.width = pct + '%';
+                if (st) st.innerHTML = fmtState(d);
+            }
+            if (!dockRow && !pageRow) renderDock(); // rows not created yet — fall back
+        }
+
+        function renderDock() {
+            ensureDock();
+            const body = document.getElementById('dockBody');
+            if (!dlQueue.size) { document.getElementById('downloadDock').style.display = 'none'; return; }
+            document.getElementById('downloadDock').style.display = 'flex';
+            // Remove rows that are no longer in the queue.
+            body.querySelectorAll('[data-dl-id]').forEach(el => { if (!dlQueue.has(el.getAttribute('data-dl-id'))) el.remove(); });
+            for (const d of [...dlQueue.values()].reverse()) {
+                let row = body.querySelector(`[data-dl-id="${d.id}"]`);
+                const pct = d.state === 'done' ? 100 : (d.percent || 0);
+                const barColor = d.state === 'error' ? '#ef4444' : (d.state === 'done' ? '#10b981' : 'var(--accent)');
+                let actions = '';
+                if (d.state === 'downloading' || d.state === 'resolving' || d.state === 'queued' || d.state === 'processing' || d.state === 'installing') {
+                    actions = `<button class="outline" data-cancel="${d.id}" style="padding:4px 10px;font-size:11px;border-radius:6px;">Cancel</button>`;
+                } else if (d.state === 'done') {
+                    actions = `<button class="outline" data-folder="${d.id}" style="padding:4px 10px;font-size:11px;border-radius:6px;">📂</button><button class="outline" data-close="${d.id}" style="padding:4px 10px;font-size:11px;border-radius:6px;">✕</button>`;
+                } else if (d.state === 'error') {
+                    actions = (d.needsBrowser ? `<button class="outline" data-browser="${d.id}" style="padding:4px 10px;font-size:11px;border-radius:6px;">🌐</button>` : '') + `<button class="outline" data-close="${d.id}" style="padding:4px 10px;font-size:11px;border-radius:6px;">✕</button>`;
+                }
+                if (row) {
+                    // In-place update — no DOM rebuild, no animation re-trigger.
+                    const bar = row.querySelector('.dl-bar-inner');
+                    const st = row.querySelector('.dl-state-text');
+                    const act = row.querySelector('.dl-dock-actions');
+                    if (bar) { bar.style.width = pct + '%'; bar.style.background = barColor; bar.classList.toggle('dl-progress-bar', d.state === 'downloading'); }
+                    if (st) st.innerHTML = fmtState(d);
+                    if (act) act.innerHTML = actions;
+                } else {
+                    row = document.createElement('div');
+                    row.setAttribute('data-dl-id', d.id);
+                    row.style.cssText = 'background:var(--bg-color);border:1px solid var(--border-color);border-radius:8px;padding:10px 12px;margin-bottom:8px;';
+                    row.innerHTML = `
+                        <div style="display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:6px;">
+                            <span style="font-size:12px;font-weight:bold;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;">${d.name}</span>
+                            <div class="dl-dock-actions" style="display:flex;gap:5px;flex-shrink:0;">${actions}</div>
+                        </div>
+                        <div style="height:6px;background:rgba(128,128,128,0.2);border-radius:99px;overflow:hidden;margin-bottom:5px;"><div class="dl-bar-inner ${d.state === 'downloading' ? 'dl-progress-bar' : ''}" style="height:100%;width:${pct}%;background:${barColor};border-radius:99px;transition:width .3s;"></div></div>
+                        <div class="dl-state-text" style="font-size:11px;opacity:0.65;">${fmtState(d)}</div>`;
+                    body.appendChild(row);
+                }
+            }
+            body.querySelectorAll('[data-cancel]').forEach(b => b.onclick = () => { const id = b.getAttribute('data-cancel'); ipcRenderer.invoke('cancel-download', id); const d = dlQueue.get(id); if (d) { d.state = 'error'; d.error = 'Cancelled'; renderDock(); } });
+            body.querySelectorAll('[data-close]').forEach(b => b.onclick = () => { const id = b.getAttribute('data-close'); const d = dlQueue.get(id); if (d && d.state === 'done') addToHistory(d); dlQueue.delete(id); renderDock(); });
+            body.querySelectorAll('[data-folder]').forEach(b => b.onclick = () => { const d = dlQueue.get(b.getAttribute('data-folder')); if (d && d.folder) ipcRenderer.invoke('show-item-in-folder', d.exePath || d.folder); });
+            body.querySelectorAll('[data-browser]').forEach(b => b.onclick = () => { const d = dlQueue.get(b.getAttribute('data-browser')); if (d && d.url) openDownloadInAppBrowser(d.url); });
+            renderDownloadsPage();
+        }
+
+        // Full-page download manager (Downloads tab).
+        function renderDownloadsPage() {
+            const body = document.getElementById('downloadsPageBody');
+            const empty = document.getElementById('downloadsPageEmpty');
+            if (!body) return;
+            const hasActive = dlQueue.size > 0;
+            const hasHistory = dlHistory.length > 0;
+            if (!hasActive && !hasHistory) {
+                body.querySelectorAll('[data-dlp-id],[data-dlh-section]').forEach(el => el.remove());
+                if (empty) empty.style.display = 'flex';
+                return;
+            }
+            if (empty) empty.style.display = 'none';
+            // Remove stale active rows.
+            body.querySelectorAll('[data-dlp-id]').forEach(el => { if (!dlQueue.has(el.getAttribute('data-dlp-id'))) el.remove(); });
+            for (const d of [...dlQueue.values()].reverse()) {
+                let row = body.querySelector(`[data-dlp-id="${d.id}"]`);
+                const pct = d.state === 'done' ? 100 : (d.percent || 0);
+                const barColor = d.state === 'error' ? '#ef4444' : (d.state === 'done' ? '#10b981' : 'var(--accent)');
+                let actions = '';
+                if (d.state === 'downloading' || d.state === 'resolving' || d.state === 'queued' || d.state === 'processing' || d.state === 'installing') {
+                    actions = `<button class="outline" data-pcancel="${d.id}" style="padding:6px 14px;font-size:12px;border-radius:8px;">Cancel</button>`;
+                } else if (d.state === 'done') {
+                    actions = `<button class="outline" data-pfolder="${d.id}" style="padding:6px 14px;font-size:12px;border-radius:8px;">📂 Open Folder</button><button class="outline" data-pclose="${d.id}" style="padding:6px 14px;font-size:12px;border-radius:8px;">✕ Clear</button>`;
+                } else if (d.state === 'error') {
+                    actions = (d.needsBrowser ? `<button class="outline" data-pbrowser="${d.id}" style="padding:6px 14px;font-size:12px;border-radius:8px;">🌐 Open in Browser</button>` : '') + `<button class="outline" data-pclose="${d.id}" style="padding:6px 14px;font-size:12px;border-radius:8px;">✕ Clear</button>`;
+                }
+                if (row) {
+                    const bar = row.querySelector('.dl-bar-inner');
+                    const st = row.querySelector('.dl-state-text');
+                    const act = row.querySelector('.dlp-actions');
+                    if (bar) { bar.style.width = pct + '%'; bar.style.background = barColor; bar.classList.toggle('dl-progress-bar', d.state === 'downloading'); }
+                    if (st) st.innerHTML = fmtState(d);
+                    if (act) act.innerHTML = actions;
+                } else {
+                    row = document.createElement('div');
+                    row.className = 'dlpage-row';
+                    row.setAttribute('data-dlp-id', d.id);
+                    row.innerHTML = `
+                        <div class="dlpage-cover" style="${d.image ? `background-image:url('${d.image}')` : ''}"></div>
+                        <div class="dlpage-main">
+                            <div class="dlpage-top">
+                                <span class="dlpage-name">${d.name || 'Download'}</span>
+                                <div class="dlp-actions" style="display:flex;gap:8px;flex-shrink:0;">${actions}</div>
+                            </div>
+                            <div class="dlpage-track"><div class="dl-bar-inner ${d.state === 'downloading' ? 'dl-progress-bar' : ''}" style="height:100%;width:${pct}%;background:${barColor};border-radius:99px;transition:width .3s;"></div></div>
+                            <div class="dl-state-text dlpage-state">${fmtState(d)}</div>
+                        </div>`;
+                    // Insert before the history section (if present), otherwise append.
+                    const hist = body.querySelector('[data-dlh-section]');
+                    hist ? body.insertBefore(row, hist) : body.appendChild(row);
+                }
+            }
+            body.querySelectorAll('[data-pcancel]').forEach(b => b.onclick = () => { const id = b.getAttribute('data-pcancel'); ipcRenderer.invoke('cancel-download', id); const d = dlQueue.get(id); if (d) { d.state = 'error'; d.error = 'Cancelled'; renderDock(); } });
+            body.querySelectorAll('[data-pclose]').forEach(b => b.onclick = () => { const id = b.getAttribute('data-pclose'); const d = dlQueue.get(id); if (d && d.state === 'done') addToHistory(d); dlQueue.delete(id); body.querySelector(`[data-dlp-id="${id}"]`)?.remove(); if (!dlQueue.size && empty) empty.style.display = dlHistory.length ? 'none' : 'flex'; renderHistorySection(); });
+            body.querySelectorAll('[data-pfolder]').forEach(b => b.onclick = () => { const d = dlQueue.get(b.getAttribute('data-pfolder')); if (d && d.folder) ipcRenderer.invoke('show-item-in-folder', d.exePath || d.folder); });
+            body.querySelectorAll('[data-pbrowser]').forEach(b => b.onclick = () => { const d = dlQueue.get(b.getAttribute('data-pbrowser')); if (d && d.url) openDownloadInAppBrowser(d.url); });
+            renderHistorySection();
+        }
+
+        function renderHistorySection() {
+            const body = document.getElementById('downloadsPageBody');
+            if (!body) return;
+            // Remove existing history section and rebuild it.
+            body.querySelectorAll('[data-dlh-section]').forEach(el => el.remove());
+            if (!dlHistory.length) return;
+            const sec = document.createElement('div');
+            sec.setAttribute('data-dlh-section', '1');
+            const hdr = document.createElement('div');
+            hdr.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin:24px 0 10px 0;';
+            hdr.innerHTML = `<span style="font-size:12px;font-weight:bold;text-transform:uppercase;opacity:0.45;letter-spacing:.06em;">Download History</span><button class="outline" style="padding:4px 10px;font-size:11px;border-radius:6px;opacity:0.6;" id="dlClearHistBtn">Clear</button>`;
+            sec.appendChild(hdr);
+            dlHistory.forEach(h => {
+                const ts = new Date(h.completedAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+                const row = document.createElement('div');
+                row.className = 'dlpage-row';
+                row.style.cssText = 'opacity:0.65;animation:none;';
+                row.innerHTML = `
+                    <div class="dlpage-cover" style="${h.image ? `background-image:url('${h.image}')` : 'background:rgba(128,128,128,0.1);'}"></div>
+                    <div class="dlpage-main">
+                        <div class="dlpage-top">
+                            <span class="dlpage-name">${h.name || 'Download'}</span>
+                            <div style="display:flex;gap:8px;flex-shrink:0;">
+                                ${h.folder ? `<button class="outline" data-hfolder="${h.id}" style="padding:6px 12px;font-size:12px;border-radius:8px;">📂</button>` : ''}
+                            </div>
+                        </div>
+                        <div class="dlpage-track"><div style="height:100%;width:100%;background:#10b981;border-radius:99px;"></div></div>
+                        <div class="dlpage-state" style="color:#10b981;">✓ Installed · ${ts}</div>
+                    </div>`;
+                sec.appendChild(row);
+            });
+            body.appendChild(sec);
+            body.querySelectorAll('[data-hfolder]').forEach(b => b.onclick = () => { const h = dlHistory.find(x => x.id === b.getAttribute('data-hfolder')); if (h && h.folder) ipcRenderer.invoke('show-item-in-folder', h.exePath || h.folder); });
+            const clearBtn = body.querySelector('#dlClearHistBtn');
+            if (clearBtn) clearBtn.onclick = () => { dlHistory.length = 0; renderHistorySection(); };
+        }
+
+        window.startGameDownload = function (item, link, sourceId) {
+            const settings = (window.sailDownloadBridge && window.sailDownloadBridge.getSettings()) || {};
+            const id = 'dl_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+            dlQueue.set(id, { id, name: item.name, image: item.image, sourceId, url: link.url, percent: 0, state: 'queued' });
+            renderDock();
+            if (settings.autoSwitchDownloads) switchMainTab('downloads');
+            ipcRenderer.invoke('download-game', {
+                id, gameName: item.name, image: item.image, url: link.url, sourceId,
+                installDir: settings.installDir, maxSpeed: settings.maxSpeed, autoExtract: settings.autoExtract,
+                autoInstall: settings.autoInstall, skipRedist: settings.skipRedist
+            });
+        };
+
+        // Download an entire host set (all parts) as one job; main bundles & extracts.
+        window.startGameDownloadSet = function (item, set, sourceId) {
+            const settings = (window.sailDownloadBridge && window.sailDownloadBridge.getSettings()) || {};
+            const id = 'dl_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+            const links = set.parts.map(p => ({ url: p.url, name: p.label || '' }));
+            if (!links.length) return;
+            dlQueue.set(id, { id, name: item.name, image: item.image, sourceId, url: links[0].url, percent: 0, state: 'queued', partCount: links.length });
+            renderDock();
+            if (settings.autoSwitchDownloads) switchMainTab('downloads');
+            ipcRenderer.invoke('download-game', {
+                id, gameName: item.name, image: item.image, links, sourceId,
+                installDir: settings.installDir, maxSpeed: settings.maxSpeed, autoExtract: settings.autoExtract,
+                autoInstall: settings.autoInstall, skipRedist: settings.skipRedist
+            });
+        };
+
+        ipcRenderer.on('download-engine-status', (e, p) => { /* surfaced per-download below */ });
+        ipcRenderer.on('download-progress', (e, p) => {
+            const d = dlQueue.get(p.id); if (!d) return;
+            const prevState = dlPrevState.get(p.id);
+            Object.assign(d, p);
+            dlPrevState.set(p.id, d.state);
+            // Pure progress tick while already downloading → targeted patch, no DOM rebuild.
+            if (d.state === 'downloading' && prevState === 'downloading') {
+                patchActiveRow(p.id);
+            } else {
+                renderDock();
+                // Show desktop notification when a download finishes (state just became 'done').
+                if (d.state === 'done' && prevState !== 'done') {
+                    const settings = (window.sailDownloadBridge && window.sailDownloadBridge.getSettings()) || {};
+                    if (settings.notifyOnComplete) {
+                        try { new Notification('Download complete', { body: d.name || 'Your download is ready.' }); } catch (e) {}
+                    }
+                }
+            }
+        });
+        ipcRenderer.on('download-error', (e, p) => {
+            const d = dlQueue.get(p.id); if (!d) return;
+            d.state = 'error'; d.error = p.error; d.needsBrowser = p.needsBrowser; d.url = p.url || d.url;
+            renderDock();
+        });
+        // Look up a Steam App ID + art for a downloaded game by name, so it's added as a
+        // proper Steam-style library entry (Steam banner/hero art + metadata) instead of a
+        // bare custom row. It still LAUNCHES via its local exe — steamAppId is metadata only.
+        async function resolveSteamMetaForDownload(name) {
+            try {
+                const res = await fetch(`https://store.steampowered.com/api/storesearch/?term=${encodeURIComponent(name)}&l=english&cc=US`);
+                const json = await res.json();
+                const item = json && json.items && json.items[0];
+                if (!item || !item.id) return null;
+                const appId = String(item.id);
+                return {
+                    steamAppId: appId,
+                    steamImageUrl: `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${appId}/header.jpg`,
+                    steamHeroUrl: `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${appId}/library_hero.jpg`
+                };
+            } catch (e) { return null; }
+        }
+
+        ipcRenderer.on('download-complete', async (e, p) => {
+            const d = dlQueue.get(p.id); if (!d) return;
+            d.state = 'done'; d.percent = 100; d.folder = p.folder; d.exePath = p.exePath; d.warning = p.warning; d.cover = p.cover;
+            const settings = (window.sailDownloadBridge && window.sailDownloadBridge.getSettings()) || {};
+            if (settings.autoAdd !== false && window.sailDownloadBridge) {
+                try {
+                    if (!window.sailDownloadBridge.gameExists(p.gameName, p.exePath)) {
+                        // Try to attach Steam art/metadata so it's added "via Steam" like the user expects.
+                        const steamMeta = await resolveSteamMetaForDownload(p.gameName);
+                        const game = {
+                            id: Date.now().toString() + Math.floor(Math.random() * 1000),
+                            name: p.gameName,
+                            exePath: p.exePath || '',
+                            installFolder: p.folder || '',
+                            addedAt: Date.now(),
+                            isFavorite: false,
+                            playtime: 0,
+                            source: 'sail-download',
+                            // Scan for save files only AFTER the user first launches & exits the game
+                            // (saves don't exist yet at install time) — see the play-watcher loop.
+                            saveScanPending: true
+                        };
+                        if (steamMeta) {
+                            game.steamAppId = steamMeta.steamAppId;
+                            game.steamImageUrl = steamMeta.steamImageUrl;
+                            game.steamHeroUrl = steamMeta.steamHeroUrl;
+                            // keep the downloaded cover as a fallback banner if Steam art 404s
+                            game.customBannerPath = p.cover || null;
+                        } else {
+                            game.customBannerPath = p.cover || null;
+                        }
+                        window.sailDownloadBridge.addGame(game);
+                    }
+                } catch (err) { console.error('auto-add failed', err); }
+            }
+            renderDock();
+        });
+
+        // ---- Download settings modal -------------------------------------
+        window.openDownloadSettings = function () {
+            const s = (window.sailDownloadBridge && window.sailDownloadBridge.getSettings()) || {};
+            document.getElementById('dlInstallDirInput').value = s.installDir || '';
+            document.getElementById('dlMaxSpeedInput').value = s.maxSpeed || 0;
+            document.getElementById('dlAutoAddToggle').checked = s.autoAdd !== false;
+            document.getElementById('dlAutoExtractToggle').checked = s.autoExtract !== false;
+            document.getElementById('dlAutoInstallToggle').checked = s.autoInstall !== false;
+            document.getElementById('dlSkipRedistToggle').checked = s.skipRedist !== false;
+            document.getElementById('dlAdBlockToggle').checked = s.adBlock !== false;
+            document.getElementById('dlEnableDodiToggle').checked = !!s.enableDodi;
+            document.getElementById('dlEnableOnlineFixToggle').checked = !!s.enableOnlineFix;
+            document.getElementById('dlMaxConcurrentInput').value = s.maxConcurrent || 3;
+            document.getElementById('dlAutoSwitchToggle').checked = !!s.autoSwitchDownloads;
+            document.getElementById('dlNotifyCompleteToggle').checked = !!s.notifyOnComplete;
+            // Instant-apply: flipping the DODI / Online-Fix gate takes effect immediately
+            // (no need to scroll down to "Save"), and the source chip reappears at once.
+            wireDownloadGate('dlEnableDodiToggle', 'dlEnableDodi', 'dodi');
+            wireDownloadGate('dlEnableOnlineFixToggle', 'dlEnableOnlineFix', 'onlinefix');
+            window.openModal('downloadSettingsModal');
+        };
+
+        // Attach an idempotent change handler that persists a source gate the moment it's toggled.
+        function wireDownloadGate(toggleId, gateKey, sourceId) {
+            const el = document.getElementById(toggleId);
+            if (!el || el.dataset.gateWired) return;
+            el.dataset.gateWired = '1';
+            el.addEventListener('change', () => {
+                const on = el.checked;
+                if (window.sailDownloadBridge && window.sailDownloadBridge.setDownloadGate) {
+                    window.sailDownloadBridge.setDownloadGate(gateKey, on);
+                }
+                dlEnabled[sourceId] = on;
+                if (window.sailDownloadBridge) window.sailDownloadBridge.saveEnabledSources(Object.assign({}, dlEnabled));
+                try { window.renderDownloadSourceChips(); } catch (e) {}
+            });
+        }
+
+        window.browseDownloadDir = async function () {
+            const p = await ipcRenderer.invoke('pick-download-folder');
+            if (p) document.getElementById('dlInstallDirInput').value = p;
+        };
+
+        window.saveDownloadSettings = function () {
+            const s = {
+                installDir: document.getElementById('dlInstallDirInput').value.trim(),
+                maxSpeed: Number(document.getElementById('dlMaxSpeedInput').value) || 0,
+                autoAdd: document.getElementById('dlAutoAddToggle').checked,
+                autoExtract: document.getElementById('dlAutoExtractToggle').checked,
+                autoInstall: document.getElementById('dlAutoInstallToggle').checked,
+                skipRedist: document.getElementById('dlSkipRedistToggle').checked,
+                adBlock: document.getElementById('dlAdBlockToggle').checked,
+                enableDodi: document.getElementById('dlEnableDodiToggle').checked,
+                enableOnlineFix: document.getElementById('dlEnableOnlineFixToggle').checked,
+                maxConcurrent: Number(document.getElementById('dlMaxConcurrentInput').value) || 3,
+                autoSwitchDownloads: document.getElementById('dlAutoSwitchToggle').checked,
+                notifyOnComplete: document.getElementById('dlNotifyCompleteToggle').checked
+            };
+            if (window.sailDownloadBridge) window.sailDownloadBridge.saveSettings(s);
+            ipcRenderer.invoke('set-adblock', s.adBlock);
+            dlEnabled.dodi = s.enableDodi;
+            dlEnabled.onlinefix = s.enableOnlineFix;
+            // refresh opt-in chip visibility (dodi + online-fix)
+            const dodiChip = document.querySelector('.dl-chip[data-id="dodi"]');
+            if (dodiChip) dodiChip.style.display = s.enableDodi ? '' : 'none';
+            const ofChip = document.querySelector('.dl-chip[data-id="onlinefix"]');
+            if (ofChip) ofChip.style.display = s.enableOnlineFix ? '' : 'none';
+            window.closeModal('downloadSettingsModal');
+        };
+    })();
+    </script>
+
     <div id="cloudSyncOverlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(4px); justify-content: center; align-items: center; z-index: 99999;">
         <div class="modal-content" style="width: 320px; text-align: center; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 25px 20px;">
             <div style="font-size: 32px; color: var(--accent); margin-bottom: 5px; animation: pulse 1.5s infinite;">☁️</div>
@@ -10188,6 +11795,728 @@
             <button class="outline" onclick="skipCloudSyncOverlay()" style="margin-top: 10px; width: 100%; padding: 10px; font-size: 13px; border-radius: 8px;">Skip Sync</button>
         </div>
     </div>
+
+    <!-- ============================================================
+         DESIGN OVERHAUL (Claude Design handoff — prototype look)
+         Recreates the prototype's glassmorphic look on the real DOM: poster
+         cover-tiles, refined sidebar / toolbar / buttons, cinematic game page.
+         Applied broadly (theme-variable based) so it shows regardless of the
+         glass-UI toggle. No features added or removed; list view, select mode,
+         tile-shape settings and big-picture sizing are all preserved.
+         ============================================================ -->
+    <style id="sailDesignPolish">
+        /* Prototype typography: Outfit (display) + Inter (body). Loaded from
+           Google Fonts; if offline it silently falls back to the system stack.
+           Applied without !important so user custom-font settings still win. */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@500;600;700;800&display=swap');
+
+        body {
+            font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+        }
+        .gp-title, .card-title, .header h1, #topTitle, .sidebar h2,
+        .sidebar-title, .stat-value, .gp-play-btn, .sl-play-orb,
+        .modal-content h2, .modal-content h3 {
+            font-family: 'Outfit', 'Segoe UI', sans-serif;
+            letter-spacing: -0.01em;
+        }
+
+        /* --- Secondary cyan depth blob (the design's accent2) --- */
+        body.glassmorphic-mode .glass-blob-4 {
+            display: block;
+            bottom: -140px;
+            right: 18%;
+            width: 460px;
+            height: 460px;
+            background: radial-gradient(circle, color-mix(in srgb, var(--accent2) 16%, transparent) 0%, color-mix(in srgb, var(--accent2) 4%, transparent) 50%, transparent 72%) !important;
+            opacity: 0.6;
+            mix-blend-mode: screen;
+            animation: driftBlob4 30s infinite alternate ease-in-out;
+        }
+        @keyframes driftBlob4 {
+            0% { transform: translate3d(0, 0, 0) scale(1); }
+            50% { transform: translate3d(-70px, -90px, 0) scale(1.12); }
+            100% { transform: translate3d(60px, -40px, 0) scale(0.9); }
+        }
+
+        /* ============================================================
+           COVER-TILES — the prototype's signature card.
+           Grid view only; full-bleed art with the title overlaid on a
+           gradient scrim, hover lift + glow + tilt.
+           Default = landscape (Steam header 460x215, full cover visible);
+           the Appearance toggle adds body.vertical-cards for 3:4 posters.
+           ============================================================ */
+        #gameGrid:not(.list-view) .game-card {
+            padding: 0;
+            text-align: left;
+            aspect-ratio: 460 / 215;
+            min-height: 0;
+            border-radius: 16px;
+            overflow: hidden;
+            justify-content: flex-end;
+            border: 1px solid var(--border-color);
+            box-shadow: 0 12px 30px -14px rgba(0, 0, 0, 0.85);
+        }
+        body.vertical-cards #gameGrid:not(.list-view) .game-card {
+            aspect-ratio: 3 / 4;
+        }
+        /* Art fills the whole tile */
+        #gameGrid:not(.list-view) .game-card .card-banner,
+        #gameGrid:not(.list-view) .game-card .no-image {
+            position: absolute !important;
+            inset: 0 !important;
+            width: 100% !important;
+            height: 100% !important;
+            margin: 0 !important;
+            border-radius: 0 !important;
+            object-fit: cover !important;
+            z-index: 0 !important;
+            aspect-ratio: auto !important;
+        }
+        #gameGrid:not(.list-view) .game-card .card-icon {
+            position: absolute !important;
+            top: 42% !important;
+            left: 50% !important;
+            transform: translate(-50%, -50%) !important;
+            margin: 0 !important;
+            z-index: 1 !important;
+        }
+        /* Title + status overlaid on a bottom scrim */
+        #gameGrid:not(.list-view) .game-card .card-text-area {
+            position: relative;
+            z-index: 3;
+            width: 100%;
+            box-sizing: border-box;
+            padding: 34px 14px 13px;
+            text-align: left;
+            background: linear-gradient(to top, rgba(5, 5, 9, 0.92) 18%, rgba(5, 5, 9, 0.55) 60%, transparent 100%);
+            pointer-events: none;
+        }
+        #gameGrid:not(.list-view) .game-card .card-title {
+            margin: 0;
+            font-size: 1rem;
+            font-weight: 700;
+            line-height: 1.1;
+            color: #fff;
+            text-shadow: 0 2px 12px rgba(0, 0, 0, 0.7);
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+        #gameGrid:not(.list-view) .game-card .status-text {
+            margin-top: 4px;
+            padding-top: 0;
+            font-size: 11.5px;
+            color: rgba(255, 255, 255, 0.72);
+            text-shadow: 0 1px 6px rgba(0, 0, 0, 0.8);
+        }
+        /* A top gloss + readability veil over the art */
+        #gameGrid:not(.list-view) .game-card .card-text-area::after {
+            content: '';
+            position: absolute;
+            left: 0; right: 0; top: -1px; bottom: 0;
+            pointer-events: none;
+        }
+        /* Favourite star sits top-right on the art */
+        #gameGrid:not(.list-view) .game-card .fav-btn {
+            z-index: 6;
+            text-shadow: 0 2px 8px rgba(0, 0, 0, 0.9);
+        }
+
+        /* --- Pointer-tracked 3D tilt (folds the JS tilt vars into the hover
+               transform; ID specificity + !important wins over base + glass). */
+        #gameGrid:not(.list-view) .game-card:hover {
+            transform: perspective(1100px) translateY(-8px) scale(1.03)
+                       rotateX(var(--card-rx, 0deg)) rotateY(var(--card-ry, 0deg)) !important;
+            border-color: color-mix(in srgb, var(--accent) 60%, transparent) !important;
+            box-shadow: 0 20px 44px -16px rgba(0, 0, 0, 0.9),
+                        0 0 0 1px color-mix(in srgb, var(--accent) 60%, transparent),
+                        0 0 34px -6px color-mix(in srgb, var(--accent) 55%, transparent) !important;
+            transition: transform 0.14s ease-out,
+                        border-color 0.3s ease,
+                        box-shadow 0.3s ease !important;
+        }
+
+        /* --- Cursor-following spotlight (free ::before pseudo; never on a
+               selected card, whose ::before is the select checkmark). --- */
+        #gameGrid:not(.list-view) .game-card:not(.selected)::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            z-index: 2;
+            pointer-events: none;
+            border-radius: inherit;
+            opacity: 0;
+            transition: opacity 0.25s ease;
+            background: radial-gradient(180px 180px at var(--card-mx, 50%) var(--card-my, 30%),
+                        color-mix(in srgb, var(--accent2) 22%, rgba(255,255,255,0.18)), transparent 70%);
+        }
+        #gameGrid:not(.list-view) .game-card:not(.selected):hover::before {
+            opacity: 1;
+        }
+
+        /* --- Play-orb reveal (decorative; injected by JS, never intercepts clicks) --- */
+        .sl-play-orb {
+            position: absolute;
+            left: 50%;
+            top: 42%;
+            transform: translate(-50%, -50%) scale(0.6);
+            width: 54px;
+            height: 54px;
+            display: grid;
+            place-items: center;
+            border-radius: 50%;
+            color: #fff;
+            z-index: 4;
+            pointer-events: none;
+            opacity: 0;
+            background: color-mix(in srgb, var(--accent) 88%, transparent);
+            box-shadow: 0 10px 30px -6px color-mix(in srgb, var(--accent) 90%, transparent),
+                        inset 0 1px 0 rgba(255, 255, 255, 0.35);
+            transition: opacity 0.22s cubic-bezier(0.16, 1, 0.3, 1),
+                        transform 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .sl-play-orb svg { width: 22px; height: 22px; margin-left: 3px; }
+        #gameGrid:not(.list-view) .game-card:hover .sl-play-orb {
+            opacity: 1;
+            transform: translate(-50%, -50%) scale(1);
+        }
+        /* Keep the orb out of list view, big-picture mode and select mode */
+        body.big-picture-mode .sl-play-orb,
+        .game-grid.list-view .sl-play-orb,
+        .game-card.selected .sl-play-orb { display: none !important; }
+
+        /* ============================================================
+           SIDEBAR — glassy nav with pill tabs + accent active states
+           ============================================================ */
+        .sidebar h2.sidebar-title {
+            padding: 6px 12px;
+            border-radius: 999px;
+            transition: 0.18s;
+        }
+        .sidebar h2.sidebar-title.active-tab {
+            background: color-mix(in srgb, var(--accent) 18%, transparent);
+            box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 32%, transparent);
+        }
+        .section-item.active {
+            background: color-mix(in srgb, var(--accent) 16%, transparent);
+            color: var(--text-color);
+            box-shadow: inset 3px 0 0 var(--accent);
+        }
+        .section-item.active .folder-icon { color: var(--accent); }
+
+        /* ============================================================
+           TOOLBAR — pill search + segmented controls
+           ============================================================ */
+        .search-bar {
+            border-radius: 999px !important;
+            padding: 10px 18px !important;
+        }
+        #sortFilter {
+            border-radius: 999px !important;
+            padding: 9px 16px !important;
+        }
+        #viewToggleBtn {
+            border-radius: 999px !important;
+        }
+
+        /* ============================================================
+           BUTTONS — glassy outline pills (semantic button colours left
+           untouched to avoid recolouring stop / danger / etc. actions)
+           ============================================================ */
+        button.outline {
+            border-radius: 10px;
+            background: color-mix(in srgb, var(--text-color) 4%, transparent);
+        }
+        button.outline:hover {
+            background: color-mix(in srgb, var(--accent) 12%, transparent);
+        }
+
+        /* ============================================================
+           GAME PAGE — cinematic hero, gradient play button
+           ============================================================ */
+        .gp-header {
+            height: 460px;
+            border-radius: 20px;
+        }
+        .gp-banner { filter: brightness(0.72); }
+        .gp-header-content {
+            padding: 44px;
+            background: linear-gradient(to top, var(--bg-color) 2%, rgba(0,0,0,0.35) 45%, transparent 100%);
+        }
+        .gp-title {
+            font-size: 4rem;
+            font-weight: 800;
+            line-height: 0.98;
+        }
+        .gp-play-btn {
+            background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent2) 55%, var(--accent))) !important;
+            border: none !important;
+            border-radius: 14px !important;
+            box-shadow: 0 14px 34px -10px color-mix(in srgb, var(--accent) 90%, transparent),
+                        inset 0 1px 0 rgba(255, 255, 255, 0.3) !important;
+        }
+        .gp-play-btn:hover { transform: translateY(-2px) scale(1.01); }
+        /* Preserve the explicit "running" state colour */
+        .gp-play-btn.running {
+            background: var(--accent) !important;
+        }
+
+        /* ============================================================
+           TITLEBAR BRAND — real logo on a glass tile + version badge
+           ============================================================ */
+        .tb-brand {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .tb-logo {
+            width: 22px;
+            height: 22px;
+            object-fit: contain;
+            border-radius: 7px;
+            padding: 2px;
+            box-sizing: border-box;
+            background: linear-gradient(160deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.03));
+            border: 1px solid color-mix(in srgb, var(--text-color) 16%, transparent);
+            box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 4px 12px -4px rgba(0, 0, 0, 0.6);
+            filter: drop-shadow(0 1px 4px rgba(255, 160, 40, 0.35));
+        }
+        .tb-brand-name {
+            font-family: 'Outfit', 'Segoe UI', sans-serif;
+            font-weight: 600;
+            letter-spacing: 0.01em;
+        }
+        .tb-version {
+            font-size: 10.5px;
+            font-weight: 500;
+            color: color-mix(in srgb, var(--text-color) 55%, transparent);
+            border: 1px solid color-mix(in srgb, var(--text-color) 14%, transparent);
+            padding: 1px 7px;
+            border-radius: 20px;
+            letter-spacing: 0.02em;
+        }
+        .tb-version:empty { display: none; }
+
+        /* ============================================================
+           FRIENDS — presence colour dots on avatars
+           blue = online, green = playing, yellow = away,
+           red = dnd, gray = offline
+           ============================================================ */
+        .friend-av-wrap {
+            position: relative;
+            display: flex;
+            flex-shrink: 0;
+        }
+        .friend-dot {
+            position: absolute;
+            right: -2px;
+            bottom: -2px;
+            width: 11px;
+            height: 11px;
+            border-radius: 50%;
+            border: 2.5px solid var(--card-bg);
+            box-sizing: content-box;
+            background: #3b82f6;
+        }
+        .friend-dot.online  { background: #3b82f6; box-shadow: 0 0 8px rgba(59, 130, 246, 0.55); }
+        .friend-dot.playing { background: #4ade80; box-shadow: 0 0 8px rgba(74, 222, 128, 0.55); }
+        .friend-dot.away    { background: #facc15; box-shadow: 0 0 8px rgba(250, 204, 21, 0.45); }
+        .friend-dot.dnd     { background: #ef4444; box-shadow: 0 0 8px rgba(239, 68, 68, 0.55); }
+        .friend-dot.offline { background: #71717a; box-shadow: none; }
+
+        /* ============================================================
+           CONTINUE PLAYING — featured banner above the library grid
+           ============================================================ */
+        .continue-card {
+            position: relative;
+            width: 100%;
+            min-height: 190px;
+            border-radius: 20px;
+            overflow: hidden;
+            margin-bottom: 24px;
+            cursor: pointer;
+            background-size: cover !important;
+            background-position: center right !important;
+            border: 1px solid color-mix(in srgb, var(--text-color) 16%, transparent);
+            box-shadow: 0 24px 60px -18px rgba(0, 0, 0, 0.7);
+            box-sizing: border-box;
+            transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.3s ease;
+        }
+        .continue-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 28px 64px -18px rgba(0, 0, 0, 0.8),
+                        0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
+        }
+        .continue-card:focus {
+            outline: none;
+            box-shadow: 0 24px 60px -18px rgba(0, 0, 0, 0.7),
+                        0 0 0 2px color-mix(in srgb, var(--accent) 70%, transparent);
+        }
+        .continue-card-body {
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            gap: 6px;
+            min-height: 190px;
+            padding: 24px 28px;
+            max-width: 560px;
+            box-sizing: border-box;
+        }
+        .continue-kicker {
+            font-size: 11px;
+            letter-spacing: 0.16em;
+            text-transform: uppercase;
+            color: var(--accent);
+            font-weight: 700;
+        }
+        .continue-title {
+            margin: 0;
+            font-family: 'Outfit', 'Segoe UI', sans-serif;
+            font-size: 30px;
+            font-weight: 800;
+            color: #fff;
+            line-height: 1.02;
+            text-shadow: 0 3px 18px rgba(0, 0, 0, 0.6);
+        }
+        .continue-meta {
+            font-size: 12.5px;
+            color: rgba(255, 255, 255, 0.65);
+        }
+        .continue-cta {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            align-self: flex-start;
+            margin-top: 6px;
+            padding: 9px 16px;
+            border-radius: 11px;
+            font-size: 13px;
+            font-weight: 600;
+            color: #fff;
+            background: rgba(255, 255, 255, 0.12);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            transition: 0.2s;
+        }
+        .continue-card:hover .continue-cta {
+            background: var(--accent);
+            border-color: var(--accent);
+        }
+
+        /* ============================================================
+           DOWNLOADS PAGE — glass rows with live progress
+           ============================================================ */
+        .dlpage-row {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            padding: 14px 16px;
+            border-radius: 14px;
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            box-shadow: 0 10px 26px -14px rgba(0, 0, 0, 0.7);
+            animation: dlpageRise 0.4s cubic-bezier(0.16, 1, 0.3, 1) both;
+        }
+        @keyframes dlpageRise {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: none; }
+        }
+        .dlpage-cover {
+            width: 96px;
+            height: 54px;
+            border-radius: 9px;
+            flex-shrink: 0;
+            background-color: #111;
+            background-size: cover;
+            background-position: center;
+            box-shadow: 0 4px 12px -4px rgba(0, 0, 0, 0.7);
+        }
+        .dlpage-main {
+            flex: 1;
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 7px;
+        }
+        .dlpage-top {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+        }
+        .dlpage-name {
+            font-family: 'Outfit', 'Segoe UI', sans-serif;
+            font-size: 14.5px;
+            font-weight: 600;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .dlpage-track {
+            height: 8px;
+            background: color-mix(in srgb, var(--text-color) 10%, transparent);
+            border-radius: 99px;
+            overflow: hidden;
+        }
+        .dlpage-state {
+            font-size: 11.5px;
+            opacity: 0.65;
+        }
+
+        /* ============================================================
+           SETTINGS — prototype-style pill tabs + glass panes
+           ============================================================ */
+        .settings-tabs {
+            flex-wrap: wrap;
+            gap: 6px;
+            border-bottom: none;
+            padding-bottom: 14px;
+            margin-bottom: 16px;
+            position: relative;
+        }
+        .settings-tabs::after {
+            content: '';
+            position: absolute;
+            left: 0; right: 0; bottom: 0;
+            height: 1px;
+            background: var(--border-color);
+        }
+        .settings-tab {
+            flex-grow: 0;
+            padding: 8px 14px;
+            border-radius: 999px;
+            border: 1px solid transparent;
+            border-bottom: 1px solid transparent;
+            font-weight: 600;
+            font-size: 13px;
+            transition: 0.18s;
+        }
+        .settings-tab:hover {
+            background: color-mix(in srgb, var(--text-color) 6%, transparent);
+        }
+        .settings-tab.active {
+            border-color: color-mix(in srgb, var(--accent) 32%, transparent);
+            background: color-mix(in srgb, var(--accent) 15%, transparent);
+            color: var(--text-color);
+        }
+        .settings-pane.active {
+            animation: settingsPaneIn 0.32s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        @keyframes settingsPaneIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: none; }
+        }
+        #settingsModal h2 {
+            font-family: 'Outfit', 'Segoe UI', sans-serif;
+            letter-spacing: -0.01em;
+        }
+        .toggle-switch { border-radius: 999px; }
+
+        /* ============================================================
+           HUB INSTALL TOAST — progress while installing themes/plugins
+           ============================================================ */
+        .hub-toast {
+            position: fixed;
+            right: 24px;
+            bottom: 24px;
+            z-index: 10080;
+            width: 330px;
+            padding: 14px 16px;
+            border-radius: 14px;
+            background: color-mix(in srgb, var(--card-bg) 88%, transparent);
+            backdrop-filter: blur(18px);
+            border: 1px solid color-mix(in srgb, var(--text-color) 14%, transparent);
+            box-shadow: 0 18px 44px -12px rgba(0, 0, 0, 0.8);
+            animation: dlpageRise 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
+        }
+        .hub-toast.leaving { animation: hubToastOut 0.3s ease both; }
+        @keyframes hubToastOut {
+            to { opacity: 0; transform: translateY(10px); }
+        }
+        .hub-toast-name {
+            font-family: 'Outfit', 'Segoe UI', sans-serif;
+            font-size: 13.5px;
+            font-weight: 600;
+            margin-bottom: 9px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .hub-toast-track {
+            height: 7px;
+            background: color-mix(in srgb, var(--text-color) 10%, transparent);
+            border-radius: 99px;
+            overflow: hidden;
+            margin-bottom: 7px;
+            position: relative;
+        }
+        .hub-toast-bar {
+            height: 100%;
+            border-radius: 99px;
+            background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent2) 60%, var(--accent)));
+            transition: width 0.3s ease;
+        }
+        .hub-toast.working .hub-toast-bar {
+            position: absolute;
+            width: 40% !important;
+            animation: hubBarSlide 1.2s ease-in-out infinite;
+        }
+        @keyframes hubBarSlide {
+            0% { left: -40%; }
+            100% { left: 100%; }
+        }
+        .hub-toast.done .hub-toast-bar { background: #10b981; }
+        .hub-toast.fail .hub-toast-bar { background: #ef4444; }
+        .hub-toast-state {
+            font-size: 11.5px;
+            opacity: 0.7;
+        }
+
+        /* --- Big Picture: subtle restyle within the existing structure --- */
+        body.big-picture-mode .main-content-area::after {
+            content: '';
+            position: fixed;
+            inset: 0;
+            z-index: 0;
+            pointer-events: none;
+            box-shadow: inset 0 0 220px 60px rgba(0, 0, 0, 0.55);
+        }
+        body.big-picture-mode.glassmorphic-mode .game-card:focus {
+            box-shadow: 0 14px 50px rgba(0, 0, 0, 0.85),
+                        0 0 0 3px color-mix(in srgb, var(--accent2) 70%, transparent),
+                        0 0 38px 6px color-mix(in srgb, var(--accent) 60%, transparent) !important;
+        }
+        body.big-picture-mode .exit-bp-btn {
+            border-color: var(--accent2);
+            box-shadow: 0 4px 18px rgba(0, 0, 0, 0.8),
+                        0 0 22px color-mix(in srgb, var(--accent2) 45%, transparent);
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            body.glassmorphic-mode .glass-blob-4 { animation: none; }
+            #gameGrid:not(.list-view) .game-card:hover {
+                transform: translateY(-8px) scale(1.03) !important;
+            }
+            .sl-play-orb { transition: opacity 0.01s; }
+        }
+    </style>
+
+    <script>
+        /* Design overhaul — card tilt, cursor spotlight & play-orb reveal.
+           Scoped to library (#gameGrid) cards; fully self-contained so it
+           cannot affect existing launcher behaviour. */
+        (function () {
+            const PLAY_SVG = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>';
+            const MAX_TILT = 7; // degrees
+
+            // Tilt/orb apply in normal browsing (any theme); skip only in big-picture mode.
+            function glassOn() {
+                return !document.body.classList.contains('big-picture-mode');
+            }
+
+            function ensureOrb(card) {
+                if (card.querySelector(':scope > .sl-play-orb')) return;
+                // Skip cards without artwork-style layout we can sit an orb on top of
+                const orb = document.createElement('div');
+                orb.className = 'sl-play-orb';
+                orb.innerHTML = PLAY_SVG;
+                card.appendChild(orb);
+            }
+
+            const grid = function () { return document.getElementById('gameGrid'); };
+
+            document.addEventListener('mousemove', function (e) {
+                if (!glassOn()) return;
+                const g = grid();
+                if (!g) return;
+                const card = e.target.closest && e.target.closest('.game-card');
+                if (!card || !g.contains(card)) return;
+                if (g.classList.contains('list-view')) return;
+                if (card.classList.contains('squish') || card.classList.contains('selected')) return;
+
+                ensureOrb(card);
+                const r = card.getBoundingClientRect();
+                const px = (e.clientX - r.left) / r.width;   // 0..1
+                const py = (e.clientY - r.top) / r.height;    // 0..1
+                const ry = (px - 0.5) * 2 * MAX_TILT;         // rotateY: left/right
+                const rx = (0.5 - py) * 2 * MAX_TILT;         // rotateX: up/down
+                card.style.setProperty('--card-ry', ry.toFixed(2) + 'deg');
+                card.style.setProperty('--card-rx', rx.toFixed(2) + 'deg');
+                card.style.setProperty('--card-mx', (px * 100).toFixed(1) + '%');
+                card.style.setProperty('--card-my', (py * 100).toFixed(1) + '%');
+            }, { passive: true });
+
+            function resetCard(card) {
+                if (!card || !card.style) return;
+                card.style.removeProperty('--card-ry');
+                card.style.removeProperty('--card-rx');
+            }
+
+            // Reset tilt when leaving a card (mouseout bubbles; delegate on the grid)
+            document.addEventListener('mouseout', function (e) {
+                const card = e.target.closest && e.target.closest('.game-card');
+                if (!card) return;
+                const to = e.relatedTarget;
+                if (to && card.contains(to)) return; // still inside the same card
+                resetCard(card);
+            }, { passive: true });
+
+            // Safety: clear tilt on press so drag-reorder isn't fighting an inline transform
+            document.addEventListener('mousedown', function (e) {
+                const card = e.target.closest && e.target.closest('.game-card');
+                if (card) resetCard(card);
+            }, { passive: true });
+
+            // --- Titlebar version badge (reads the app's own package.json) ---
+            try {
+                const v = require('./package.json').version;
+                const el = document.getElementById('tbVersion');
+                if (el && v) el.textContent = 'v' + v;
+            } catch (err) { /* badge stays hidden via :empty */ }
+
+            // --- Hub install progress toast (themes/plugins) ---
+            // window.sailHubProgress.start(name) -> shows an animated progress
+            // toast; .done(msg)/.fail(msg) settle it and auto-dismiss.
+            let hubToast = null, hubToastTimer = null;
+            function removeHubToast() {
+                if (!hubToast) return;
+                const t = hubToast; hubToast = null;
+                t.classList.add('leaving');
+                setTimeout(() => t.remove(), 320);
+            }
+            window.sailHubProgress = {
+                start(name, type) {
+                    if (hubToastTimer) { clearTimeout(hubToastTimer); hubToastTimer = null; }
+                    if (hubToast) hubToast.remove();
+                    hubToast = document.createElement('div');
+                    hubToast.className = 'hub-toast working';
+                    hubToast.innerHTML = `
+                        <div class="hub-toast-name"></div>
+                        <div class="hub-toast-track"><div class="hub-toast-bar" style="width:100%"></div></div>
+                        <div class="hub-toast-state">Downloading & installing ${type || ''}…</div>`;
+                    hubToast.querySelector('.hub-toast-name').textContent = name || 'Sail Hub item';
+                    document.body.appendChild(hubToast);
+                },
+                done(msg) {
+                    if (!hubToast) return;
+                    hubToast.classList.remove('working');
+                    hubToast.classList.add('done');
+                    hubToast.querySelector('.hub-toast-bar').style.width = '100%';
+                    hubToast.querySelector('.hub-toast-state').textContent = msg || '✓ Installed';
+                    hubToastTimer = setTimeout(removeHubToast, 3500);
+                },
+                fail(msg) {
+                    if (!hubToast) return;
+                    hubToast.classList.remove('working');
+                    hubToast.classList.add('fail');
+                    hubToast.querySelector('.hub-toast-bar').style.width = '100%';
+                    hubToast.querySelector('.hub-toast-state').textContent = msg || 'Install failed';
+                    hubToastTimer = setTimeout(removeHubToast, 4500);
+                }
+            };
+        })();
+    </script>
 </body>
 
 </html>
