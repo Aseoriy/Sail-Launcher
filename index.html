@@ -559,6 +559,95 @@
             position: relative;
         }
 
+        /* ============================================================
+           LAYOUT PRESETS (Settings → Interface → Layout & Position)
+           The app shell is a flex row: [main sidebar][resizer][content]
+           [resizer][friends]. We reposition whole regions purely with
+           CSS `order`, so nothing is moved in the DOM and the layout
+           can't break — toggling a body class is fully reversible.
+           ============================================================ */
+        /* Friends/social bar moved to the far LEFT edge. */
+        body.layout-friends-left #socialSidebar { order: -3; }
+        body.layout-friends-left #socialResizer { order: -2; }
+        /* Main sidebar (page tabs + folders) moved to the RIGHT edge. */
+        body.layout-sidebar-right #mainSidebar { order: 6; }
+        body.layout-sidebar-right #mainResizer { order: 5; }
+        /* Folders section lifted ABOVE the library sections (nav stays on top). */
+        body.layout-folders-top #mainSidebar { display: flex; flex-direction: column; }
+        body.layout-folders-top #sidebarNavHeader { order: 0; }
+        body.layout-folders-top #sidebarFoldersHeader { order: 1; }
+        body.layout-folders-top #customSectionsList { order: 2; }
+        body.layout-folders-top #coreSectionsList { order: 3; }
+
+        /* ============================================================
+           EXPERIMENTAL UI EDITOR (issue #2) — a real on-canvas layout
+           editor. Hover-highlight ANY element, click to select, drag to
+           move (via transform — never reflows), resize via the corner
+           handle, and restyle (colour / gradient / size / animation) from
+           the inspector. Everything is stored as per-element overrides in
+           globalSettings.uiCustom and applied through one injected <style>,
+           so it is 100% reversible (Reset clears the override).
+           ============================================================ */
+        body.ui-edit-mode, body.ui-edit-mode * { cursor: crosshair !important; }
+        body.ui-edit-mode .uie-chrome, body.ui-edit-mode .uie-chrome * { cursor: default !important; }
+        /* fixed full-viewport overlay that hosts hover + selection boxes (clicks pass through) */
+        #uieOverlay { position: fixed; inset: 0; z-index: 100040; pointer-events: none; display: none; }
+        #uieHoverBox { position: fixed; pointer-events: none; border: 1.5px solid var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); border-radius: 4px; display: none; box-shadow: 0 0 0 1px rgba(0,0,0,0.35) inset; transition: all .04s linear; }
+        #uieSelBox { position: fixed; pointer-events: none; border: 2px solid var(--accent); border-radius: 4px; display: none; box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 35%, transparent), 0 0 16px rgba(0,0,0,0.4); }
+        #uieSelBox .uie-move { position: absolute; inset: 0; pointer-events: auto; cursor: move; }
+        #uieSelBox .uie-handle { position: absolute; width: 14px; height: 14px; background: var(--accent); border: 2px solid #fff; border-radius: 50%; pointer-events: auto; box-shadow: 0 1px 4px rgba(0,0,0,0.5); }
+        #uieSelBox .uie-handle.br { right: -8px; bottom: -8px; cursor: nwse-resize; }
+        #uieSelBox .uie-tag { position: absolute; top: -22px; left: -2px; background: var(--accent); color: #fff; font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 5px 5px 5px 0; white-space: nowrap; pointer-events: none; }
+        /* docked inspector + bottom toolbar */
+        #uieInspector { position: fixed; top: 14px; right: 14px; z-index: 100060; width: 290px; max-height: calc(100vh - 120px); overflow-y: auto; background: rgba(15,15,22,0.98); backdrop-filter: blur(20px); border: 1px solid var(--accent); border-radius: 14px; padding: 14px; box-shadow: 0 16px 50px rgba(0,0,0,0.62); display: none; font-size: 12px; }
+        #uieInspector h4 { margin: 0 0 2px 0; font-size: 14px; display: flex; align-items: center; gap: 7px; }
+        #uieInspector .uie-sel { font-size: 10.5px; opacity: 0.55; word-break: break-all; margin: 0 0 10px 0; font-family: monospace; }
+        #uieInspector .uie-grp { border-top: 1px solid var(--border-color); padding-top: 10px; margin-top: 10px; }
+        #uieInspector .uie-grp:first-of-type { border-top: none; padding-top: 0; margin-top: 0; }
+        #uieInspector label.uie-lab { display: block; font-size: 11px; opacity: 0.7; margin: 8px 0 3px; }
+        #uieInspector .uie-2 { display: flex; gap: 8px; }
+        #uieInspector .uie-2 > div { flex: 1; }
+        #uieInspector input[type=number], #uieInspector input[type=text] { width: 100%; box-sizing: border-box; padding: 6px 7px; border-radius: 7px; border: 1px solid var(--border-color); background: rgba(128,128,128,0.10); color: inherit; font-size: 12px; }
+        #uieInspector input[type=range] { width: 100%; accent-color: var(--accent); }
+        #uieInspector input[type=color] { width: 38px; height: 28px; padding: 0; border: none; background: none; cursor: pointer; vertical-align: middle; }
+        #uieInspector select { width: 100%; padding: 6px 7px; border-radius: 7px; border: 1px solid var(--border-color); background: rgba(128,128,128,0.10); color: inherit; font-size: 12px; }
+        #uieInspector .uie-seg { display: flex; gap: 4px; }
+        #uieInspector .uie-seg button { flex: 1; padding: 6px 4px; font-size: 11px; border-radius: 7px; border: 1px solid var(--border-color); background: transparent; color: inherit; cursor: pointer; }
+        #uieInspector .uie-seg button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+        #uieInspector .uie-anim-seg { flex-wrap: wrap; gap: 5px; }
+        #uieInspector .uie-anim-seg button { flex: 0 0 auto; padding: 5px 9px; }
+        #uieInspector .uie-mini { padding: 5px 9px; font-size: 11px; border-radius: 7px; border: 1px solid var(--border-color); background: transparent; color: inherit; cursor: pointer; }
+        .uie-grad-stop { display: flex; align-items: center; gap: 6px; margin-top: 5px; }
+        .uie-grad-stop input[type=range] { flex: 1; }
+        .uie-grad-preview { height: 26px; border-radius: 7px; border: 1px solid var(--border-color); margin-top: 7px; }
+        #uieToolbar { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 100060; display: none; align-items: center; gap: 10px; background: rgba(15,15,22,0.98); backdrop-filter: blur(20px); border: 1px solid var(--accent); border-radius: 13px; padding: 10px 16px; box-shadow: 0 14px 46px rgba(0,0,0,0.6); font-size: 12px; }
+        #uieToolbar .uie-btn { padding: 8px 13px; border-radius: 8px; font-size: 12px; cursor: pointer; border: 1px solid var(--border-color); background: transparent; color: inherit; }
+        #uieToolbar .uie-btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+        #uieToolbar .uie-hint { opacity: 0.6; font-size: 11px; max-width: 260px; }
+        /* animation presets the editor can assign to any element */
+        @keyframes uie-pulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.04); } }
+        @keyframes uie-float { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
+        @keyframes uie-glow { 0%,100% { filter: drop-shadow(0 0 2px var(--accent)); } 50% { filter: drop-shadow(0 0 11px var(--accent)); } }
+        @keyframes uie-spin { to { transform: rotate(360deg); } }
+        @keyframes uie-gradshift { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
+        @keyframes uie-shimmer { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }
+
+        /* Anchored <select> dropdown (issue #5) — replaces the old centered "Select Option"
+           modal with a popup that animates in place from the control it belongs to. */
+        #anchoredSelect { position: fixed; z-index: 100200; min-width: 150px; max-height: 320px; overflow-y: auto; background: rgba(18,18,26,0.98); backdrop-filter: blur(16px); border: 1px solid var(--border-color); border-radius: 11px; box-shadow: 0 16px 44px rgba(0,0,0,0.55); padding: 6px; transform-origin: top center; animation: anchoredSelectIn .14s cubic-bezier(.2,.9,.3,1.2); }
+        #anchoredSelect.flip-up { transform-origin: bottom center; animation-name: anchoredSelectInUp; }
+        @keyframes anchoredSelectIn { from { opacity: 0; transform: translateY(-7px) scale(0.96); } to { opacity: 1; transform: none; } }
+        @keyframes anchoredSelectInUp { from { opacity: 0; transform: translateY(7px) scale(0.96); } to { opacity: 1; transform: none; } }
+        #anchoredSelect .as-opt { display: block; width: 100%; text-align: left; padding: 8px 12px; border: none; background: transparent; color: inherit; border-radius: 7px; cursor: pointer; font-size: 13px; white-space: nowrap; transition: background .1s; }
+        #anchoredSelect .as-opt:hover, #anchoredSelect .as-opt:focus { background: rgba(128,128,128,0.18); outline: none; }
+        #anchoredSelect .as-opt.selected { background: var(--accent); color: #fff; }
+        #anchoredSelect .as-group { font-weight: 700; opacity: 0.5; padding: 9px 9px 3px; font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; }
+
+        /* Inline help tips in the Theme Editor's Advanced mode (issue #2). */
+        .tc-info-btn { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 50%; border: 1px solid var(--border-color); font-size: 10px; line-height: 1; opacity: 0.65; cursor: pointer; margin-left: 6px; flex-shrink: 0; user-select: none; }
+        .tc-info-btn:hover { opacity: 1; border-color: var(--accent); color: var(--accent); }
+        .tc-info-text { font-size: 11px; opacity: 0.7; line-height: 1.4; margin: 4px 0 0 0; padding: 6px 9px; background: rgba(128,128,128,0.1); border-radius: 6px; border-left: 2px solid var(--accent); }
+
         .header {
             display: flex;
             justify-content: space-between;
@@ -2274,8 +2363,12 @@
             --glass-blur: blur(30px) saturate(210%);
         }
 
-        /* Minimize sweep and grid lines from theme-midnight::before etc. to avoid cluttering glassmorphism */
-        body.glassmorphic-mode::before {
+        /* Minimize the busy sweep/grid lines that BUILT-IN themes (theme-midnight etc.)
+           paint via body::before, so they don't clutter the glass look. Custom themes,
+           however, expose a deliberately-chosen background animation (pulse/grid/wave/
+           ripple/frost/aurora) through body.theme-custom::before — those must keep moving,
+           so we exclude .theme-custom from this suppression. */
+        body.glassmorphic-mode:not(.theme-custom)::before {
             opacity: 0.02 !important;
             animation: none !important;
         }
@@ -2978,23 +3071,23 @@
     <div class="app-container">
 
         <div class="sidebar" id="mainSidebar">
-            <div class="sidebar-header" style="justify-content: flex-start; gap: 12px; flex-wrap: wrap;">
+            <div class="sidebar-header" id="sidebarNavHeader" style="justify-content: flex-start; gap: 12px; flex-wrap: wrap;">
                 <h2 class="sidebar-title active-tab" id="tabLibrary" onclick="switchMainTab('library')"
                     style="cursor:pointer; opacity:1;" data-i18n="library">Library</h2>
                 <h2 class="sidebar-title" id="tabStore" onclick="switchMainTab('store')"
-                    style="cursor:pointer; opacity: 0.5; display: none;">Discover</h2>
+                    style="cursor:pointer; opacity: 0.5; display: none;">Mods</h2>
                 <h2 class="sidebar-title" id="tabWorkshop" onclick="switchMainTab('workshop')"
                     style="cursor:pointer; opacity: 0.5;">Workshop</h2>
                 <h2 class="sidebar-title" id="tabDownloads" onclick="switchMainTab('downloads')"
-                    style="cursor:pointer; opacity: 0.5;">Store</h2>
+                    style="cursor:pointer; opacity: 0.5;">Game Downloads</h2>
                 <h2 class="sidebar-title" id="tabDownloadsMgr" onclick="switchMainTab('downloadsmgr')"
-                    style="cursor:pointer; opacity: 0.5;">Downloads</h2>
+                    style="cursor:pointer; opacity: 0.5;">Download Manager</h2>
                 <div style="flex-grow:1;"></div>
                 <button class="sidebar-toggle-btn" onclick="toggleSidebar()">☰</button>
             </div>
             <div id="coreSectionsList" class="sidebar-section"></div>
 
-            <div class="sidebar-header" style="margin-top: 10px;">
+            <div class="sidebar-header" id="sidebarFoldersHeader" style="margin-top: 10px;">
                 <h2 class="sidebar-title" data-i18n="folders">Folders</h2>
                 <button class="action-btn sidebar-title" onclick="openModal('sectionModal')"
                     style="font-size: 11px; padding: 4px 8px; background: rgba(128,128,128,0.1); color: var(--text-color); opacity: 1;"
@@ -3126,8 +3219,8 @@
                 <div id="downloadSearchPanel" style="display: flex; flex-direction: column; width: 100%;">
                     <div class="header" style="margin-bottom: 25px; flex-shrink: 0; display: flex; flex-direction: row; align-items: center; justify-content: space-between; gap: 15px;">
                         <div style="display: flex; flex-direction: column; align-items: flex-start;">
-                            <h1 style="margin: 0; font-size: 28px;">🛒 Store</h1>
-                            <p style="font-size: 13px; opacity: 0.6; margin: 5px 0 0 0;">Search multiple repack &amp; download sources at once, then download in one click. Active downloads appear in the <b>Downloads</b> tab.</p>
+                            <h1 style="margin: 0; font-size: 28px;">🛒 Game Downloads</h1>
+                            <p style="font-size: 13px; opacity: 0.6; margin: 5px 0 0 0;">Search multiple repack &amp; download sources at once, then download in one click. Active downloads appear in the <b>Download Manager</b> tab.</p>
                         </div>
                         <button class="outline" onclick="openDownloadSettings()" style="padding: 10px 16px; border-radius: 8px; flex-shrink: 0;">⚙️ Download Settings</button>
                     </div>
@@ -3254,16 +3347,17 @@
             <div id="downloadsManagerView" style="display: none; box-sizing: border-box; flex-direction: column; width: 100%;">
                 <div class="header" style="margin-bottom: 25px; flex-shrink: 0; display: flex; flex-direction: row; align-items: center; justify-content: space-between; gap: 15px;">
                     <div style="display: flex; flex-direction: column; align-items: flex-start;">
-                        <h1 style="margin: 0; font-size: 28px;">⬇️ Downloads</h1>
-                        <p style="font-size: 13px; opacity: 0.6; margin: 5px 0 0 0;">Active, queued and completed downloads. Start new ones from the <b>Store</b> tab.</p>
+                        <h1 style="margin: 0; font-size: 28px;">⬇️ Download Manager</h1>
+                        <p style="font-size: 13px; opacity: 0.6; margin: 5px 0 0 0;">Active, queued and completed downloads. Start new ones from the <b>Game Downloads</b> tab.</p>
                     </div>
                     <button class="outline" onclick="openDownloadSettings()" style="padding: 10px 16px; border-radius: 8px; flex-shrink: 0;">⚙️ Download Settings</button>
                 </div>
+                <div id="dlFilterBar" style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; flex-shrink: 0;"></div>
                 <div id="downloadsPageBody" style="display: flex; flex-direction: column; gap: 14px; width: 100%;"></div>
                 <div id="downloadsPageEmpty" style="display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; margin: auto; max-width: 460px; opacity: 0.7; padding: 60px 0;">
                     <div style="font-size: 48px; margin-bottom: 15px;">📭</div>
                     <h3 style="margin: 0 0 8px 0; font-size: 18px;">No downloads yet</h3>
-                    <p style="font-size: 13px; margin: 0; line-height: 1.5;">Head to the <b>Store</b> tab, search for a game and hit Download. Progress shows up here and in the dock.</p>
+                    <p style="font-size: 13px; margin: 0; line-height: 1.5;">Head to the <b>Game Downloads</b> tab, search for a game and hit Download. Progress shows up here and in the dock.</p>
                 </div>
             </div>
         </div>
@@ -3694,6 +3788,14 @@
             </div>
 
             <div id="advThemeView" style="display:none;">
+                <div style="display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:14px; padding-bottom:12px; border-bottom:1px dashed var(--border-color);">
+                    <label class="toggle-label" style="margin:0;">
+                        <input type="checkbox" id="tcInfoButtonsToggle">
+                        <div class="toggle-switch"></div>
+                        <span style="font-size:12px;">ℹ️ Show help tips</span>
+                    </label>
+                    <button class="outline" id="tcOpenUiEditorBtn" onclick="openUiEditor()" style="display:none; padding:8px 12px; border-radius:8px; font-size:12px; border-color:var(--accent);">🎛️ Open UI Editor</button>
+                </div>
                 <div class="input-row" style="margin-bottom:15px;"><label style="flex-grow:1; font-size:14px;">Text
                         Color</label><input type="color" id="tcText"></div>
                 <div class="input-row" style="margin-bottom:15px;"><label style="flex-grow:1; font-size:14px;">Border
@@ -3760,6 +3862,32 @@
                             <span>Glass Blur Amount</span> <span id="tcGlassBlurLabel">24px</span>
                         </label>
                         <input type="range" id="tcGlassBlur" min="0" max="80" value="24" style="width:100%; cursor:pointer;">
+                    </div>
+                </div>
+
+                <div style="margin-bottom:15px; border-top: 1px dashed var(--border-color); padding-top: 15px;">
+                    <strong style="display:block; margin-bottom:4px; font-size:14px; opacity:0.8;">Layout &amp; Position</strong>
+                    <p style="margin:0 0 12px 0; font-size:11px; opacity:0.5;">Arrange the launcher's regions. These apply instantly to the whole app (not saved into the theme).</p>
+                    <div class="input-row" style="margin-bottom:10px;">
+                        <label style="flex-grow:1; font-size:13px;">Page tabs &amp; folders sidebar</label>
+                        <select id="tcLayoutSidebarSide" style="width:140px;">
+                            <option value="left">Left side</option>
+                            <option value="right">Right side</option>
+                        </select>
+                    </div>
+                    <div class="input-row" style="margin-bottom:10px;">
+                        <label style="flex-grow:1; font-size:13px;">Friends bar</label>
+                        <select id="tcLayoutFriendsSide" style="width:140px;">
+                            <option value="right">Right side</option>
+                            <option value="left">Left side</option>
+                        </select>
+                    </div>
+                    <div class="input-row" style="margin-bottom:10px;">
+                        <label style="flex-grow:1; font-size:13px;">Folders section</label>
+                        <select id="tcLayoutFolders" style="width:140px;">
+                            <option value="bottom">Below pages</option>
+                            <option value="top">Above pages</option>
+                        </select>
                     </div>
                 </div>
             </div>
@@ -4231,6 +4359,63 @@
                         </select>
                     </div>
                 </div>
+
+                <div style="margin-bottom: 20px; border-top: 1px solid var(--border-color); padding-top: 20px;">
+                    <label style="font-size: 12px; opacity:0.6; display:block; margin-bottom:12px; font-weight:bold; text-transform:uppercase; letter-spacing:0.04em;">Home &amp; Sidebar Pages</label>
+                    <label class="toggle-label" tabindex="0" style="margin-bottom:14px;">
+                        <input type="checkbox" id="showContinuePlayingToggle" checked>
+                        <div class="toggle-switch"></div>
+                        <span>Show 'Continue Playing' banner</span>
+                    </label>
+                    <label class="toggle-label" tabindex="0" style="margin-bottom:14px;">
+                        <input type="checkbox" id="showGameDownloadsPageToggle" checked>
+                        <div class="toggle-switch"></div>
+                        <span>Show 'Game Downloads' page in sidebar</span>
+                    </label>
+                    <label class="toggle-label" tabindex="0" style="margin-bottom:14px;">
+                        <input type="checkbox" id="showDownloadManagerPageToggle" checked>
+                        <div class="toggle-switch"></div>
+                        <span>Show 'Download Manager' page in sidebar</span>
+                    </label>
+                    <label class="toggle-label" tabindex="0" style="margin-bottom:14px;">
+                        <input type="checkbox" id="showWorkshopPageToggle" checked>
+                        <div class="toggle-switch"></div>
+                        <span>Show 'Workshop' page in sidebar</span>
+                    </label>
+                    <label class="toggle-label" tabindex="0">
+                        <input type="checkbox" id="showModsPageToggle">
+                        <div class="toggle-switch"></div>
+                        <span>Show 'Mods' page in sidebar</span>
+                    </label>
+                </div>
+
+                <div style="margin-bottom: 20px; border-top: 1px solid var(--border-color); padding-top: 20px;">
+                    <label style="font-size: 12px; opacity:0.6; display:block; margin-bottom:12px; font-weight:bold; text-transform:uppercase; letter-spacing:0.04em;">Layout &amp; Position</label>
+                    <div style="display:flex; flex-direction:column; gap:14px;">
+                        <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
+                            <span style="font-size:13px;">Page tabs &amp; folders sidebar</span>
+                            <select id="mainSidebarSideSelect" style="min-width:130px;">
+                                <option value="left">Left side</option>
+                                <option value="right">Right side</option>
+                            </select>
+                        </div>
+                        <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
+                            <span style="font-size:13px;">Friends bar</span>
+                            <select id="friendsBarSideSelect" style="min-width:130px;">
+                                <option value="right">Right side</option>
+                                <option value="left">Left side</option>
+                            </select>
+                        </div>
+                        <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
+                            <span style="font-size:13px;">Folders section</span>
+                            <select id="foldersPositionSelect" style="min-width:130px;">
+                                <option value="bottom">Below pages</option>
+                                <option value="top">Above pages</option>
+                            </select>
+                        </div>
+                    </div>
+                    <p style="margin:12px 0 0 0; font-size:11px; opacity:0.5; line-height:1.5;">Move whole regions of the launcher. To hide the friends bar entirely, use the toggle in the <b>Social</b> tab.</p>
+                </div>
             </div>
 
             <div id="tab-social" class="settings-pane">
@@ -4306,7 +4491,7 @@
                     style="margin-top: 30px; border-top: 1px solid var(--border-color); padding-top: 20px; display:flex; gap:10px;">
                     <button class="outline" style="flex-grow:1;"
                         onclick="require('electron').ipcRenderer.invoke('open-url', 'https://github.com/Aseoriy/Sail-Launcher')">⛵
-                        Sail Launcher v5.0.0-beta-1</button>
+                        Sail Launcher v5.0.0-beta-2</button>
                     <button id="checkUpdateBtn" style="min-width: 150px; transition: 0.3s;"
                         data-i18n="checkUpdates">Check Updates</button>
                 </div>
@@ -4321,6 +4506,22 @@
                     </label>
                     <p style="font-size: 11px; color: rgba(255,255,255,0.5); text-align: left; margin-top: 5px;">
                         Enables developer-only options like the Alerts Manager. Password required.</p>
+                </div>
+
+                <div style="margin-bottom: 20px; border: 1px solid rgba(168,85,247,0.35); border-radius: 10px; padding: 14px; background: rgba(168,85,247,0.06);">
+                    <label class="toggle-label">
+                        <input type="checkbox" id="uiEditorEnabledToggle">
+                        <div class="toggle-switch"></div>
+                        <span>🎛️ Enable UI Editor (Experimental)</span>
+                    </label>
+                    <p style="font-size: 11px; color: rgba(255,255,255,0.5); text-align: left; margin-top: 5px;">
+                        Unlocks a full on-canvas editor: click <em>any</em> element to select it, drag to move it,
+                        resize it with the corner handle, and restyle it — text colour, solid or <strong>gradient</strong>
+                        backgrounds, corner radius, padding, opacity, font size and live animations. Set a whole-window
+                        gradient and recolour the accent too. Everything saves live and is fully reversible (Reset all).
+                        Open it from the button below or the Theme Editor's Advanced mode. Experimental — tweaks to
+                        re-rendered lists (like game tiles) may not always persist.</p>
+                    <button class="outline" id="openUiEditorBtn" onclick="openUiEditor()" style="margin-top:10px; padding:9px 14px; border-radius:8px; font-size:12px; border-color: var(--accent); opacity:0.5; pointer-events:none;">🎛️ Open UI Editor</button>
                 </div>
 
                 <div style="margin-bottom: 20px;">
@@ -4735,6 +4936,7 @@
                 style="overflow-y: auto; display: flex; flex-direction: column; gap: 10px; flex-grow: 1; min-height: 100px;">
             </div>
             <p style="opacity: 0.5; font-size: 11px; margin-top: 12px; text-align: center;">Changes to enabled/disabled
+                                        <li>Changes to enabled/disabled
                 plugins take effect after restarting the launcher.</p>
         </div>
     </div>
@@ -4756,7 +4958,8 @@
             if (!btn) return;
             const muted = !!globalSettings.muteSounds;
             btn.textContent = muted ? '🔇' : '🔊';
-            btn.title = muted ? 'Launcher sounds muted — click to unmute' : 'Mute launcher sounds';
+            btn.title = muted ? 'Installer music muted — click to unmute' : 'Mute installer music';
+            try { require('electron').ipcRenderer.send('toggle-installer-mute', muted); } catch (e) {}
         };
         document.getElementById('muteBtn').addEventListener('click', () => {
             globalSettings.muteSounds = !globalSettings.muteSounds;
@@ -4764,7 +4967,7 @@
             window.syncMuteBtn();
         });
 
-        const APP_VERSION = "v5.0.0-beta-1";
+        const APP_VERSION = "v5.0.0-beta-2";
         let currentTabName = 'library';
         let skipStaggerAnimation = false;
 
@@ -4812,6 +5015,9 @@
             exitWhenClosed: false, disableDiscordRpc: false, enableDevTools: false, autoStart: false,
             hideStars: false, legacySettings: false, quickPaths: [], tileShape: 'default', fullTileImage: false, tileSize: 'medium', verticalCards: false,
             showSurpriseMe: false, showStats: false, showDynamicFolders: true, showFavoritesFolder: true, recentDays: 30,
+            showContinuePlaying: true, showModsPage: false, showWorkshopPage: true, showGameDownloadsPage: true, showDownloadManagerPage: true,
+            friendsBarSide: 'right', mainSidebarSide: 'left', foldersPosition: 'bottom',
+            uiEditorEnabled: false, themeInfoButtons: true, uiAccent: '', uiCustom: {}, uiAppBg: '', uiAppBgStore: null,
             steamApiKey: '', steamId: '', discordToken: '', showSocialSidebar: true, actionButtonsLocation: 'bottom',
             dedicatedSettingsPage: true, enableUiResizing: false, mainSidebarWidth: 230, socialSidebarWidth: 230,
             disabledPlugins: [],
@@ -5643,6 +5849,23 @@
             if (globalSettings.showStats === undefined || globalSettings.showStats === null) globalSettings.showStats = false;
             if (globalSettings.showDynamicFolders === undefined || globalSettings.showDynamicFolders === null) globalSettings.showDynamicFolders = true;
             if (globalSettings.showFavoritesFolder === undefined || globalSettings.showFavoritesFolder === null) globalSettings.showFavoritesFolder = true;
+            if (globalSettings.showContinuePlaying === undefined || globalSettings.showContinuePlaying === null) globalSettings.showContinuePlaying = true;
+            if (globalSettings.showModsPage === undefined || globalSettings.showModsPage === null) globalSettings.showModsPage = false;
+            if (globalSettings.showWorkshopPage === undefined || globalSettings.showWorkshopPage === null) globalSettings.showWorkshopPage = true;
+            if (globalSettings.showGameDownloadsPage === undefined || globalSettings.showGameDownloadsPage === null) globalSettings.showGameDownloadsPage = true;
+            if (globalSettings.showDownloadManagerPage === undefined || globalSettings.showDownloadManagerPage === null) globalSettings.showDownloadManagerPage = true;
+            if (!globalSettings.friendsBarSide) globalSettings.friendsBarSide = 'right';
+            if (!globalSettings.mainSidebarSide) globalSettings.mainSidebarSide = 'left';
+            if (!globalSettings.foldersPosition) globalSettings.foldersPosition = 'bottom';
+            if (globalSettings.uiEditorEnabled === undefined || globalSettings.uiEditorEnabled === null) globalSettings.uiEditorEnabled = false;
+            if (globalSettings.themeInfoButtons === undefined || globalSettings.themeInfoButtons === null) globalSettings.themeInfoButtons = true;
+            if (typeof globalSettings.uiAccent !== 'string') globalSettings.uiAccent = '';
+            if (!globalSettings.uiCustom || typeof globalSettings.uiCustom !== 'object') globalSettings.uiCustom = {};
+            if (typeof globalSettings.uiAppBg !== 'string') globalSettings.uiAppBg = '';
+            try { applyPageVisibility(); } catch (e) {}
+            try { applyLayout(); } catch (e) {}
+            try { applyUiAccent(); } catch (e) {}
+            try { applyUiCustom(); } catch (e) {}
             if (globalSettings.recentDays === undefined) globalSettings.recentDays = 30;
             if (globalSettings.showSocialSidebar === undefined) globalSettings.showSocialSidebar = true;
             if (globalSettings.enableUiResizing === undefined) globalSettings.enableUiResizing = false;
@@ -5760,6 +5983,16 @@
             document.getElementById('showStatsToggle').checked = globalSettings.showStats;
             document.getElementById('showDynamicFoldersToggle').checked = globalSettings.showDynamicFolders;
             document.getElementById('showFavoritesFolderToggle').checked = globalSettings.showFavoritesFolder;
+            { const t = document.getElementById('showContinuePlayingToggle'); if (t) t.checked = globalSettings.showContinuePlaying !== false; }
+            { const t = document.getElementById('showModsPageToggle'); if (t) t.checked = !!globalSettings.showModsPage; }
+            { const t = document.getElementById('showWorkshopPageToggle'); if (t) t.checked = globalSettings.showWorkshopPage !== false; }
+            { const t = document.getElementById('showGameDownloadsPageToggle'); if (t) t.checked = globalSettings.showGameDownloadsPage !== false; }
+            { const t = document.getElementById('showDownloadManagerPageToggle'); if (t) t.checked = globalSettings.showDownloadManagerPage !== false; }
+            { const t = document.getElementById('mainSidebarSideSelect'); if (t) t.value = globalSettings.mainSidebarSide || 'left'; }
+            { const t = document.getElementById('friendsBarSideSelect'); if (t) t.value = globalSettings.friendsBarSide || 'right'; }
+            { const t = document.getElementById('foldersPositionSelect'); if (t) t.value = globalSettings.foldersPosition || 'bottom'; }
+            { const t = document.getElementById('uiEditorEnabledToggle'); if (t) t.checked = !!globalSettings.uiEditorEnabled; }
+            try { reflectUiEditorEnabled(); } catch (e) {}
             document.getElementById('recentDaysSelect').value = globalSettings.recentDays.toString();
 
             document.getElementById('showSocialSidebarToggle').checked = globalSettings.showSocialSidebar;
@@ -5881,6 +6114,7 @@
                                     applyTheme(globalSettings.theme);
                                     saveToMemory();
                                     try { fs.unlinkSync(result.path); } catch (e) { }
+                                    try { logManagerDownload({ name: themeData.name, category: 'theme', sourceId: 'sailhub' }); } catch (e) {}
                                     hubAlert(`✅ Theme "${themeData.name}" installed and applied!`);
                                 } else {
                                     try { fs.unlinkSync(result.path); } catch (e) { }
@@ -5935,6 +6169,7 @@
                                     fs.moveSync(pluginRoot, finalPath, { overwrite: true });
                                     if (fs.existsSync(tempDir)) fs.removeSync(tempDir);
 
+                                    try { logManagerDownload({ name: manifest.name, category: 'plugin', folder: finalPath, sourceId: 'sailhub' }); } catch (e) {}
                                     hubAlert(`✅ Plugin "${manifest.name}" installed!\n\nRestart the launcher to load it.`);
                                 } catch (err) {
                                     try { fs.unlinkSync(result.path); } catch (e) { }
@@ -6228,7 +6463,9 @@
                     enableDodi: !!globalSettings.dlEnableDodi,
                     enableOnlineFix: !!globalSettings.dlEnableOnlineFix,
                     maxConcurrent: Number(globalSettings.dlMaxConcurrent) || 3,
-                    enabledSources: globalSettings.dlEnabledSources || null
+                    enabledSources: globalSettings.dlEnabledSources || null,
+                    autoSwitchDownloads: !!globalSettings.dlAutoSwitchDownloads,
+                    notifyOnComplete: !!globalSettings.dlNotifyComplete
                 };
             },
             saveSettings(s) {
@@ -6242,6 +6479,8 @@
                 globalSettings.dlEnableDodi = !!s.enableDodi;
                 globalSettings.dlEnableOnlineFix = !!s.enableOnlineFix;
                 globalSettings.dlMaxConcurrent = Number(s.maxConcurrent) || 3;
+                globalSettings.dlAutoSwitchDownloads = !!s.autoSwitchDownloads;
+                globalSettings.dlNotifyComplete = !!s.notifyOnComplete;
                 saveToMemory();
             },
             saveEnabledSources(obj) { globalSettings.dlEnabledSources = obj; saveToMemory(); },
@@ -6261,7 +6500,10 @@
                 saveToMemory();
                 try { renderSidebar(); } catch (e) {}
                 try { renderGames(); } catch (e) {}
-            }
+            },
+            // Download history persists across launcher restarts (stored in sail_library.json).
+            getHistory() { return Array.isArray(globalSettings.dlHistory) ? globalSettings.dlHistory : []; },
+            saveHistory(arr) { globalSettings.dlHistory = Array.isArray(arr) ? arr.slice(0, 50) : []; saveToMemory(); }
         };
 
         function saveToMemory() {
@@ -6537,59 +6779,73 @@
         }
 
         let currentDropdownTarget = null;
+        // Anchored, animated <select> replacement (issue #5). Instead of a centered modal,
+        // the option list pops up directly under (or above, if there's no room) the control
+        // it belongs to and animates in. Dismisses on click-outside / Escape / scroll / resize.
+        function closeAnchoredSelect() {
+            const dd = document.getElementById('anchoredSelect'); if (dd) dd.remove();
+            document.removeEventListener('mousedown', anchoredSelectOutside, true);
+            document.removeEventListener('keydown', anchoredSelectKey, true);
+            window.removeEventListener('resize', closeAnchoredSelect, true);
+            window.removeEventListener('scroll', closeAnchoredSelect, true);
+        }
+        function anchoredSelectOutside(e) {
+            const dd = document.getElementById('anchoredSelect');
+            if (dd && !dd.contains(e.target) && e.target !== currentDropdownTarget) closeAnchoredSelect();
+        }
+        function anchoredSelectKey(e) {
+            if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeAnchoredSelect(); if (currentDropdownTarget) currentDropdownTarget.focus(); }
+        }
+        window.closeAnchoredSelect = closeAnchoredSelect;
         window.openSelectDropdown = function (selectEl) {
             if (!selectEl) return;
             try {
+                closeAnchoredSelect();
                 currentDropdownTarget = selectEl;
-                const container = document.getElementById('selectDropdownOptions');
-                if (!container) return;
-                container.innerHTML = '';
-
-                let title = "Select Option";
-                if (selectEl.id) {
-                    const label = document.querySelector(`label[for="${selectEl.id}"]`);
-                    if (label) title = label.innerText;
-                }
-                if (title === "Select Option") {
-                    const parentDiv = selectEl.closest('div');
-                    const wrapper = parentDiv ? parentDiv.previousElementSibling : null;
-                    if (wrapper && wrapper.tagName === 'LABEL') title = wrapper.innerText;
-                }
-                const titleEl = document.getElementById('selectDropdownTitle');
-                if (titleEl) titleEl.innerText = title;
-
-                const populateOptions = (parent, prefix = '') => {
+                const dd = document.createElement('div');
+                dd.id = 'anchoredSelect';
+                const addOptions = (parent) => {
                     if (!parent || !parent.children) return;
                     Array.from(parent.children).forEach(child => {
                         if (child.tagName === 'OPTGROUP') {
-                            const groupTitle = document.createElement('div');
-                            groupTitle.style.fontWeight = 'bold';
-                            groupTitle.style.opacity = '0.6';
-                            groupTitle.style.padding = '8px 5px 2px';
-                            groupTitle.style.fontSize = '12px';
-                            groupTitle.innerText = child.label || '';
-                            container.appendChild(groupTitle);
-                            populateOptions(child, prefix + '  ');
+                            const g = document.createElement('div'); g.className = 'as-group'; g.textContent = child.label || '';
+                            dd.appendChild(g); addOptions(child);
                         } else if (child.tagName === 'OPTION') {
                             const btn = document.createElement('button');
-                            btn.className = 'select-option-btn';
-                            if (child.selected) {
-                                btn.classList.add('selected');
-                            }
-                            btn.innerText = prefix + (child.text || '');
-                            btn.onclick = () => {
+                            btn.className = 'as-opt' + (child.selected ? ' selected' : '');
+                            btn.textContent = child.text || '';
+                            btn.onclick = (ev) => {
+                                ev.stopPropagation();
                                 selectEl.value = child.value;
                                 selectEl.dispatchEvent(new Event('change', { bubbles: true }));
-                                closeModal('selectDropdownModal');
-                                selectEl.focus();
+                                closeAnchoredSelect();
+                                try { selectEl.focus(); } catch (e) {}
                             };
-                            container.appendChild(btn);
+                            dd.appendChild(btn);
                         }
                     });
                 };
-
-                populateOptions(selectEl);
-                openModal('selectDropdownModal');
+                addOptions(selectEl);
+                document.body.appendChild(dd);
+                // Anchor under the control, flipping above it when there isn't room below.
+                const r = selectEl.getBoundingClientRect();
+                dd.style.minWidth = r.width + 'px';
+                const ddw = dd.offsetWidth, ddh = dd.offsetHeight;
+                let left = r.left;
+                if (left + ddw > window.innerWidth - 8) left = Math.max(8, window.innerWidth - ddw - 8);
+                let top = r.bottom + 6;
+                if (top + ddh > window.innerHeight - 8 && r.top - ddh - 6 > 8) { top = r.top - ddh - 6; dd.classList.add('flip-up'); }
+                if (top < 8) top = 8;
+                dd.style.left = left + 'px';
+                dd.style.top = top + 'px';
+                const sel = dd.querySelector('.as-opt.selected'); if (sel) sel.scrollIntoView({ block: 'nearest' });
+                // arm dismissers on the next tick so the opening mousedown doesn't close it
+                setTimeout(() => {
+                    document.addEventListener('mousedown', anchoredSelectOutside, true);
+                    document.addEventListener('keydown', anchoredSelectKey, true);
+                    window.addEventListener('resize', closeAnchoredSelect, true);
+                    window.addEventListener('scroll', closeAnchoredSelect, true);
+                }, 0);
             } catch (err) {
                 console.error("Error opening select dropdown:", err);
                 throw err;
@@ -7434,6 +7690,7 @@
                 if (result.success) {
                     statusDiv.innerText = `✅ Item ${itemId} downloaded successfully!`;
                     statusDiv.innerHTML += ` <button class="outline" style="padding: 2px 8px; font-size: 11px; margin-left: 10px;" onclick="ipcRenderer.invoke('show-item-in-folder', '${result.path.replace(/\\/g, '\\\\')}')">Open Folder</button>`;
+                    try { logManagerDownload({ name: (game.name || 'Workshop item') + ' — mod ' + itemId, category: 'mod', folder: result.path, image: game.steamImageUrl || game.customBannerPath || '', sourceId: 'workshop' }); } catch (e) {}
                 } else {
                     statusDiv.innerText = `❌ Download failed: ${result.error}`;
                 }
@@ -7735,7 +7992,7 @@
                 setTimeout(() => { const i = document.getElementById('downloadSearchInput'); if (i) i.focus(); }, 100);
             }
             if (tab === 'downloadsmgr') {
-                renderDownloadsPage();
+                if (window.renderDownloadsPage) window.renderDownloadsPage();
             }
 
             // Lazy-load the store iframe only when active to save CPU
@@ -8927,6 +9184,8 @@
         function renderContinuePlaying() {
             const el = document.getElementById('continuePlayingCard');
             if (!el) return;
+            // User can hide the banner entirely (Settings → Interface).
+            if (globalSettings.showContinuePlaying === false) { el.style.display = 'none'; return; }
             const searchQuery = (document.getElementById('searchInput') || {}).value || '';
             const onHome = (currentFilterSectionId === 'ALL') && !searchQuery && !selectModeActive;
             // most recently played game across the whole library
@@ -9317,6 +9576,481 @@
         document.getElementById('showDynamicFoldersToggle').addEventListener('change', (e) => { globalSettings.showDynamicFolders = e.target.checked; saveToMemory(); renderSidebar(); });
         document.getElementById('showFavoritesFolderToggle').addEventListener('change', (e) => { globalSettings.showFavoritesFolder = e.target.checked; saveToMemory(); renderSidebar(); });
         document.getElementById('recentDaysSelect').addEventListener('change', (e) => { globalSettings.recentDays = parseInt(e.target.value) || 30; saveToMemory(); if (currentFilterSectionId === 'RECENT') renderGames(); });
+
+        // --- Continue-Playing banner + per-page sidebar visibility (Settings → Interface) ---
+        { const t = document.getElementById('showContinuePlayingToggle'); if (t) t.addEventListener('change', (e) => { globalSettings.showContinuePlaying = e.target.checked; saveToMemory(); renderContinuePlaying(); }); }
+        { const t = document.getElementById('showModsPageToggle'); if (t) t.addEventListener('change', (e) => { globalSettings.showModsPage = e.target.checked; saveToMemory(); applyPageVisibility(); }); }
+        { const t = document.getElementById('showWorkshopPageToggle'); if (t) t.addEventListener('change', (e) => { globalSettings.showWorkshopPage = e.target.checked; saveToMemory(); applyPageVisibility(); }); }
+        { const t = document.getElementById('showGameDownloadsPageToggle'); if (t) t.addEventListener('change', (e) => { globalSettings.showGameDownloadsPage = e.target.checked; saveToMemory(); applyPageVisibility(); }); }
+        { const t = document.getElementById('showDownloadManagerPageToggle'); if (t) t.addEventListener('change', (e) => { globalSettings.showDownloadManagerPage = e.target.checked; saveToMemory(); applyPageVisibility(); }); }
+
+        // Show/hide sidebar nav items per the user's page-visibility settings. If the page
+        // currently being viewed gets hidden, fall back to the Library so they're never
+        // stranded on an invisible tab. Library is always available.
+        function applyPageVisibility() {
+            const vis = {
+                store: !!globalSettings.showModsPage,                       // "Mods" (plugins hub) — hidden by default
+                workshop: globalSettings.showWorkshopPage !== false,
+                downloads: globalSettings.showGameDownloadsPage !== false,  // "Game Downloads"
+                downloadsmgr: globalSettings.showDownloadManagerPage !== false  // "Download Manager"
+            };
+            const ids = { store: 'tabStore', workshop: 'tabWorkshop', downloads: 'tabDownloads', downloadsmgr: 'tabDownloadsMgr' };
+            Object.entries(ids).forEach(([key, id]) => {
+                const el = document.getElementById(id);
+                if (el) el.style.display = vis[key] ? '' : 'none';
+            });
+            if (vis[currentTabName] === false) switchMainTab('library');
+        }
+
+        // --- Layout & Position presets (Settings → Interface → Layout & Position) ---
+        // Reposition whole regions by toggling body classes that drive CSS `order`.
+        // Nothing in the DOM is moved, so this is always reversible / unbreakable.
+        function applyLayout() {
+            const b = document.body;
+            b.classList.toggle('layout-friends-left', globalSettings.friendsBarSide === 'left');
+            b.classList.toggle('layout-sidebar-right', globalSettings.mainSidebarSide === 'right');
+            b.classList.toggle('layout-folders-top', globalSettings.foldersPosition === 'top');
+        }
+        { const t = document.getElementById('mainSidebarSideSelect'); if (t) t.addEventListener('change', (e) => { globalSettings.mainSidebarSide = e.target.value; saveToMemory(); applyLayout(); }); }
+        { const t = document.getElementById('friendsBarSideSelect'); if (t) t.addEventListener('change', (e) => { globalSettings.friendsBarSide = e.target.value; saveToMemory(); applyLayout(); }); }
+        { const t = document.getElementById('foldersPositionSelect'); if (t) t.addEventListener('change', (e) => { globalSettings.foldersPosition = e.target.value; saveToMemory(); applyLayout(); }); }
+        // Same controls mirrored inside the Theme editor (Advanced view) — keep both in sync.
+        { const t = document.getElementById('tcLayoutSidebarSide'); if (t) t.addEventListener('change', (e) => { globalSettings.mainSidebarSide = e.target.value; saveToMemory(); applyLayout(); const s = document.getElementById('mainSidebarSideSelect'); if (s) s.value = e.target.value; }); }
+        { const t = document.getElementById('tcLayoutFriendsSide'); if (t) t.addEventListener('change', (e) => { globalSettings.friendsBarSide = e.target.value; saveToMemory(); applyLayout(); const s = document.getElementById('friendsBarSideSelect'); if (s) s.value = e.target.value; }); }
+        { const t = document.getElementById('tcLayoutFolders'); if (t) t.addEventListener('change', (e) => { globalSettings.foldersPosition = e.target.value; saveToMemory(); applyLayout(); const s = document.getElementById('foldersPositionSelect'); if (s) s.value = e.target.value; }); }
+
+        // ============================================================
+        // EXPERIMENTAL UI EDITOR (issue #2) — full on-canvas editor.
+        // Hover-highlight ANY element, click to select, drag to move (via
+        // transform — never reflows), resize via the corner handle, and
+        // restyle (text colour, solid/gradient background, radius, padding,
+        // opacity, font size, animation). Per-element overrides live in
+        // globalSettings.uiCustom keyed by a stable selector and are applied
+        // through one injected <style>, so everything is 100% reversible.
+        // Gated behind the Experimental "Enable UI Editor" toggle.
+        // ============================================================
+
+        // ---- Global accent override (kept from the original) -------------
+        function applyUiAccent() {
+            let st = document.getElementById('uiAccentOverride');
+            const c = (globalSettings.uiAccent || '').trim();
+            if (!c) { if (st) st.remove(); return; }
+            if (!st) { st = document.createElement('style'); st.id = 'uiAccentOverride'; document.head.appendChild(st); }
+            st.textContent = ':root{ --accent: ' + c + ' !important; }';
+        }
+
+        // Show/enable the "Open UI Editor" entry points to match the experimental gate.
+        function reflectUiEditorEnabled() {
+            const on = !!globalSettings.uiEditorEnabled;
+            const btn = document.getElementById('openUiEditorBtn');
+            if (btn) { btn.style.opacity = on ? '1' : '0.5'; btn.style.pointerEvents = on ? 'auto' : 'none'; }
+            const tcBtn = document.getElementById('tcOpenUiEditorBtn');
+            if (tcBtn) tcBtn.style.display = on ? 'block' : 'none';
+        }
+        { const t = document.getElementById('uiEditorEnabledToggle'); if (t) t.addEventListener('change', (e) => { globalSettings.uiEditorEnabled = e.target.checked; saveToMemory(); reflectUiEditorEnabled(); if (!e.target.checked) { try { closeUiEditor(); } catch (er) {} } }); }
+
+        // ---- Per-element override application -----------------------------
+        const UIE_ANIM = { pulse: 'uie-pulse 2.4s ease-in-out infinite', float: 'uie-float 3s ease-in-out infinite', glow: 'uie-glow 2.2s ease-in-out infinite', spin: 'uie-spin 6s linear infinite', gradshift: 'uie-gradshift 6s ease infinite', shimmer: 'uie-shimmer 2s ease-in-out infinite' };
+        function uieBuildRule(o) {
+            const p = [];
+            const tx = o.x || 0, ty = o.y || 0, rot = o.rot || 0;
+            if (tx || ty || rot) p.push('transform: translate(' + tx + 'px,' + ty + 'px)' + (rot ? ' rotate(' + rot + 'deg)' : '') + ' !important');
+            if (o.w != null) p.push('width: ' + o.w + 'px !important', 'min-width: ' + o.w + 'px !important', 'max-width: none !important', 'flex: 0 0 auto !important');
+            if (o.h != null) p.push('height: ' + o.h + 'px !important', 'min-height: 0 !important');
+            if (o.color) p.push('color: ' + o.color + ' !important');
+            if (o.bg) {
+                p.push('background: ' + o.bg + ' !important');
+                // ONLY enlarge the gradient canvas when we're going to animate its position
+                // (the "gradshift" preset). A static gradient sized 200% just shows one zoomed
+                // corner → it looks like a solid fill. Leaving it at the default size renders a
+                // proper edge-to-edge gradient.
+                if (/gradient/i.test(o.bg) && o.anim === 'gradshift') p.push('background-size: 200% 200% !important', 'background-attachment: fixed !important');
+            }
+            if (o.radius != null) p.push('border-radius: ' + o.radius + 'px !important');
+            if (o.pad != null) p.push('padding: ' + o.pad + 'px !important');
+            if (o.opacity != null) p.push('opacity: ' + (o.opacity / 100) + ' !important');
+            if (o.fontSize != null) p.push('font-size: ' + o.fontSize + 'px !important');
+            if (o.anim && o.anim !== 'none' && UIE_ANIM[o.anim]) p.push('animation: ' + UIE_ANIM[o.anim] + ' !important');
+            return p.join('; ');
+        }
+        function applyUiCustom() {
+            let st = document.getElementById('uiCustomOverride');
+            const data = globalSettings.uiCustom || {};
+            const blocks = [];
+            for (const sel in data) {
+                let rule = '';
+                try { rule = uieBuildRule(data[sel] || {}); } catch (e) {}
+                if (rule) blocks.push(sel + ' { ' + rule + ' }');
+            }
+            const appBg = (globalSettings.uiAppBg || '').trim();
+            // The whole-window backdrop lives on <body> (background-color: var(--bg-color));
+            // .main-content-area and .app-container are transparent, so a body gradient shows
+            // through the entire UI. background-attachment: fixed keeps it pinned while content
+            // scrolls. (No 200% sizing — that made the gradient look like a flat colour.)
+            if (appBg) blocks.push('body { background: ' + appBg + ' !important; background-attachment: fixed !important; }');
+            if (!blocks.length) { if (st) st.remove(); return; }
+            if (!st) { st = document.createElement('style'); st.id = 'uiCustomOverride'; document.head.appendChild(st); }
+            st.textContent = blocks.join('\n');
+        }
+        window.applyUiCustom = applyUiCustom;
+
+        // ---- Stable selector for an arbitrary element ---------------------
+        function uieSelectorFor(el) {
+            if (!el || el.nodeType !== 1 || el === document.body || el === document.documentElement) return null;
+            const esc = (s) => (window.CSS && CSS.escape) ? CSS.escape(s) : s;
+            if (el.id) return '#' + esc(el.id);
+            const parts = [];
+            let node = el;
+            while (node && node.nodeType === 1 && node !== document.body) {
+                if (node.id) { parts.unshift('#' + esc(node.id)); break; }
+                const tag = node.tagName.toLowerCase();
+                const parent = node.parentNode;
+                if (parent && parent.children) {
+                    const sibs = Array.prototype.filter.call(parent.children, c => c.tagName === node.tagName);
+                    parts.unshift(tag + ':nth-of-type(' + (sibs.indexOf(node) + 1) + ')');
+                } else parts.unshift(tag);
+                node = parent;
+            }
+            return parts.length ? parts.join(' > ') : null;
+        }
+
+        // ---- Editor runtime state ----------------------------------------
+        let uieActive = false, uieSel = null, uieSelEl = null, uieDrag = null, uieMode = 'element';
+        function uieIsChrome(el) { return !!(el && el.closest && el.closest('.uie-chrome')); }
+        // Clicking a game tile lands on a deep child (cover / title / play button); the user
+        // means "the tile". Climb to the whole .game-card so it selects/resizes as one unit.
+        // (Other elements are selected exactly as clicked.)
+        function uiePickTarget(el) {
+            if (!el || !el.closest) return el;
+            const card = el.closest('.game-card');
+            return card || el;
+        }
+        function uieData(sel) {
+            if (!globalSettings.uiCustom) globalSettings.uiCustom = {};
+            if (!globalSettings.uiCustom[sel]) globalSettings.uiCustom[sel] = {};
+            return globalSettings.uiCustom[sel];
+        }
+        // saveToMemory() writes JSON to disk synchronously (and may copy to a backup
+        // folder), so calling it on every slider/drag 'input' tick would thrash the disk.
+        // Apply the live preview immediately but debounce the actual save.
+        let uieSaveTimer = null;
+        function uieSaveSoon() { if (uieSaveTimer) clearTimeout(uieSaveTimer); uieSaveTimer = setTimeout(() => { uieSaveTimer = null; try { saveToMemory(); } catch (e) {} }, 400); }
+        function uieFlushSave() { if (uieSaveTimer) { clearTimeout(uieSaveTimer); uieSaveTimer = null; } try { saveToMemory(); } catch (e) {} }
+        function uiePersist() { applyUiCustom(); uieSaveSoon(); }
+
+        // ---- Gradient builder (shared by element bg + app background) -----
+        const UIE_GRAD_PRESETS = [
+            { gradAngle: 135, gradStops: [{ c: '#a855f7', p: 0 }, { c: '#6366f1', p: 100 }] },
+            { gradAngle: 135, gradStops: [{ c: '#f97316', p: 0 }, { c: '#ec4899', p: 100 }] },
+            { gradAngle: 135, gradStops: [{ c: '#22d3ee', p: 0 }, { c: '#3b82f6', p: 100 }] },
+            { gradAngle: 135, gradStops: [{ c: '#10b981', p: 0 }, { c: '#84cc16', p: 100 }] },
+            { gradAngle: 160, gradStops: [{ c: '#1e1b4b', p: 0 }, { c: '#4c1d95', p: 55 }, { c: '#be185d', p: 100 }] },
+            { gradAngle: 135, gradStops: [{ c: '#0f172a', p: 0 }, { c: '#1e293b', p: 100 }] }
+        ];
+        function uieComposeGrad(store) {
+            const stops = store.gradStops || [];
+            if (stops.length < 2) return '';
+            const a = store.gradAngle == null ? 135 : store.gradAngle;
+            return 'linear-gradient(' + a + 'deg, ' + stops.map(s => s.c + ' ' + s.p + '%').join(', ') + ')';
+        }
+        function uieRenderGradient(container, store, onCompose) {
+            if (!store.gradStops) store.gradStops = [{ c: '#a855f7', p: 0 }, { c: '#6366f1', p: 100 }];
+            if (store.gradAngle == null) store.gradAngle = 135;
+            container.innerHTML =
+                '<label class="uie-lab" id="uieGradAngleLab">Angle ' + store.gradAngle + '°</label>' +
+                '<input type="range" id="uieGradAngle" min="0" max="360" value="' + store.gradAngle + '">' +
+                '<div id="uieGradStops"></div>' +
+                '<button class="uie-mini" id="uieGradAdd" style="margin-top:7px;">+ Add stop</button>' +
+                '<div class="uie-grad-preview" id="uieGradPrev"></div>' +
+                '<label class="uie-lab" style="margin-top:8px;">Presets</label>' +
+                '<div style="display:flex;gap:5px;flex-wrap:wrap;" id="uieGradPresets"></div>';
+            const paint = () => {
+                const prev = container.querySelector('#uieGradPrev'); if (prev) prev.style.background = uieComposeGrad(store);
+                const lab = container.querySelector('#uieGradAngleLab'); if (lab) lab.textContent = 'Angle ' + store.gradAngle + '°';
+            };
+            const commit = () => { onCompose(uieComposeGrad(store)); paint(); };
+            const renderStops = () => {
+                const wrap = container.querySelector('#uieGradStops'); if (!wrap) return;
+                wrap.innerHTML = '';
+                store.gradStops.forEach((s, idx) => {
+                    const row = document.createElement('div'); row.className = 'uie-grad-stop';
+                    row.innerHTML = '<input type="color" value="' + s.c + '">' +
+                        '<input type="range" min="0" max="100" value="' + s.p + '">' +
+                        '<span style="font-size:10px;opacity:.6;width:30px;">' + s.p + '%</span>' +
+                        (store.gradStops.length > 2 ? '<button class="uie-mini" style="padding:2px 7px;">✕</button>' : '');
+                    const col = row.querySelector('input[type=color]'), rng = row.querySelector('input[type=range]'), lab = row.querySelector('span'), rm = row.querySelector('button');
+                    col.oninput = () => { s.c = col.value; commit(); };
+                    rng.oninput = () => { s.p = parseInt(rng.value, 10); lab.textContent = s.p + '%'; commit(); };
+                    if (rm) rm.onclick = () => { store.gradStops.splice(idx, 1); renderStops(); commit(); };
+                    wrap.appendChild(row);
+                });
+            };
+            container.querySelector('#uieGradAngle').oninput = (e) => { store.gradAngle = parseInt(e.target.value, 10) || 0; commit(); };
+            container.querySelector('#uieGradAdd').onclick = () => { store.gradStops.push({ c: '#ffffff', p: 50 }); renderStops(); commit(); };
+            const pw = container.querySelector('#uieGradPresets');
+            UIE_GRAD_PRESETS.forEach(p => {
+                const b = document.createElement('button');
+                b.style.cssText = 'width:36px;height:22px;padding:0;border-radius:5px;cursor:pointer;background:' + uieComposeGrad(p) + ';border:1px solid var(--border-color);';
+                b.onclick = () => { store.gradStops = p.gradStops.map(s => ({ c: s.c, p: s.p })); store.gradAngle = p.gradAngle; renderStops(); commit(); };
+                pw.appendChild(b);
+            });
+            renderStops(); paint();
+        }
+
+        // ---- Hover highlight ----------------------------------------------
+        function uieOnMove(e) {
+            if (!uieActive || uieDrag) return;
+            const box = document.getElementById('uieHoverBox'); if (!box) return;
+            let el = document.elementFromPoint(e.clientX, e.clientY);
+            if (!el || uieIsChrome(el) || el === document.body || el === document.documentElement) { box.style.display = 'none'; return; }
+            el = uiePickTarget(el);
+            const r = el.getBoundingClientRect();
+            box.style.display = 'block';
+            box.style.left = r.left + 'px'; box.style.top = r.top + 'px';
+            box.style.width = r.width + 'px'; box.style.height = r.height + 'px';
+        }
+        // ---- Selection ----------------------------------------------------
+        function uieSelect(el) {
+            const sel = uieSelectorFor(el);
+            if (!sel) return;
+            uieMode = 'element'; uieSel = sel; uieSelEl = el;
+            uieDrawSel(); uieBuildInspector();
+        }
+        function uieDrawSel() {
+            const box = document.getElementById('uieSelBox'); if (!box) return;
+            if (!uieSelEl || uieMode !== 'element') { box.style.display = 'none'; return; }
+            const r = uieSelEl.getBoundingClientRect();
+            box.style.display = 'block';
+            box.style.left = r.left + 'px'; box.style.top = r.top + 'px';
+            box.style.width = r.width + 'px'; box.style.height = r.height + 'px';
+            const tag = box.querySelector('.uie-tag'); if (tag) tag.textContent = (uieSelEl.id ? '#' + uieSelEl.id : uieSelEl.tagName.toLowerCase());
+        }
+        function uieOnClick(e) {
+            if (!uieActive) return;
+            // Let the editor's own chrome AND any open app modal (e.g. a custom select popup)
+            // receive clicks normally — never block their dismiss/confirm buttons.
+            if (uieIsChrome(e.target) || (e.target.closest && e.target.closest('.modal'))) return;
+            e.preventDefault(); e.stopPropagation();
+            let el = document.elementFromPoint(e.clientX, e.clientY);
+            if (!el || el === document.body || el === document.documentElement) return;
+            uieSelect(uiePickTarget(el));
+        }
+        // Escape is a guaranteed way out: first press deselects (closes the inspector), a
+        // second press exits the editor. Prevents ever feeling "stuck".
+        function uieOnKey(e) {
+            if (!uieActive || e.key !== 'Escape') return;
+            const ins = document.getElementById('uieInspector');
+            if (ins && ins.style.display !== 'none') {
+                e.preventDefault(); e.stopPropagation();
+                ins.style.display = 'none';
+                uieSel = null; uieSelEl = null; uieMode = 'element';
+                const box = document.getElementById('uieSelBox'); if (box) box.style.display = 'none';
+                const hb = document.getElementById('uieHoverBox'); if (hb) hb.style.display = 'none';
+            } else { e.preventDefault(); e.stopPropagation(); closeUiEditor(); }
+        }
+        // ---- Drag-to-move / resize ---------------------------------------
+        function uieStartMove(e) {
+            if (!uieSelEl) return; e.preventDefault(); e.stopPropagation();
+            const d = uieData(uieSel);
+            uieDrag = { mode: 'move', sx: e.clientX, sy: e.clientY, ox: d.x || 0, oy: d.y || 0 };
+            window.addEventListener('pointermove', uieDragMove, true);
+            window.addEventListener('pointerup', uieDragEnd, true);
+        }
+        function uieStartResize(e) {
+            if (!uieSelEl) return; e.preventDefault(); e.stopPropagation();
+            const r = uieSelEl.getBoundingClientRect();
+            uieDrag = { mode: 'resize', sx: e.clientX, sy: e.clientY, ow: r.width, oh: r.height };
+            window.addEventListener('pointermove', uieDragMove, true);
+            window.addEventListener('pointerup', uieDragEnd, true);
+        }
+        function uieDragMove(e) {
+            if (!uieDrag || !uieSelEl) return;
+            const d = uieData(uieSel);
+            if (uieDrag.mode === 'move') {
+                d.x = Math.round(uieDrag.ox + (e.clientX - uieDrag.sx));
+                d.y = Math.round(uieDrag.oy + (e.clientY - uieDrag.sy));
+            } else {
+                d.w = Math.max(24, Math.round(uieDrag.ow + (e.clientX - uieDrag.sx)));
+                d.h = Math.max(16, Math.round(uieDrag.oh + (e.clientY - uieDrag.sy)));
+            }
+            applyUiCustom();
+            requestAnimationFrame(() => { uieDrawSel(); uieSyncFields(d); });
+        }
+        function uieDragEnd() {
+            window.removeEventListener('pointermove', uieDragMove, true);
+            window.removeEventListener('pointerup', uieDragEnd, true);
+            uieDrag = null; uiePersist();
+        }
+        // keep the X/Y/W/H number fields live while dragging
+        function uieSyncFields(d) {
+            const set = (id, v) => { const el = document.getElementById(id); if (el && document.activeElement !== el) el.value = v; };
+            set('uieX', d.x || 0); set('uieY', d.y || 0);
+            if (d.w != null) set('uieW', d.w); if (d.h != null) set('uieH', d.h);
+        }
+
+        // ---- Inspector ----------------------------------------------------
+        function uieRenderBgBody(d) {
+            const body = document.getElementById('uieBgBody'); if (!body) return;
+            const bgType = d.bg ? (/gradient/i.test(d.bg) ? 'grad' : 'solid') : 'none';
+            if (bgType === 'solid') {
+                body.innerHTML = '<div style="margin-top:7px;display:flex;align-items:center;gap:8px;"><input type="color" id="uieSolid" value="' + (d.solid || '#222230') + '"><span style="font-size:11px;opacity:.6;">Fill colour</span></div>';
+                const c = body.querySelector('#uieSolid');
+                if (c) c.oninput = () => { d.solid = c.value; d.bg = c.value; uiePersist(); };
+            } else if (bgType === 'grad') {
+                uieRenderGradient(body, d, (css) => { d.bg = css; uiePersist(); });
+            } else { body.innerHTML = ''; }
+        }
+        function uieBuildInspector() {
+            const ins = document.getElementById('uieInspector'); if (!ins || !uieSel) return;
+            const d = uieData(uieSel);
+            const bgType = d.bg ? (/gradient/i.test(d.bg) ? 'grad' : 'solid') : 'none';
+            ins.style.display = 'block';
+            ins.innerHTML =
+                '<h4>🎛️ Inspector <span style="font-size:10px;opacity:.5;font-weight:400;">Experimental</span></h4>' +
+                '<p class="uie-sel">' + uieSel + '</p>' +
+                '<div class="uie-grp"><div class="uie-2">' +
+                    '<div><label class="uie-lab">X offset</label><input type="number" id="uieX" value="' + (d.x || 0) + '"></div>' +
+                    '<div><label class="uie-lab">Y offset</label><input type="number" id="uieY" value="' + (d.y || 0) + '"></div>' +
+                '</div><div class="uie-2" style="margin-top:6px;">' +
+                    '<div><label class="uie-lab">Width</label><input type="number" id="uieW" placeholder="auto" value="' + (d.w != null ? d.w : '') + '"></div>' +
+                    '<div><label class="uie-lab">Height</label><input type="number" id="uieH" placeholder="auto" value="' + (d.h != null ? d.h : '') + '"></div>' +
+                '</div><label class="uie-lab" id="uieRotLab">Rotation ' + (d.rot || 0) + '°</label><input type="range" id="uieRot" min="-180" max="180" value="' + (d.rot || 0) + '"></div>' +
+                '<div class="uie-grp"><label class="uie-lab">Text colour</label><div style="display:flex;align-items:center;gap:8px;"><input type="color" id="uieColor" value="' + (d.color || '#ffffff') + '"><button class="uie-mini" id="uieColorClear">Clear</button></div></div>' +
+                '<div class="uie-grp"><label class="uie-lab">Background</label><div class="uie-seg" id="uieBgSeg">' +
+                    '<button data-t="none" class="' + (bgType === 'none' ? 'active' : '') + '">None</button>' +
+                    '<button data-t="solid" class="' + (bgType === 'solid' ? 'active' : '') + '">Solid</button>' +
+                    '<button data-t="grad" class="' + (bgType === 'grad' ? 'active' : '') + '">Gradient</button>' +
+                '</div><div id="uieBgBody"></div></div>' +
+                '<div class="uie-grp">' +
+                    '<label class="uie-lab" id="uieRadiusLab">Corner radius ' + (d.radius != null ? d.radius + 'px' : 'default') + '</label><input type="range" id="uieRadius" min="0" max="40" value="' + (d.radius != null ? d.radius : 0) + '">' +
+                    '<label class="uie-lab" id="uiePadLab">Padding ' + (d.pad != null ? d.pad + 'px' : 'default') + '</label><input type="range" id="uiePad" min="0" max="48" value="' + (d.pad != null ? d.pad : 0) + '">' +
+                    '<label class="uie-lab" id="uieOpacityLab">Opacity ' + (d.opacity != null ? d.opacity + '%' : '100%') + '</label><input type="range" id="uieOpacity" min="10" max="100" value="' + (d.opacity != null ? d.opacity : 100) + '">' +
+                    '<label class="uie-lab" id="uieFontLab">Font size ' + (d.fontSize != null ? d.fontSize + 'px' : 'default') + '</label><input type="range" id="uieFont" min="9" max="46" value="' + (d.fontSize != null ? d.fontSize : 14) + '">' +
+                    '<label class="uie-lab">Animation</label><div class="uie-seg uie-anim-seg" id="uieAnimSeg">' + ['none', 'pulse', 'float', 'glow', 'spin', 'gradshift', 'shimmer'].map(a => '<button data-anim="' + a + '" class="' + ((d.anim || 'none') === a ? 'active' : '') + '">' + a + '</button>').join('') + '</div>' +
+                '</div>' +
+                '<div class="uie-grp"><button class="uie-mini" id="uieResetEl" style="width:100%;border-color:#e0556e;color:#e0556e;">↺ Reset this element</button></div>';
+            uieRenderBgBody(d);
+            // wire position/size
+            const num = (id, key, isSize) => { const el = ins.querySelector('#' + id); if (!el) return; el.oninput = () => { const v = el.value === '' ? null : Math.round(parseFloat(el.value)); if (v == null || isNaN(v)) { delete d[key]; } else { d[key] = v; } uiePersist(); uieDrawSel(); }; };
+            num('uieX', 'x'); num('uieY', 'y'); num('uieW', 'w', true); num('uieH', 'h', true);
+            const rot = ins.querySelector('#uieRot'); if (rot) rot.oninput = () => { d.rot = parseInt(rot.value, 10) || 0; ins.querySelector('#uieRotLab').textContent = 'Rotation ' + d.rot + '°'; uiePersist(); uieDrawSel(); };
+            const col = ins.querySelector('#uieColor'); if (col) col.oninput = () => { d.color = col.value; uiePersist(); };
+            const colC = ins.querySelector('#uieColorClear'); if (colC) colC.onclick = () => { delete d.color; uiePersist(); };
+            // background type segments
+            ins.querySelectorAll('#uieBgSeg button').forEach(b => b.onclick = () => {
+                const t = b.getAttribute('data-t');
+                if (t === 'none') { delete d.bg; }
+                else if (t === 'solid') { d.bg = d.solid || '#222230'; d.solid = d.bg; }
+                else { d.bg = uieComposeGrad(d.gradStops ? d : (Object.assign(d, { gradStops: [{ c: '#a855f7', p: 0 }, { c: '#6366f1', p: 100 }], gradAngle: 135 }))); }
+                ins.querySelectorAll('#uieBgSeg button').forEach(x => x.classList.toggle('active', x === b));
+                uieRenderBgBody(d); uiePersist();
+            });
+            // effects
+            const slide = (id, key, labId, suffix, unit) => { const el = ins.querySelector('#' + id), lab = ins.querySelector('#' + labId); if (!el) return; el.oninput = () => { d[key] = parseInt(el.value, 10); if (lab) lab.textContent = suffix + ' ' + d[key] + unit; uiePersist(); uieDrawSel(); }; };
+            slide('uieRadius', 'radius', 'uieRadiusLab', 'Corner radius', 'px');
+            slide('uiePad', 'pad', 'uiePadLab', 'Padding', 'px');
+            slide('uieOpacity', 'opacity', 'uieOpacityLab', 'Opacity', '%');
+            slide('uieFont', 'fontSize', 'uieFontLab', 'Font size', 'px');
+            // Animation picker is a button group (NOT a native <select>) on purpose: in
+            // glassmorphic mode a <select> pops the app's custom "Select Option" modal, which
+            // renders behind the editor chrome and gets its dismiss clicks eaten — soft-locking
+            // the UI. Inline buttons avoid that entirely.
+            ins.querySelectorAll('#uieAnimSeg button').forEach(b => b.onclick = () => {
+                d.anim = b.getAttribute('data-anim');
+                ins.querySelectorAll('#uieAnimSeg button').forEach(x => x.classList.toggle('active', x === b));
+                uiePersist();
+            });
+            const rst = ins.querySelector('#uieResetEl'); if (rst) rst.onclick = () => {
+                if (globalSettings.uiCustom) delete globalSettings.uiCustom[uieSel];
+                uiePersist(); uieBuildInspector(); requestAnimationFrame(uieDrawSel);
+            };
+        }
+
+        // ---- App-wide background gradient (toolbar entry) -----------------
+        function uieOpenAppBg() {
+            const ins = document.getElementById('uieInspector'); if (!ins) return;
+            uieMode = 'appbg'; uieSelEl = null;
+            const box = document.getElementById('uieSelBox'); if (box) box.style.display = 'none';
+            if (!globalSettings.uiAppBgStore) globalSettings.uiAppBgStore = { gradStops: [{ c: '#0f172a', p: 0 }, { c: '#4c1d95', p: 100 }], gradAngle: 160 };
+            ins.style.display = 'block';
+            ins.innerHTML = '<h4>🌈 App background</h4><p class="uie-sel">whole-window gradient</p>' +
+                '<div class="uie-grp" id="uieAppBgBody"></div>' +
+                '<div class="uie-grp"><button class="uie-mini" id="uieAppBgClear" style="width:100%;">Clear app background</button></div>';
+            uieRenderGradient(ins.querySelector('#uieAppBgBody'), globalSettings.uiAppBgStore, (css) => { globalSettings.uiAppBg = css; applyUiCustom(); uieSaveSoon(); });
+            const clr = ins.querySelector('#uieAppBgClear'); if (clr) clr.onclick = () => { globalSettings.uiAppBg = ''; applyUiCustom(); uieFlushSave(); };
+        }
+
+        // ---- Toolbar ------------------------------------------------------
+        function uieBuildToolbar() {
+            let tb = document.getElementById('uieToolbar');
+            if (!tb) { tb = document.createElement('div'); tb.id = 'uieToolbar'; tb.className = 'uie-chrome'; document.body.appendChild(tb); }
+            tb.style.display = 'flex';
+            tb.innerHTML =
+                '<span class="uie-hint">Click any element to select, then drag to move • use the panel to restyle →</span>' +
+                '<span style="display:flex;align-items:center;gap:6px;"><span style="font-size:11px;opacity:.7;">Accent</span><input type="color" id="uieAccent" value="' + (getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#a855f7') + '" style="width:32px;height:24px;padding:0;border:none;background:none;cursor:pointer;"></span>' +
+                '<button class="uie-btn" id="uieAppBgBtn">🌈 App background…</button>' +
+                '<button class="uie-btn" id="uieResetAll">↺ Reset all</button>' +
+                '<button class="uie-btn primary" id="uieDone">✓ Done</button>';
+            const acc = tb.querySelector('#uieAccent'); if (acc) acc.oninput = () => { globalSettings.uiAccent = acc.value; applyUiAccent(); uieSaveSoon(); };
+            const ab = tb.querySelector('#uieAppBgBtn'); if (ab) ab.onclick = () => uieOpenAppBg();
+            const ra = tb.querySelector('#uieResetAll'); if (ra) ra.onclick = () => {
+                if (!confirm('Reset ALL custom UI tweaks — every moved/resized/recoloured element, gradients, app background and accent?')) return;
+                globalSettings.uiCustom = {}; globalSettings.uiAppBg = ''; globalSettings.uiAccent = ''; globalSettings.uiAppBgStore = null;
+                saveToMemory(); applyUiCustom(); applyUiAccent();
+                uieSel = null; uieSelEl = null;
+                const ins = document.getElementById('uieInspector'); if (ins) ins.style.display = 'none';
+                const box = document.getElementById('uieSelBox'); if (box) box.style.display = 'none';
+            };
+            const done = tb.querySelector('#uieDone'); if (done) done.onclick = () => closeUiEditor();
+        }
+
+        // ---- Chrome elements (overlay + inspector) ------------------------
+        function uieEnsureChrome() {
+            if (!document.getElementById('uieOverlay')) {
+                const ov = document.createElement('div'); ov.id = 'uieOverlay'; ov.className = 'uie-chrome';
+                ov.innerHTML = '<div id="uieHoverBox"></div>' +
+                    '<div id="uieSelBox"><div class="uie-move"></div><div class="uie-tag"></div><div class="uie-handle br"></div></div>';
+                document.body.appendChild(ov);
+                ov.querySelector('#uieSelBox .uie-move').addEventListener('pointerdown', uieStartMove, true);
+                ov.querySelector('#uieSelBox .uie-handle.br').addEventListener('pointerdown', uieStartResize, true);
+            }
+            if (!document.getElementById('uieInspector')) {
+                const ins = document.createElement('div'); ins.id = 'uieInspector'; ins.className = 'uie-chrome';
+                document.body.appendChild(ins);
+            }
+        }
+        function uieOnViewportChange() { if (uieSelEl && uieMode === 'element') uieDrawSel(); }
+
+        function openUiEditor() {
+            if (!globalSettings.uiEditorEnabled) { alert('Turn on "Enable UI Editor (Experimental)" in Settings → Experimental first.'); return; }
+            try { closeModal('settingsModal'); } catch (e) {}
+            try { closeModal('themeModal'); } catch (e) {}
+            uieActive = true; uieSel = null; uieSelEl = null; uieMode = 'element';
+            document.body.classList.add('ui-edit-mode');
+            uieEnsureChrome();
+            const ov = document.getElementById('uieOverlay'); if (ov) ov.style.display = 'block';
+            uieBuildToolbar();
+            document.addEventListener('mousemove', uieOnMove, true);
+            document.addEventListener('click', uieOnClick, true);
+            document.addEventListener('keydown', uieOnKey, true);
+            window.addEventListener('resize', uieOnViewportChange, true);
+            window.addEventListener('scroll', uieOnViewportChange, true);
+        }
+        function closeUiEditor() {
+            uieActive = false; uieDrag = null;
+            try { uieFlushSave(); } catch (e) {}
+            document.body.classList.remove('ui-edit-mode');
+            ['uieOverlay', 'uieInspector', 'uieToolbar'].forEach(id => { const el = document.getElementById(id); if (el) el.style.display = 'none'; });
+            const hb = document.getElementById('uieHoverBox'); if (hb) hb.style.display = 'none';
+            const sb = document.getElementById('uieSelBox'); if (sb) sb.style.display = 'none';
+            document.removeEventListener('mousemove', uieOnMove, true);
+            document.removeEventListener('click', uieOnClick, true);
+            document.removeEventListener('keydown', uieOnKey, true);
+            window.removeEventListener('resize', uieOnViewportChange, true);
+            window.removeEventListener('scroll', uieOnViewportChange, true);
+        }
+        window.openUiEditor = openUiEditor;
+        window.closeUiEditor = closeUiEditor;
 
         document.getElementById('showSocialSidebarToggle').addEventListener('change', (e) => {
             globalSettings.showSocialSidebar = e.target.checked;
@@ -9745,6 +10479,14 @@
             document.getElementById('tcGlassBlur').value = targetGlassBlur;
             document.getElementById('tcGlassBlurLabel').innerText = targetGlassBlur + 'px';
 
+            // Layout/position selects mirror the live global layout (not theme-specific).
+            { const t = document.getElementById('tcLayoutSidebarSide'); if (t) t.value = globalSettings.mainSidebarSide || 'left'; }
+            { const t = document.getElementById('tcLayoutFriendsSide'); if (t) t.value = globalSettings.friendsBarSide || 'right'; }
+            { const t = document.getElementById('tcLayoutFolders'); if (t) t.value = globalSettings.foldersPosition || 'bottom'; }
+            { const t = document.getElementById('tcInfoButtonsToggle'); if (t) t.checked = globalSettings.themeInfoButtons !== false; }
+            try { reflectUiEditorEnabled(); } catch (e) {}
+            try { decorateThemeInfoButtons(); } catch (e) {}
+
             document.getElementById('basicThemeView').style.display = 'block'; document.getElementById('advThemeView').style.display = 'none';
             document.getElementById('basicThemeBtn').style.borderColor = 'var(--accent)'; document.getElementById('basicThemeBtn').style.opacity = '1';
             document.getElementById('advThemeBtn').style.borderColor = 'var(--border-color)'; document.getElementById('advThemeBtn').style.opacity = '0.5';
@@ -9766,7 +10508,68 @@
         }
 
         document.getElementById('basicThemeBtn').onclick = () => { document.getElementById('basicThemeView').style.display = 'block'; document.getElementById('advThemeView').style.display = 'none'; document.getElementById('basicThemeBtn').style.borderColor = 'var(--accent)'; document.getElementById('basicThemeBtn').style.opacity = '1'; document.getElementById('advThemeBtn').style.borderColor = 'var(--border-color)'; document.getElementById('advThemeBtn').style.opacity = '0.5'; };
-        document.getElementById('advThemeBtn').onclick = () => { document.getElementById('basicThemeView').style.display = 'none'; document.getElementById('advThemeView').style.display = 'block'; document.getElementById('advThemeBtn').style.borderColor = 'var(--accent)'; document.getElementById('advThemeBtn').style.opacity = '1'; document.getElementById('basicThemeBtn').style.borderColor = 'var(--border-color)'; document.getElementById('basicThemeBtn').style.opacity = '0.5'; };
+        document.getElementById('advThemeBtn').onclick = () => { document.getElementById('basicThemeView').style.display = 'none'; document.getElementById('advThemeView').style.display = 'block'; document.getElementById('advThemeBtn').style.borderColor = 'var(--accent)'; document.getElementById('advThemeBtn').style.opacity = '1'; document.getElementById('basicThemeBtn').style.borderColor = 'var(--border-color)'; document.getElementById('basicThemeBtn').style.opacity = '0.5'; reflectUiEditorEnabled(); decorateThemeInfoButtons(); };
+
+        // ---- Theme editor "help tips" (issue #2) ----------------------------
+        // Plain-English explanations for every Advanced control. Injected as small
+        // ℹ️ buttons next to each label so a novice knows what each option does.
+        // Keyed by the control's element id.
+        const TC_INFO = {
+            tcText: 'The colour of all normal text in the app — game titles, labels and menus. Pick something with strong contrast against your background or things get hard to read.',
+            tcBorder: 'The colour of the thin lines around cards, inputs and panels. Subtle is usually best; very bright borders make the UI look busy.',
+            tcAnimation: 'A slow moving pattern drawn behind everything. "None" keeps it flat and calm; the others gently animate (pulse, grid, wave, ripple, frost). Purely decorative.',
+            tcRadius: 'How rounded the corners of cards, buttons and inputs are. 0 = sharp square corners, higher = softer/pill-like.',
+            tcTileWidth: 'How wide each game tile is in the library grid. Bigger tiles = fewer per row but larger cover art.',
+            tcTileHeight: 'How tall each game tile is. Taller tiles show more of the cover image.',
+            tcGlassCardColor: 'The tint colour of the frosted-glass cards (only used when the Glass UI style is on). Usually white or a very light shade.',
+            tcGlassCardOpacity: 'How visible that glass tint is. 0% = fully see-through glass, higher = more solid/coloured cards.',
+            tcGlassBorderColor: 'The colour of the thin highlight around glass cards. White gives the classic frosted edge.',
+            tcGlassBorderOpacity: 'How visible the glass edge highlight is. Low = barely-there outline, high = crisp bright edge.',
+            tcGlassBlur: 'How strongly the glass blurs whatever is behind it. Higher = frostier and harder to see through.',
+            tcLayoutSidebarSide: 'Which side of the window the page tabs + folders sidebar sits on. Applies to the whole app instantly (not saved into the theme).',
+            tcLayoutFriendsSide: 'Which side the friends/social bar sits on. Applies instantly to the whole app.',
+            tcLayoutFolders: 'Whether your folder shortcuts appear above or below the page tabs in the sidebar.'
+        };
+        function decorateThemeInfoButtons() {
+            const show = globalSettings.themeInfoButtons !== false;
+            const adv = document.getElementById('advThemeView');
+            if (!adv) return;
+            Object.keys(TC_INFO).forEach(id => {
+                const ctrl = document.getElementById(id);
+                if (!ctrl) return;
+                // Find the row + its label (the control sits inside an .input-row or a wrapper div).
+                const row = ctrl.closest('.input-row') || ctrl.closest('div');
+                if (!row) return;
+                const label = row.querySelector('label, span');
+                let info = row.querySelector(':scope > .tc-info-btn') || (label && label.parentNode.querySelector('.tc-info-btn'));
+                if (show) {
+                    if (!info && label) {
+                        info = document.createElement('span');
+                        info.className = 'tc-info-btn';
+                        info.textContent = 'i';
+                        info.title = 'What does this do?';
+                        info.onclick = (ev) => {
+                            ev.stopPropagation();
+                            let tip = row.parentNode.querySelector('[data-tip-for="' + id + '"]');
+                            if (tip) { tip.remove(); return; }
+                            tip = document.createElement('p');
+                            tip.className = 'tc-info-text';
+                            tip.setAttribute('data-tip-for', id);
+                            tip.textContent = TC_INFO[id];
+                            // Insert directly after the row it explains.
+                            row.parentNode.insertBefore(tip, row.nextSibling);
+                        };
+                        label.appendChild(info);
+                    }
+                    if (info) info.style.display = '';
+                } else {
+                    if (info) info.remove();
+                    const tip = document.querySelector('[data-tip-for="' + id + '"]');
+                    if (tip) tip.remove();
+                }
+            });
+        }
+        { const t = document.getElementById('tcInfoButtonsToggle'); if (t) t.addEventListener('change', (e) => { globalSettings.themeInfoButtons = e.target.checked; saveToMemory(); decorateThemeInfoButtons(); }); }
 
         document.getElementById('tcRadius').oninput = (e) => { document.getElementById('tcRadiusLabel').innerText = e.target.value + 'px'; };
         document.getElementById('tcTileWidth').oninput = (e) => { document.getElementById('tcTileWidthLabel').innerText = e.target.value + 'px'; };
@@ -10023,6 +10826,9 @@
                 if (document.querySelector('#oskModal.show')) {
                     closeModal('oskModal');
                     if (oskTarget) oskTarget.focus();
+                } else if (document.getElementById('anchoredSelect')) {
+                    closeAnchoredSelect();
+                    if (currentDropdownTarget) currentDropdownTarget.focus();
                 } else if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA' || document.activeElement.tagName === 'SELECT')) {
                     document.activeElement.blur();
                 } else if (document.querySelector('.modal.show')) {
@@ -10467,7 +11273,6 @@
 
         function playConsoleChime() {
             try {
-                if (globalSettings.muteSounds) return;   // user muted launcher sounds
                 const AudioContext = window.AudioContext || window.webkitAudioContext;
                 if (!AudioContext) return;
                 const ctx = new AudioContext();
@@ -10567,6 +11372,12 @@
         @keyframes dlFadeUp { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes dlPanelIn { from { opacity: 0; transform: translateY(10px) scale(0.995); } to { opacity: 1; transform: none; } }
         @keyframes dlDockIn { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: none; } }
+        @keyframes dlDockOut { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(30px) scale(0.98); } }
+        /* Smooth collapse/expand of the download popup body (issue #4). */
+        #dockBody { max-height: 56vh; transition: max-height .3s cubic-bezier(.22,1,.36,1), opacity .22s ease, padding-top .3s ease, padding-bottom .3s ease; }
+        #dockBody.dock-collapsed { max-height: 0 !important; opacity: 0; padding-top: 0 !important; padding-bottom: 0 !important; overflow: hidden !important; }
+        #dockToggle { transition: transform .25s ease; }
+        #dockToggle.collapsed { transform: rotate(-90deg); }
         @keyframes dlShimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
         @keyframes dlSpin { to { transform: rotate(360deg); } }
 
@@ -10623,7 +11434,7 @@
         #ddpScreens img:hover { transform: scale(1.03); box-shadow: 0 8px 20px rgba(0,0,0,0.4); }
 
         #downloadDock { animation: dlDockIn 0.35s cubic-bezier(0.22, 1, 0.36, 1); }
-        .dl-progress-bar { background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 55%, #fff)); background-size: 200% 100%; animation: dlShimmer 1.6s linear infinite; }
+        .dl-progress-bar { background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 55%, #fff)) !important; background-size: 200% 100% !important; animation: dlShimmer 1.6s linear infinite; }
         .dl-ddl-btn { transition: transform 0.18s ease, box-shadow 0.18s ease, filter 0.18s ease; }
         .dl-ddl-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 22px rgba(124,92,255,0.4); filter: brightness(1.05); }
         .dl-spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(128,128,128,0.3); border-top-color: var(--accent); border-radius: 50%; animation: dlSpin 0.7s linear infinite; vertical-align: middle; }
@@ -10636,7 +11447,7 @@
             '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="225"><rect fill="#18181b" width="400" height="225"/><text fill="#a1a1aa" font-family="sans-serif" font-size="16" x="50%" y="50%" text-anchor="middle" dominant-baseline="middle">No Image</text></svg>'
         );
 
-        const DL_HOSTS = /magnet:|megadb|buzzheavier|gofile|datanodes|1fichier|pixeldrain|akirabox|filekeeper|filecrypt|mediafire|mega\.nz|qiwi|multiup|fuckingfast|bowfile|hexload|torrent|\.torrent/i;
+        const DL_HOSTS = /magnet:|megadb|buzzheavier|gofile|datanodes|1fichier|pixeldrain|akirabox|filekeeper|filecrypt|mediafire|mega\.nz|qiwi|multiup|fuckingfast|bowfile|hexload|vikingfile|rootz|1337x|torrent|\.torrent/i;
 
         // Decode HTML entities (REST API titles come with &#8217; &amp; etc.)
         function dlDecodeEntities(s) {
@@ -11163,7 +11974,7 @@
         // Hosts permanently blocked by Cloudflare's interactive human-check — we can
         // never get a direct link, so replace the download button with "Browse".
         function isCFBlockedHost(host) {
-            return /datanodes|akirabox|buzzheavier|bzzhr/i.test(host || '');
+            return /datanodes|akirabox|buzzheavier|bzzhr|1337x/i.test(host || '');
         }
 
         function dlHostScore(host) {
@@ -11175,9 +11986,9 @@
             if (/gofile/i.test(host)) return 90;   // computed-token API, multi-part folders
             if (/mediafire/i.test(host)) return 70;
             if (/1fichier|hexload|vikingfile|rootz|multiup|bowfile|mega/i.test(host)) return 45;
-            // datanodes, akirabox & buzzheavier are now behind a manual Cloudflare human-check
+            // datanodes, akirabox, buzzheavier & 1337x are behind a manual Cloudflare human-check
             // → can't auto-download; keep them last so 1-click only falls back to them.
-            if (/datanodes|akirabox|buzzheavier|bzzhr/i.test(host)) return 20;
+            if (/datanodes|akirabox|buzzheavier|bzzhr|1337x/i.test(host)) return 20;
             return 40;
         }
         // Group raw links into downloadable "sets": one set per file-host (all its
@@ -11407,31 +12218,101 @@
             dock.querySelector('#dockHeader').onclick = () => {
                 const b = dock.querySelector('#dockBody');
                 const t = dock.querySelector('#dockToggle');
-                const hidden = b.style.display === 'none';
-                b.style.display = hidden ? 'block' : 'none';
-                t.textContent = hidden ? '▾' : '▸';
+                // Measured-height accordion so the collapse animates from the body's ACTUAL
+                // height (not a fixed 56vh, which would make a short list pause then snap).
+                const collapsing = !b.classList.contains('dock-collapsed');
+                if (collapsing) {
+                    b.style.maxHeight = b.scrollHeight + 'px';
+                    void b.offsetHeight;                       // commit the start height
+                    b.classList.add('dock-collapsed');         // → animates to max-height:0
+                    t.classList.add('collapsed');
+                } else {
+                    b.classList.remove('dock-collapsed');
+                    b.style.maxHeight = b.scrollHeight + 'px'; // animate open to content height
+                    t.classList.remove('collapsed');
+                    const done = (ev) => { if (ev.propertyName !== 'max-height') return; b.style.maxHeight = ''; b.removeEventListener('transitionend', done); };
+                    b.addEventListener('transitionend', done);
+                }
             };
             return dock;
         }
 
+        // Show the animated "working" bar for any active phase (download, extract, install)
+        // so the user always knows something is happening — not just during the download.
+        function dlIsBusy(d) { return d.state === 'downloading' || d.state === 'installing' || d.state === 'processing'; }
+
+        // Human-readable phase label. Each download moves through distinct phases —
+        // make it obvious which one we're in (downloading the game vs installing it)
+        // and surface as much useful detail as the phase provides.
         function fmtState(d) {
-            if (d.state === 'queued') return 'Queued...';
-            if (d.state === 'resolving') return d.label || 'Resolving link...';
-            if (d.state === 'installing') return d.label || 'Setting up engine...';
-            if (d.state === 'downloading') return `${d.percent || 0}%${d.partCount > 1 ? ' · part ' + (d.part || 1) + '/' + d.partCount : ''} · ${d.speed || '0B'}/s${d.eta ? ' · ETA ' + d.eta : ''}`;
-            if (d.state === 'processing') return d.label || 'Extracting...';
-            if (d.state === 'done') return d.warning ? '✓ Done (with warning)' : '✓ Installed';
+            if (d.state === 'queued') return '🕓 Queued — waiting for a free slot…';
+            if (d.state === 'resolving') return '🔗 ' + (d.label || 'Finding a direct download link…');
+            if (d.state === 'downloading') {
+                const bits = ['⬇️ Downloading game', (d.percent || 0) + '%'];
+                if (d.partCount > 1) bits.push('part ' + (d.part || 1) + '/' + d.partCount);
+                if (d.downloaded && d.total) bits.push(d.downloaded + ' / ' + d.total);
+                bits.push((d.speed || '0B') + '/s');
+                if (d.eta) bits.push('ETA ' + d.eta);
+                return bits.join(' · ');
+            }
+            if (d.state === 'processing') return '📦 ' + (d.label || 'Extracting & preparing the game…');
+            if (d.state === 'installing') return '⚙️ ' + (d.label || 'Installing game — running the setup…');
+            if (d.state === 'done') return d.warning ? '⚠️ Done — needs a manual step' : '✅ Installed & ready to play';
             if (d.state === 'error') return '✕ ' + (d.error || 'Failed');
             return '';
         }
 
-        // Session-scoped download history (cleared on launcher restart).
+        // Download history — persisted to sail_library.json so it survives restarts.
+        // Loaded lazily on first render because globalSettings is read from disk by the
+        // async initApp(), which finishes AFTER this script first runs.
         const dlHistory = [];
-        function addToHistory(d) {
-            if (!d || dlHistory.some(h => h.id === d.id)) return;
-            dlHistory.unshift({ id: d.id, name: d.name, image: d.image, folder: d.folder, exePath: d.exePath, completedAt: Date.now(), warning: d.warning });
-            if (dlHistory.length > 50) dlHistory.pop();
+        let dlHistoryLoaded = false;
+        function ensureDlHistoryLoaded() {
+            // Always merge from the persisted store — this is idempotent (dedupes by id), so it
+            // costs nothing to re-run. The OLD version locked itself "loaded" on the very first
+            // call; if that call happened before globalSettings.dlHistory was populated (e.g. the
+            // dock rendered during early init), history stayed invisible until a NEW download
+            // repopulated the in-memory array. That's the "old downloads invisible until a new
+            // download starts" bug. Re-syncing on every render guarantees it shows on page open.
+            dlHistoryLoaded = true;
+            try {
+                const saved = (window.sailDownloadBridge && window.sailDownloadBridge.getHistory && window.sailDownloadBridge.getHistory()) || [];
+                if (Array.isArray(saved)) saved.forEach(h => { if (h && h.id && !dlHistory.some(x => x.id === h.id)) dlHistory.push(h); });
+            } catch (e) {}
         }
+        function persistDlHistory() {
+            try { if (window.sailDownloadBridge && window.sailDownloadBridge.saveHistory) window.sailDownloadBridge.saveHistory(dlHistory); } catch (e) {}
+        }
+        function addToHistory(d) {
+            ensureDlHistoryLoaded();
+            if (!d || dlHistory.some(h => h.id === d.id)) return;
+            dlHistory.unshift({ id: d.id, name: d.name, image: d.image, folder: d.folder, exePath: d.exePath, completedAt: d.completedAt || Date.now(), warning: d.warning, category: d.category || 'game', sourceId: d.sourceId || '' });
+            if (dlHistory.length > 50) dlHistory.pop();
+            persistDlHistory();
+        }
+
+        // Record a non-game download (theme / plugin / workshop mod) into the Download
+        // Manager so EVERYTHING the launcher installs shows up in one place (issue #4).
+        // These come through their own IPC paths (hub-download-file, download-workshop-item)
+        // and finish quickly, so we just log a completed history row with a category tag.
+        function logManagerDownload(rec) {
+            try {
+                ensureDlHistoryLoaded();
+                const id = rec.id || ('mgr_' + Date.now() + '_' + Math.floor(Math.random() * 1000));
+                if (dlHistory.some(h => h.id === id)) return;
+                dlHistory.unshift({
+                    id, name: rec.name || 'Download', image: rec.image || '',
+                    folder: rec.folder || '', exePath: '', completedAt: Date.now(),
+                    warning: rec.warning || '', category: rec.category || 'other', sourceId: rec.sourceId || ''
+                });
+                if (dlHistory.length > 50) dlHistory.pop();
+                persistDlHistory();
+                try { renderHistorySection(); } catch (e) {}
+                try { if (typeof renderDownloadsPage === 'function') renderDownloadsPage(); } catch (e) {}
+            } catch (e) {}
+        }
+        window.logManagerDownload = logManagerDownload;
+        window.renderDownloadsPage = renderDownloadsPage;
 
         // Track last-seen state per download so we can detect pure progress ticks
         // vs real state changes (resolving→downloading, downloading→done, etc.).
@@ -11463,8 +12344,20 @@
         function renderDock() {
             ensureDock();
             const body = document.getElementById('dockBody');
-            if (!dlQueue.size) { document.getElementById('downloadDock').style.display = 'none'; return; }
-            document.getElementById('downloadDock').style.display = 'flex';
+            const dockEl = document.getElementById('downloadDock');
+            if (!dlQueue.size) {
+                // Glide the popup out rather than snapping it away.
+                if (dockEl.style.display !== 'none' && !dockEl.dataset.closing) {
+                    dockEl.dataset.closing = '1';
+                    dockEl.style.animation = 'dlDockOut .3s cubic-bezier(.4,0,.6,1) forwards';
+                    setTimeout(() => { if (!dlQueue.size) dockEl.style.display = 'none'; dockEl.style.animation = ''; delete dockEl.dataset.closing; }, 300);
+                }
+                return;
+            }
+            delete dockEl.dataset.closing;
+            // Re-trigger the slide-in if the popup was hidden (display:flex alone won't replay it).
+            if (dockEl.style.display === 'none') { dockEl.style.animation = 'none'; void dockEl.offsetWidth; dockEl.style.animation = 'dlDockIn .35s cubic-bezier(0.22,1,0.36,1)'; }
+            dockEl.style.display = 'flex';
             // Remove rows that are no longer in the queue.
             body.querySelectorAll('[data-dl-id]').forEach(el => { if (!dlQueue.has(el.getAttribute('data-dl-id'))) el.remove(); });
             for (const d of [...dlQueue.values()].reverse()) {
@@ -11484,7 +12377,7 @@
                     const bar = row.querySelector('.dl-bar-inner');
                     const st = row.querySelector('.dl-state-text');
                     const act = row.querySelector('.dl-dock-actions');
-                    if (bar) { bar.style.width = pct + '%'; bar.style.background = barColor; bar.classList.toggle('dl-progress-bar', d.state === 'downloading'); }
+                    if (bar) { bar.style.width = pct + '%'; bar.style.background = barColor; bar.classList.toggle('dl-progress-bar', dlIsBusy(d)); }
                     if (st) st.innerHTML = fmtState(d);
                     if (act) act.innerHTML = actions;
                 } else {
@@ -11496,7 +12389,7 @@
                             <span style="font-size:12px;font-weight:bold;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;">${d.name}</span>
                             <div class="dl-dock-actions" style="display:flex;gap:5px;flex-shrink:0;">${actions}</div>
                         </div>
-                        <div style="height:6px;background:rgba(128,128,128,0.2);border-radius:99px;overflow:hidden;margin-bottom:5px;"><div class="dl-bar-inner ${d.state === 'downloading' ? 'dl-progress-bar' : ''}" style="height:100%;width:${pct}%;background:${barColor};border-radius:99px;transition:width .3s;"></div></div>
+                        <div style="height:6px;background:rgba(128,128,128,0.2);border-radius:99px;overflow:hidden;margin-bottom:5px;"><div class="dl-bar-inner ${dlIsBusy(d) ? 'dl-progress-bar' : ''}" style="height:100%;width:${pct}%;background:${barColor};border-radius:99px;transition:width .3s;"></div></div>
                         <div class="dl-state-text" style="font-size:11px;opacity:0.65;">${fmtState(d)}</div>`;
                     body.appendChild(row);
                 }
@@ -11508,22 +12401,70 @@
             renderDownloadsPage();
         }
 
+        // ---- Download Manager category filter (issue #4) -----------------
+        // Every download (game / workshop mod / theme / plugin) carries a `category`
+        // so the manager can group and filter them in one place.
+        let dlMgrFilter = 'all';
+        const DL_CATS = [
+            { key: 'all',    label: 'All',     icon: '🗂️' },
+            { key: 'game',   label: 'Games',   icon: '🎮' },
+            { key: 'mod',    label: 'Mods',    icon: '🧩' },
+            { key: 'theme',  label: 'Themes',  icon: '🎨' },
+            { key: 'plugin', label: 'Plugins', icon: '🔌' },
+            { key: 'other',  label: 'Other',   icon: '📦' }
+        ];
+        function dlCatKey(c) { c = (c || 'game'); return DL_CATS.some(x => x.key === c) ? c : 'other'; }
+        function dlCatMeta(c) { c = dlCatKey(c); return DL_CATS.find(x => x.key === c) || DL_CATS[DL_CATS.length - 1]; }
+        function dlCatBadge(c) {
+            const m = dlCatMeta(c);
+            return `<span class="dl-cat-badge" style="font-size:10px;padding:2px 8px;border-radius:99px;background:rgba(128,128,128,0.18);opacity:0.85;white-space:nowrap;margin-left:8px;vertical-align:middle;">${m.icon} ${m.label.replace(/s$/, '')}</span>`;
+        }
+        function dlCatCounts() {
+            const counts = {};
+            for (const d of dlQueue.values()) { const k = dlCatKey(d.category); counts[k] = (counts[k] || 0) + 1; }
+            for (const h of dlHistory) { if (dlQueue.has(h.id)) continue; const k = dlCatKey(h.category); counts[k] = (counts[k] || 0) + 1; }
+            counts.all = DL_CATS.reduce((a, c) => c.key === 'all' ? a : a + (counts[c.key] || 0), 0);
+            return counts;
+        }
+        window.setDlFilter = function (k) { dlMgrFilter = k; renderDownloadsPage(); };
+        function renderDlFilterBar() {
+            const bar = document.getElementById('dlFilterBar'); if (!bar) return;
+            const counts = dlCatCounts();
+            // Show the "All" chip plus any category that actually has items — keeps it tidy.
+            const cats = DL_CATS.filter(c => c.key === 'all' || (counts[c.key] || 0) > 0);
+            if (dlMgrFilter !== 'all' && !cats.some(c => c.key === dlMgrFilter)) dlMgrFilter = 'all';
+            bar.style.display = counts.all > 0 ? 'flex' : 'none';
+            bar.innerHTML = cats.map(c => {
+                const active = dlMgrFilter === c.key;
+                const n = c.key === 'all' ? counts.all : (counts[c.key] || 0);
+                return `<button onclick="setDlFilter('${c.key}')" style="padding:7px 14px;border-radius:99px;font-size:12px;cursor:pointer;border:1px solid ${active ? 'var(--accent)' : 'var(--border-color)'};background:${active ? 'var(--accent)' : 'transparent'};color:${active ? '#fff' : 'inherit'};display:flex;align-items:center;gap:7px;transition:all .15s;">${c.icon} ${c.label}<span style="opacity:0.7;font-size:11px;">${n}</span></button>`;
+            }).join('');
+        }
+
         // Full-page download manager (Downloads tab).
         function renderDownloadsPage() {
             const body = document.getElementById('downloadsPageBody');
             const empty = document.getElementById('downloadsPageEmpty');
             if (!body) return;
+            ensureDlHistoryLoaded();
+            renderDlFilterBar();
+            const F = dlMgrFilter;
             const hasActive = dlQueue.size > 0;
             const hasHistory = dlHistory.length > 0;
             if (!hasActive && !hasHistory) {
-                body.querySelectorAll('[data-dlp-id],[data-dlh-section]').forEach(el => el.remove());
+                body.querySelectorAll('[data-dlp-id],[data-dlh-section],[data-dlp-none]').forEach(el => el.remove());
                 if (empty) empty.style.display = 'flex';
                 return;
             }
             if (empty) empty.style.display = 'none';
-            // Remove stale active rows.
-            body.querySelectorAll('[data-dlp-id]').forEach(el => { if (!dlQueue.has(el.getAttribute('data-dlp-id'))) el.remove(); });
+            // Remove stale active rows (gone from queue, or hidden by the current filter).
+            body.querySelectorAll('[data-dlp-id]').forEach(el => {
+                const id = el.getAttribute('data-dlp-id');
+                const dd = dlQueue.get(id);
+                if (!dd || (F !== 'all' && dlCatKey(dd.category) !== F)) el.remove();
+            });
             for (const d of [...dlQueue.values()].reverse()) {
+                if (F !== 'all' && dlCatKey(d.category) !== F) continue;
                 let row = body.querySelector(`[data-dlp-id="${d.id}"]`);
                 const pct = d.state === 'done' ? 100 : (d.percent || 0);
                 const barColor = d.state === 'error' ? '#ef4444' : (d.state === 'done' ? '#10b981' : 'var(--accent)');
@@ -11539,7 +12480,7 @@
                     const bar = row.querySelector('.dl-bar-inner');
                     const st = row.querySelector('.dl-state-text');
                     const act = row.querySelector('.dlp-actions');
-                    if (bar) { bar.style.width = pct + '%'; bar.style.background = barColor; bar.classList.toggle('dl-progress-bar', d.state === 'downloading'); }
+                    if (bar) { bar.style.width = pct + '%'; bar.style.background = barColor; bar.classList.toggle('dl-progress-bar', dlIsBusy(d)); }
                     if (st) st.innerHTML = fmtState(d);
                     if (act) act.innerHTML = actions;
                 } else {
@@ -11550,10 +12491,10 @@
                         <div class="dlpage-cover" style="${d.image ? `background-image:url('${d.image}')` : ''}"></div>
                         <div class="dlpage-main">
                             <div class="dlpage-top">
-                                <span class="dlpage-name">${d.name || 'Download'}</span>
+                                <span class="dlpage-name">${d.name || 'Download'}${dlCatBadge(d.category)}</span>
                                 <div class="dlp-actions" style="display:flex;gap:8px;flex-shrink:0;">${actions}</div>
                             </div>
-                            <div class="dlpage-track"><div class="dl-bar-inner ${d.state === 'downloading' ? 'dl-progress-bar' : ''}" style="height:100%;width:${pct}%;background:${barColor};border-radius:99px;transition:width .3s;"></div></div>
+                            <div class="dlpage-track"><div class="dl-bar-inner ${dlIsBusy(d) ? 'dl-progress-bar' : ''}" style="height:100%;width:${pct}%;background:${barColor};border-radius:99px;transition:width .3s;"></div></div>
                             <div class="dl-state-text dlpage-state">${fmtState(d)}</div>
                         </div>`;
                     // Insert before the history section (if present), otherwise append.
@@ -11566,30 +12507,44 @@
             body.querySelectorAll('[data-pfolder]').forEach(b => b.onclick = () => { const d = dlQueue.get(b.getAttribute('data-pfolder')); if (d && d.folder) ipcRenderer.invoke('show-item-in-folder', d.exePath || d.folder); });
             body.querySelectorAll('[data-pbrowser]').forEach(b => b.onclick = () => { const d = dlQueue.get(b.getAttribute('data-pbrowser')); if (d && d.url) openDownloadInAppBrowser(d.url); });
             renderHistorySection();
+            // If a category filter hides everything, show a gentle note instead of a blank page.
+            const anyVisible = body.querySelector('[data-dlp-id],[data-dlh-row]');
+            let note = body.querySelector('[data-dlp-none]');
+            if (!anyVisible && F !== 'all') {
+                if (!note) { note = document.createElement('div'); note.setAttribute('data-dlp-none', '1'); note.style.cssText = 'opacity:0.55;text-align:center;padding:50px 0;font-size:13px;'; body.appendChild(note); }
+                note.textContent = 'No ' + dlCatMeta(F).label.toLowerCase() + ' downloads yet.';
+            } else if (note) { note.remove(); }
         }
 
         function renderHistorySection() {
             const body = document.getElementById('downloadsPageBody');
             if (!body) return;
+            ensureDlHistoryLoaded();
             // Remove existing history section and rebuild it.
             body.querySelectorAll('[data-dlh-section]').forEach(el => el.remove());
-            if (!dlHistory.length) return;
+            // Don't list a download in History while it's still an active "done" row above
+            // — only show finished/cleared ones (and everything after a restart). Respect the
+            // active category filter so History matches what's shown above.
+            const F = dlMgrFilter;
+            const visible = dlHistory.filter(h => !dlQueue.has(h.id) && (F === 'all' || dlCatKey(h.category) === F));
+            if (!visible.length) return;
             const sec = document.createElement('div');
             sec.setAttribute('data-dlh-section', '1');
             const hdr = document.createElement('div');
             hdr.style.cssText = 'display:flex;align-items:center;justify-content:space-between;margin:24px 0 10px 0;';
             hdr.innerHTML = `<span style="font-size:12px;font-weight:bold;text-transform:uppercase;opacity:0.45;letter-spacing:.06em;">Download History</span><button class="outline" style="padding:4px 10px;font-size:11px;border-radius:6px;opacity:0.6;" id="dlClearHistBtn">Clear</button>`;
             sec.appendChild(hdr);
-            dlHistory.forEach(h => {
+            visible.forEach(h => {
                 const ts = new Date(h.completedAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
                 const row = document.createElement('div');
                 row.className = 'dlpage-row';
+                row.setAttribute('data-dlh-row', '1');
                 row.style.cssText = 'opacity:0.65;animation:none;';
                 row.innerHTML = `
                     <div class="dlpage-cover" style="${h.image ? `background-image:url('${h.image}')` : 'background:rgba(128,128,128,0.1);'}"></div>
                     <div class="dlpage-main">
                         <div class="dlpage-top">
-                            <span class="dlpage-name">${h.name || 'Download'}</span>
+                            <span class="dlpage-name">${h.name || 'Download'}${dlCatBadge(h.category)}</span>
                             <div style="display:flex;gap:8px;flex-shrink:0;">
                                 ${h.folder ? `<button class="outline" data-hfolder="${h.id}" style="padding:6px 12px;font-size:12px;border-radius:8px;">📂</button>` : ''}
                             </div>
@@ -11602,13 +12557,13 @@
             body.appendChild(sec);
             body.querySelectorAll('[data-hfolder]').forEach(b => b.onclick = () => { const h = dlHistory.find(x => x.id === b.getAttribute('data-hfolder')); if (h && h.folder) ipcRenderer.invoke('show-item-in-folder', h.exePath || h.folder); });
             const clearBtn = body.querySelector('#dlClearHistBtn');
-            if (clearBtn) clearBtn.onclick = () => { dlHistory.length = 0; renderHistorySection(); };
+            if (clearBtn) clearBtn.onclick = () => { dlHistory.length = 0; persistDlHistory(); renderHistorySection(); };
         }
 
         window.startGameDownload = function (item, link, sourceId) {
             const settings = (window.sailDownloadBridge && window.sailDownloadBridge.getSettings()) || {};
             const id = 'dl_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
-            dlQueue.set(id, { id, name: item.name, image: item.image, sourceId, url: link.url, percent: 0, state: 'queued' });
+            dlQueue.set(id, { id, name: item.name, image: item.image, sourceId, category: 'game', url: link.url, percent: 0, state: 'queued' });
             renderDock();
             if (settings.autoSwitchDownloads) switchMainTab('downloads');
             ipcRenderer.invoke('download-game', {
@@ -11624,7 +12579,7 @@
             const id = 'dl_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
             const links = set.parts.map(p => ({ url: p.url, name: p.label || '' }));
             if (!links.length) return;
-            dlQueue.set(id, { id, name: item.name, image: item.image, sourceId, url: links[0].url, percent: 0, state: 'queued', partCount: links.length });
+            dlQueue.set(id, { id, name: item.name, image: item.image, sourceId, category: 'game', url: links[0].url, percent: 0, state: 'queued', partCount: links.length });
             renderDock();
             if (settings.autoSwitchDownloads) switchMainTab('downloads');
             ipcRenderer.invoke('download-game', {
@@ -11662,6 +12617,20 @@
         // Look up a Steam App ID + art for a downloaded game by name, so it's added as a
         // proper Steam-style library entry (Steam banner/hero art + metadata) instead of a
         // bare custom row. It still LAUNCHES via its local exe — steamAppId is metadata only.
+        // FitGirl/DODI titles carry a version after a dash — e.g. "Jitsu Squad - v1.1.0.0",
+        // "Game – Build 12345", "Game (v1.2.3)". That suffix breaks the Steam name lookup
+        // (so the game lands as a bare "custom" entry) and clutters the library name. Strip
+        // it. We only cut at a dash/bracket followed by a version-looking token, so real
+        // numbers inside a title (e.g. "Borderlands 3", "Forza Horizon 5") are preserved.
+        function cleanDownloadName(name) {
+            let s = String(name || '').trim();
+            s = s.replace(/\s*[-–—]\s*v\.?\s*\d[\d.]*.*$/i, '');                  // " - v1.1.0.0", "- v 2"
+            s = s.replace(/\s*[-–—]\s*\d+(\.\d+)+.*$/i, '');                      // " - 1.2.3"
+            s = s.replace(/\s*[-–—]\s*(version|build|update|hotfix|patch|repack|gog|fitgirl|dodi)\b.*$/i, '');
+            s = s.replace(/\s*[\(\[]\s*(v\.?\s*)?\d[\d.]*[^)\]]*[\)\]]\s*$/i, ''); // "(v1.2.3)", "[v2]"
+            return s.trim() || String(name || '').trim();
+        }
+
         async function resolveSteamMetaForDownload(name) {
             try {
                 const res = await fetch(`https://store.steampowered.com/api/storesearch/?term=${encodeURIComponent(name)}&l=english&cc=US`);
@@ -11681,15 +12650,22 @@
             const d = dlQueue.get(p.id); if (!d) return;
             d.state = 'done'; d.percent = 100; d.folder = p.folder; d.exePath = p.exePath; d.warning = p.warning; d.cover = p.cover;
             const settings = (window.sailDownloadBridge && window.sailDownloadBridge.getSettings()) || {};
-            if (settings.autoAdd !== false && window.sailDownloadBridge) {
+            // Never launch via an installer. If the repack needed an installer but it didn't
+            // finish (installFailed), or the only exe we have is a setup/installer, don't add
+            // a broken entry — the user is told via the dock warning and can install manually.
+            const exeIsInstaller = /(^|[\\/])(setup|install|installer|unins)[^\\/]*\.exe$/i.test(p.exePath || '');
+            const installIncomplete = !!p.installFailed || exeIsInstaller;
+            const launchExe = installIncomplete ? '' : (p.exePath || '');
+            const cleanName = cleanDownloadName(p.gameName);
+            if (settings.autoAdd !== false && !installIncomplete && window.sailDownloadBridge) {
                 try {
-                    if (!window.sailDownloadBridge.gameExists(p.gameName, p.exePath)) {
+                    if (!window.sailDownloadBridge.gameExists(cleanName, launchExe)) {
                         // Try to attach Steam art/metadata so it's added "via Steam" like the user expects.
-                        const steamMeta = await resolveSteamMetaForDownload(p.gameName);
+                        const steamMeta = await resolveSteamMetaForDownload(cleanName);
                         const game = {
                             id: Date.now().toString() + Math.floor(Math.random() * 1000),
-                            name: p.gameName,
-                            exePath: p.exePath || '',
+                            name: cleanName,
+                            exePath: launchExe,
                             installFolder: p.folder || '',
                             addedAt: Date.now(),
                             isFavorite: false,
@@ -11703,8 +12679,6 @@
                             game.steamAppId = steamMeta.steamAppId;
                             game.steamImageUrl = steamMeta.steamImageUrl;
                             game.steamHeroUrl = steamMeta.steamHeroUrl;
-                            // keep the downloaded cover as a fallback banner if Steam art 404s
-                            game.customBannerPath = p.cover || null;
                         } else {
                             game.customBannerPath = p.cover || null;
                         }
@@ -11712,6 +12686,9 @@
                     }
                 } catch (err) { console.error('auto-add failed', err); }
             }
+            // Use the cleaned name on the finished-download row + in history too.
+            d.name = cleanName;
+            addToHistory(d);
             renderDock();
         });
 

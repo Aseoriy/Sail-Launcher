@@ -34,6 +34,12 @@ let devToolsEnabled = false;
 ipcMain.on('set-exit-behavior', (e, val) => exitWhenClosedSetting = val);
 ipcMain.on('set-devtools-setting', (e, val) => devToolsEnabled = val);
 
+let currentInstallerMute = true;
+ipcMain.on('toggle-installer-mute', (e, state) => {
+    currentInstallerMute = !!state;
+    try { require('fs').writeFileSync(require('path').join(app.getPath('userData'), '.installer_mute'), state ? '1' : '0'); } catch(e) {}
+});
+
 // --- DISCORD RPC ENGINE (WITH RETRY SYSTEM) ---
 const clientId = '1486922616701849700';
 let rpc = null;
@@ -1242,7 +1248,7 @@ const AD_BLOCK_HOSTS = [
 ];
 let adBlockEnabled = true;
 // hosts that are legitimate download targets — never treat these as ads
-const DL_HOST_ALLOW = /(gofile|pixeldrain|datanodes|buzzheavier|fuckingfast|1fichier|mediafire|mega\.nz|megadb|qiwi|multiup|bowfile|hexload|vikingfile|akirabox|filekeeper|filecrypt|online-fix|steamrip|fitgirl|dodi)/i;
+const DL_HOST_ALLOW = /(gofile|pixeldrain|datanodes|buzzheavier|fuckingfast|1fichier|mediafire|mega\.nz|megadb|qiwi|multiup|bowfile|hexload|vikingfile|rootz|akirabox|filekeeper|filecrypt|online-fix|steamrip|fitgirl|dodi|rutor\.info)/i;
 function isAdHost(url) {
     try {
         const h = new URL(url).hostname.toLowerCase();
@@ -1423,15 +1429,42 @@ async function scrapeGofile(rawUrl) {
     return out.length ? out : null;
 }
 async function scrapePixeldrain(rawUrl, referer) {
-    const m = rawUrl.match(/\/(?:u|api\/file)\/([a-zA-Z0-9_-]+)/i);
-    if (!m) return null;
     // The /api/file/{id}?download endpoint serves the file directly. Pixeldrain's
     // hotlink protection rejects a FOREIGN Referer (e.g. steamgg.net) → 403 → aria2
     // exit 22. Sending pixeldrain's OWN domain as the Referer always passes the check,
-    // so we use that regardless of the embedding site. A 403 here usually means the
-    // file hit its free bandwidth limit (unbypassable) — surfaced as a clear message.
+    // so we use that regardless of the embedding site.
     const headers = ['Referer: https://pixeldrain.com/', 'User-Agent: ' + CHROME_UA];
-    return [{ url: `https://pixeldrain.com/api/file/${m[1]}?download`, kind: 'http', headers }];
+    const probeHeaders = { 'User-Agent': CHROME_UA, 'Referer': 'https://pixeldrain.com/' };
+
+    // Pixeldrain "list" links (/l/{id}) are albums/folders holding every part of the
+    // game. SteamGG posts these a lot — expand the list into its individual files.
+    const lm = rawUrl.match(/pixeldrain\.com\/l\/([a-zA-Z0-9_-]+)/i) || rawUrl.match(/\/api\/list\/([a-zA-Z0-9_-]+)/i);
+    if (lm) {
+        try {
+            const res = await dlRequest('GET', `https://pixeldrain.com/api/list/${lm[1]}`, { headers: probeHeaders });
+            let data = null; try { data = JSON.parse(res.body); } catch (e) {}
+            const files = (data && Array.isArray(data.files)) ? data.files : [];
+            const out = files.filter(f => f && f.id)
+                .map(f => ({ url: `https://pixeldrain.com/api/file/${f.id}?download`, name: f.name || '', kind: 'http', headers }));
+            if (out.length) return out;
+        } catch (e) {}
+        return null;
+    }
+
+    // Single file: /u/{id}, /d/{id} or /api/file/{id}
+    const m = rawUrl.match(/\/(?:u|d|api\/file)\/([a-zA-Z0-9_-]+)/i);
+    if (!m) return null;
+    const direct = `https://pixeldrain.com/api/file/${m[1]}?download`;
+    // Verify the file is actually servable BEFORE handing it to aria2. When this IP has
+    // hit Pixeldrain's free transfer cap, the API answers 403 / 429 with a body like
+    // {success:false,value:"file_rate_limited_captcha_required"} — that needs a human
+    // captcha on the website and can't be bypassed here. Detect it and bail cleanly
+    // (a HEAD request never buffers the multi-GB body) so the user gets a clear message.
+    try {
+        const chk = await dlRequest('HEAD', direct, { headers: probeHeaders, follow: false });
+        if (chk.status === 403 || chk.status === 429 || /captcha|rate.?limited|too.?many/i.test(chk.body || '')) return null;
+    } catch (e) { /* network hiccup — let aria2 try the link anyway */ }
+    return [{ url: direct, kind: 'http', headers }];
 }
 async function scrapeDatanodes(rawUrl) {
     // the file code is the FIRST path segment (an extra /filename.bin may follow)
@@ -1555,6 +1588,81 @@ async function scrapeXFS(rawUrl) {
     return direct ? [{ url: direct, kind: 'http' }] : null;
 }
 
+// rutor.info — Russian torrent tracker. Fetch the torrent page, pull the magnet link
+// (preferred, works without downloading a .torrent file), or fall back to the direct
+// torrent download URL. Direct /download/{id} links are returned as-is.
+async function scrapeRutor(rawUrl) {
+    if (/(?:d\.)?rutor\.info\/download\/\d+/i.test(rawUrl)) return [{ url: rawUrl, kind: 'http' }];
+    const res = await dlRequest('GET', rawUrl, { headers: { 'User-Agent': CHROME_UA } });
+    if (!res || !res.body) return null;
+    const magnet = res.body.match(/href="(magnet:\?[^"]+)"/i);
+    if (magnet) return [{ url: magnet[1], kind: 'magnet' }];
+    const dl = res.body.match(/href="((?:https?:\/\/d\.rutor\.info)?\/download\/\d+[^"]*)"/i);
+    if (dl) {
+        const u = dl[1].startsWith('http') ? dl[1] : 'http://d.rutor.info' + dl[1];
+        return [{ url: u, kind: 'http' }];
+    }
+    return null;
+}
+
+// VikingFile (vikingfile.com) — common on SteamGG/FitGirl mirrors. The download page
+// has no static file anchor; clicking "Download" POSTs the file hash to the site API,
+// which returns the direct server URL. We replicate that POST over plain HTTP (no
+// browser, no ads). Tries several endpoint/field/response shapes since the site has
+// changed its API over time; returns null cleanly so the caller can fall back.
+async function scrapeVikingfile(rawUrl) {
+    let u; try { u = new URL(rawUrl); } catch (e) { return null; }
+    const origin = u.origin; // e.g. https://vikingfile.com
+    const segs = u.pathname.split('/').filter(Boolean);
+    let hash = segs.length ? segs[segs.length - 1] : '';   // …/f/<hash>
+    let page = '';
+    try {
+        const res = await dlRequest('GET', rawUrl, { headers: { 'User-Agent': CHROME_UA, 'Referer': origin } });
+        page = res.body || '';
+    } catch (e) {}
+    // 1) a full direct server link already sitting in the page / inline JS
+    let m = page.match(/https?:\\?\/\\?\/[a-z0-9.\-]*vikingfile\.com\\?\/download\\?\/[^"'\s<>\\]+/i);
+    if (m) return [{ url: m[0].replace(/\\\//g, '/'), kind: 'http' }];
+    // pull the hash from a hidden input / JS var if the URL didn't carry it
+    const hm = page.match(/name=["']hash["'][^>]*value=["']([^"']+)["']/i)
+        || page.match(/id=["']hash["'][^>]*value=["']([^"']+)["']/i)
+        || page.match(/["']?hash["']?\s*[:=]\s*["']([a-z0-9]{6,})["']/i);
+    if (hm) hash = hm[1];
+    if (!hash) return null;
+    // best-effort filename for aria2
+    let name = '';
+    const nm = page.match(/<title>\s*([^<]+?)\s*<\/title>/i);
+    if (nm && /\.(rar|zip|7z|bin|iso|exe)/i.test(nm[1])) name = nm[1].replace(/\s*[\-|–·].*$/, '').trim();
+    const pickUrl = (resp) => {
+        if (!resp) return '';
+        let data = null; try { data = JSON.parse(resp.body); } catch (e) {}
+        const cand = data && (data.url || data.link || data.download || data.direct);
+        if (cand && /^https?:\/\//i.test(cand)) return cand;
+        const tm = (resp.body || '').match(/https?:\/\/[^\s"'<>]+/i);
+        if (tm && /vikingfile\.com\/download\//i.test(tm[0])) return tm[0];
+        const loc = resp.headers && resp.headers['location'];
+        if (loc && /^https?:\/\//i.test(loc)) return loc;
+        return '';
+    };
+    // 2) POST the hash to the download API (try the known endpoints / field names)
+    const attempts = [
+        { ep: origin + '/api/download', body: { hash } },
+        { ep: origin + '/download', body: { hash } },
+        { ep: origin + '/api/get-url', body: { hash } }
+    ];
+    for (const a of attempts) {
+        try {
+            const resp = await dlRequest('POST', a.ep, {
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': CHROME_UA, 'Referer': rawUrl, 'Origin': origin, 'X-Requested-With': 'XMLHttpRequest' },
+                body: new URLSearchParams(a.body).toString(), follow: false
+            });
+            const url = pickUrl(resp);
+            if (url) return [{ url, kind: 'http', name }];
+        } catch (e) {}
+    }
+    return null;
+}
+
 // Resolve a (possibly indirect) link into one or more concrete files aria2 can
 // fetch. ALWAYS returns an array of { url, kind, headers?, name? } or null.
 // Host-specific HTTP scrapers run first (no browser → no ads); a single Gofile
@@ -1575,6 +1683,8 @@ async function resolveDirectUrl(rawUrl, opts) {
     // CF-interactive hosts that can never be auto-resolved — return null immediately
     // instead of spending 30+ s in the browser interceptor before failing.
     if (/akirabox\.(com|to)/i.test(rawUrl)) return null;
+    // 1337x is a Cloudflare-gated torrent index (no direct file link); browse-only.
+    if (/1337x\.[a-z]+/i.test(rawUrl)) return null;
     if (rawUrl.startsWith('magnet:') || /\.torrent(\?|#|$)/i.test(rawUrl)) return [{ url: rawUrl, kind: rawUrl.startsWith('magnet:') ? 'magnet' : 'http' }];
     if (DL_KNOWN_HOST.test(rawUrl)) {
         let r = null;
@@ -1589,6 +1699,16 @@ async function resolveDirectUrl(rawUrl, opts) {
             else if (/megadb/i.test(rawUrl)) r = await scrapeXFS(rawUrl);
         } catch (e) { /* report failure below */ }
         return (r && r.length) ? r : null; // never fall through for a known host
+    }
+    // rutor.info — extract magnet/torrent link from the page. Falls through to the
+    // browser interceptor if scraping fails.
+    if (/rutor\.info/i.test(rawUrl)) {
+        try { const r = await scrapeRutor(rawUrl); if (r && r.length) return r; } catch (e) {}
+    }
+    // VikingFile needs its own POST-to-API scrape. If that fails we deliberately DO
+    // fall through to the browser interceptor below (unlike the known hosts above).
+    if (/vikingfile\.com/i.test(rawUrl)) {
+        try { const r = await scrapeVikingfile(rawUrl); if (r && r.length) return r; } catch (e) {}
     }
     // already a direct CDN archive / iso link
     if (/\.(zip|rar|7z|bin|iso)(\?|#|$)/i.test(rawUrl)) return [{ url: rawUrl, kind: 'http' }];
@@ -1607,7 +1727,7 @@ async function resolveDirectUrl(rawUrl, opts) {
 // clicked something plausible.
 const INTERCEPT_CLICK_JS = `(function(){
     var FILE=/\\.(zip|rar|7z|bin|iso|exe|torrent|part\\d+)(\\?|#|$)/i;
-    var HOST=/gofile|pixeldrain|datanodes|buzzheavier|fuckingfast|1fichier|mediafire|mega(\\.nz|db)|qiwi|multiup|bowfile|hexload|vikingfile|akirabox|store\\d+\\.gofile/i;
+    var HOST=/gofile|pixeldrain|datanodes|buzzheavier|fuckingfast|1fichier|mediafire|mega(\\.nz|db)|qiwi|multiup|bowfile|hexload|vikingfile|rootz|akirabox|store\\d+\\.gofile/i;
     var AD=/a-ads|doubleclick|googlesyndication|adnxs|popads|propeller|exoclick|juicyads|adsterra|hilltop|clickadu|adcash|monetag|onclick(algo|performance)|realsrv|tsyndicate|\\/ads?\\//i;
     function vis(el){ try{ return el.offsetParent!==null && el.getClientRects().length>0; }catch(e){ return false; } }
     // 1) anchors to a real file or known host
@@ -1666,38 +1786,62 @@ function interceptDownload(url, timeoutMs = 55000) {
 }
 
 // Find the most likely game executable in a folder, ignoring installers/redists.
-function findGameExe(dir) {
+// `gameName` (optional) biases selection toward an exe whose name matches the title.
+function findGameExe(dir, gameName) {
+    // Hard excludes — these are NEVER a game launcher. `setup`/`installer` stay excluded
+    // in every tier so a repack's setup.exe can never become the launch target.
     const skip = /(unins|setup|vc_?redist|vcredist|dxsetup|directx|dotnet|dotnetfx|oalinst|redist|crashreport|crashhandler|uninstall|launcher_settings|notification_helper|quicksfv|sfv|installer)/i;
-    let best = null, bestSize = -1;
+    // Soft excludes — usually not the main game, but allowed as a last resort.
+    const soft = /(config|settings|editor|server|benchmark|cleanup|dxdiag|prereq|helper|report)/i;
+    const exes = [];
     const walk = (d, depth) => {
-        if (depth > 6) return;
+        if (depth > 10) return;
         let entries;
         try { entries = fs.readdirSync(d, { withFileTypes: true }); } catch (e) { return; }
         for (const ent of entries) {
             const full = path.join(d, ent.name);
             if (ent.isDirectory()) { walk(full, depth + 1); continue; }
             if (!ent.name.toLowerCase().endsWith('.exe')) continue;
-            if (skip.test(ent.name)) continue;
             // ignore repack helper exes tucked in an MD5/checksum folder
             if (/[\\/]md5[\\/]/i.test(full)) continue;
             let size = 0;
             try { size = fs.statSync(full).size; } catch (e) {}
-            if (size > bestSize) { bestSize = size; best = full; }
+            exes.push({ name: ent.name, full, size, hard: skip.test(ent.name), soft: soft.test(ent.name) });
         }
     };
     walk(dir, 0);
-    return best;
+    if (!exes.length) return null;
+    const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    const target = norm(gameName);
+    // Tier 1: real game exes (not installers/redists). Tier 2 (relaxed) recovers games
+    // whose launcher tripped a soft keyword — but still never an installer/uninstaller.
+    let pool = exes.filter(e => !e.hard);
+    if (!pool.length) return null;
+    pool.sort((a, b) => {
+        const am = target && norm(a.name).includes(target) ? 1 : 0;
+        const bm = target && norm(b.name).includes(target) ? 1 : 0;
+        if (am !== bm) return bm - am;                 // name matches the game → strongly preferred
+        if (a.soft !== b.soft) return a.soft ? 1 : -1; // demote config/editor/launcher helpers
+        return b.size - a.size;                        // otherwise the biggest exe wins
+    });
+    return pool[0].full;
 }
 
 function findArchives(dir) {
     let entries;
     try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { return []; }
-    const files = entries.filter(en => en.isFile()).map(en => en.name);
     const primaries = [];
-    for (const f of files) {
-        const low = f.toLowerCase();
+    for (const en of entries) {
+        // Recurse into non-underscore subdirs (handles torrent root folders)
+        if (en.isDirectory() && !en.name.startsWith('_')) {
+            primaries.push(...findArchives(path.join(dir, en.name)));
+            continue;
+        }
+        if (!en.isFile()) continue;
+        const f = en.name, low = f.toLowerCase();
         // skip non-first split parts
         if (/\.part(?!0*1\.)\d+\.rar$/i.test(f)) continue;          // part2.rar, part3.rar...
+        if (/\.part(?!0*1\.)\d+\.zip$/i.test(f)) continue;           // part2.zip, part3.zip...
         if (/\.(r\d{2}|z\d{2})$/i.test(f)) continue;                 // .r00/.z01 split volumes
         if (/\.\d{3}$/.test(f) && !/\.001$/.test(f)) continue;       // .002, .003 ... keep .001
         if (/\.(zip|rar|7z)$/i.test(low) || /\.7z\.001$/i.test(low) || /\.zip\.001$/i.test(low)) {
@@ -1743,10 +1887,12 @@ function runSilentInstall(installerPath, targetDir, ctl, skipExtras) {
         // overridden — those are baked into the repack.
         //
         // Audio: FitGirl/DODI installers play background music even under /VERYSILENT.
-        // We mute the default audio endpoint before launching (saving the prior mute
-        // state) and restore it afterwards via the IAudioEndpointVolume COM API.
+        // Rather than muting the WHOLE system, we mute ONLY the installer's own audio
+        // session(s) — its process plus any children — via the per-app ISimpleAudioVolume
+        // COM API, polling because the session appears a moment after launch. Nothing global
+        // is touched, so the user's other audio keeps playing and there's nothing to restore.
         const extras = skipExtras ? ' /NOICONS /TASKS=""' : '';
-        const innoArgs = '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /NOCANCEL /SP-' + extras + ' "/DIR=' + targetDir + '"';
+        const innoArgs = '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /NOCANCEL /SP-' + extras;
         const q = (s) => "'" + String(s).replace(/'/g, "''") + "'";
 
         // Build a self-contained PS1 that handles mute + elevated run in one shot.
@@ -1756,6 +1902,7 @@ function runSilentInstall(installerPath, targetDir, ctl, skipExtras) {
             '    Add-Type -TypeDefinition @"',
             'using System;',
             'using System.Runtime.InteropServices;',
+            'using System.Collections.Generic;',
             '[Guid("A95664D2-9614-4F35-A746-DE8DB63617E6")]',
             '[InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]',
             '[ComImport]',
@@ -1775,71 +1922,258 @@ function runSilentInstall(installerPath, targetDir, ctl, skipExtras) {
             '    void GetId([MarshalAs(UnmanagedType.LPWStr)] out string id);',
             '    void GetState(out uint s);',
             '}',
-            '[Guid("5CDF2C82-841E-4546-9722-0CF74078229A")]',
+            '[Guid("77AA99A0-1BD6-484F-8BC7-2C654C9A9B6F")]',
             '[InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]',
             '[ComImport]',
-            'interface IAudioEndpointVolume {',
-            '    void RegisterControlChangeNotify(IntPtr p);',
-            '    void UnregisterControlChangeNotify(IntPtr p);',
-            '    void GetChannelCount(out uint n);',
-            '    void SetMasterVolumeLevel(float f, ref Guid g);',
-            '    void SetMasterVolumeLevelScalar(float f, ref Guid g);',
-            '    void GetMasterVolumeLevel(out float f);',
-            '    void GetMasterVolumeLevelScalar(out float f);',
-            '    void SetChannelVolumeLevel(uint n, float f, ref Guid g);',
-            '    void SetChannelVolumeLevelScalar(uint n, float f, ref Guid g);',
-            '    void GetChannelVolumeLevel(uint n, out float f);',
-            '    void GetChannelVolumeLevelScalar(uint n, out float f);',
+            'interface IAudioSessionManager2 {',
+            '    int NotImpl0();',
+            '    int NotImpl1();',
+            '    void GetSessionEnumerator(out IAudioSessionEnumerator e);',
+            '}',
+            '[Guid("E2F5BB11-0570-40CA-ACDD-3AA01277DEE8")]',
+            '[InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]',
+            '[ComImport]',
+            'interface IAudioSessionEnumerator {',
+            '    void GetCount(out int c);',
+            '    void GetSession(int i, out IAudioSessionControl s);',
+            '}',
+            '[Guid("F4B1A599-7266-4319-A8CA-E70ACB11E8CD")]',
+            '[InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]',
+            '[ComImport]',
+            'interface IAudioSessionControl {',
+            '    int N0(); int N1(); int N2(); int N3(); int N4();',
+            '    int N5(); int N6(); int N7(); int N8();',
+            '}',
+            '[Guid("BFB7FF88-7239-4FC9-8FA2-07C950BE9C6D")]',
+            '[InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]',
+            '[ComImport]',
+            'interface IAudioSessionControl2 {',
+            '    int C0(); int C1(); int C2(); int C3(); int C4();',
+            '    int C5(); int C6(); int C7(); int C8();',
+            '    int GetSessionIdentifier(out IntPtr s);',
+            '    int GetSessionInstanceIdentifier(out IntPtr s);',
+            '    int GetProcessId(out uint pid);',
+            '}',
+            '[Guid("87CE5498-68D6-44E5-9215-6DA47EF883D8")]',
+            '[InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]',
+            '[ComImport]',
+            'interface ISimpleAudioVolume {',
+            '    void SetMasterVolume(float l, ref Guid g);',
+            '    void GetMasterVolume(out float l);',
             '    void SetMute([MarshalAs(UnmanagedType.Bool)] bool m, ref Guid g);',
             '    void GetMute([MarshalAs(UnmanagedType.Bool)] out bool m);',
-            '    void GetVolumeStepInfo(out uint s, out uint c);',
-            '    void VolumeStepUp(ref Guid g);',
-            '    void VolumeStepDown(ref Guid g);',
-            '    void QueryHardwareSupport(out uint m);',
-            '    void GetVolumeRange(out float a, out float b, out float c);',
             '}',
             '[ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")]',
             'class MDE {}',
-            'public class AudioMuter {',
-            '    static IAudioEndpointVolume Get() {',
+            'public class AppMuter {',
+            '    static IAudioSessionEnumerator Sessions() {',
             '        var e = (IMMDeviceEnumerator)(new MDE());',
             '        IMMDevice d; e.GetDefaultAudioEndpoint(0, 1, out d);',
-            '        var iid = typeof(IAudioEndpointVolume).GUID;',
+            '        var iid = typeof(IAudioSessionManager2).GUID;',
             '        object o; d.Activate(ref iid, 23, IntPtr.Zero, out o);',
-            '        return (IAudioEndpointVolume)o;',
+            '        var mgr = (IAudioSessionManager2)o;',
+            '        IAudioSessionEnumerator se; mgr.GetSessionEnumerator(out se); return se;',
             '    }',
-            '    public static bool GetMuted() { bool m; Get().GetMute(out m); return m; }',
-            '    public static void SetMuted(bool m) { var v = Get(); var g = Guid.Empty; v.SetMute(m, ref g); }',
+            '    public static int SetMute(uint[] pids, bool state) {',
+            '        var set = new HashSet<uint>(pids); int n = 0;',
+            '        IAudioSessionEnumerator se; try { se = Sessions(); } catch { return 0; }',
+            '        int c; se.GetCount(out c);',
+            '        for (int i = 0; i < c; i++) {',
+            '            IAudioSessionControl ctl; try { se.GetSession(i, out ctl); } catch { continue; }',
+            '            try {',
+            '                var ctl2 = (IAudioSessionControl2)ctl;',
+            '                uint pid; ctl2.GetProcessId(out pid);',
+            '                if (set.Contains(pid)) { var v = (ISimpleAudioVolume)ctl; var g = Guid.Empty; v.SetMute(state, ref g); n++; }',
+            '            } catch {}',
+            '        }',
+            '        return n;',
+            '    }',
             '}',
             '"@',
             '} catch {}',
-            '$wasMuted = $false',
-            'try { $wasMuted = [AudioMuter]::GetMuted(); [AudioMuter]::SetMuted($true) } catch {}',
             '$ec = 0',
+            '# Paths come in via environment variables (set by the Node spawn), NOT embedded in',
+            '# this script. Windows passes env vars to the child as proper UTF-16, so non-ASCII',
+            '# game-folder names survive intact. Embedding them in the .ps1 text would corrupt',
+            '# them because Windows PowerShell 5.1 decodes a BOM-less script with the ANSI code',
+            '# page, mangling any Unicode path -> Start-Process "file not found" -> LAUNCH_FAIL.',
+            '$installer = $env:SAIL_INSTALLER',
+            '$target = $env:SAIL_TARGET',
+            '$innoArgs = $env:SAIL_ARGS',
+            '$base = ""',
+            'try { $base = [System.IO.Path]::GetFileNameWithoutExtension($installer) } catch {}',
+            '# Snapshot installer-named processes that ALREADY exist so we never mistake an',
+            '# unrelated "setup" for ours.',
+            '$pre = @{}',
+            'try { foreach ($p in @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $base -ne "" -and $_.ProcessName -ieq $base })) { $pre[[int]$p.Id] = $true } } catch {}',
+            'function Get-FolderSize($p) { try { return [double]((Get-ChildItem -LiteralPath $p -Recurse -File -Force -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum) } catch { return [double]0 } }',
+            'Write-Host ("LAUNCH base=" + $base + " installer=" + $installer + " target=" + $target)',
+            '# Bail clearly if the installer path the renderer handed us does not actually exist',
+            '# (avoids a cryptic ShellExecute failure and tells us WHICH path was wrong).',
+            'if ([string]::IsNullOrEmpty($installer) -or -not (Test-Path -LiteralPath $installer)) { Write-Host ("LAUNCH_FAIL installer not found: " + $installer); exit 2 }',
+            '# Launch the installer ELEVATED. Start-Process blocks on the UAC dialog, so by the',
+            '# time it returns the prompt has already been answered. We do NOT rely on -PassThru',
+            '# returning a usable object (it can be $null even on success) — instead the wait below',
+            '# tracks the installer purely by process base name + folder growth.',
+            '$proc = $null',
             'try {',
-            '    $p = Start-Process -FilePath ' + q(installerPath) + ' -ArgumentList ' + q(innoArgs) + ' -Verb RunAs -Wait -PassThru -ErrorAction Stop',
-            '    $ec = $p.ExitCode',
-            '} catch { $ec = 1223 }',
-            'try { [AudioMuter]::SetMuted($wasMuted) } catch {}',
+            '    $psi = New-Object System.Diagnostics.ProcessStartInfo',
+            '    $psi.FileName = $installer',
+            '    $psi.Arguments = $innoArgs + \' "/DIR=\' + $target + \'"\'',
+            '    $psi.Verb = \'RunAs\'',
+            '    $psi.UseShellExecute = $true',
+            '    $psi.WorkingDirectory = [System.IO.Path]::GetDirectoryName($installer)',
+            '    $proc = [System.Diagnostics.Process]::Start($psi)',
+            '} catch { Write-Host ("LAUNCH_FAIL " + $_.Exception.Message); exit 1223 }',
+            '$root = 0',
+            'if ($proc -ne $null) { try { $root = [int]$proc.Id } catch { $root = 0 } }',
+            'Write-Host ("ROOT=" + $root)',
+            '# Phase 1 — startup grace: wait until the installer is observably working, i.e. a NEW',
+            '# installer-named process appears OR the target folder starts growing. InnoSetup setup.exe',
+            '# may relaunch itself as setup.tmp (same base name "setup"); either satisfies this.',
+            '$startSize = Get-FolderSize $target',
+            '$seen = $false',
+            '$g = 0',
+            'while ($g -lt 30) {',
+            '    $act = @()',
+            '    try { $act = @(Get-Process -ErrorAction SilentlyContinue | Where-Object { ($root -ne 0 -and $_.Id -eq $root) -or ($base -ne "" -and $_.ProcessName -ieq $base -and -not $pre.ContainsKey([int]$_.Id)) }) } catch {}',
+            '    if ($act.Count -gt 0) { $seen = $true; break }',
+            '    if (((Get-FolderSize $target) - $startSize) -gt 2MB) { $seen = $true; break }',
+            '    Start-Sleep -Milliseconds 1000',
+            '    $g++',
+            '}',
+            'Write-Host ("PHASE1 seen=" + $seen)',
+            '# Phase 2 — wait for completion. While ANY installer process is alive we keep waiting',
+            '# (and mute its audio). Once none are alive we fall back to watching folder growth, so',
+            '# even if process detection ever misses the orphaned child the trailing writes keep us',
+            '# here. Done = sustained idle (no installer process AND no folder growth). Folder size is',
+            '# only measured while no process is active, so the hot install loop stays cheap.',
+            '$lastSize = Get-FolderSize $target',
+            '$idle = 0',
+            '$loops = 0',
+            'while ($true) {',
+            '    $act = @()',
+            '    try { $act = @(Get-Process -ErrorAction SilentlyContinue | Where-Object { ($root -ne 0 -and $_.Id -eq $root) -or ($base -ne "" -and $_.ProcessName -ieq $base -and -not $pre.ContainsKey([int]$_.Id)) }) } catch {}',
+            '    if ($act.Count -gt 0) {',
+            '        $seen = $true',
+            '        $idle = 0',
+            '        $ids = New-Object System.Collections.Generic.List[uint32]',
+            '        foreach ($p in $act) { try { [void]$ids.Add([uint32]$p.Id) } catch {} }',
+            '        $muteState = $true',
+            '        try { if ((Get-Content -LiteralPath "$env:SAIL_MUTE_FLAG" -ErrorAction SilentlyContinue) -eq "0") { $muteState = $false } } catch {}',
+            '        try { [void][AppMuter]::SetMute($ids.ToArray(), $muteState) } catch {}',
+            '        if ($env:SAIL_SKIP_REDIST -eq "1") { try { Get-Process -Name "dxwebsetup", "vcredist*", "vc_redist*", "dotNetFx*", "dotnet*" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue } catch {} }',
+            '    } else {',
+            '        $sz = Get-FolderSize $target',
+            '        if (($sz - $lastSize) -gt 1MB) { $idle = 0 } else { $idle++ }',
+            '        $lastSize = $sz',
+            '    }',
+            '    $need = 8',
+            '    if ($seen) { $need = 6 }',
+            '    if ($idle -ge $need) { break }',
+            '    $loops++',
+            '    if ($loops -gt 8000) { break }',
+            '    Start-Sleep -Milliseconds 1000',
+            '}',
+            'Write-Host ("DONE size=" + $lastSize)',
+            'if ($proc -ne $null) { try { $ec = $proc.ExitCode } catch { $ec = 0 } }',
+            'if ($null -eq $ec) { $ec = 0 }',
             'exit $ec'
         ];
+        // Fail fast (with a clear message) if the installer the caller handed us is missing,
+        // rather than spawning PowerShell only to hit LAUNCH_FAIL.
+        if (!installerPath || !fs.existsSync(installerPath)) {
+            return reject(new Error('Installer not found: ' + installerPath));
+        }
         const psScript = psLines.join('\r\n');
         const tmpFile = path.join(process.env.TEMP || process.env.TMP || path.dirname(installerPath), 'sail_inst_' + Date.now() + '.ps1');
-        try { fs.writeFileSync(tmpFile, psScript, 'utf8'); }
+        // Write WITH a UTF-8 BOM so Windows PowerShell 5.1 decodes the script as UTF-8 (it
+        // falls back to the ANSI code page for BOM-less files). The dynamic paths now travel
+        // via env vars below, but the BOM is cheap belt-and-suspenders.
+        try { fs.writeFileSync(tmpFile, '﻿' + psScript, 'utf8'); }
         catch (e) { return reject(e); }
 
         let proc;
-        try { proc = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', tmpFile], { windowsHide: true }); }
+        // Pass the Unicode paths as env vars — Windows hands these to the child as UTF-16, so a
+        // game folder with accents / apostrophes / CJK characters reaches PowerShell intact.
+        const psEnv = Object.assign({}, process.env, {
+            SAIL_INSTALLER: installerPath,
+            SAIL_TARGET: targetDir,
+            SAIL_ARGS: innoArgs,
+            SAIL_MUTE_FLAG: path.join(app.getPath('userData'), '.installer_mute'),
+            SAIL_SKIP_REDIST: skipExtras ? '1' : '0'
+        });
+        try { proc = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', tmpFile], { windowsHide: true, env: psEnv }); }
         catch (e) { try { fs.unlinkSync(tmpFile); } catch (er) {} return reject(e); }
         ctl.proc = proc;
+        // Capture the watcher's diagnostic output (LAUNCH/ROOT/PHASE1/DONE lines). Mirrored to
+        // the console AND a log file next to the install so a failed auto-install is debuggable.
+        let psOut = '';
+        try { proc.stdout && proc.stdout.on('data', d => { psOut += d.toString(); }); } catch (e) {}
+        try { proc.stderr && proc.stderr.on('data', d => { psOut += d.toString(); }); } catch (e) {}
         proc.on('error', (e) => { try { fs.unlinkSync(tmpFile); } catch (er) {} reject(e); });
         proc.on('close', (code) => {
             try { fs.unlinkSync(tmpFile); } catch (er) {}
+            try {
+                const trimmed = psOut.trim();
+                if (trimmed) console.log('[auto-install] ' + trimmed.replace(/\r?\n/g, ' | '));
+                fs.writeFileSync(path.join(path.dirname(targetDir), '_sail_install_log.txt'),
+                    '[' + new Date().toISOString() + '] exit=' + code + '\r\n' + psOut, 'utf8');
+            } catch (e) {}
             if (ctl.cancelled) return reject(new Error('Cancelled'));
             if (code === 1223) return reject(new Error('Windows permission prompt was declined'));   // UAC cancelled
             resolve(code);
         });
     });
+}
+
+// FitGirl/DODI installers are InnoSetup bootstrappers: the setup.exe we launch often
+// extracts a second installer to %TEMP%, hands off, and EXITS within a second — so the
+// process we waited on is gone long before the game has finished being written. Polling
+// the process tree alone declares "done" too early, we find no game exe, and the whole
+// install is wrongly reported as failed. Instead, after the launched process exits, watch
+// the destination folder and only consider the install finished once it has STOPPED
+// growing for a sustained window (or nothing was ever written → genuinely failed).
+function waitForDirSettle(dir, ctl, onTick) {
+    return new Promise((resolve) => {
+        const interval = 2500;          // poll cadence
+        const stableMs = 9000;          // size must hold steady this long to count as done
+        const graceZeroMs = 30000;      // if NOTHING is written within this, treat as failed
+        const maxMs = 90 * 60 * 1000;   // hard ceiling (huge repacks can take a while)
+        let last = -1, stableFor = 0, waited = 0;
+        const tick = () => {
+            if (ctl && ctl.cancelled) return resolve();
+            let sz = 0; try { sz = dirSizeBytes(dir, 0); } catch (e) {}
+            if (typeof onTick === 'function') { try { onTick(sz); } catch (e) {} }
+            if (sz === 0) {
+                if (waited >= graceZeroMs) return resolve();   // installer wrote nothing → give up
+            } else if (last >= 0 && Math.abs(sz - last) < 1024 * 1024) {
+                stableFor += interval;
+                if (stableFor >= stableMs) return resolve();    // size held steady → install finished
+            } else {
+                stableFor = 0;
+            }
+            last = sz;
+            waited += interval;
+            if (waited >= maxMs) return resolve();
+            setTimeout(tick, interval);
+        };
+        setTimeout(tick, interval);
+    });
+}
+
+// After a successful extraction, delete the source archive(s) we just unpacked so the
+// download folder isn't left holding both the game AND its (often huge) original zip/rar.
+// Only top-level archive files are removed — never the extracted _game folder or cover.
+function deleteArchiveSources(dir) {
+    let ents; try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { return; }
+    // primary archives + split-volume siblings (.zip/.7z .001/.002, .partN.rar, .r00/.z01)
+    const ARCHIVE = /\.(zip|rar|7z|iso)$|\.(zip|7z)\.\d{3}$|\.part\d+\.rar$|\.r\d{2}$|\.z\d{2}$|\.\d{3}$/i;
+    for (const en of ents) {
+        if (!en.isFile()) continue;
+        if (/^_cover\./i.test(en.name)) continue;
+        if (ARCHIVE.test(en.name)) { try { fs.unlinkSync(path.join(dir, en.name)); } catch (e) {} }
+    }
 }
 
 // After a successful install, remove the downloaded repack (setup.exe + fg-*.bin +
@@ -1879,13 +2213,36 @@ async function postProcessDownload(dir, opts) {
 
     if (opts.autoExtract !== false && archives.length) {
         const extractTo = path.join(dir, '_game');
+        let anyExtracted = false;
         for (const arc of archives) {
-            try { await extractArchive(arc, extractTo); result.extracted = true; }
+            try { await extractArchive(arc, extractTo); result.extracted = true; anyExtracted = true; }
             catch (e) { /* leave archive in place if extraction fails */ }
         }
-        if (result.extracted) result.exePath = findGameExe(extractTo) || findGameExe(dir) || '';
+        if (result.extracted) result.exePath = findGameExe(extractTo, opts.gameName) || findGameExe(dir, opts.gameName) || '';
+        // CRITICAL: the file list above was captured BEFORE extraction, so it only knew about
+        // the archives (now deleted). A repack can ship setup.exe + fg-*.bin INSIDE that archive
+        // (FitGirl/DODI sometimes wrap the installer in a .rar). Re-walk the extracted folder and
+        // append its files so the installer detection below can see them — otherwise needsInstall
+        // is never set and the auto-installer never runs.
+        if (result.extracted) {
+            (function walk(d, depth) {
+                if (depth > 6) return;
+                let ents; try { ents = fs.readdirSync(d, { withFileTypes: true }); } catch (e) { return; }
+                for (const en of ents) {
+                    const full = path.join(d, en.name);
+                    if (en.isDirectory()) { walk(full, depth + 1); continue; }
+                    if (/^_cover\./i.test(en.name)) continue;
+                    let size = 0; try { size = fs.statSync(full).size; } catch (e) {}
+                    allFiles.push({ name: en.name, full, size });
+                }
+            })(extractTo, 0);
+        }
+        // Free the disk: once extraction succeeded and produced real content, delete the
+        // source archive(s) + their split-part siblings (e.g. SteamGG's leftover 18 GB zip).
+        let extractedSize = 0; try { extractedSize = dirSizeBytes(extractTo, 0); } catch (e) {}
+        if (anyExtracted && extractedSize > 5 * 1024 * 1024) deleteArchiveSources(dir);
     }
-    if (!result.exePath) result.exePath = findGameExe(dir) || '';
+    if (!result.exePath) result.exePath = findGameExe(dir, opts.gameName) || '';
 
     // Installer-style payloads (e.g. FitGirl: setup.exe + fg-*.bin parts, often in a
     // torrent subfolder) aren't auto-extractable but ARE a successful download — the
@@ -2039,10 +2396,12 @@ ipcMain.handle('download-game', async (e, opts) => {
                 let host = 'this host'; try { host = new URL(l.url).hostname.replace(/^www\./, ''); } catch (er) {}
                 let msg = 'Could not auto-resolve a direct link for ' + host + '. Use "Open game page" to download it manually.';
                 if (/megadb/i.test(host)) msg = 'MegaDB requires a captcha that can\'t be bypassed automatically. Click "Open game page" and download it from the site.';
+                else if (/pixeldrain/i.test(host)) msg = 'Pixeldrain is rate-limiting this connection (its free transfer cap / captcha). It\'s not a launcher bug — wait for the cap to reset, pick another host (FileKeeper / FuckingFast / Gofile), or use "Open game page" to solve the captcha on the site.';
                 else if (/gofile/i.test(host)) msg = 'Gofile\'s API is temporarily unavailable (their servers, not the launcher). Try again in a minute, or pick another host.';
                 else if (/datanodes/i.test(host)) msg = 'DataNodes is now behind a Cloudflare "verify you are human" check, so it can\'t download automatically. Pick another host (Pixeldrain / FileKeeper / FuckingFast), or use "Open game page".';
                 else if (/akirabox/i.test(host)) msg = 'AkiraBox is behind a Cloudflare "verify you are human" check (a checkbox you have to click), so it can\'t download automatically. Pick another host (Pixeldrain / FileKeeper / FuckingFast), or use "Open game page".';
                 else if (/buzzheavier|bzzhr/i.test(host)) msg = 'Buzzheavier is behind a Cloudflare "verify you are human" check (a checkbox you have to click), so it can\'t download automatically. Pick another host (Pixeldrain / FileKeeper / FuckingFast), or use "Open game page".';
+                else if (/1337x/i.test(host)) msg = '1337x is a Cloudflare-protected torrent index, so it can\'t download automatically. Use "Open game page" / "Browse" to grab the torrent from the site.';
                 throw Object.assign(new Error(msg), { needsBrowser: true });
             }
             resolved.forEach((f, idx) => files.push(Object.assign({ name: f.name || l.name, origin: l.url, originIndex: idx }, f)));
@@ -2114,16 +2473,28 @@ ipcMain.handle('download-game', async (e, opts) => {
                         let gb = 0; try { gb = dirSizeBytes(installTarget, 0) / (1024 * 1024 * 1024); } catch (e) {}
                         wc.send('download-progress', {
                             id, state: 'installing', percent: 100,
-                            label: 'Installing… ' + gb.toFixed(2) + ' GB written (this is CPU-heavy, please wait)'
+                            label: gb > 0.01
+                                ? 'Installing game… ' + gb.toFixed(2) + ' GB written (this can take several minutes — keep the launcher open)'
+                                : 'Installing game… preparing files (this can take several minutes — keep the launcher open)'
                         });
                         await new Promise(r => setTimeout(r, 2500));
                     }
                 })();
                 try {
-                    wc.send('download-progress', { id, state: 'installing', percent: 100, label: 'Starting installer… (approve the Windows prompt if it appears)' });
+                    wc.send('download-progress', { id, state: 'installing', percent: 100, label: 'Starting the installer — approve the Windows admin prompt if it appears…' });
+                    // runSilentInstall now blocks until the orphaned InnoSetup child (setup.tmp)
+                    // has fully exited, so the game files are already written when it returns.
                     await runSilentInstall(res.exePath, installTarget, ctl, opts.skipRedist !== false);
                     polling = false;
-                    const exe = findGameExe(installTarget);
+                    // A short settle catches any trailing writes (shortcuts, config) flushed in the
+                    // last moment after the installer process exited.
+                    await waitForDirSettle(installTarget, ctl, (sz) => {
+                        const gb = sz / (1024 * 1024 * 1024);
+                        wc.send('download-progress', { id, state: 'installing', percent: 100, label: 'Finishing up… ' + gb.toFixed(2) + ' GB installed' });
+                    });
+                    // The exe occasionally lands a beat after the final byte — retry a couple times.
+                    let exe = findGameExe(installTarget, opts.gameName);
+                    for (let t = 0; !exe && t < 3; t++) { await new Promise(r => setTimeout(r, 3000)); exe = findGameExe(installTarget, opts.gameName); }
                     if (exe) {
                         cleanRepackSource(dir, installTarget);   // succeeded → remove the repack files
                         res.exePath = exe;
@@ -2133,12 +2504,15 @@ ipcMain.handle('download-game', async (e, opts) => {
                     } else {
                         // Installer ran but we couldn't find a game exe — keep the repack so
                         // the user can install it manually; report it instead of faking success.
+                        // Clear exePath so setup.exe is never handed back as the launch target.
                         res.installFailed = true;
+                        res.exePath = '';
                     }
                 } catch (instErr) {
                     polling = false;
                     if (ctl.cancelled || /cancelled/i.test(instErr.message)) throw instErr;
                     res.installFailed = true;
+                    res.exePath = '';
                     res.installError = instErr.message;
                 }
             }
