@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sail Launcher - Version History & Changelog</title>
+    <meta name="description" content="Full version history and changelog for Sail Launcher. Browse every stable release and read the complete release notes.">
+
+    <!-- Icons & Cover Photo -->
+    <link rel="icon" type="image/png" href="icon.png">
+    <link rel="apple-touch-icon" href="icon.png">
+    <meta property="og:title" content="Sail Launcher - Version History & Changelog">
+    <meta property="og:description" content="Full version history and changelog for Sail Launcher. Browse every stable release and read the complete release notes.">
+    <meta property="og:image" content="icon.png">
+    <meta property="og:url" content="https://sailhub.fyi/versions">
+    <meta property="og:type" content="website">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:image" content="icon.png">
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Markdown rendering + sanitizing for GitHub release notes -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3/dist/purify.min.js"></script>
+
+    <style>
+        :root {
+            --bg: #0b0b0f;
+            --text: #fafafa;
+            --card: rgba(24, 24, 27, 0.45);
+            --border: rgba(255, 255, 255, 0.08);
+            --accent: #a855f7;
+            --accent-hover: #c084fc;
+            --accent-rgb: 168, 85, 247;
+            --muted: #a1a1aa;
+            --danger: #ef4444;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html { scroll-behavior: smooth; }
+        body {
+            background: var(--bg); color: var(--text);
+            font-family: 'Inter', system-ui, sans-serif;
+            min-height: 100vh; display: flex; flex-direction: column;
+            overflow-x: hidden;
+        }
+        body::before {
+            content: ""; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+            background: radial-gradient(circle at 50% 20%, rgba(var(--accent-rgb), 0.12), transparent 50%),
+                        radial-gradient(circle at 80% 80%, rgba(var(--accent-rgb), 0.06), transparent 40%);
+            animation: pulseBg 10s infinite alternate;
+        }
+        @keyframes pulseBg { 0%{opacity:.8} 100%{opacity:1} }
+        @keyframes fadeIn { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:translateY(0)} }
+        @keyframes spin-inline { to { transform: rotate(360deg); } }
+
+        h1, h2, h3, h4, .logo { font-family: 'Outfit', sans-serif; }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar { width: 10px; }
+        ::-webkit-scrollbar-track { background: var(--bg); }
+        ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 5px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+
+        /* Navbar */
+        .navbar {
+            background: rgba(11, 11, 15, 0.8); backdrop-filter: blur(16px);
+            border-bottom: 1px solid var(--border); padding: 14px 40px;
+            display: flex; justify-content: space-between; align-items: center;
+            position: sticky; top: 0; z-index: 100;
+        }
+        .logo { font-size: 1.5rem; font-weight: 700; letter-spacing: 0.5px; color: var(--text); text-decoration: none; display: flex; align-items: center; gap: 10px; }
+        .logo img { height: 32px; width: auto; object-fit: contain; }
+        .logo span { color: var(--accent); }
+        .nav-links { display: flex; gap: 24px; align-items: center; }
+        .nav-links a { color: var(--muted); text-decoration: none; font-size: 0.95rem; font-weight: 500; transition: 0.2s; }
+        .nav-links a:hover { color: var(--text); }
+        .nav-links a.active { color: var(--text); border-bottom: 2px solid var(--accent); padding-bottom: 2px; }
+        .nav-right { display: flex; align-items: center; gap: 14px; }
+
+        /* Buttons */
+        .btn {
+            padding: 10px 20px; border-radius: 8px; border: 1px solid var(--border);
+            background: rgba(255, 255, 255, 0.03); color: var(--text); font-weight: 600; cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); font-size: .92rem; text-decoration: none;
+            display: inline-flex; align-items: center; gap: 8px; font-family: 'Inter', sans-serif;
+        }
+        .btn:hover { border-color: rgba(168, 85, 247, 0.4); color: var(--accent-hover); transform: translateY(-1px); background: rgba(168, 85, 247, 0.03); }
+        .btn-accent { background: var(--accent); border-color: var(--accent); color: #fff; box-shadow: 0 4px 14px rgba(168, 85, 247, 0.3); }
+        .btn-accent:hover { background: var(--accent-hover); border-color: var(--accent-hover); color: #fff; box-shadow: 0 6px 20px rgba(168, 85, 247, 0.4); }
+        .btn-sm { padding: 7px 14px; font-size: .82rem; border-radius: 6px; }
+
+        /* Page header / container */
+        .container { max-width: 880px; margin: 0 auto; padding: 60px 20px; width: 100%; flex: 1; }
+        .section-header { text-align: center; margin-bottom: 48px; }
+        .section-header h1 { font-size: 2.8rem; font-weight: 800; margin-bottom: 14px; letter-spacing: -0.5px; }
+        .section-header p { color: var(--muted); font-size: 1.12rem; max-width: 600px; margin: 0 auto; line-height: 1.5; }
+
+        /* Release list (accordion) */
+        .release-list { display: flex; flex-direction: column; gap: 14px; }
+        .release {
+            background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+            overflow: hidden; transition: border-color 0.25s ease, background 0.25s ease;
+            animation: fadeIn 0.5s ease;
+        }
+        .release:hover { border-color: rgba(168, 85, 247, 0.25); }
+        .release.open { border-color: rgba(168, 85, 247, 0.35); background: rgba(24, 24, 27, 0.6); }
+
+        .release-header {
+            width: 100%; background: none; border: none; color: var(--text);
+            font-family: inherit; cursor: pointer; text-align: left;
+            display: flex; align-items: center; justify-content: space-between; gap: 16px;
+            padding: 20px 24px;
+        }
+        .release-title { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+        .release-title .version { font-family: 'Outfit', sans-serif; font-size: 1.3rem; font-weight: 700; letter-spacing: -0.3px; }
+        .release-title .rel-name { color: var(--muted); font-size: 0.92rem; font-weight: 500; }
+        .badge {
+            font-size: 0.68rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px;
+            padding: 3px 9px; border-radius: 99px; white-space: nowrap;
+        }
+        .badge-latest { background: rgba(168, 85, 247, 0.15); border: 1px solid rgba(168, 85, 247, 0.4); color: #d8b4fe; }
+
+        .release-meta { display: flex; align-items: center; gap: 16px; flex-shrink: 0; }
+        .release-date { color: var(--muted); font-size: 0.88rem; white-space: nowrap; }
+        .chevron { width: 18px; height: 18px; stroke: var(--muted); fill: none; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; transition: transform 0.3s ease, stroke 0.2s ease; flex-shrink: 0; }
+        .release.open .chevron { transform: rotate(180deg); stroke: var(--accent); }
+
+        /* Collapsible body (0fr -> 1fr grid trick) */
+        .release-body { display: grid; grid-template-rows: 0fr; transition: grid-template-rows 0.3s ease; }
+        .release.open .release-body { grid-template-rows: 1fr; }
+        .release-body > .inner { overflow: hidden; }
+        .release-notes { padding: 0 24px 4px 24px; border-top: 1px solid var(--border); }
+        .release-notes-pad { padding-top: 18px; }
+
+        /* Rendered markdown styling */
+        .md { color: #d4d4d8; font-size: 0.95rem; line-height: 1.7; word-wrap: break-word; }
+        .md h1, .md h2, .md h3, .md h4 { color: var(--text); margin: 18px 0 10px; line-height: 1.3; }
+        .md h1 { font-size: 1.5rem; } .md h2 { font-size: 1.3rem; } .md h3 { font-size: 1.12rem; } .md h4 { font-size: 1rem; }
+        .md h1:first-child, .md h2:first-child, .md h3:first-child, .md p:first-child { margin-top: 0; }
+        .md p { margin: 10px 0; }
+        .md ul, .md ol { margin: 10px 0; padding-left: 24px; }
+        .md li { margin: 5px 0; }
+        .md a { color: var(--accent); text-decoration: none; }
+        .md a:hover { color: var(--accent-hover); text-decoration: underline; }
+        .md code { background: rgba(255,255,255,0.07); padding: 2px 6px; border-radius: 5px; font-size: 0.86em; font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace; }
+        .md pre { background: rgba(0,0,0,0.4); border: 1px solid var(--border); padding: 14px; border-radius: 10px; overflow-x: auto; margin: 12px 0; }
+        .md pre code { background: none; padding: 0; }
+        .md blockquote { border-left: 3px solid var(--accent); margin: 12px 0; padding: 4px 0 4px 16px; color: var(--muted); }
+        .md img { max-width: 100%; height: auto; border-radius: 8px; }
+        .md hr { border: none; border-top: 1px solid var(--border); margin: 18px 0; }
+        .md table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 0.9rem; }
+        .md th, .md td { border: 1px solid var(--border); padding: 8px 12px; text-align: left; }
+        .md th { background: rgba(255,255,255,0.04); }
+
+        .release-footer { display: flex; gap: 12px; flex-wrap: wrap; padding: 16px 0 22px; }
+        .release-link { font-size: 0.86rem; color: var(--accent); text-decoration: none; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; }
+        .release-link:hover { color: var(--accent-hover); }
+
+        /* Loading / error states */
+        .state { text-align: center; padding: 60px 20px; color: var(--muted); }
+        .spinner {
+            width: 36px; height: 36px; border: 3px solid var(--border);
+            border-top-color: var(--accent); border-radius: 50%;
+            animation: spin-inline 0.8s linear infinite; margin: 0 auto 18px;
+        }
+        .state .btn { margin-top: 18px; }
+
+        /* Footer */
+        footer { text-align: center; padding: 40px 20px; border-top: 1px solid var(--border); color: var(--muted); font-size: .88rem; margin-top: auto; }
+        footer a { color: var(--accent); text-decoration: none; font-weight: 500; }
+        footer a:hover { color: var(--accent-hover); text-decoration: underline; }
+
+        @media (max-width: 960px) {
+            .navbar { padding: 14px 24px; }
+            .nav-links { display: none; }
+        }
+        @media (max-width: 640px) {
+            .navbar { padding: 12px 16px; }
+            .container { padding: 36px 14px; }
+            .section-header h1 { font-size: 2.1rem; }
+            .release-header { padding: 16px 16px; }
+            .release-notes { padding: 0 16px 4px 16px; }
+            .release-meta { gap: 10px; }
+        }
+    </style>
+</head>
+<body>
+
+<nav class="navbar">
+    <a href="/" class="logo">
+        <img src="icon.png" alt="Sail Launcher Logo">
+        Sail <span>Launcher</span>
+    </a>
+
+    <div class="nav-links">
+        <a href="/">Home</a>
+        <a href="/#features">Features</a>
+        <a href="/plugins">Themes & Plugins</a>
+        <a href="/versions" class="active">Versions</a>
+        <a href="/betas">Betas</a>
+        <a href="https://github.com/Aseoriy/Sail-Launcher" target="_blank">GitHub</a>
+    </div>
+
+    <div class="nav-right">
+        <a href="/betas" class="btn btn-sm">🧪 Betas</a>
+        <a href="https://github.com/Aseoriy/Sail-Launcher/releases" target="_blank" class="btn btn-accent btn-sm">All Releases</a>
+    </div>
+</nav>
+
+<div class="container">
+    <div class="section-header">
+        <h1>Version History</h1>
+        <p>Every stable release of Sail Launcher. Click a version to read its full changelog. Pulled live from GitHub, so it's always up to date.</p>
+    </div>
+
+    <div id="releaseList" class="release-list"></div>
+
+    <div id="loadingState" class="state">
+        <div class="spinner"></div>
+        Loading release history…
+    </div>
+
+    <div id="errorState" class="state" style="display:none;">
+        <p>Couldn't load releases from GitHub right now.</p>
+        <a href="https://github.com/Aseoriy/Sail-Launcher/releases" target="_blank" class="btn btn-accent btn-sm">View Releases on GitHub</a>
+    </div>
+</div>
+
+<!-- FOOTER -->
+<footer>
+    <p>Built for <a href="https://github.com/Aseoriy/Sail-Launcher">Sail Launcher</a>. Looking for test builds? Check out the <a href="/betas">Betas</a> page.</p>
+    <p style="margin-top: 14px; font-size: 0.84rem; opacity: 0.8;">
+        <a href="/privacy" style="margin-right: 10px;">Privacy Policy</a> &bull;
+        <a href="/terms" style="margin-left: 10px;">Terms of Service</a>
+    </p>
+</footer>
+
+<script>
+const RELEASES_API = 'https://api.github.com/repos/Aseoriy/Sail-Launcher/releases?per_page=100';
+
+if (window.marked) {
+    marked.setOptions({ gfm: true, breaks: true });
+}
+
+function formatDate(iso) {
+    try {
+        return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+    } catch (e) { return ''; }
+}
+
+function renderNotes(body) {
+    const raw = (body || '').trim();
+    if (!raw) return '<p style="color:var(--muted);">No release notes were provided for this version.</p>';
+    const html = window.marked ? marked.parse(raw) : raw.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/\n/g,'<br>');
+    return window.DOMPurify ? DOMPurify.sanitize(html) : html;
+}
+
+function buildRelease(rel, isLatest) {
+    const wrap = document.createElement('div');
+    wrap.className = 'release';
+
+    const version = rel.tag_name || rel.name || 'Unknown';
+    const date = formatDate(rel.published_at);
+
+    wrap.innerHTML = `
+        <button class="release-header" aria-expanded="false">
+            <div class="release-title">
+                <span class="version">${version}</span>
+                ${isLatest ? '<span class="badge badge-latest">Latest</span>' : ''}
+            </div>
+            <div class="release-meta">
+                <span class="release-date">${date}</span>
+                <svg class="chevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </div>
+        </button>
+        <div class="release-body">
+            <div class="inner">
+                <div class="release-notes">
+                    <div class="release-notes-pad">
+                        <div class="md">${renderNotes(rel.body)}</div>
+                        <div class="release-footer">
+                            <a class="release-link" href="${rel.html_url}" target="_blank" rel="noopener">View on GitHub &rarr;</a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>`;
+
+    const header = wrap.querySelector('.release-header');
+    header.addEventListener('click', () => {
+        const open = wrap.classList.toggle('open');
+        header.setAttribute('aria-expanded', open ? 'true' : 'false');
+    });
+
+    if (isLatest) {
+        wrap.classList.add('open');
+        header.setAttribute('aria-expanded', 'true');
+    }
+    return wrap;
+}
+
+async function loadReleases() {
+    const list = document.getElementById('releaseList');
+    const loading = document.getElementById('loadingState');
+    const errorState = document.getElementById('errorState');
+
+    try {
+        const res = await fetch(RELEASES_API);
+        if (!res.ok) throw new Error('GitHub API error ' + res.status);
+        const data = await res.json();
+
+        // Stable releases only: not a prerelease, not a draft.
+        const stable = data.filter(r => !r.prerelease && !r.draft);
+
+        loading.style.display = 'none';
+
+        if (!stable.length) {
+            errorState.style.display = 'block';
+            errorState.querySelector('p').textContent = 'No stable releases found yet.';
+            return;
+        }
+
+        stable.forEach((rel, i) => list.appendChild(buildRelease(rel, i === 0)));
+    } catch (err) {
+        console.error('Failed to load releases:', err);
+        loading.style.display = 'none';
+        errorState.style.display = 'block';
+    }
+}
+
+loadReleases();
+</script>
+</body>
+</html>

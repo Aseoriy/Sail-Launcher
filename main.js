@@ -1248,7 +1248,7 @@ const AD_BLOCK_HOSTS = [
 ];
 let adBlockEnabled = true;
 // hosts that are legitimate download targets — never treat these as ads
-const DL_HOST_ALLOW = /(gofile|pixeldrain|datanodes|buzzheavier|fuckingfast|1fichier|mediafire|mega\.nz|megadb|qiwi|multiup|bowfile|hexload|vikingfile|rootz|akirabox|filekeeper|filecrypt|online-fix|steamrip|fitgirl|dodi|rutor\.info)/i;
+const DL_HOST_ALLOW = /(gofile|pixeldrain|datanodes|fuckingfast|1fichier|mediafire|mega\.nz|megadb|qiwi|multiup|bowfile|hexload|vikingfile|rootz|akirabox|filekeeper|filecrypt|online-fix|steamrip|fitgirl|dodi|rutor\.info)/i;
 function isAdHost(url) {
     try {
         const h = new URL(url).hostname.toLowerCase();
@@ -1444,8 +1444,12 @@ async function scrapePixeldrain(rawUrl, referer) {
             const res = await dlRequest('GET', `https://pixeldrain.com/api/list/${lm[1]}`, { headers: probeHeaders });
             let data = null; try { data = JSON.parse(res.body); } catch (e) {}
             const files = (data && Array.isArray(data.files)) ? data.files : [];
-            const out = files.filter(f => f && f.id)
-                .map(f => ({ url: `https://pixeldrain.com/api/file/${f.id}?download`, name: f.name || '', kind: 'http', headers }));
+            const out = [];
+            for (const f of files.filter(f => f && f.id)) {
+                const direct = `https://pixeldrain.com/api/file/${f.id}?download`;
+                const prox = await pixeldrainProxyUrl(direct);
+                out.push({ url: prox || direct, name: f.name || '', kind: 'http', headers });
+            }
             if (out.length) return out;
         } catch (e) {}
         return null;
@@ -1455,11 +1459,17 @@ async function scrapePixeldrain(rawUrl, referer) {
     const m = rawUrl.match(/\/(?:u|d|api\/file)\/([a-zA-Z0-9_-]+)/i);
     if (!m) return null;
     const direct = `https://pixeldrain.com/api/file/${m[1]}?download`;
-    // Verify the file is actually servable BEFORE handing it to aria2. When this IP has
-    // hit Pixeldrain's free transfer cap, the API answers 403 / 429 with a body like
-    // {success:false,value:"file_rate_limited_captcha_required"} — that needs a human
-    // captcha on the website and can't be bypassed here. Detect it and bail cleanly
-    // (a HEAD request never buffers the multi-GB body) so the user gets a clear message.
+    // Route through a randomly-chosen Cloudflare Worker proxy when one is configured:
+    // the fetch then originates from Cloudflare's IP (not the user's), transparently
+    // bypassing pixeldrain's 10GB/day per-IP cap. pixeldrainProxyUrl HEAD-probes the
+    // chosen worker and falls back to the next; null means every worker was dead.
+    const prox = await pixeldrainProxyUrl(direct);
+    if (prox) return [{ url: prox, kind: 'http', headers }];
+    // No (working) proxy → go direct, but verify the file is actually servable BEFORE
+    // handing it to aria2. When this IP has hit Pixeldrain's free transfer cap, the API
+    // answers 403 / 429 with a body like {success:false,value:"file_rate_limited_captcha_required"}
+    // — that needs a human captcha on the website and can't be bypassed here. Detect it and
+    // bail cleanly (a HEAD request never buffers the multi-GB body) so the user gets a clear message.
     try {
         const chk = await dlRequest('HEAD', direct, { headers: probeHeaders, follow: false });
         if (chk.status === 403 || chk.status === 429 || /captcha|rate.?limited|too.?many/i.test(chk.body || '')) return null;
@@ -1671,28 +1681,235 @@ async function scrapeVikingfile(rawUrl) {
 // through to the "direct archive" check (their page URLs often end in .bin/.rar
 // and would otherwise download the HTML landing page) nor to the browser (which
 // hangs on their JS/captcha). We just report failure so the user can pick another host.
-const DL_KNOWN_HOST = /gofile|pixeldrain\.(com|net|in|nl|biz|tech|dev)|datanodes|buzzheavier\.com|bzzhr\.(co|to)|fuckingfast\.(co|net)|mediafire|megadb|filekeeper/i;
+const DL_KNOWN_HOST = /gofile|pixeldrain\.(com|net|in|nl|biz|tech|dev)|datanodes|fuckingfast\.(co|net)|mediafire|megadb|filekeeper/i;
 
 // Per-source Referer to spoof when a host applies hotlink protection.
 const SOURCE_REFERER = { steamgg: 'https://steamgg.net/' };
+
+// ===================================================================
+// PixelDrain Cloudflare-Worker proxy pool + Debrid services
+// (config is pushed from the renderer via the IPC handlers below)
+// ===================================================================
+// Built-in Worker pool — used whenever the user hasn't configured their own in
+// Download Settings. These bypass pixeldrain's 10GB/day per-IP cap by fetching from
+// Cloudflare's IP. Rewriting through one of these is the whole point of the proxy, so
+// we default to them rather than ever handing aria2 a bare pixeldrain.com URL.
+const DEFAULT_PIXELDRAIN_PROXIES = [
+    'https://saillauncher.alissatorz.workers.dev',
+    'https://saillauncher2.alissatorz.workers.dev',
+    'https://saillauncher3.alissatorz.workers.dev',
+    'https://saillauncher4.alissatorz.workers.dev',
+];
+let pixeldrainProxies = DEFAULT_PIXELDRAIN_PROXIES.slice(); // list of Worker base URLs, e.g. https://xyz.workers.dev
+ipcMain.on('set-pixeldrain-proxies', (e, list) => {
+    const cleaned = Array.isArray(list)
+        ? list.map(u => String(u || '').trim()).filter(u => /^https?:\/\//i.test(u))
+        : [];
+    // An empty/invalid push (e.g. the renderer sending defaults on startup) must NOT
+    // wipe the built-in pool — fall back to the defaults so pixeldrain always proxies.
+    pixeldrainProxies = cleaned.length ? cleaned : DEFAULT_PIXELDRAIN_PROXIES.slice();
+});
+
+// Wrap a direct pixeldrain API url through a RANDOMLY chosen Worker proxy so the
+// download originates from Cloudflare's IP (bypassing the 10GB/day per-IP cap).
+// NO blocking liveness probe: a HEAD probe that timed out/failed on the very first
+// click used to make this return null → aria2 hit pixeldrain DIRECTLY (4xx/5xx),
+// while the second click "worked" because the worker was warm by then. Instead we
+// shuffle and return a worker IMMEDIATELY — the rewrite is the whole point, and
+// aria2's own retry/failover handles a truly dead worker. Returns null only when
+// the pool is literally empty (which, with DEFAULT_PIXELDRAIN_PROXIES, never happens).
+function pixeldrainProxyUrl(directUrl) {
+    const pool = (pixeldrainProxies || []).slice();
+    if (!pool.length) return null; // no workers configured → fall back to direct pixeldrain
+    for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const t = pool[i]; pool[i] = pool[j]; pool[j] = t; }
+    const wrap = (base) => base.replace(/\/+$/, '') + '/?url=' + encodeURIComponent(directUrl);
+    return wrap(pool[0]);
+}
+
+// Debrid services. Each: validate(key) -> {ok, user?} ; unrestrict(key, link) -> {url, name?} | null
+const DEBRID = {
+    realdebrid: {
+        name: 'Real-Debrid',
+        async validate(key) {
+            const r = await dlRequest('GET', 'https://api.real-debrid.com/rest/1.0/user', { headers: { Authorization: 'Bearer ' + key } });
+            if (r.status === 200) { try { const j = JSON.parse(r.body); return { ok: true, user: j.username || '' }; } catch (e) {} }
+            return { ok: false };
+        },
+        async unrestrict(key, link) {
+            const r = await dlRequest('POST', 'https://api.real-debrid.com/rest/1.0/unrestrict/link', { headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'link=' + encodeURIComponent(link) });
+            try { const j = JSON.parse(r.body); if (j && j.download) return { url: j.download, name: j.filename || '' }; } catch (e) {}
+            return null;
+        }
+    },
+    alldebrid: {
+        name: 'AllDebrid',
+        async validate(key) {
+            const r = await dlRequest('GET', 'https://api.alldebrid.com/v4/user?agent=SailLauncher&apikey=' + encodeURIComponent(key));
+            try { const j = JSON.parse(r.body); if (j.status === 'success') return { ok: true, user: (j.data && j.data.user && j.data.user.username) || '' }; } catch (e) {}
+            return { ok: false };
+        },
+        async unrestrict(key, link) {
+            const r = await dlRequest('GET', 'https://api.alldebrid.com/v4/link/unlock?agent=SailLauncher&apikey=' + encodeURIComponent(key) + '&link=' + encodeURIComponent(link));
+            try { const j = JSON.parse(r.body); if (j.status === 'success' && j.data && j.data.link) return { url: j.data.link, name: j.data.filename || '' }; } catch (e) {}
+            return null;
+        }
+    },
+    premiumize: {
+        name: 'Premiumize',
+        async validate(key) {
+            const r = await dlRequest('GET', 'https://www.premiumize.me/api/account/info?apikey=' + encodeURIComponent(key));
+            try { const j = JSON.parse(r.body); if (j.status === 'success') return { ok: true, user: j.customer_id ? String(j.customer_id) : '' }; } catch (e) {}
+            return { ok: false };
+        },
+        async unrestrict(key, link) {
+            const r = await dlRequest('POST', 'https://www.premiumize.me/api/transfer/directdl?apikey=' + encodeURIComponent(key), { headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'src=' + encodeURIComponent(link) });
+            try {
+                const j = JSON.parse(r.body);
+                if (j.status === 'success') {
+                    if (j.location) return { url: j.location, name: j.filename || '' };
+                    if (Array.isArray(j.content) && j.content[0] && j.content[0].link) return { url: j.content[0].link, name: j.content[0].path || '' };
+                }
+            } catch (e) {}
+            return null;
+        }
+    },
+    debridlink: {
+        name: 'Debrid-Link',
+        async validate(key) {
+            const r = await dlRequest('GET', 'https://debrid-link.com/api/v2/account/infos', { headers: { Authorization: 'Bearer ' + key } });
+            try { const j = JSON.parse(r.body); if (j.success && j.value) return { ok: true, user: j.value.username || j.value.email || '' }; } catch (e) {}
+            return { ok: false };
+        },
+        async unrestrict(key, link) {
+            const r = await dlRequest('POST', 'https://debrid-link.com/api/v2/downloader/add', { headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'url=' + encodeURIComponent(link) });
+            try { const j = JSON.parse(r.body); if (j.success && j.value && j.value.downloadUrl) return { url: j.value.downloadUrl, name: j.value.name || '' }; } catch (e) {}
+            return null;
+        }
+    },
+    torbox: {
+        name: 'TorBox',
+        async validate(key) {
+            const r = await dlRequest('GET', 'https://api.torbox.app/v1/api/user/me', { headers: { Authorization: 'Bearer ' + key } });
+            try { const j = JSON.parse(r.body); if (j.success) return { ok: true, user: (j.data && (j.data.email || j.data.username)) || '' }; } catch (e) {}
+            return { ok: false };
+        },
+        async unrestrict(key, link) {
+            // TorBox web-downloads are async: create the job, briefly poll for a ready
+            // link (cached hoster links resolve in seconds), then request the direct URL.
+            const auth = { Authorization: 'Bearer ' + key };
+            let id = null;
+            try {
+                const c = await dlRequest('POST', 'https://api.torbox.app/v1/api/webdl/createwebdownload', { headers: Object.assign({ 'Content-Type': 'application/x-www-form-urlencoded' }, auth), body: 'link=' + encodeURIComponent(link) });
+                const j = JSON.parse(c.body); if (j.success && j.data) id = j.data.webdownload_id || j.data.id || j.data.hash;
+            } catch (e) {}
+            if (!id) return null;
+            for (let attempt = 0; attempt < 6; attempt++) {
+                try {
+                    const l = await dlRequest('GET', 'https://api.torbox.app/v1/api/webdl/mylist?id=' + encodeURIComponent(id), { headers: auth });
+                    const j = JSON.parse(l.body);
+                    const item = j && j.data ? (Array.isArray(j.data) ? j.data[0] : j.data) : null;
+                    if (item && (item.download_present || item.download_finished || item.cached)) {
+                        const fileId = (item.files && item.files[0] && (item.files[0].id != null ? item.files[0].id : 0)) || 0;
+                        const dl = await dlRequest('GET', 'https://api.torbox.app/v1/api/webdl/requestdl?token=' + encodeURIComponent(key) + '&web_id=' + encodeURIComponent(id) + '&file_id=' + fileId, { headers: auth });
+                        const dj = JSON.parse(dl.body);
+                        if (dj.success && dj.data) {
+                            const url = typeof dj.data === 'string' ? dj.data : (dj.data.url || dj.data);
+                            if (typeof url === 'string') return { url, name: (item.files && item.files[0] && item.files[0].name) || item.name || '' };
+                        }
+                    }
+                } catch (e) {}
+                await new Promise(res => setTimeout(res, 1500));
+            }
+            return null;
+        }
+    }
+};
+let debridService = '', debridKey = '';
+function debridActive() { return !!(debridService && debridKey && DEBRID[debridService]); }
+function debridServiceName() { return (debridService && DEBRID[debridService] && DEBRID[debridService].name) || ''; }
+
+// Resolved-link cache. A debrid service hands back a direct URL that stays valid
+// for a while, so caching it lets a repeat request for the same source link skip
+// the API round-trip and resolve instantly. Keyed by service + original URL (the
+// direct link is service-specific); entries expire after 24h because debrid links
+// go stale. In-memory only — a fresh app session re-resolves, which is the safe
+// default for links that may have already expired.
+const DEBRID_CACHE_TTL = 24 * 60 * 60 * 1000;
+const debridCache = new Map(); // key -> { url, name, ts }
+let debridCacheEnabled = true;  // user toggle (Download settings) — off skips get + put
+function debridCacheKey(link) { return debridService + '\n' + link; }
+function debridCacheGet(link) {
+    if (!debridCacheEnabled) return null;
+    const key = debridCacheKey(link);
+    const hit = debridCache.get(key);
+    if (!hit) return null;
+    if (Date.now() - hit.ts > DEBRID_CACHE_TTL) { debridCache.delete(key); return null; }
+    return { url: hit.url, name: hit.name || '' };
+}
+function debridCachePut(link, res) {
+    if (!debridCacheEnabled) return;
+    if (res && res.url) debridCache.set(debridCacheKey(link), { url: res.url, name: res.name || '', ts: Date.now() });
+}
+// True when this source link already has a fresh cached direct URL (i.e. it'll resolve
+// instantly). Used to flag a download as "cached" in the UI before resolution starts.
+function debridCacheHas(link) { return !!debridCacheGet(link); }
+async function debridUnrestrict(link) {
+    if (!debridActive()) return null;
+    const cached = debridCacheGet(link);
+    if (cached) return cached;
+    try {
+        const r = await DEBRID[debridService].unrestrict(debridKey, link);
+        if (r && r.url) debridCachePut(link, r);
+        return r;
+    } catch (e) { return null; }
+}
+ipcMain.on('set-debrid-cache-enabled', (e, on) => {
+    debridCacheEnabled = (on !== false);
+    if (!debridCacheEnabled) debridCache.clear();
+});
+ipcMain.on('set-debrid-config', (e, cfg) => {
+    cfg = cfg || {};
+    debridService = (cfg.service && DEBRID[cfg.service]) ? cfg.service : '';
+    debridKey = (debridService && cfg.key) ? String(cfg.key) : '';
+});
+ipcMain.handle('debrid-validate', async (e, payload) => {
+    payload = payload || {};
+    const service = payload.service, key = payload.key;
+    if (!service || !key || !DEBRID[service]) return { ok: false, error: 'Unknown service' };
+    try { const r = await DEBRID[service].validate(key); return r || { ok: false }; }
+    catch (err) { return { ok: false, error: String((err && err.message) || err) }; }
+});
 
 async function resolveDirectUrl(rawUrl, opts) {
     opts = opts || {};
     const referer = opts.referer || SOURCE_REFERER[opts.sourceId] || '';
     if (!rawUrl) return null;
-    // CF-interactive hosts that can never be auto-resolved — return null immediately
-    // instead of spending 30+ s in the browser interceptor before failing.
+    if (rawUrl.startsWith('magnet:') || /\.torrent(\?|#|$)/i.test(rawUrl)) return [{ url: rawUrl, kind: rawUrl.startsWith('magnet:') ? 'magnet' : 'http' }];
+    // BuzzHeavier is removed entirely — its Cloudflare "verify you are human" check can't be
+    // passed automatically, and even a debrid service (TorBox/etc.) can't resolve it. Bail
+    // before debrid/scrapers so it's never attempted.
+    if (/buzzheavier|bzzhr/i.test(rawUrl)) return null;
+    // Debrid FIRST — before any host gives up. When a service is connected it unlocks the
+    // link server-side, which bypasses the Cloudflare / captcha / download restrictions on
+    // EVERY filehost (GoFile, 1Fichier, Rapidgator, AND the CF-interactive ones below like
+    // AkiraBox, DataNodes, BuzzHeavier). So we try debrid on every http filehost link, not
+    // just ones we already know are "free". pixeldrain keeps its own Worker-proxy pool, and
+    // magnets/torrents are handled above. On any failure we fall through to the old behaviour.
+    if (debridActive() && /^https?:/i.test(rawUrl) && !/pixeldrain/i.test(rawUrl)) {
+        const dr = await debridUnrestrict(rawUrl);
+        if (dr && dr.url) return [{ url: dr.url, kind: 'http', name: dr.name || '' }];
+    }
+    // CF-interactive hosts that can't be auto-resolved WITHOUT debrid — bail now (after the
+    // debrid attempt above) instead of spending 30+ s in the browser interceptor before failing.
     if (/akirabox\.(com|to)/i.test(rawUrl)) return null;
     // 1337x is a Cloudflare-gated torrent index (no direct file link); browse-only.
     if (/1337x\.[a-z]+/i.test(rawUrl)) return null;
-    if (rawUrl.startsWith('magnet:') || /\.torrent(\?|#|$)/i.test(rawUrl)) return [{ url: rawUrl, kind: rawUrl.startsWith('magnet:') ? 'magnet' : 'http' }];
     if (DL_KNOWN_HOST.test(rawUrl)) {
         let r = null;
         try {
             if (/gofile/i.test(rawUrl)) r = await scrapeGofile(rawUrl);
             else if (/pixeldrain/i.test(rawUrl)) r = await scrapePixeldrain(rawUrl, referer);
             else if (/datanodes/i.test(rawUrl)) r = await scrapeDatanodes(rawUrl);
-            else if (/buzzheavier\.com|bzzhr\.(co|to)/i.test(rawUrl)) r = await scrapeBuzzheavier(rawUrl);
             else if (/fuckingfast\.(co|net)/i.test(rawUrl)) r = await scrapeFuckingfast(rawUrl);
             else if (/mediafire/i.test(rawUrl)) r = await scrapeMediafire(rawUrl);
             else if (/filekeeper/i.test(rawUrl)) r = await scrapeFilekeeper(rawUrl);
@@ -1721,13 +1938,49 @@ async function resolveDirectUrl(rawUrl, opts) {
     return null;
 }
 
+// Race the resolver across several mirror URLs that point at the SAME download
+// (the same game hosted on different file-hosts). The first host to yield a usable
+// direct link wins and the slower ones are abandoned — so a fast/cached mirror is
+// used instantly instead of blocking on a slow or rate-limited primary host.
+// Returns { files, origin } of the winning host, or null if every mirror failed.
+function resolveFirstMirror(urls, opts) {
+    const list = (urls || []).filter(Boolean);
+    if (!list.length) return Promise.resolve(null);
+    if (list.length === 1) return resolveDirectUrl(list[0], opts).then(r => (r && r.length) ? { files: r, origin: list[0] } : null);
+    return new Promise((resolve) => {
+        let pending = list.length, settled = false;
+        for (const u of list) {
+            resolveDirectUrl(u, opts).then(r => {
+                if (settled) return;
+                if (r && r.length) { settled = true; resolve({ files: r, origin: u }); }
+                else if (--pending === 0) { settled = true; resolve(null); }
+            }).catch(() => { if (!settled && --pending === 0) { settled = true; resolve(null); } });
+        }
+    });
+}
+
+// Build the user-facing "couldn't resolve" error for a host, with host-specific
+// guidance. Shared by the normal and mirror-race resolution paths.
+function buildUnresolvedError(url) {
+    let host = 'this host'; try { host = new URL(url).hostname.replace(/^www\./, ''); } catch (er) {}
+    let msg = 'Could not auto-resolve a direct link for ' + host + '. Use "Open game page" to download it manually.';
+    if (/megadb/i.test(host)) msg = 'MegaDB requires a captcha that can\'t be bypassed automatically. Click "Open game page" and download it from the site.';
+    else if (/pixeldrain/i.test(host)) msg = 'Pixeldrain is rate-limiting this connection (its free transfer cap / captcha). It\'s not a launcher bug — wait for the cap to reset, pick another host (FileKeeper / FuckingFast / Gofile), or use "Open game page" to solve the captcha on the site.';
+    else if (/gofile/i.test(host)) msg = 'Gofile\'s API is temporarily unavailable (their servers, not the launcher). Try again in a minute, or pick another host.';
+    else if (/datanodes/i.test(host)) msg = 'DataNodes is now behind a Cloudflare "verify you are human" check, so it can\'t download automatically. Pick another host (Pixeldrain / FileKeeper / FuckingFast), or use "Open game page".';
+    else if (/akirabox/i.test(host)) msg = 'AkiraBox is behind a Cloudflare "verify you are human" check (a checkbox you have to click), so it can\'t download automatically. Pick another host (Pixeldrain / FileKeeper / FuckingFast), or use "Open game page".';
+    else if (/buzzheavier|bzzhr/i.test(host)) msg = 'Buzzheavier is behind a Cloudflare "verify you are human" check (a checkbox you have to click), so it can\'t download automatically. Pick another host (Pixeldrain / FileKeeper / FuckingFast), or use "Open game page".';
+    else if (/1337x/i.test(host)) msg = '1337x is a Cloudflare-protected torrent index, so it can\'t download automatically. Use "Open game page" / "Browse" to grab the torrent from the site.';
+    return Object.assign(new Error(msg), { needsBrowser: true });
+}
+
 // Click script: find the real download control while skipping ad links. Prefers
 // anchors that point at an actual file/known host; only then falls back to
 // buttons/elements whose visible text is a download verb. Returns true if it
 // clicked something plausible.
 const INTERCEPT_CLICK_JS = `(function(){
     var FILE=/\\.(zip|rar|7z|bin|iso|exe|torrent|part\\d+)(\\?|#|$)/i;
-    var HOST=/gofile|pixeldrain|datanodes|buzzheavier|fuckingfast|1fichier|mediafire|mega(\\.nz|db)|qiwi|multiup|bowfile|hexload|vikingfile|rootz|akirabox|store\\d+\\.gofile/i;
+    var HOST=/gofile|pixeldrain|datanodes|fuckingfast|1fichier|mediafire|mega(\\.nz|db)|qiwi|multiup|bowfile|hexload|vikingfile|rootz|akirabox|store\\d+\\.gofile/i;
     var AD=/a-ads|doubleclick|googlesyndication|adnxs|popads|propeller|exoclick|juicyads|adsterra|hilltop|clickadu|adcash|monetag|onclick(algo|performance)|realsrv|tsyndicate|\\/ads?\\//i;
     function vis(el){ try{ return el.offsetParent!==null && el.getClientRects().length>0; }catch(e){ return false; } }
     // 1) anchors to a real file or known host
@@ -1851,12 +2104,101 @@ function findArchives(dir) {
     return primaries;
 }
 
+// Extract a .rar via node-unrar-js (pure-JS, supports RAR4 AND RAR5). The bundled
+// 7za.exe ships WITHOUT the RAR codec — it can't open ANY .rar ("Cannot open the
+// file as archive", exit 2) — so SteamRIP/SteamGG rars must go through unrar instead.
+async function extractRar(archivePath, destDir) {
+    if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
+    const extractor = await unrar.createExtractorFromFile({ filepath: archivePath, targetPath: destDir });
+    // The files iterator is lazy — extraction only happens as it's consumed.
+    const result = extractor.extract();
+    let count = 0;
+    for (const _f of result.files) count++;
+    if (!count) throw new Error('node-unrar-js extracted 0 files (archive empty or split-volume missing parts)');
+    return destDir;
+}
+
 function extractArchive(archivePath, destDir) {
+    if (/\.rar$/i.test(archivePath)) {
+        // RAR (incl. RAR5) — 7za can't do these at all; use node-unrar-js.
+        return extractRar(archivePath, destDir).catch((e) => {
+            console.error('[extract] unrar failed for', archivePath, '-', e && e.message);
+            throw e;
+        });
+    }
     return new Promise((resolve, reject) => {
         if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
-        // 7-Zip (bundled via 7zip-min) handles zip / 7z / rar / split archives
-        _7z.unpack(archivePath, destDir, (err) => err ? reject(err) : resolve(destDir));
+        // 7-Zip (bundled via 7zip-min) handles zip / 7z / split 7z/zip archives
+        _7z.unpack(archivePath, destDir, (err) => {
+            if (!err) return resolve(destDir);
+            console.error('[extract] 7-Zip failed for', archivePath, '-', err && err.message);
+            // For .zip, fall back to PowerShell's Expand-Archive: it unpacks some zips
+            // (Zip64 / unusual metadata) that the bundled 7za rejects with "cannot open".
+            if (/\.zip$/i.test(archivePath)) {
+                const psQuote = (s) => "'" + String(s).replace(/'/g, "''") + "'";
+                const cmd = 'Expand-Archive -LiteralPath ' + psQuote(archivePath) + ' -DestinationPath ' + psQuote(destDir) + ' -Force';
+                const ps = spawn('powershell', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', cmd], { windowsHide: true });
+                let errBuf = '';
+                ps.stderr.on('data', (d) => { errBuf += d.toString(); });
+                ps.on('error', () => reject(err));
+                ps.on('close', (code) => {
+                    if (code === 0) { console.error('[extract] Expand-Archive fallback succeeded for', archivePath); return resolve(destDir); }
+                    const detail = errBuf.trim().split(/\r?\n/)[0] || ('exit ' + code);
+                    reject(new Error('7-Zip: ' + (err && err.message || 'failed') + ' | Expand-Archive: ' + detail));
+                });
+            } else {
+                reject(err);
+            }
+        });
     });
+}
+
+// Read the leading bytes of a file and return the archive extension its magic
+// number indicates (zip/rar/7z), or '' if it isn't a recognised archive.
+function sniffArchiveExt(file) {
+    let fd;
+    try {
+        fd = fs.openSync(file, 'r');
+        const buf = Buffer.alloc(8);
+        const n = fs.readSync(fd, buf, 0, 8, 0);
+        if (n < 4) return '';
+        // ZIP: "PK" 03 04 (local file), also 05 06 (empty) / 07 08 (spanned)
+        if (buf[0] === 0x50 && buf[1] === 0x4B && (buf[2] === 0x03 || buf[2] === 0x05 || buf[2] === 0x07)) return 'zip';
+        // RAR: "Rar!" 1A 07
+        if (buf[0] === 0x52 && buf[1] === 0x61 && buf[2] === 0x72 && buf[3] === 0x21) return 'rar';
+        // 7z: 37 7A BC AF 27 1C
+        if (buf[0] === 0x37 && buf[1] === 0x7A && buf[2] === 0xBC && buf[3] === 0xAF) return '7z';
+        return '';
+    } catch (e) { return ''; }
+    finally { if (fd !== undefined) { try { fs.closeSync(fd); } catch (e) {} } }
+}
+
+// A link resolved through a debrid service (e.g. SteamRIP, which is debrid-gated)
+// often saves the file WITHOUT a recognisable archive extension — the direct URL
+// is a tokenised hash and there's no Content-Disposition, so aria2 names it after
+// the URL. A SteamRIP .zip then lands as an extension-less blob that findArchives()
+// can't see, so it's never auto-extracted. Sniff the magic bytes of extension-less
+// payload files and rename them with the right extension so the normal extract path
+// (and split-part handling) picks them up exactly like a SteamGG download.
+function normalizeArchiveExtensions(dir, depth) {
+    if ((depth || 0) > 4) return;
+    let ents; try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { return; }
+    for (const en of ents) {
+        if (en.isDirectory()) { if (!en.name.startsWith('_')) normalizeArchiveExtensions(path.join(dir, en.name), (depth || 0) + 1); continue; }
+        if (!en.isFile()) continue;
+        const name = en.name;
+        if (/^_cover\./i.test(name)) continue;
+        // Leave anything that already carries an archive/installer/media/control extension —
+        // only truly extension-less (or opaque) blobs are candidates for sniffing.
+        if (/\.(zip|rar|7z|bin|iso|exe|msi|cab|pkg|001|002|003|004|005|part\d+|r\d{2}|z\d{2}|aria2|tmp)$/i.test(name)) continue;
+        const full = path.join(dir, name);
+        let size = 0; try { size = fs.statSync(full).size; } catch (e) { continue; }
+        if (size < 1024) continue; // skip tiny/HTML error payloads
+        const ext = sniffArchiveExt(full);
+        if (!ext) continue;
+        const target = full + '.' + ext;
+        try { if (!fs.existsSync(target)) fs.renameSync(full, target); } catch (e) {}
+    }
 }
 
 // Total size (bytes) of everything under a folder — used for soft install progress.
@@ -2176,6 +2518,36 @@ function deleteArchiveSources(dir) {
     }
 }
 
+// SteamRIP (and similar pre-installed) zips bundle filler alongside the game: a
+// "read_me" / instructions txt, a "Visit SteamRIP".url internet shortcut, and a
+// _CommonRedist folder of VC++/DirectX installers. After extraction we strip these
+// so the library folder holds only the playable game. Redist removal honours the
+// skipRedist setting (default on) — turn it off to keep the bundled installers.
+function cleanExtractedJunk(root, skipRedist) {
+    (function walk(d, depth) {
+        if (depth > 4) return;
+        let ents; try { ents = fs.readdirSync(d, { withFileTypes: true }); } catch (e) { return; }
+        for (const en of ents) {
+            const full = path.join(d, en.name);
+            if (en.isDirectory()) {
+                // _CommonRedist / CommonRedist / Redist / DirectX / _Redist bundles
+                if (skipRedist && /^_?(common[ _-]?)?redist$/i.test(en.name)) {
+                    try { fs.rmSync(full, { recursive: true, force: true }); } catch (e) {}
+                    continue;
+                }
+                walk(full, depth + 1);
+                continue;
+            }
+            if (!en.isFile()) continue;
+            const n = en.name;
+            // internet shortcuts (Visit SteamRIP.url, etc.)
+            if (/\.url$/i.test(n)) { try { fs.unlinkSync(full); } catch (e) {} continue; }
+            // SteamRIP readme / instructions notes (kept narrow so real game text isn't touched)
+            if (/\.txt$/i.test(n) && /(read[ _-]?me|steamrip|instruction)/i.test(n)) { try { fs.unlinkSync(full); } catch (e) {} continue; }
+        }
+    })(root, 0);
+}
+
 // After a successful install, remove the downloaded repack (setup.exe + fg-*.bin +
 // torrent subfolder + verify .bat etc.), keeping only the installed game folder and cover.
 function cleanRepackSource(dir, keepDir) {
@@ -2196,6 +2568,10 @@ async function postProcessDownload(dir, opts) {
         if (coverFile) result.cover = path.join(dir, coverFile);
     } catch (e) {}
 
+    // Give extension-less downloads (debrid-resolved SteamRIP .zips, etc.) the right
+    // archive extension by content, BEFORE we walk/detect — so they auto-extract.
+    if (opts.autoExtract !== false) { try { normalizeArchiveExtensions(dir, 0); } catch (e) {} }
+
     // walk ALL payload files recursively (torrents/installers nest in a subfolder)
     const allFiles = [];
     (function walk(d, depth) {
@@ -2213,11 +2589,18 @@ async function postProcessDownload(dir, opts) {
 
     if (opts.autoExtract !== false && archives.length) {
         const extractTo = path.join(dir, '_game');
-        let anyExtracted = false;
+        let anyExtracted = false, extractErr = null;
         for (const arc of archives) {
             try { await extractArchive(arc, extractTo); result.extracted = true; anyExtracted = true; }
-            catch (e) { /* leave archive in place if extraction fails */ }
+            catch (e) { extractErr = e; console.error('[postProcess] extraction failed for', arc, '-', e && e.message); /* leave archive in place */ }
         }
+        // Strip SteamRIP/pre-installed filler (readme, .url shortcut, _CommonRedist) so the
+        // library folder is just the game. Runs before findGameExe so a redist installer
+        // exe can't be mistaken for the game.
+        if (result.extracted) { try { cleanExtractedJunk(extractTo, opts.skipRedist !== false); } catch (e) {} }
+        // Extraction was attempted but every archive failed → tell the user why instead of
+        // silently reporting success with the un-extracted archive sitting in the folder.
+        if (!anyExtracted && extractErr) result.warning = 'Auto-extract failed: ' + extractErr.message + ' The archive is in the game folder — extract it manually.';
         if (result.extracted) result.exePath = findGameExe(extractTo, opts.gameName) || findGameExe(dir, opts.gameName) || '';
         // CRITICAL: the file list above was captured BEFORE extraction, so it only knew about
         // the archives (now deleted). A repack can ship setup.exe + fg-*.bin INSIDE that archive
@@ -2256,9 +2639,27 @@ async function postProcessDownload(dir, opts) {
         && !redist.test(f.name) && !/[\\/]md5[\\/]/i.test(f.full));
     const installer = setupExe
         || allFiles.find(f => /\.exe$/i.test(f.name) && !redist.test(f.name) && !/[\\/]md5[\\/]/i.test(f.full));
+    // SteamRIP (and similar "pre-installed" sources) ship the game ready to run inside the
+    // zip — there is NO setup.exe to execute. They must be treated as extract-and-play: pick
+    // the real game exe (findGameExe already skips setup/redist/uninstall exes) and never route
+    // them through the repack auto-installer (which would run a non-installer .exe and fail, so
+    // the game would never get added to the library). This is what makes a finished SteamRIP
+    // download land in the library with its exe + Steam art, exactly like a FitGirl install.
+    const preInstalled = /^steamrip$/i.test(opts.sourceId || '');
+    if (preInstalled) {
+        // Already extracted above → result.exePath is the findGameExe pick. If that came back
+        // empty (an oddly-named launcher), fall back to the best non-installer/redist exe so we
+        // still hand back something playable rather than nothing.
+        if (!result.exePath) {
+            const gameExe = allFiles.find(f => /\.exe$/i.test(f.name)
+                && !redist.test(f.name) && !/(setup|install|installer)[^\\/]*\.exe$/i.test(f.name) && !/[\\/]md5[\\/]/i.test(f.full));
+            if (gameExe) result.exePath = gameExe.full;
+        }
+        // never set needsInstall for a pre-installed source
+    }
     // FitGirl/DODI repacks ship as setup.exe + .bin parts → always treat as an install,
     // overriding any stray tiny helper .exe (e.g. QuickSFV) that findGameExe may have grabbed.
-    if (setupExe && hasBin) { result.exePath = setupExe.full; result.needsInstall = true; }
+    else if (setupExe && hasBin) { result.exePath = setupExe.full; result.needsInstall = true; }
     else if (!result.exePath && installer) { result.exePath = installer.full; result.needsInstall = true; }
 
     // Did we actually end up with something playable/installable?
@@ -2276,7 +2677,14 @@ async function postProcessDownload(dir, opts) {
 const DL_SKIP_FILE = /fix[_\s.-]*repair[_\s.-]*steam[_\s.-]*(v\d+[_\s.-]*)?generic|_repair_steam_|repair[_\s.-]*steam[_\s.-]*generic/i;
 
 function safeOutName(name) {
-    return (name || '').replace(/[\\/:*?"<>|]+/g, '').replace(/\s+/g, ' ').trim().slice(0, 120);
+    let s = (name || '').replace(/[\\/:*?"<>|]+/g, '').replace(/\s+/g, ' ').trim();
+    // Some debrid responses hand back the filename concatenated with itself, e.g.
+    // "Game-SteamRIP.com.rarGame-SteamRIP.com.rar" → aria2 then saves that doubled name.
+    // Collapse an exact doubling when the half ends in an archive extension (so only the
+    // bug pattern is touched, never a legitimately repetitive title).
+    const dup = s.match(/^(.+?\.(?:zip|rar|7z|bin|iso|001))\1$/i);
+    if (dup) s = dup[1];
+    return s.slice(0, 120);
 }
 
 // Remove a partial file + aria2 control file so a retry starts fresh (needed when
@@ -2339,6 +2747,9 @@ function runAria2Download(aria2, file, dir, opts, ctl, onProgress) {
         proc.on('error', reject);
         proc.on('close', (code) => {
             if (ctl.cancelled) return reject(new Error('Cancelled'));
+            // Pause = kill aria2 but keep the partial file + .aria2 control file so a later
+            // resume continues from where it stopped (aria2 --continue). Don't treat as an error.
+            if (ctl.paused) return reject(new Error('Paused'));
             if (code === 0) return resolve();
             // Translate the common aria2 exit codes into something a user can act on.
             // 22 = the host returned an HTTP 4xx/5xx (rate-limited, expired, or captcha-walled).
@@ -2356,10 +2767,9 @@ function runAria2Download(aria2, file, dir, opts, ctl, onProgress) {
 ipcMain.handle('download-game', async (e, opts) => {
     const wc = e.sender;
     const id = opts.id;
-    const ctl = { proc: null, cancelled: false };
+    const ctl = { proc: null, cancelled: false, paused: false };
+    let slowTimer = null;
     try {
-        const aria2 = await ensureAria2(wc);
-
         // Normalise to a list of files. New callers pass opts.links = [{url,name}];
         // legacy single-link callers pass opts.url.
         let links = (Array.isArray(opts.links) && opts.links.length)
@@ -2372,8 +2782,40 @@ ipcMain.handle('download-game', async (e, opts) => {
             return { success: false };
         }
 
+        // Resolve as EARLY as possible: the instant the user starts the download we fire
+        // the resolution (debrid API / scraper) — BEFORE aria2 setup and cover-art fetch —
+        // so that round-trip overlaps with everything else instead of queuing behind it.
+        activeDownloads.set(id, ctl);
+        const svcName = debridServiceName();
+        const resolveLabel = svcName ? ('Resolving via ' + svcName + '…') : 'Resolving download links…';
+        // "Cached" = this source link already has a fresh resolved direct URL, so resolution
+        // is instant. Flag it through every progress event so the UI can badge the download.
+        const isCached = debridActive() && links.some(l => debridCacheHas(l.url));
+        wc.send('download-progress', { id, state: 'resolving', label: resolveLabel, cached: isCached });
+        // If resolution drags on (an uncached file-host job that has to be prepared),
+        // reassure the user it isn't frozen rather than leaving a silent spinner.
+        slowTimer = setTimeout(() => {
+            if (ctl.cancelled) return;
+            wc.send('download-progress', { id, state: 'resolving', label: resolveLabel, subLabel: 'This may take a moment for uncached files…' });
+        }, 4000);
+
+        // Mirrors = the same game on other file-hosts. With a single primary link we can
+        // race the resolver across [primary, ...mirrors] and take whichever host produces
+        // a direct link first; multi-part sets and magnets keep the normal per-link path.
+        const resolveOpts = { sourceId: opts.sourceId };
+        const mirrors = (Array.isArray(opts.mirrors) ? opts.mirrors : [])
+            .filter(u => u && !links.some(l => l.url === u));
+        const raceMirrors = links.length === 1 && mirrors.length > 0;
+        // Kick the resolution off NOW (returns a promise we await after the cheap setup).
+        const resolveJob = raceMirrors
+            ? resolveFirstMirror([links[0].url, ...mirrors], resolveOpts)
+            : Promise.all(links.map(l => resolveDirectUrl(l.url, resolveOpts).then(resolved => ({ link: l, resolved }))));
+
+        const aria2 = await ensureAria2(wc);
+
         const root = getDownloadsRoot(opts.installDir);
         const dir = path.join(root, sanitizeName(opts.gameName));
+        ctl.dir = dir;   // so cancel-download can delete the folder/partials this job created
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
         // grab cover art for the library entry (best-effort)
@@ -2383,28 +2825,23 @@ ipcMain.handle('download-game', async (e, opts) => {
             dlHttpToFile(opts.image, path.join(dir, '_cover' + ext)).catch(() => {});
         }
 
-        activeDownloads.set(id, ctl);
-
         // Resolve every link up-front into concrete files (a single Gofile folder can
         // expand into several part files), so we know the real total before downloading.
-        wc.send('download-progress', { id, state: 'resolving', label: 'Resolving download links...' });
+        if (ctl.cancelled) { clearTimeout(slowTimer); throw new Error('Cancelled'); }
+        const resolveResult = await resolveJob;
+        clearTimeout(slowTimer);
+        if (ctl.cancelled) throw new Error('Cancelled');
         let files = [];
-        for (const l of links) {
-            if (ctl.cancelled) throw new Error('Cancelled');
-            const resolved = await resolveDirectUrl(l.url, { sourceId: opts.sourceId });
-            if (!resolved || !resolved.length) {
-                let host = 'this host'; try { host = new URL(l.url).hostname.replace(/^www\./, ''); } catch (er) {}
-                let msg = 'Could not auto-resolve a direct link for ' + host + '. Use "Open game page" to download it manually.';
-                if (/megadb/i.test(host)) msg = 'MegaDB requires a captcha that can\'t be bypassed automatically. Click "Open game page" and download it from the site.';
-                else if (/pixeldrain/i.test(host)) msg = 'Pixeldrain is rate-limiting this connection (its free transfer cap / captcha). It\'s not a launcher bug — wait for the cap to reset, pick another host (FileKeeper / FuckingFast / Gofile), or use "Open game page" to solve the captcha on the site.';
-                else if (/gofile/i.test(host)) msg = 'Gofile\'s API is temporarily unavailable (their servers, not the launcher). Try again in a minute, or pick another host.';
-                else if (/datanodes/i.test(host)) msg = 'DataNodes is now behind a Cloudflare "verify you are human" check, so it can\'t download automatically. Pick another host (Pixeldrain / FileKeeper / FuckingFast), or use "Open game page".';
-                else if (/akirabox/i.test(host)) msg = 'AkiraBox is behind a Cloudflare "verify you are human" check (a checkbox you have to click), so it can\'t download automatically. Pick another host (Pixeldrain / FileKeeper / FuckingFast), or use "Open game page".';
-                else if (/buzzheavier|bzzhr/i.test(host)) msg = 'Buzzheavier is behind a Cloudflare "verify you are human" check (a checkbox you have to click), so it can\'t download automatically. Pick another host (Pixeldrain / FileKeeper / FuckingFast), or use "Open game page".';
-                else if (/1337x/i.test(host)) msg = '1337x is a Cloudflare-protected torrent index, so it can\'t download automatically. Use "Open game page" / "Browse" to grab the torrent from the site.';
-                throw Object.assign(new Error(msg), { needsBrowser: true });
+        if (raceMirrors) {
+            // Winning host's resolved file(s); origin is set to that host so a mid-download
+            // retry re-resolves the same winner for a fresh token.
+            if (!resolveResult || !resolveResult.files || !resolveResult.files.length) throw buildUnresolvedError(links[0].url);
+            resolveResult.files.forEach((f, idx) => files.push(Object.assign({ name: f.name || links[0].name, origin: resolveResult.origin, originIndex: idx }, f)));
+        } else {
+            for (const { link: l, resolved } of resolveResult) {
+                if (!resolved || !resolved.length) throw buildUnresolvedError(l.url);
+                resolved.forEach((f, idx) => files.push(Object.assign({ name: f.name || l.name, origin: l.url, originIndex: idx }, f)));
             }
-            resolved.forEach((f, idx) => files.push(Object.assign({ name: f.name || l.name, origin: l.url, originIndex: idx }, f)));
         }
         // drop the generic steam-fix / obvious non-game payloads
         const filtered = files.filter(f => !DL_SKIP_FILE.test((f.name || '') + ' ' + (f.url || '')));
@@ -2437,10 +2874,10 @@ ipcMain.handle('download-game', async (e, opts) => {
                     ok = true;
                 } catch (e) {
                     lastErr = e;
-                    if (ctl.cancelled || /cancelled/i.test(e.message)) throw e;
+                    if (ctl.cancelled || ctl.paused || /cancelled|paused/i.test(e.message)) throw e;
                     if (attempt < 3) {
                         cleanPartial(dir, file);
-                        wc.send('download-progress', { id, state: 'resolving', part: i + 1, partCount: total, label: (partLabel ? partLabel + ' — ' : '') + 'Connection lost, retrying with a fresh link...' });
+                        wc.send('download-progress', { id, state: 'resolving', part: i + 1, partCount: total, subLabel: '', label: (partLabel ? partLabel + ' — ' : '') + 'Connection lost, retrying with a fresh link...' });
                         if (file.origin) {
                             try {
                                 const re = await resolveDirectUrl(file.origin, { sourceId: opts.sourceId });
@@ -2537,17 +2974,65 @@ ipcMain.handle('download-game', async (e, opts) => {
         }
         return { success: true };
     } catch (err) {
+        clearTimeout(slowTimer);
         activeDownloads.delete(id);
+        // Paused = a clean, resumable stop. Tell the renderer so it shows "Paused" + a Resume
+        // button instead of an error, and keep the partial files on disk.
+        if (ctl.paused || /paused/i.test(err.message)) { wc.send('download-progress', { id, state: 'paused', label: 'Paused' }); return { success: false, paused: true }; }
         if (ctl.cancelled || /cancelled/i.test(err.message)) return { success: false, cancelled: true };
-        wc.send('download-error', { id, error: err.message, url: opts.url, needsBrowser: !!err.needsBrowser });
-        return { success: false, error: err.message };
+        // PixelDrain's Worker proxy can drop the FIRST request while it cold-starts, so the
+        // initial click 4xx/5xx's but a retry succeeds against the now-warm worker. We can't
+        // reliably pre-warm it, so give the user a clear, actionable nudge instead of a raw error.
+        let errMsg = err.message;
+        if (/pixeldrain/i.test(opts.url || '')) {
+            errMsg = 'PixelDrain didn\'t respond on this attempt (its proxy worker was warming up). Just click Download again — the second try almost always works.';
+        }
+        wc.send('download-error', { id, error: errMsg, url: opts.url, needsBrowser: !!err.needsBrowser });
+        return { success: false, error: errMsg };
     }
 });
 
-ipcMain.handle('cancel-download', (e, id) => {
+// Folder a download writes into (mirrors the path built in download-game), so cancel can
+// delete a paused job's files even after it's no longer in activeDownloads.
+function downloadDirFor(gameName, installDir) {
+    try { return path.join(getDownloadsRoot(installDir), sanitizeName(gameName)); } catch (e) { return null; }
+}
+
+// Cancel = stop for good and (when asked) delete everything this download created — the
+// folder and all partial/finished files — so cancelling leaves nothing behind.
+ipcMain.handle('cancel-download', (e, id, info) => {
+    info = info || {};
     const d = activeDownloads.get(id);
-    if (d) { d.cancelled = true; try { d.proc && d.proc.kill(); } catch (err) {} activeDownloads.delete(id); return true; }
+    if (d) { d.cancelled = true; try { d.proc && d.proc.kill(); } catch (err) {} activeDownloads.delete(id); }
+    if (info.deleteFolder) {
+        const dir = (d && d.dir) || (info.gameName ? downloadDirFor(info.gameName, info.installDir) : null);
+        // Give aria2 a moment to release its file handles (Windows locks the .aria2 file)
+        // before removing the directory tree.
+        if (dir) setTimeout(() => { try { fs.rmSync(dir, { recursive: true, force: true }); } catch (err) {} }, 600);
+    }
+    return true;
+});
+
+// Pause = kill aria2 but keep the partial download + .aria2 control file so Resume can
+// continue from where it stopped. Removed from activeDownloads; files stay on disk.
+ipcMain.handle('pause-download', (e, id) => {
+    const d = activeDownloads.get(id);
+    if (d) { d.paused = true; try { d.proc && d.proc.kill(); } catch (err) {} activeDownloads.delete(id); return true; }
     return false;
+});
+
+// Clear cached data (Download settings → Clear Cache). Wipes the in-memory resolved
+// debrid-link cache and the in-app browser's HTTP cache, so stale/expired links and pages
+// are re-fetched fresh. Does NOT touch the user's settings, library, or downloaded games.
+ipcMain.handle('clear-cache', async () => {
+    const cleared = [];
+    try { const n = debridCache.size; debridCache.clear(); cleared.push('resolved links (' + n + ')'); } catch (e) {}
+    try { await session.defaultSession.clearCache(); cleared.push('browser cache'); } catch (e) {}
+    try {
+        await session.defaultSession.clearStorageData({ storages: ['cachestorage', 'shadercache', 'serviceworkers'] });
+        cleared.push('web cache storage');
+    } catch (e) {}
+    return { success: true, cleared };
 });
 
 // Scan the common Windows save-game locations for a folder matching `gameName`.
@@ -2601,7 +3086,7 @@ ipcMain.handle('pick-download-folder', async () => {
 // it runs in (the Online-Fix "Hosters" popup/iframe, or the game page as a
 // fallback). Reads href + onclick + data-* so JS-driven buttons are caught too.
 const OF_EXTRACT_JS = `(function(){
-    var KNOWN=/gofile\\.io|pixeldrain\\.com|datanodes|vikingfile|rootz|1fichier|mega(\\.nz|db)|mediafire|buzzheavier|fuckingfast|hexload|qiwi|multiup|bowfile|akirabox|\\.rar|\\.zip|\\.7z|part\\d+/i;
+    var KNOWN=/gofile\\.io|pixeldrain\\.com|datanodes|vikingfile|rootz|1fichier|mega(\\.nz|db)|mediafire|fuckingfast|hexload|qiwi|multiup|bowfile|akirabox|\\.rar|\\.zip|\\.7z|part\\d+/i;
     var SKIPHOST=/online-fix\\.me\\/?($|\\/(index|user|rules|faq|page|tags|stats|news|addnews|favorites|dle|engine))/i;
     var seen={}, out=[];
     function add(href, ctx){
@@ -2627,7 +3112,7 @@ const OF_EXTRACT_JS = `(function(){
 // click the "Hosters" / download trigger, capture the popup window it spawns,
 // and scrape the per-file host links from it. Falls back to scraping the game
 // page itself if no popup appears. Returns { files:[{name,url,host}], loggedIn }.
-const OF_KNOWN_HOST = /gofile\.io|pixeldrain\.com|datanodes|vikingfile|rootz|1fichier|mega(\.nz|db)|mediafire|buzzheavier|fuckingfast|hexload|qiwi|multiup|bowfile|akirabox/i;
+const OF_KNOWN_HOST = /gofile\.io|pixeldrain\.com|datanodes|vikingfile|rootz|1fichier|mega(\.nz|db)|mediafire|fuckingfast|hexload|qiwi|multiup|bowfile|akirabox/i;
 
 // Clicks tabs + DOWNLOAD buttons inside the hosters popup so each host's link is
 // triggered (we capture the resulting navigation instead of following it).
@@ -2638,9 +3123,9 @@ const OF_POPUP_CLICK_JS = `(function(){
         if(el.__ofc) return;
         var t=((el.textContent||'')+' '+(el.value||'')).trim().toLowerCase();
         var href=(el.href||'').toLowerCase();
-        var isHostLink=/gofile|pixeldrain|datanodes|vikingfile|rootz|1fichier|mediafire|buzzheavier|fuckingfast|hexload|multiup|bowfile|mega/.test(href);
+        var isHostLink=/gofile|pixeldrain|datanodes|vikingfile|rootz|1fichier|mediafire|fuckingfast|hexload|multiup|bowfile|mega/.test(href);
         var isDl=/^(download|скачать|загрузить|download now)$/.test(t)||isHostLink;
-        var isTab=/^(pixeldrain|gofile|rootz|vikingfile|datanodes|mega|mega\\.nz|mediafire|1fichier|buzzheavier|fuckingfast|hexload)$/.test(t);
+        var isTab=/^(pixeldrain|gofile|rootz|vikingfile|datanodes|mega|mega\\.nz|mediafire|1fichier|fuckingfast|hexload)$/.test(t);
         if((isDl||isTab) && el.offsetParent!==null){ el.__ofc=1; try{el.click();}catch(e){} n++; }
     });
     return n;

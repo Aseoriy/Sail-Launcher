@@ -125,9 +125,15 @@
             margin-bottom: 36px; animation: fadeIn 0.8s ease;
         }
         .hero-ctas {
-            display: flex; gap: 16px; margin-bottom: 60px; animation: fadeIn 0.9s ease;
+            display: flex; gap: 16px; margin-bottom: 16px; animation: fadeIn 0.9s ease;
             flex-wrap: wrap; justify-content: center;
         }
+        .hero-secondary-ctas {
+            display: flex; gap: 10px; margin-bottom: 52px; animation: fadeIn 1s ease;
+            flex-wrap: wrap; justify-content: center;
+        }
+        .hero-secondary-ctas .btn { opacity: 0.75; }
+        .hero-secondary-ctas .btn:hover { opacity: 1; }
         .hero-mockup {
             max-width: 1000px; width: 100%; border-radius: 16px; border: 1px solid var(--border);
             overflow: hidden; background: rgba(20, 20, 25, 0.5);
@@ -244,6 +250,8 @@
         <a href="#" class="active">Home</a>
         <a href="#features">Features</a>
         <a href="/plugins">Themes & Plugins</a>
+        <a href="/versions">Versions</a>
+        <a href="/betas">Betas</a>
         <a href="https://github.com/Aseoriy/Sail-Launcher" target="_blank">GitHub</a>
     </div>
 
@@ -266,9 +274,9 @@
 
 <!-- HERO SECTION -->
 <section class="hero-section">
-    <div class="hero-badge">
-        <span>🚀</span> Sail Launcher v4.2.6 Is The Latest Release!
-    </div>
+    <a href="/versions" class="hero-badge" id="latestReleaseBadge" style="text-decoration:none;">
+        <span>🚀</span> <span id="latestReleaseText">Sail Launcher v4.2.6 Is The Latest Release!</span>
+    </a>
     <h1>Super Cool Game/App Launcher!!!</h1>
     <p>Organize your Steam titles, retro emulation games, and apps in one pretty cool, glassmorphic UI. It uses auto-metadata scraping, cloud save sync, and a native mod workshop (kinda).</p>
     
@@ -295,6 +303,20 @@
                 <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path>
             </svg>
             Browse GitHub
+        </a>
+    </div>
+    <div class="hero-secondary-ctas">
+        <a href="/versions" class="btn btn-sm">
+            <svg style="width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round;" viewBox="0 0 24 24">
+                <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline>
+            </svg>
+            Stable Releases
+        </a>
+        <a href="/betas" class="btn btn-sm">
+            <svg style="width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round;" viewBox="0 0 24 24">
+                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line>
+            </svg>
+            Beta Releases
         </a>
     </div>
 
@@ -359,6 +381,16 @@
             <h3>Discord RPC & Web Sources</h3>
             <p>Broadcast active gaming states, playtime, and graphics to friends. Link your favorite modding and cataloging websites to navigate them smoothly inside the launcher's built-in web container.</p>
         </div>
+    </div>
+
+    <div style="text-align:center; margin-top: 48px;">
+        <a href="/features" class="btn">
+            <svg style="width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round;" viewBox="0 0 24 24">
+                <line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line>
+                <line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line>
+            </svg>
+            View All Features
+        </a>
     </div>
 </section>
 
@@ -636,9 +668,31 @@ document.querySelectorAll('.nav-links a[href^="#"]').forEach(anchor => {
 });
 
 // ============================================================
+// LATEST VERSION BADGE (auto-fetched from GitHub releases)
+// ============================================================
+async function updateLatestVersionBadge() {
+    const el = document.getElementById('latestReleaseText');
+    if (!el) return;
+    try {
+        // /releases/latest returns the most recent *stable* (non-prerelease, non-draft) release.
+        const res = await fetch('https://api.github.com/repos/Aseoriy/Sail-Launcher/releases/latest');
+        if (!res.ok) throw new Error('GitHub API error ' + res.status);
+        const data = await res.json();
+        const version = (data.tag_name || '').replace(/^v/i, '');
+        if (version) {
+            el.textContent = `Sail Launcher v${version} Is The Latest Release!`;
+        }
+    } catch (err) {
+        console.error('Failed to fetch latest release version:', err);
+        // Leave the existing hardcoded fallback text in place.
+    }
+}
+
+// ============================================================
 // INIT
 // ============================================================
 (async () => {
+    updateLatestVersionBadge();
     await refreshAuth();
 })();
 </script>

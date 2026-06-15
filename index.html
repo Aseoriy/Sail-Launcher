@@ -590,6 +590,10 @@
            ============================================================ */
         body.ui-edit-mode, body.ui-edit-mode * { cursor: crosshair !important; }
         body.ui-edit-mode .uie-chrome, body.ui-edit-mode .uie-chrome * { cursor: default !important; }
+        /* While editing, the OS window-drag region on the titlebar/header would swallow the
+           clicks/drags used to select, move & resize elements there — so disable it. It's
+           restored the moment the editor closes (this body class is removed). */
+        body.ui-edit-mode .custom-titlebar, body.ui-edit-mode .custom-titlebar * { -webkit-app-region: no-drag !important; }
         /* fixed full-viewport overlay that hosts hover + selection boxes (clicks pass through) */
         #uieOverlay { position: fixed; inset: 0; z-index: 100040; pointer-events: none; display: none; }
         #uieHoverBox { position: fixed; pointer-events: none; border: 1.5px solid var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); border-radius: 4px; display: none; box-shadow: 0 0 0 1px rgba(0,0,0,0.35) inset; transition: all .04s linear; }
@@ -620,7 +624,7 @@
         .uie-grad-stop { display: flex; align-items: center; gap: 6px; margin-top: 5px; }
         .uie-grad-stop input[type=range] { flex: 1; }
         .uie-grad-preview { height: 26px; border-radius: 7px; border: 1px solid var(--border-color); margin-top: 7px; }
-        #uieToolbar { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 100060; display: none; align-items: center; gap: 10px; background: rgba(15,15,22,0.98); backdrop-filter: blur(20px); border: 1px solid var(--accent); border-radius: 13px; padding: 10px 16px; box-shadow: 0 14px 46px rgba(0,0,0,0.6); font-size: 12px; }
+        #uieToolbar { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); z-index: 100060; display: none; align-items: center; justify-content: center; flex-wrap: wrap; max-width: 94vw; gap: 10px; background: rgba(15,15,22,0.98); backdrop-filter: blur(20px); border: 1px solid var(--accent); border-radius: 13px; padding: 10px 16px; box-shadow: 0 14px 46px rgba(0,0,0,0.6); font-size: 12px; }
         #uieToolbar .uie-btn { padding: 8px 13px; border-radius: 8px; font-size: 12px; cursor: pointer; border: 1px solid var(--border-color); background: transparent; color: inherit; }
         #uieToolbar .uie-btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
         #uieToolbar .uie-hint { opacity: 0.6; font-size: 11px; max-width: 260px; }
@@ -2289,7 +2293,11 @@
             }
         }
 
-        @keyframes pulse {
+        /* Icon "breathing" pulse (cloud-sync spinner etc.). Named distinctly so it does
+           NOT clobber the theme background @keyframes pulse defined far above — they used
+           to share the name "pulse", and this one (declared later) won the cascade, which
+           froze/over-brightened the Midnight/custom "Pulse" animated backgrounds. */
+        @keyframes iconPulse {
             0% { transform: scale(1); opacity: 0.8; }
             50% { transform: scale(1.05); opacity: 1; }
             100% { transform: scale(1); opacity: 0.8; }
@@ -3234,6 +3242,7 @@
                             <span style="font-size: 11px; opacity: 0.5; font-weight: bold; text-transform: uppercase; margin-right: 4px;">Sources:</span>
                             <!-- source chips injected here -->
                         </div>
+                        <div id="steamripLockHint" style="display:none;font-size:11px;opacity:0.7;line-height:1.5;color:#f59e0b;">🔒 <b>SteamRIP</b> requires a connected debrid service. <a href="#" onclick="openDownloadSettings();return false;" style="color:var(--accent-color);text-decoration:underline;">Connect one in Download Settings</a> to unlock it.</div>
                     </div>
 
                     <div style="background: var(--card-bg); border-radius: 12px; border: 1px solid var(--border-color); padding: 24px; box-sizing: border-box; width: 100%; min-height: 300px; flex-grow: 1; display: flex; flex-direction: column;">
@@ -3350,7 +3359,10 @@
                         <h1 style="margin: 0; font-size: 28px;">⬇️ Download Manager</h1>
                         <p style="font-size: 13px; opacity: 0.6; margin: 5px 0 0 0;">Active, queued and completed downloads. Start new ones from the <b>Game Downloads</b> tab.</p>
                     </div>
-                    <button class="outline" onclick="openDownloadSettings()" style="padding: 10px 16px; border-radius: 8px; flex-shrink: 0;">⚙️ Download Settings</button>
+                    <div style="display:flex;align-items:center;gap:10px;flex-shrink:0;">
+                        <span id="dlDebridBadge" style="display:none;align-items:center;gap:6px;padding:6px 12px;border-radius:99px;font-size:12px;font-weight:bold;background:rgba(34,197,94,0.15);color:#22c55e;border:1px solid rgba(34,197,94,0.4);"></span>
+                        <button class="outline" onclick="openDownloadSettings()" style="padding: 10px 16px; border-radius: 8px;">⚙️ Download Settings</button>
+                    </div>
                 </div>
                 <div id="dlFilterBar" style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; flex-shrink: 0;"></div>
                 <div id="downloadsPageBody" style="display: flex; flex-direction: column; gap: 14px; width: 100%;"></div>
@@ -3453,6 +3465,16 @@
             </label>
             <p style="font-size: 11px; margin: -6px 0 16px 30px; line-height: 1.5; color: #f59e0b;">⚠️ Online-Fix doesn't work correctly right now — its downloads are behind a login + captcha + JavaScript popup that can't be auto-resolved yet. It's off by default; enable only to browse/search. You'll need to download manually from the site.</p>
 
+            <div style="height:1px;background:var(--border-color);margin:4px 0 16px 0;opacity:0.5;"></div>
+            <label style="font-size: 12px; font-weight: bold; text-transform: uppercase; opacity: 0.6;">Debrid Services</label>
+            <p style="font-size: 11px; opacity: 0.55; margin: 6px 0 12px 0; line-height: 1.5;">Connect a debrid account to unlock premium filehosts (GoFile, 1Fichier, Rapidgator…) and the <b>SteamRIP</b> source. When connected, downloads automatically resolve through the service. Paste an API key and it validates instantly.</p>
+            <div id="debridServiceList" style="display:flex;flex-direction:column;gap:10px;margin-bottom:18px;"></div>
+
+            <div style="height:1px;background:var(--border-color);margin:4px 0 16px 0;opacity:0.5;"></div>
+            <label style="font-size: 12px; font-weight: bold; text-transform: uppercase; opacity: 0.6;">PixelDrain Proxy Workers</label>
+            <p style="font-size: 11px; opacity: 0.55; margin: 6px 0 8px 0; line-height: 1.5;">One Cloudflare Worker URL per line. PixelDrain downloads are routed through a random worker to bypass the 10&nbsp;GB/day per-IP limit (it falls back to another worker, then to a direct download, automatically). Leave empty to download directly. A ready-to-deploy worker ships in <code>cloudflare-worker/pixeldrain-proxy.js</code> — deploy it free on Cloudflare and paste the URL here.</p>
+            <textarea id="dlPixeldrainProxies" rows="3" placeholder="https://your-worker.workers.dev" style="width:100%;padding:10px 12px;margin:0 0 18px 0;background:var(--bg-color);border:1px solid var(--border-color);color:var(--text-color);border-radius:8px;box-sizing:border-box;font-family:monospace;font-size:12px;resize:vertical;"></textarea>
+
             <label style="font-size: 12px; font-weight: bold; text-transform: uppercase; opacity: 0.6;">Max Concurrent Downloads</label>
             <input type="number" id="dlMaxConcurrentInput" min="1" max="10" value="3" style="width: 100%; padding: 10px 12px; margin: 6px 0 18px 0; background: var(--bg-color); border: 1px solid var(--border-color); color: var(--text-color); border-radius: 8px; box-sizing: border-box;">
 
@@ -3466,6 +3488,16 @@
                 <input type="checkbox" id="dlNotifyCompleteToggle"><div class="toggle-switch"></div>
                 <span style="font-size: 14px;">Show desktop notification when a download finishes</span>
             </label>
+            <label class="toggle-label" style="display: flex; align-items: center; gap: 10px; margin-bottom: 4px;">
+                <input type="checkbox" id="dlDebridCacheToggle"><div class="toggle-switch"></div>
+                <span style="font-size: 14px;">Cache resolved debrid links (faster repeat downloads)</span>
+            </label>
+            <p style="font-size: 11px; opacity: 0.55; margin: 0 0 14px 34px;">Remembers a resolved direct link for 24h so re-downloading the same game is instant. Turn off to always re-resolve.</p>
+
+            <div style="height:1px;background:var(--border-color);margin:4px 0 16px 0;opacity:0.5;"></div>
+            <label style="font-size: 12px; font-weight: bold; text-transform: uppercase; opacity: 0.6;">Cache</label>
+            <p style="font-size: 11px; opacity: 0.55; margin: 6px 0 8px 0; line-height: 1.5;">Clears cached resolved download links and the in-app browser's stored cache so stale or expired links are fetched fresh. Your settings, library and downloaded games are not touched.</p>
+            <button class="outline" id="dlClearCacheBtn" onclick="clearDownloadCache()" style="padding: 10px 16px; border-radius: 8px; margin-bottom: 4px;">🧹 Clear Cache</button>
 
             <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px;">
                 <button onclick="saveDownloadSettings()" style="padding: 10px 22px; border-radius: 8px;">Save</button>
@@ -4491,7 +4523,7 @@
                     style="margin-top: 30px; border-top: 1px solid var(--border-color); padding-top: 20px; display:flex; gap:10px;">
                     <button class="outline" style="flex-grow:1;"
                         onclick="require('electron').ipcRenderer.invoke('open-url', 'https://github.com/Aseoriy/Sail-Launcher')">⛵
-                        Sail Launcher v5.0.0-beta-2</button>
+                        Sail Launcher v5.0.0-beta-3</button>
                     <button id="checkUpdateBtn" style="min-width: 150px; transition: 0.3s;"
                         data-i18n="checkUpdates">Check Updates</button>
                 </div>
@@ -4967,7 +4999,7 @@
             window.syncMuteBtn();
         });
 
-        const APP_VERSION = "v5.0.0-beta-2";
+        const APP_VERSION = "v5.0.0-beta-3";
         let currentTabName = 'library';
         let skipStaggerAnimation = false;
 
@@ -5866,6 +5898,10 @@
             try { applyLayout(); } catch (e) {}
             try { applyUiAccent(); } catch (e) {}
             try { applyUiCustom(); } catch (e) {}
+            // push debrid + pixeldrain-proxy config to main, and reflect the active service badge
+            try { window.pushDebridConfigToMain && window.pushDebridConfigToMain(); } catch (e) {}
+            try { if (typeof window.getPixeldrainProxies === 'function') ipcRenderer.send('set-pixeldrain-proxies', window.getPixeldrainProxies()); } catch (e) {}
+            try { if (typeof window.updateDebridBadge === 'function') window.updateDebridBadge(); } catch (e) {}
             if (globalSettings.recentDays === undefined) globalSettings.recentDays = 30;
             if (globalSettings.showSocialSidebar === undefined) globalSettings.showSocialSidebar = true;
             if (globalSettings.enableUiResizing === undefined) globalSettings.enableUiResizing = false;
@@ -6465,7 +6501,8 @@
                     maxConcurrent: Number(globalSettings.dlMaxConcurrent) || 3,
                     enabledSources: globalSettings.dlEnabledSources || null,
                     autoSwitchDownloads: !!globalSettings.dlAutoSwitchDownloads,
-                    notifyOnComplete: !!globalSettings.dlNotifyComplete
+                    notifyOnComplete: !!globalSettings.dlNotifyComplete,
+                    debridCache: globalSettings.dlDebridCache !== false
                 };
             },
             saveSettings(s) {
@@ -6481,6 +6518,7 @@
                 globalSettings.dlMaxConcurrent = Number(s.maxConcurrent) || 3;
                 globalSettings.dlAutoSwitchDownloads = !!s.autoSwitchDownloads;
                 globalSettings.dlNotifyComplete = !!s.notifyOnComplete;
+                globalSettings.dlDebridCache = s.debridCache !== false;
                 saveToMemory();
             },
             saveEnabledSources(obj) { globalSettings.dlEnabledSources = obj; saveToMemory(); },
@@ -9657,14 +9695,25 @@
             if (tx || ty || rot) p.push('transform: translate(' + tx + 'px,' + ty + 'px)' + (rot ? ' rotate(' + rot + 'deg)' : '') + ' !important');
             if (o.w != null) p.push('width: ' + o.w + 'px !important', 'min-width: ' + o.w + 'px !important', 'max-width: none !important', 'flex: 0 0 auto !important');
             if (o.h != null) p.push('height: ' + o.h + 'px !important', 'min-height: 0 !important');
-            if (o.color) p.push('color: ' + o.color + ' !important');
-            if (o.bg) {
-                p.push('background: ' + o.bg + ' !important');
-                // ONLY enlarge the gradient canvas when we're going to animate its position
-                // (the "gradshift" preset). A static gradient sized 200% just shows one zoomed
-                // corner → it looks like a solid fill. Leaving it at the default size renders a
-                // proper edge-to-edge gradient.
-                if (/gradient/i.test(o.bg) && o.anim === 'gradshift') p.push('background-size: 200% 200% !important', 'background-attachment: fixed !important');
+            if (o.textGrad) {
+                // Gradient TEXT: paint the gradient as the element's background but clip it to the
+                // glyph shapes so the letters carry the gradient while the box stays transparent.
+                // Mutually exclusive with a box background (both use `background`) and with a plain
+                // text colour, so those are skipped when a text gradient is set.
+                p.push('background: ' + o.textGrad + ' !important',
+                    '-webkit-background-clip: text !important', 'background-clip: text !important',
+                    '-webkit-text-fill-color: transparent !important', 'color: transparent !important');
+                if (o.anim === 'gradshift') p.push('background-size: 200% auto !important');
+            } else {
+                if (o.color) p.push('color: ' + o.color + ' !important');
+                if (o.bg) {
+                    p.push('background: ' + o.bg + ' !important');
+                    // ONLY enlarge the gradient canvas when we're going to animate its position
+                    // (the "gradshift" preset). A static gradient sized 200% just shows one zoomed
+                    // corner → it looks like a solid fill. Leaving it at the default size renders a
+                    // proper edge-to-edge gradient.
+                    if (/gradient/i.test(o.bg) && o.anim === 'gradshift') p.push('background-size: 200% 200% !important', 'background-attachment: fixed !important');
+                }
             }
             if (o.radius != null) p.push('border-radius: ' + o.radius + 'px !important');
             if (o.pad != null) p.push('padding: ' + o.pad + 'px !important');
@@ -9687,12 +9736,112 @@
             // .main-content-area and .app-container are transparent, so a body gradient shows
             // through the entire UI. background-attachment: fixed keeps it pinned while content
             // scrolls. (No 200% sizing — that made the gradient look like a flat colour.)
-            if (appBg) blocks.push('body { background: ' + appBg + ' !important; background-attachment: fixed !important; }');
-            if (!blocks.length) { if (st) st.remove(); return; }
-            if (!st) { st = document.createElement('style'); st.id = 'uiCustomOverride'; document.head.appendChild(st); }
-            st.textContent = blocks.join('\n');
+            //
+            // Specificity matters here: the DEFAULT Glass style paints its own backdrop via
+            // `body.glassmorphic-mode { background: ... !important }` (specificity 0,1,1), and
+            // custom themes set --bg-color on `body.theme-custom`. A plain `body { ... }` rule —
+            // even with !important — LOSES to those higher-specificity selectors, which is why
+            // the app-background gradient "did nothing" on glass/animated themes. Emitting a
+            // selector list (each part keeps its own specificity, and this stylesheet is appended
+            // last so it wins ties) guarantees the gradient replaces the theme/glass backdrop in
+            // every mode. The theme's animated body::before still renders on top, so an animated
+            // background keeps moving over the new gradient.
+            if (appBg) blocks.push('body, body.glassmorphic-mode, body.theme-custom { background: ' + appBg + ' !important; background-attachment: fixed !important; }');
+            if (!blocks.length) { if (st) st.remove(); }
+            else {
+                if (!st) { st = document.createElement('style'); st.id = 'uiCustomOverride'; document.head.appendChild(st); }
+                st.textContent = blocks.join('\n');
+            }
+            // Renamed labels can't be done in CSS — apply them to the live DOM, and keep a
+            // MutationObserver running so they re-stick after the app re-renders a view.
+            uieApplyTextOverrides();
+            uieEnsureTextObserver();
         }
         window.applyUiCustom = applyUiCustom;
+
+        // ---- Renamed text labels (UI editor) -----------------------------
+        // Per-element text overrides live in globalSettings.uiCustom[sel].text. CSS can't set
+        // an element's text, so we write it straight onto the matching node(s). To avoid wiping
+        // an element's child markup (e.g. an icon span beside the label), we only replace the
+        // element's own text node(s); a node with no element children is set wholesale.
+        // the element's own visible text (its direct text nodes only — ignores child elements)
+        function uieOwnText(node) {
+            if (!node) return '';
+            const hasElementChild = Array.prototype.some.call(node.childNodes, n => n.nodeType === 1);
+            if (!hasElementChild) return node.textContent;
+            let t = '';
+            Array.prototype.forEach.call(node.childNodes, n => { if (n.nodeType === 3) t += n.textContent; });
+            return t;
+        }
+        function uieSetNodeText(node, text) {
+            if (!node) return;
+            // Stash the original text ONCE so "Restore original text" can put it back even after
+            // the override has overwritten the DOM (a fresh re-render restores it naturally).
+            if (node.getAttribute && node.getAttribute('data-uie-orig') == null) {
+                node.setAttribute('data-uie-orig', uieOwnText(node));
+            }
+            const hasElementChild = Array.prototype.some.call(node.childNodes, n => n.nodeType === 1);
+            if (!hasElementChild) { if (node.textContent !== text) node.textContent = text; return; }
+            // mixed content: drop the override onto the first non-empty text node, blank the rest
+            let placed = false;
+            Array.prototype.forEach.call(node.childNodes, n => {
+                if (n.nodeType === 3 && n.textContent.trim()) {
+                    const want = placed ? '' : text;
+                    if (n.textContent !== want) n.textContent = want;
+                    placed = true;
+                }
+            });
+            if (!placed && text) node.appendChild(document.createTextNode(text)); // icon-only → add a text node
+        }
+        // Put a node's stashed original text back and drop the marker.
+        function uieRestoreNodeOriginal(n) {
+            const orig = n.getAttribute && n.getAttribute('data-uie-orig');
+            if (orig == null) return;
+            const hasElementChild = Array.prototype.some.call(n.childNodes, c => c.nodeType === 1);
+            if (!hasElementChild) n.textContent = orig;
+            else { let placed = false; Array.prototype.forEach.call(n.childNodes, c => { if (c.nodeType === 3 && (c.textContent.trim() || !placed)) { if (!placed) c.textContent = orig; placed = true; } }); }
+            n.removeAttribute('data-uie-orig');
+        }
+        function uieApplyTextOverrides() {
+            const data = globalSettings.uiCustom || {};
+            const textSels = [];
+            for (const sel in data) { if (data[sel] && data[sel].text != null) textSels.push(sel); }
+            // First, restore any label that WAS renamed but no longer is (e.g. after switching/
+            // importing a theme that doesn't carry that override) so old text doesn't get stuck.
+            document.querySelectorAll('[data-uie-orig]').forEach(n => {
+                const stillOverridden = textSels.some(s => { try { return n.matches(s); } catch (e) { return false; } });
+                if (!stillOverridden) uieRestoreNodeOriginal(n);
+            });
+            textSels.forEach(sel => {
+                let nodes; try { nodes = document.querySelectorAll(sel); } catch (e) { return; }
+                nodes.forEach(n => uieSetNodeText(n, data[sel].text));
+            });
+        }
+        // Drop a text override and put the original label back on the live DOM.
+        function uieRestoreTextOverride(sel) {
+            const o = (globalSettings.uiCustom || {})[sel]; if (o) delete o.text;
+            let nodes; try { nodes = document.querySelectorAll(sel); } catch (e) { nodes = []; }
+            nodes.forEach(uieRestoreNodeOriginal);
+            uieEnsureTextObserver();
+        }
+        let uieTextObserver = null;
+        function uieHasTextOverrides() {
+            const data = globalSettings.uiCustom || {};
+            for (const sel in data) { if (data[sel] && data[sel].text != null) return true; }
+            return false;
+        }
+        function uieEnsureTextObserver() {
+            if (!uieHasTextOverrides()) { if (uieTextObserver) { uieTextObserver.disconnect(); uieTextObserver = null; } return; }
+            if (uieTextObserver) return;
+            let pending = false;
+            uieTextObserver = new MutationObserver(() => {
+                if (pending) return; pending = true;
+                // debounce via rAF so a burst of DOM churn re-applies once; re-applying is a
+                // no-op when text already matches, so this can't loop on its own mutations.
+                requestAnimationFrame(() => { pending = false; uieApplyTextOverrides(); });
+            });
+            uieTextObserver.observe(document.body, { childList: true, subtree: true, characterData: true });
+        }
 
         // ---- Stable selector for an arbitrary element ---------------------
         function uieSelectorFor(el) {
@@ -9714,8 +9863,27 @@
             return parts.length ? parts.join(' > ') : null;
         }
 
+        // ---- "All elements of this type" selector ------------------------
+        // For global sizing/colour: a selector that matches every element of the same kind
+        // as the clicked one. Prefer the element's first real class (e.g. a game tile → its
+        // shared `.game-card` class, so a change hits every tile); fall back to the tag name.
+        // (Editor-chrome `uie-*` classes are skipped — they never appear on app content.)
+        function uieTypeSelectorFor(el) {
+            if (!el || el.nodeType !== 1) return null;
+            const esc = (s) => (window.CSS && CSS.escape) ? CSS.escape(s) : s;
+            const cls = Array.prototype.filter.call(el.classList || [], c => c && !/^uie-/.test(c));
+            if (cls.length) return '.' + esc(cls[0]);
+            const tag = el.tagName ? el.tagName.toLowerCase() : '';
+            return (tag && tag !== 'body' && tag !== 'html') ? tag : null;
+        }
+
         // ---- Editor runtime state ----------------------------------------
+        // uieSel       = the selector edits are written to (the "active" one)
+        // uieSelOne    = a selector for JUST the clicked element (#id / nth path)
+        // uieSelAll    = a selector for ALL elements of the same type (.class / tag)
+        // uieScope     = 'one' | 'all' — which of the two uieSel currently points at
         let uieActive = false, uieSel = null, uieSelEl = null, uieDrag = null, uieMode = 'element';
+        let uieScope = 'one', uieSelOne = null, uieSelAll = null;
         function uieIsChrome(el) { return !!(el && el.closest && el.closest('.uie-chrome')); }
         // Clicking a game tile lands on a deep child (cover / title / play button); the user
         // means "the tile". Climb to the whole .game-card so it selects/resizes as one unit.
@@ -9813,8 +9981,27 @@
         function uieSelect(el) {
             const sel = uieSelectorFor(el);
             if (!sel) return;
-            uieMode = 'element'; uieSel = sel; uieSelEl = el;
+            uieMode = 'element';
+            uieSelOne = sel;
+            uieSelAll = uieTypeSelectorFor(el);
+            uieScope = 'one';
+            uieSel = sel; uieSelEl = el;
             uieDrawSel(); uieBuildInspector();
+        }
+        // Switch whether edits target just this element or every element of its type.
+        function uieSetScope(scope) {
+            uieScope = (scope === 'all' && uieSelAll) ? 'all' : 'one';
+            uieSel = uieScope === 'all' ? uieSelAll : uieSelOne;
+            uieBuildInspector();
+            requestAnimationFrame(uieDrawSel);
+        }
+        // Explicit deselect (request #2): clears the selection + closes the inspector without
+        // needing to click some random empty spot. Mirrors the first-Escape behaviour.
+        function uieDeselect() {
+            uieSel = null; uieSelEl = null; uieSelOne = null; uieSelAll = null; uieScope = 'one'; uieMode = 'element';
+            const ins = document.getElementById('uieInspector'); if (ins) ins.style.display = 'none';
+            const box = document.getElementById('uieSelBox'); if (box) box.style.display = 'none';
+            const hb = document.getElementById('uieHoverBox'); if (hb) hb.style.display = 'none';
         }
         function uieDrawSel() {
             const box = document.getElementById('uieSelBox'); if (!box) return;
@@ -9837,16 +10024,26 @@
         }
         // Escape is a guaranteed way out: first press deselects (closes the inspector), a
         // second press exits the editor. Prevents ever feeling "stuck".
+        // Q / E and ← / → cycle between pages so the user can edit any page without leaving
+        // the editor (request #2). These are ignored while typing in a field (e.g. the rename
+        // box) so the letters reach the input instead of switching pages.
         function uieOnKey(e) {
-            if (!uieActive || e.key !== 'Escape') return;
-            const ins = document.getElementById('uieInspector');
-            if (ins && ins.style.display !== 'none') {
-                e.preventDefault(); e.stopPropagation();
-                ins.style.display = 'none';
-                uieSel = null; uieSelEl = null; uieMode = 'element';
-                const box = document.getElementById('uieSelBox'); if (box) box.style.display = 'none';
-                const hb = document.getElementById('uieHoverBox'); if (hb) hb.style.display = 'none';
-            } else { e.preventDefault(); e.stopPropagation(); closeUiEditor(); }
+            if (!uieActive) return;
+            if (e.key === 'Escape') {
+                const ins = document.getElementById('uieInspector');
+                if (ins && ins.style.display !== 'none') {
+                    e.preventDefault(); e.stopPropagation();
+                    ins.style.display = 'none';
+                    uieSel = null; uieSelEl = null; uieMode = 'element';
+                    const box = document.getElementById('uieSelBox'); if (box) box.style.display = 'none';
+                    const hb = document.getElementById('uieHoverBox'); if (hb) hb.style.display = 'none';
+                } else { e.preventDefault(); e.stopPropagation(); closeUiEditor(); }
+                return;
+            }
+            const ae = document.activeElement;
+            if (ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT' || ae.isContentEditable)) return;
+            if (e.key === 'q' || e.key === 'Q' || e.key === 'ArrowLeft') { e.preventDefault(); e.stopPropagation(); uieCyclePage(-1); }
+            else if (e.key === 'e' || e.key === 'E' || e.key === 'ArrowRight') { e.preventDefault(); e.stopPropagation(); uieCyclePage(1); }
         }
         // ---- Drag-to-move / resize ---------------------------------------
         function uieStartMove(e) {
@@ -9888,6 +10085,84 @@
             if (d.w != null) set('uieW', d.w); if (d.h != null) set('uieH', d.h);
         }
 
+        // ---- Inspector positioning (drag + dock left/right) — request #4 --
+        // The inspector defaults to the top-right. It can cover the element being edited (e.g.
+        // the friends list), so the user can drag it anywhere by its header, or click the dock
+        // button to snap it to the left edge instead. State is session-only (reset on reopen).
+        let uieInsDock = 'right';      // 'right' | 'left'
+        let uieInsPos = null;          // {left, top} once freely dragged; null → use the dock side
+        function uieApplyInspectorPos() {
+            const ins = document.getElementById('uieInspector'); if (!ins) return;
+            if (uieInsPos) {
+                ins.style.left = uieInsPos.left + 'px'; ins.style.top = uieInsPos.top + 'px'; ins.style.right = 'auto';
+            } else if (uieInsDock === 'left') {
+                ins.style.left = '14px'; ins.style.right = 'auto'; ins.style.top = '14px';
+            } else {
+                ins.style.right = '14px'; ins.style.left = 'auto'; ins.style.top = '14px';
+            }
+        }
+        // Header markup (drag handle + dock toggle) shared by the element inspector and the
+        // App-background panel, so both can be moved out of the way.
+        function uieHeaderHtml(titleHtml) {
+            return '<div id="uieInsHead" style="display:flex;align-items:center;gap:8px;cursor:move;margin:-2px -2px 8px;user-select:none;">' +
+                '<h4 style="margin:0;flex:1;">' + titleHtml + '</h4>' +
+                '<button class="uie-mini" id="uieDockBtn" title="Dock the panel to the other side" style="padding:4px 8px;flex:0 0 auto;">' + (uieInsDock === 'left' ? 'Dock ▶' : '◀ Dock') + '</button>' +
+                '</div>';
+        }
+        function uieInsDragStart(e) {
+            if (e.target.closest('button')) return;        // clicking the dock button isn't a drag
+            const ins = document.getElementById('uieInspector'); if (!ins) return;
+            e.preventDefault(); e.stopPropagation();
+            const r = ins.getBoundingClientRect();
+            const off = { dx: e.clientX - r.left, dy: e.clientY - r.top };
+            const move = (ev) => {
+                let left = Math.max(4, Math.min(window.innerWidth - 60, ev.clientX - off.dx));
+                let top = Math.max(4, Math.min(window.innerHeight - 40, ev.clientY - off.dy));
+                uieInsPos = { left, top };
+                ins.style.left = left + 'px'; ins.style.top = top + 'px'; ins.style.right = 'auto';
+            };
+            const up = () => { window.removeEventListener('pointermove', move, true); window.removeEventListener('pointerup', up, true); };
+            window.addEventListener('pointermove', move, true);
+            window.addEventListener('pointerup', up, true);
+        }
+        // Wire the shared header (drag + dock) — call after each inspector innerHTML rebuild.
+        function uieWireInspectorChrome() {
+            const ins = document.getElementById('uieInspector'); if (!ins) return;
+            const head = ins.querySelector('#uieInsHead');
+            if (head) head.addEventListener('pointerdown', uieInsDragStart);
+            const dock = ins.querySelector('#uieDockBtn');
+            if (dock) dock.onclick = (e) => {
+                e.stopPropagation();
+                uieInsPos = null;                          // dropping back to a docked side clears the free position
+                uieInsDock = (uieInsDock === 'left') ? 'right' : 'left';
+                dock.textContent = (uieInsDock === 'left') ? 'Dock ▶' : '◀ Dock';
+                uieApplyInspectorPos();
+            };
+            uieFixFieldFocus(ins);
+            uieApplyInspectorPos();
+        }
+        // Electron soft-focus workaround: the first click into a text field of a freshly-shown
+        // glass panel can fail to take a live caret — you can backspace but typed characters are
+        // dropped and there's no blinking cursor, until you focus another field and come back.
+        // Re-asserting focus (blur→focus) on the first pointerdown clears that soft-focus state
+        // so the very first click always lands a working, typeable caret.
+        function uieFixFieldFocus(container) {
+            if (!container) return;
+            container.querySelectorAll('input:not([type=range]):not([type=color]), textarea').forEach(f => {
+                f.addEventListener('pointerdown', function fix() {
+                    f.removeEventListener('pointerdown', fix);   // once is enough per field instance
+                    setTimeout(() => {
+                        try {
+                            const canRange = /^(text|search|url|tel|password)$/i.test(f.type || 'text');
+                            const s = canRange ? f.selectionStart : null, en = canRange ? f.selectionEnd : null;
+                            f.blur(); f.focus();
+                            if (canRange && s != null) f.setSelectionRange(s, en);
+                        } catch (e) {}
+                    }, 0);
+                });
+            });
+        }
+
         // ---- Inspector ----------------------------------------------------
         function uieRenderBgBody(d) {
             const body = document.getElementById('uieBgBody'); if (!body) return;
@@ -9900,14 +10175,41 @@
                 uieRenderGradient(body, d, (css) => { d.bg = css; uiePersist(); });
             } else { body.innerHTML = ''; }
         }
+        // Text colour / text-gradient body (request #3) — mirrors the Background control.
+        function uieRenderTextBody(d) {
+            const body = document.getElementById('uieTextBody'); if (!body) return;
+            const t = d.textGrad ? 'grad' : (d.color ? 'solid' : 'none');
+            if (t === 'solid') {
+                body.innerHTML = '<div style="margin-top:7px;display:flex;align-items:center;gap:8px;"><input type="color" id="uieColor" value="' + (d.color || '#ffffff') + '"><span style="font-size:11px;opacity:.6;">Text colour</span></div>';
+                const c = body.querySelector('#uieColor'); if (c) c.oninput = () => { d.color = c.value; uiePersist(); };
+            } else if (t === 'grad') {
+                if (!d.textGradStore) d.textGradStore = { gradStops: [{ c: '#a855f7', p: 0 }, { c: '#ec4899', p: 100 }], gradAngle: 90 };
+                uieRenderGradient(body, d.textGradStore, (css) => { d.textGrad = css; uiePersist(); });
+            } else { body.innerHTML = ''; }
+        }
         function uieBuildInspector() {
             const ins = document.getElementById('uieInspector'); if (!ins || !uieSel) return;
             const d = uieData(uieSel);
             const bgType = d.bg ? (/gradient/i.test(d.bg) ? 'grad' : 'solid') : 'none';
             ins.style.display = 'block';
+            const textType = d.textGrad ? 'grad' : (d.color ? 'solid' : 'none');
+            const escAttr = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+            const curText = (d.text != null) ? d.text : (uieSelEl ? uieOwnText(uieSelEl).trim() : '');
             ins.innerHTML =
-                '<h4>🎛️ Inspector <span style="font-size:10px;opacity:.5;font-weight:400;">Experimental</span></h4>' +
+                uieHeaderHtml('🎛️ Inspector <span style="font-size:10px;opacity:.5;font-weight:400;">Experimental</span>') +
                 '<p class="uie-sel">' + uieSel + '</p>' +
+                '<div class="uie-grp" style="border-top:none;padding-top:0;margin-top:0;">' +
+                    '<label class="uie-lab" style="margin-top:0;">Apply changes to</label>' +
+                    '<div class="uie-seg" id="uieScopeSeg">' +
+                        '<button data-scope="one" class="' + (uieScope === 'one' ? 'active' : '') + '">This element</button>' +
+                        '<button data-scope="all"' + (uieSelAll ? '' : ' disabled') + ' class="' + (uieScope === 'all' ? 'active' : '') + '"' + (uieSelAll ? '' : ' style="opacity:.4;cursor:not-allowed;"') + '>All ' + (uieSelAll || 'similar') + '</button>' +
+                    '</div>' +
+                    '<button class="uie-mini" id="uieDeselect" style="width:100%;margin-top:8px;">✕ Deselect</button>' +
+                '</div>' +
+                '<div class="uie-grp"><label class="uie-lab" style="margin-top:0;">Text label</label>' +
+                    '<input type="text" id="uieText" placeholder="rename this label…" value="' + escAttr(curText) + '">' +
+                    '<button class="uie-mini" id="uieTextRestore" style="width:100%;margin-top:6px;">↺ Restore original text</button>' +
+                '</div>' +
                 '<div class="uie-grp"><div class="uie-2">' +
                     '<div><label class="uie-lab">X offset</label><input type="number" id="uieX" value="' + (d.x || 0) + '"></div>' +
                     '<div><label class="uie-lab">Y offset</label><input type="number" id="uieY" value="' + (d.y || 0) + '"></div>' +
@@ -9915,7 +10217,11 @@
                     '<div><label class="uie-lab">Width</label><input type="number" id="uieW" placeholder="auto" value="' + (d.w != null ? d.w : '') + '"></div>' +
                     '<div><label class="uie-lab">Height</label><input type="number" id="uieH" placeholder="auto" value="' + (d.h != null ? d.h : '') + '"></div>' +
                 '</div><label class="uie-lab" id="uieRotLab">Rotation ' + (d.rot || 0) + '°</label><input type="range" id="uieRot" min="-180" max="180" value="' + (d.rot || 0) + '"></div>' +
-                '<div class="uie-grp"><label class="uie-lab">Text colour</label><div style="display:flex;align-items:center;gap:8px;"><input type="color" id="uieColor" value="' + (d.color || '#ffffff') + '"><button class="uie-mini" id="uieColorClear">Clear</button></div></div>' +
+                '<div class="uie-grp"><label class="uie-lab">Text colour</label><div class="uie-seg" id="uieTextSeg">' +
+                    '<button data-t="none" class="' + (textType === 'none' ? 'active' : '') + '">Default</button>' +
+                    '<button data-t="solid" class="' + (textType === 'solid' ? 'active' : '') + '">Solid</button>' +
+                    '<button data-t="grad" class="' + (textType === 'grad' ? 'active' : '') + '">Gradient</button>' +
+                '</div><div id="uieTextBody"></div></div>' +
                 '<div class="uie-grp"><label class="uie-lab">Background</label><div class="uie-seg" id="uieBgSeg">' +
                     '<button data-t="none" class="' + (bgType === 'none' ? 'active' : '') + '">None</button>' +
                     '<button data-t="solid" class="' + (bgType === 'solid' ? 'active' : '') + '">Solid</button>' +
@@ -9930,12 +10236,27 @@
                 '</div>' +
                 '<div class="uie-grp"><button class="uie-mini" id="uieResetEl" style="width:100%;border-color:#e0556e;color:#e0556e;">↺ Reset this element</button></div>';
             uieRenderBgBody(d);
+            uieRenderTextBody(d);
+            uieWireInspectorChrome();   // header drag + dock toggle (request #4)
+            // scope toggle (this element vs. all of its type) + deselect
+            ins.querySelectorAll('#uieScopeSeg button').forEach(b => b.onclick = () => { if (b.disabled) return; uieSetScope(b.getAttribute('data-scope')); });
+            { const ds = ins.querySelector('#uieDeselect'); if (ds) ds.onclick = () => uieDeselect(); }
+            // text rename (request #3) — applies straight to the DOM (CSS can't set text)
+            { const txt = ins.querySelector('#uieText'); if (txt) txt.oninput = () => { d.text = txt.value; uieApplyTextOverrides(); uieEnsureTextObserver(); uieSaveSoon(); }; }
+            { const txtR = ins.querySelector('#uieTextRestore'); if (txtR) txtR.onclick = () => { uieRestoreTextOverride(uieSel); const t = ins.querySelector('#uieText'); if (t) t.value = uieSelEl ? uieOwnText(uieSelEl).trim() : ''; uieFlushSave(); }; }
+            // text colour / text-gradient segments (request #3)
+            ins.querySelectorAll('#uieTextSeg button').forEach(b => b.onclick = () => {
+                const t = b.getAttribute('data-t');
+                if (t === 'none') { delete d.color; delete d.textGrad; }
+                else if (t === 'solid') { delete d.textGrad; d.color = d.color || '#ffffff'; }
+                else { delete d.color; if (!d.textGradStore) d.textGradStore = { gradStops: [{ c: '#a855f7', p: 0 }, { c: '#ec4899', p: 100 }], gradAngle: 90 }; d.textGrad = uieComposeGrad(d.textGradStore); }
+                ins.querySelectorAll('#uieTextSeg button').forEach(x => x.classList.toggle('active', x === b));
+                uieRenderTextBody(d); uiePersist();
+            });
             // wire position/size
             const num = (id, key, isSize) => { const el = ins.querySelector('#' + id); if (!el) return; el.oninput = () => { const v = el.value === '' ? null : Math.round(parseFloat(el.value)); if (v == null || isNaN(v)) { delete d[key]; } else { d[key] = v; } uiePersist(); uieDrawSel(); }; };
             num('uieX', 'x'); num('uieY', 'y'); num('uieW', 'w', true); num('uieH', 'h', true);
             const rot = ins.querySelector('#uieRot'); if (rot) rot.oninput = () => { d.rot = parseInt(rot.value, 10) || 0; ins.querySelector('#uieRotLab').textContent = 'Rotation ' + d.rot + '°'; uiePersist(); uieDrawSel(); };
-            const col = ins.querySelector('#uieColor'); if (col) col.oninput = () => { d.color = col.value; uiePersist(); };
-            const colC = ins.querySelector('#uieColorClear'); if (colC) colC.onclick = () => { delete d.color; uiePersist(); };
             // background type segments
             ins.querySelectorAll('#uieBgSeg button').forEach(b => b.onclick = () => {
                 const t = b.getAttribute('data-t');
@@ -9973,11 +10294,49 @@
             const box = document.getElementById('uieSelBox'); if (box) box.style.display = 'none';
             if (!globalSettings.uiAppBgStore) globalSettings.uiAppBgStore = { gradStops: [{ c: '#0f172a', p: 0 }, { c: '#4c1d95', p: 100 }], gradAngle: 160 };
             ins.style.display = 'block';
-            ins.innerHTML = '<h4>🌈 App background</h4><p class="uie-sel">whole-window gradient</p>' +
+            ins.innerHTML = uieHeaderHtml('🌈 App background') + '<p class="uie-sel">whole-window gradient</p>' +
                 '<div class="uie-grp" id="uieAppBgBody"></div>' +
                 '<div class="uie-grp"><button class="uie-mini" id="uieAppBgClear" style="width:100%;">Clear app background</button></div>';
             uieRenderGradient(ins.querySelector('#uieAppBgBody'), globalSettings.uiAppBgStore, (css) => { globalSettings.uiAppBg = css; applyUiCustom(); uieSaveSoon(); });
             const clr = ins.querySelector('#uieAppBgClear'); if (clr) clr.onclick = () => { globalSettings.uiAppBg = ''; applyUiCustom(); uieFlushSave(); };
+            uieWireInspectorChrome();   // header drag + dock toggle (request #4)
+        }
+
+        // ---- Page switching while editing (request #2) -------------------
+        // The editable pages are the primary nav tabs that are currently visible (some can be
+        // hidden in settings). Q / ← go to the previous page, E / → to the next — so the user
+        // can edit elements on any page without leaving the editor. The toolbar shows which
+        // page is active. Reading each tab's live label keeps renamed/translated names correct.
+        const UIE_PAGE_TABS = [
+            { tab: 'library', el: 'tabLibrary' },
+            { tab: 'store', el: 'tabStore' },
+            { tab: 'workshop', el: 'tabWorkshop' },
+            { tab: 'downloads', el: 'tabDownloads' },
+            { tab: 'downloadsmgr', el: 'tabDownloadsMgr' }
+        ];
+        function uieVisiblePages() {
+            return UIE_PAGE_TABS.filter(p => { const e = document.getElementById(p.el); return e && e.style.display !== 'none'; });
+        }
+        function uiePageLabelFor(tab) {
+            const m = UIE_PAGE_TABS.find(p => p.tab === tab);
+            const el = m && document.getElementById(m.el);
+            return el ? el.textContent.trim() : (tab || '');
+        }
+        function uieUpdatePageLabel() {
+            const lab = document.getElementById('uiePageLabel');
+            if (lab) lab.textContent = uiePageLabelFor(currentTabName);
+        }
+        function uieCyclePage(dir) {
+            const pages = uieVisiblePages();
+            if (pages.length < 2) return;
+            let idx = pages.findIndex(p => p.tab === currentTabName);
+            if (idx < 0) idx = 0;
+            idx = (idx + dir + pages.length) % pages.length;
+            // the previously-selected element belongs to the page we're leaving → drop it
+            uieDeselect();
+            const r = switchMainTab(pages[idx].tab);
+            const after = () => { uieUpdatePageLabel(); };
+            if (r && typeof r.then === 'function') r.then(after); else after();
         }
 
         // ---- Toolbar ------------------------------------------------------
@@ -9986,11 +10345,18 @@
             if (!tb) { tb = document.createElement('div'); tb.id = 'uieToolbar'; tb.className = 'uie-chrome'; document.body.appendChild(tb); }
             tb.style.display = 'flex';
             tb.innerHTML =
-                '<span class="uie-hint">Click any element to select, then drag to move • use the panel to restyle →</span>' +
+                '<span style="display:flex;align-items:center;gap:6px;font-size:11px;">' +
+                    '<button class="uie-btn" id="uiePagePrev" title="Previous page (Q / ←)" style="padding:6px 10px;">◀</button>' +
+                    '<span style="opacity:.6;">Page</span><b id="uiePageLabel" style="min-width:96px;text-align:center;">' + uiePageLabelFor(currentTabName) + '</b>' +
+                    '<button class="uie-btn" id="uiePageNext" title="Next page (E / →)" style="padding:6px 10px;">▶</button>' +
+                '</span>' +
+                '<span class="uie-hint">Click an element to edit • <b>Q/E</b> or <b>←/→</b> switch pages • drag the panel header to move it</span>' +
                 '<span style="display:flex;align-items:center;gap:6px;"><span style="font-size:11px;opacity:.7;">Accent</span><input type="color" id="uieAccent" value="' + (getComputedStyle(document.documentElement).getPropertyValue('--accent').trim() || '#a855f7') + '" style="width:32px;height:24px;padding:0;border:none;background:none;cursor:pointer;"></span>' +
                 '<button class="uie-btn" id="uieAppBgBtn">🌈 App background…</button>' +
                 '<button class="uie-btn" id="uieResetAll">↺ Reset all</button>' +
                 '<button class="uie-btn primary" id="uieDone">✓ Done</button>';
+            { const pp = tb.querySelector('#uiePagePrev'); if (pp) pp.onclick = () => uieCyclePage(-1); }
+            { const pn = tb.querySelector('#uiePageNext'); if (pn) pn.onclick = () => uieCyclePage(1); }
             const acc = tb.querySelector('#uieAccent'); if (acc) acc.oninput = () => { globalSettings.uiAccent = acc.value; applyUiAccent(); uieSaveSoon(); };
             const ab = tb.querySelector('#uieAppBgBtn'); if (ab) ab.onclick = () => uieOpenAppBg();
             const ra = tb.querySelector('#uieResetAll'); if (ra) ra.onclick = () => {
@@ -10026,10 +10392,12 @@
             try { closeModal('settingsModal'); } catch (e) {}
             try { closeModal('themeModal'); } catch (e) {}
             uieActive = true; uieSel = null; uieSelEl = null; uieMode = 'element';
+            uieInsPos = null; uieInsDock = 'right';   // start the inspector docked top-right each session
             document.body.classList.add('ui-edit-mode');
             uieEnsureChrome();
             const ov = document.getElementById('uieOverlay'); if (ov) ov.style.display = 'block';
             uieBuildToolbar();
+            uieUpdatePageLabel();
             document.addEventListener('mousemove', uieOnMove, true);
             document.addEventListener('click', uieOnClick, true);
             document.addEventListener('keydown', uieOnKey, true);
@@ -10606,6 +10974,17 @@
                 glassBorderOpacity: parseInt(document.getElementById('tcGlassBorderOpacity').value),
                 glassBlur: parseInt(document.getElementById('tcGlassBlur').value)
             };
+            // Bake any UI-editor tweaks (moved/resized/recoloured elements, app-background
+            // gradient, accent) into the theme so they survive Export → Import and the
+            // website's one-click "Install" button. These are plain extra JSON keys, so older
+            // builds / the website simply ignore them; applyTheme() restores them when present.
+            try {
+                const _clone = (v) => (v == null ? v : JSON.parse(JSON.stringify(v)));
+                if (globalSettings.uiCustom && Object.keys(globalSettings.uiCustom).length) ct.uiCustom = _clone(globalSettings.uiCustom);
+                if (globalSettings.uiAppBg) ct.uiAppBg = globalSettings.uiAppBg;
+                if (globalSettings.uiAppBgStore) ct.uiAppBgStore = _clone(globalSettings.uiAppBgStore);
+                if (globalSettings.uiAccent) ct.uiAccent = globalSettings.uiAccent;
+            } catch (e) {}
             if (!globalSettings.customThemes) globalSettings.customThemes = [];
             if (editingThemeId) {
                 const index = globalSettings.customThemes.findIndex(t => t.id === editingThemeId); if (index !== -1) globalSettings.customThemes[index] = ct;
@@ -10671,6 +11050,18 @@
                     .game-card, .gp-expandable, .gp-info-box, .modal-content, input[type="text"], input[type="number"], select { border-radius: ${ct.radius || 12}px !important; }
                     button, .action-btn.sidebar-title { border-radius: ${ct.radius ? Math.max(4, ct.radius - 4) : 8}px !important; }
                 `;
+                    // Restore any UI-editor tweaks baked into the theme (Export/Import + website
+                    // install carry these). Only overwrite the matching keys when the theme
+                    // actually defines them, so plain themes don't wipe a user's live tweaks.
+                    try {
+                        const _clone = (v) => (v == null ? v : JSON.parse(JSON.stringify(v)));
+                        if (ct.uiCustom) globalSettings.uiCustom = _clone(ct.uiCustom);
+                        if (ct.uiAppBg !== undefined) globalSettings.uiAppBg = ct.uiAppBg;
+                        if (ct.uiAppBgStore) globalSettings.uiAppBgStore = _clone(ct.uiAppBgStore);
+                        if (ct.uiAccent !== undefined) globalSettings.uiAccent = ct.uiAccent;
+                        if (ct.uiCustom || ct.uiAppBg !== undefined) applyUiCustom();
+                        if (ct.uiAccent !== undefined && typeof applyUiAccent === 'function') applyUiAccent();
+                    } catch (e) {}
                 }
             } else {
                 document.getElementById('customThemeStyles').innerHTML = '';
@@ -11447,7 +11838,7 @@
             '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="225"><rect fill="#18181b" width="400" height="225"/><text fill="#a1a1aa" font-family="sans-serif" font-size="16" x="50%" y="50%" text-anchor="middle" dominant-baseline="middle">No Image</text></svg>'
         );
 
-        const DL_HOSTS = /magnet:|megadb|buzzheavier|gofile|datanodes|1fichier|pixeldrain|akirabox|filekeeper|filecrypt|mediafire|mega\.nz|qiwi|multiup|fuckingfast|bowfile|hexload|vikingfile|rootz|1337x|torrent|\.torrent/i;
+        const DL_HOSTS = /magnet:|megadb|gofile|datanodes|1fichier|pixeldrain|akirabox|filekeeper|filecrypt|mediafire|mega\.nz|qiwi|multiup|fuckingfast|bowfile|hexload|vikingfile|rootz|1337x|torrent|\.torrent/i;
 
         // Decode HTML entities (REST API titles come with &#8217; &amp; etc.)
         function dlDecodeEntities(s) {
@@ -11615,6 +12006,41 @@
                 results: doc => genericResults(doc, 'https://dodi-repacks.site',
                     'article', 'h1.entry-title a, h2.entry-title a, .entry-title a'),
                 detail: wpDetail
+            },
+            steamrip: {
+                name: 'SteamRIP', color: '#3b82f6', requiresDebrid: true,
+                searchUrl: q => `https://steamrip.com/?s=${encodeURIComponent(q)}`,
+                // SteamRIP game pages live at /<slug>-free-download/ — match those anchors.
+                results: doc => {
+                    const base = 'https://steamrip.com';
+                    const out = [], seen = new Set();
+                    doc.querySelectorAll('a[href]').forEach(a => {
+                        let href = dlAbs(a.getAttribute('href') || '', base);
+                        if (!href || !/steamrip\.com\/[^?#]*free-download/i.test(href)) return;
+                        href = href.split('#')[0].split('?')[0];
+                        if (seen.has(href)) return;
+                        let name = dlClean(a.textContent);
+                        if (!name || name.length < 2) { const img = a.querySelector('img'); name = img ? dlClean(img.getAttribute('alt') || '') : ''; }
+                        if (!name || name.length < 2) return;
+                        seen.add(href);
+                        out.push({ name: name.replace(/\s*free\s*download.*/i, '').trim() || name, url: href, image: dlContainerImage(a.closest('article, .post, li, .card, div') || a, base) });
+                    });
+                    return out.slice(0, 12);
+                },
+                // Detail pages list premium-filehost links (MegaDB / 1Fichier / GoFile /
+                // Buzzheavier / Rapidgator / …). A connected debrid service unlocks them.
+                detail: (doc, base) => {
+                    const HOST = /megadb|gofile|datanodes|1fichier|pixeldrain|filecrypt|mediafire|rapidgator|nitroflare|turbobit|katfile|hexload|filekeeper|vikingfile|akirabox|mega\.nz/i;
+                    const links = [], seen = new Set();
+                    const scope = doc.querySelector('.entry-content, .post-content, .article-content, article, main') || doc;
+                    scope.querySelectorAll('a[href]').forEach(a => {
+                        let href = dlAbs(a.getAttribute('href') || '', base);
+                        if (!href || href.startsWith('magnet:') || !HOST.test(href) || seen.has(href)) return;
+                        seen.add(href);
+                        links.push({ label: dlHostLabel(href), type: 'web', url: href });
+                    });
+                    return links;
+                }
             }
         };
 
@@ -11638,8 +12064,21 @@
         }
 
         // DODI + Online-Fix are OFF by default (Cloudflare / login+captcha). Toggle them on in Download Settings.
-        const dlEnabled = { steamgg: true, fitgirl: true, onlinefix: false, dodi: false };
+        const dlEnabled = { steamgg: true, fitgirl: true, onlinefix: false, dodi: false, steamrip: false };
         let dlSearchToken = 0;
+
+        // Default PixelDrain Worker proxy pool — ships working out of the box. Users can
+        // add/replace these in Download Settings. An EXPLICITLY saved empty list ([]) is
+        // respected as "download directly"; only an unset value falls back to the default.
+        const DL_DEFAULT_PD_PROXIES = [
+            'https://saillauncher.alissatorz.workers.dev',
+            'https://saillauncher2.alissatorz.workers.dev',
+            'https://saillauncher3.alissatorz.workers.dev',
+            'https://saillauncher4.alissatorz.workers.dev'
+        ];
+        window.getPixeldrainProxies = function getPixeldrainProxies() {
+            return Array.isArray(globalSettings.dlPixeldrainProxies) ? globalSettings.dlPixeldrainProxies : DL_DEFAULT_PD_PROXIES.slice();
+        };
 
         let dlAdBlockSynced = false;
         function loadDlEnabledFromSettings() {
@@ -11654,10 +12093,15 @@
             // DODI / Online-Fix only available when explicitly enabled in settings
             if (!s.enableDodi) dlEnabled.dodi = false;
             if (!s.enableOnlineFix) dlEnabled.onlinefix = false;
-            // sync ad-block preference with main process once settings are loaded
+            // SteamRIP is locked unless a debrid service is connected & validated
+            if (!window.debridConnected || !window.debridConnected()) dlEnabled.steamrip = false;
+            // sync ad-block + debrid + pixeldrain-proxy preferences with main once at load
             if (!dlAdBlockSynced && window.sailDownloadBridge) {
                 dlAdBlockSynced = true;
                 ipcRenderer.invoke('set-adblock', s.adBlock !== false);
+                try { window.pushDebridConfigToMain && window.pushDebridConfigToMain(); } catch (e) {}
+                try { ipcRenderer.send('set-pixeldrain-proxies', window.getPixeldrainProxies()); } catch (e) {}
+                try { ipcRenderer.send('set-debrid-cache-enabled', s.debridCache !== false); } catch (e) {}
             }
         }
 
@@ -11669,16 +12113,28 @@
             const dodiEnabledInSettings = !!settings0.enableDodi;
             const onlineFixEnabledInSettings = !!settings0.enableOnlineFix;
             const optInVisible = (id) => (id === 'dodi' ? dodiEnabledInSettings : id === 'onlinefix' ? onlineFixEnabledInSettings : true);
+            // A debrid-gated source (SteamRIP) is locked until a service is connected.
+            const isLocked = (id) => !!(DL_SOURCES[id].requiresDebrid && !(window.debridConnected && window.debridConnected()));
+            const styleChip = (chip, id) => {
+                const src = DL_SOURCES[id];
+                const locked = isLocked(id);
+                const on = !locked && dlEnabled[id];
+                chip.textContent = (locked ? '🔒 ' : '') + src.name;
+                chip.style.background = on ? src.color : 'transparent';
+                chip.style.color = on ? '#fff' : src.color;
+                chip.style.opacity = locked ? '0.45' : (on ? '1' : '0.7');
+                chip.style.cursor = locked ? 'not-allowed' : 'pointer';
+                chip.title = locked ? 'Requires a connected debrid service' : '';
+            };
+            // Show/hide the persistent SteamRIP lock hint
+            const hint = document.getElementById('steamripLockHint');
+            if (hint) hint.style.display = isLocked('steamrip') ? 'block' : 'none';
             if (wrap.querySelector('.dl-chip')) {
                 // already built — just sync opt-in visibility + chip states
                 wrap.querySelectorAll('.dl-chip').forEach(chip => {
                     const id = chip.dataset.id;
                     chip.style.display = optInVisible(id) ? '' : 'none';
-                    const on = dlEnabled[id];
-                    const color = DL_SOURCES[id].color;
-                    chip.style.background = on ? color : 'transparent';
-                    chip.style.color = on ? '#fff' : color;
-                    chip.style.opacity = on ? '1' : '0.7';
+                    styleChip(chip, id);
                 });
                 return;
             }
@@ -11688,17 +12144,16 @@
                 chip.className = 'dl-chip';
                 chip.dataset.id = id;
                 chip.style.cssText = 'padding:6px 14px;border-radius:99px;font-size:12px;font-weight:bold;cursor:pointer;border:1px solid ' + src.color + ';transition:opacity .15s;';
-                chip.textContent = src.name;
-                const on0 = dlEnabled[id];
-                chip.style.background = on0 ? src.color : 'transparent';
-                chip.style.color = on0 ? '#fff' : src.color;
-                chip.style.opacity = on0 ? '1' : '0.7';
+                styleChip(chip, id);
                 if (!optInVisible(id)) chip.style.display = 'none';
                 chip.onclick = () => {
+                    if (isLocked(id)) {
+                        alert(src.name + ' requires a connected debrid service.\n\nConnect one in Download Settings → Debrid Services to unlock it.');
+                        openDownloadSettings();
+                        return;
+                    }
                     dlEnabled[id] = !dlEnabled[id];
-                    chip.style.background = dlEnabled[id] ? src.color : 'transparent';
-                    chip.style.color = dlEnabled[id] ? '#fff' : src.color;
-                    chip.style.opacity = dlEnabled[id] ? '1' : '0.7';
+                    styleChip(chip, id);
                     if (window.sailDownloadBridge) window.sailDownloadBridge.saveEnabledSources(Object.assign({}, dlEnabled));
                 };
                 wrap.appendChild(chip);
@@ -11737,7 +12192,8 @@
             const emptyEl = document.getElementById('downloadEmptyState');
             if (!query) { document.getElementById('downloadSearchInput').focus(); return; }
 
-            const active = Object.keys(dlEnabled).filter(id => dlEnabled[id]);
+            const debridOk = !!(window.debridConnected && window.debridConnected());
+            const active = Object.keys(dlEnabled).filter(id => dlEnabled[id] && !(DL_SOURCES[id].requiresDebrid && !debridOk));
             if (active.length === 0) { alert('Enable at least one source first.'); return; }
 
             const token = ++dlSearchToken;
@@ -11971,10 +12427,19 @@
             return m ? parseInt(m[1], 10) : 0;
         }
         // Higher = better host for the auto 1-click (aria2-friendly, no captcha/token wall).
-        // Hosts permanently blocked by Cloudflare's interactive human-check — we can
-        // never get a direct link, so replace the download button with "Browse".
+        // Hosts behind Cloudflare's interactive human-check — without help we can't get a
+        // direct link, so the download button becomes "Browse". BUT a connected debrid service
+        // resolves these server-side (it bypasses the Cloudflare/download wall), so when debrid
+        // is connected DataNodes / AkiraBox / BuzzHeavier become normal 1-click downloads.
+        // 1337x is a torrent *index* page (not a direct file link) so debrid can't help — it
+        // stays browse-only regardless.
         function isCFBlockedHost(host) {
-            return /datanodes|akirabox|buzzheavier|bzzhr|1337x/i.test(host || '');
+            host = host || '';
+            if (/1337x/i.test(host)) return true;
+            if (/datanodes|akirabox/i.test(host)) {
+                return !(window.debridConnected && window.debridConnected());
+            }
+            return false;
         }
 
         function dlHostScore(host) {
@@ -11986,9 +12451,9 @@
             if (/gofile/i.test(host)) return 90;   // computed-token API, multi-part folders
             if (/mediafire/i.test(host)) return 70;
             if (/1fichier|hexload|vikingfile|rootz|multiup|bowfile|mega/i.test(host)) return 45;
-            // datanodes, akirabox, buzzheavier & 1337x are behind a manual Cloudflare human-check
+            // datanodes, akirabox & 1337x are behind a manual Cloudflare human-check
             // → can't auto-download; keep them last so 1-click only falls back to them.
-            if (/datanodes|akirabox|buzzheavier|bzzhr|1337x/i.test(host)) return 20;
+            if (/datanodes|akirabox|1337x/i.test(host)) return 20;
             return 40;
         }
         // Group raw links into downloadable "sets": one set per file-host (all its
@@ -12000,6 +12465,9 @@
             const magnets = [], byHost = {};
             (links || []).forEach(l => {
                 if (l.type === 'page') return;
+                // BuzzHeavier is removed entirely — its Cloudflare check can't be passed even
+                // with debrid, so never offer it as a download option.
+                if (/buzzheavier|bzzhr/i.test(l.url || '')) return;
                 if (l.type === 'magnet') { magnets.push(l); return; }
                 if (DL_SKIP_FILE_RE.test((l.label || '') + ' ' + (l.url || ''))) return;
                 const h = dlHostOf(l.url);
@@ -12019,6 +12487,16 @@
             const rank = (s) => s.score + (s.parts.length > 1 ? 8 : 0) + (repack && s.kind === 'magnet' ? 1000 : 0);
             sets.sort((a, b) => rank(b) - rank(a));
             return sets;
+        }
+
+        // Mirror URLs to race the chosen download against: other hosts carrying the SAME
+        // game. Only single-file http sets are interchangeable mirrors — multi-part sets
+        // and magnets are not — and Cloudflare-walled hosts can't auto-resolve, so skip them.
+        function mirrorUrlsFor(sets, chosen) {
+            if (!chosen || chosen.kind !== 'http' || chosen.parts.length !== 1) return [];
+            return (sets || [])
+                .filter(s => s !== chosen && s.kind === 'http' && s.parts.length === 1 && !isCFBlockedHost(s.host))
+                .map(s => s.parts[0].url);
         }
 
         window.openDownloadDetail = async function (id, item) {
@@ -12121,7 +12599,7 @@
                 } else {
                     const tag = best.kind === 'magnet' ? '' : ' — ' + best.host + (best.parts.length > 1 ? ' (' + best.parts.length + ' parts)' : '');
                     dlBtn.innerHTML = (best.kind === 'magnet' ? '🧲 ' : '⬇️ ') + 'Download (1-Click)' + tag;
-                    dlBtn.onclick = () => startGameDownloadSet(item, best, id);
+                    dlBtn.onclick = () => startGameDownloadSet(item, best, id, mirrorUrlsFor(sets, best));
                 }
                 area.appendChild(dlBtn);
 
@@ -12130,7 +12608,7 @@
                     more.style.cssText = 'font-size:11px;opacity:0.5;text-transform:uppercase;font-weight:bold;margin:10px 0 8px 0;';
                     more.textContent = 'Other download options';
                     area.appendChild(more);
-                    sets.slice(1).forEach(set => area.appendChild(buildSetRow(set, item, id)));
+                    sets.slice(1).forEach(set => area.appendChild(buildSetRow(set, item, id, sets)));
                 }
             } else {
                 const p = document.createElement('p');
@@ -12142,7 +12620,7 @@
         };
 
         // A grouped host set: one "Download all" action that grabs every part.
-        function buildSetRow(set, item, sourceId) {
+        function buildSetRow(set, item, sourceId, sets) {
             const row = document.createElement('div');
             row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--bg-color);border:1px solid var(--border-color);border-radius:8px;margin-bottom:8px;';
             const icon = document.createElement('span');
@@ -12161,7 +12639,7 @@
                 b.onclick = () => openDownloadInAppBrowser(item.url);
             } else {
                 b.textContent = set.parts.length > 1 ? '⬇️ Download all' : '⬇️ Download';
-                b.onclick = () => startGameDownloadSet(item, set, sourceId);
+                b.onclick = () => startGameDownloadSet(item, set, sourceId, mirrorUrlsFor(sets, set));
             }
             actions.appendChild(b);
             if (set.kind === 'magnet') {
@@ -12244,23 +12722,56 @@
         // Human-readable phase label. Each download moves through distinct phases —
         // make it obvious which one we're in (downloading the game vs installing it)
         // and surface as much useful detail as the phase provides.
+        // Small "⚡ Cached" pill shown while a download whose link was already resolved
+        // (served instantly from the 24h debrid cache) is resolving/downloading.
+        function cachedBadge(d) {
+            if (!d || !d.cached) return '';
+            return `<span title="This link was resolved instantly from cache" style="display:inline-block;margin-right:6px;padding:1px 6px;border-radius:6px;font-size:10px;font-weight:600;background:rgba(245,166,35,0.16);color:#f5a623;vertical-align:middle;">⚡ Cached</span>`;
+        }
         function fmtState(d) {
             if (d.state === 'queued') return '🕓 Queued — waiting for a free slot…';
-            if (d.state === 'resolving') return '🔗 ' + (d.label || 'Finding a direct download link…');
+            if (d.state === 'resolving') {
+                const sub = d.subLabel ? `<div style="font-size:10px;opacity:0.55;margin-top:3px;">${d.subLabel}</div>` : '';
+                return `${cachedBadge(d)}<span class="dl-spinner" style="width:12px;height:12px;border-width:2px;margin-right:7px;"></span>${d.label || 'Finding a direct download link…'}${sub}`;
+            }
             if (d.state === 'downloading') {
                 const bits = ['⬇️ Downloading game', (d.percent || 0) + '%'];
                 if (d.partCount > 1) bits.push('part ' + (d.part || 1) + '/' + d.partCount);
                 if (d.downloaded && d.total) bits.push(d.downloaded + ' / ' + d.total);
                 bits.push((d.speed || '0B') + '/s');
                 if (d.eta) bits.push('ETA ' + d.eta);
-                return bits.join(' · ');
+                return cachedBadge(d) + bits.join(' · ');
             }
             if (d.state === 'processing') return '📦 ' + (d.label || 'Extracting & preparing the game…');
             if (d.state === 'installing') return '⚙️ ' + (d.label || 'Installing game — running the setup…');
+            if (d.state === 'paused') return '⏸️ Paused' + (d.percent ? ' at ' + d.percent + '%' : '') + ' — resume to continue';
             if (d.state === 'done') return d.warning ? '⚠️ Done — needs a manual step' : '✅ Installed & ready to play';
             if (d.state === 'error') return '✕ ' + (d.error || 'Failed');
             return '';
         }
+
+        // ---- Pause / Resume / Cancel (download row actions) ---------------
+        // Pause kills aria2 but keeps the partial file so Resume continues from where it
+        // stopped. Cancel stops for good AND deletes the folder + every file the download
+        // created, so cancelling leaves nothing behind.
+        window.pauseDownload = function (id) {
+            const d = dlQueue.get(id); if (!d) return;
+            ipcRenderer.invoke('pause-download', id);
+            d.state = 'paused'; d.label = 'Paused';
+            renderDock();
+        };
+        window.resumeDownload = function (id) {
+            const d = dlQueue.get(id); if (!d || !d.resumeOpts) return;
+            d.state = 'resolving'; d.label = initialResolveLabel(); d.error = '';
+            renderDock();
+            ipcRenderer.invoke('download-game', d.resumeOpts);
+        };
+        window.cancelDownload = function (id) {
+            const d = dlQueue.get(id);
+            ipcRenderer.invoke('cancel-download', id, d ? { deleteFolder: true, gameName: d.name, installDir: d.installDir } : { deleteFolder: false });
+            dlQueue.delete(id);
+            renderDock();
+        };
 
         // Download history — persisted to sail_library.json so it survives restarts.
         // Loaded lazily on first render because globalSettings is read from disk by the
@@ -12365,12 +12876,17 @@
                 const pct = d.state === 'done' ? 100 : (d.percent || 0);
                 const barColor = d.state === 'error' ? '#ef4444' : (d.state === 'done' ? '#10b981' : 'var(--accent)');
                 let actions = '';
-                if (d.state === 'downloading' || d.state === 'resolving' || d.state === 'queued' || d.state === 'processing' || d.state === 'installing') {
-                    actions = `<button class="outline" data-cancel="${d.id}" style="padding:4px 10px;font-size:11px;border-radius:6px;">Cancel</button>`;
+                const dockBtn = 'padding:4px 10px;font-size:11px;border-radius:6px;';
+                if (d.state === 'downloading' || d.state === 'resolving' || d.state === 'queued') {
+                    actions = `<button class="outline" data-pause="${d.id}" style="${dockBtn}">⏸ Pause</button><button class="outline" data-cancel="${d.id}" style="${dockBtn}">Cancel</button>`;
+                } else if (d.state === 'processing' || d.state === 'installing') {
+                    actions = `<button class="outline" data-cancel="${d.id}" style="${dockBtn}">Cancel</button>`;
+                } else if (d.state === 'paused') {
+                    actions = `<button class="outline" data-resume="${d.id}" style="${dockBtn}">▶ Resume</button><button class="outline" data-cancel="${d.id}" style="${dockBtn}">Cancel</button>`;
                 } else if (d.state === 'done') {
                     actions = `<button class="outline" data-folder="${d.id}" style="padding:4px 10px;font-size:11px;border-radius:6px;">📂</button><button class="outline" data-close="${d.id}" style="padding:4px 10px;font-size:11px;border-radius:6px;">✕</button>`;
                 } else if (d.state === 'error') {
-                    actions = (d.needsBrowser ? `<button class="outline" data-browser="${d.id}" style="padding:4px 10px;font-size:11px;border-radius:6px;">🌐</button>` : '') + `<button class="outline" data-close="${d.id}" style="padding:4px 10px;font-size:11px;border-radius:6px;">✕</button>`;
+                    actions = (d.resumeOpts ? `<button class="outline" data-resume="${d.id}" style="${dockBtn}">🔄 Retry</button>` : '') + (d.needsBrowser ? `<button class="outline" data-browser="${d.id}" style="padding:4px 10px;font-size:11px;border-radius:6px;">🌐</button>` : '') + `<button class="outline" data-close="${d.id}" style="padding:4px 10px;font-size:11px;border-radius:6px;">✕</button>`;
                 }
                 if (row) {
                     // In-place update — no DOM rebuild, no animation re-trigger.
@@ -12394,7 +12910,9 @@
                     body.appendChild(row);
                 }
             }
-            body.querySelectorAll('[data-cancel]').forEach(b => b.onclick = () => { const id = b.getAttribute('data-cancel'); ipcRenderer.invoke('cancel-download', id); const d = dlQueue.get(id); if (d) { d.state = 'error'; d.error = 'Cancelled'; renderDock(); } });
+            body.querySelectorAll('[data-pause]').forEach(b => b.onclick = () => pauseDownload(b.getAttribute('data-pause')));
+            body.querySelectorAll('[data-resume]').forEach(b => b.onclick = () => resumeDownload(b.getAttribute('data-resume')));
+            body.querySelectorAll('[data-cancel]').forEach(b => b.onclick = () => cancelDownload(b.getAttribute('data-cancel')));
             body.querySelectorAll('[data-close]').forEach(b => b.onclick = () => { const id = b.getAttribute('data-close'); const d = dlQueue.get(id); if (d && d.state === 'done') addToHistory(d); dlQueue.delete(id); renderDock(); });
             body.querySelectorAll('[data-folder]').forEach(b => b.onclick = () => { const d = dlQueue.get(b.getAttribute('data-folder')); if (d && d.folder) ipcRenderer.invoke('show-item-in-folder', d.exePath || d.folder); });
             body.querySelectorAll('[data-browser]').forEach(b => b.onclick = () => { const d = dlQueue.get(b.getAttribute('data-browser')); if (d && d.url) openDownloadInAppBrowser(d.url); });
@@ -12469,12 +12987,17 @@
                 const pct = d.state === 'done' ? 100 : (d.percent || 0);
                 const barColor = d.state === 'error' ? '#ef4444' : (d.state === 'done' ? '#10b981' : 'var(--accent)');
                 let actions = '';
-                if (d.state === 'downloading' || d.state === 'resolving' || d.state === 'queued' || d.state === 'processing' || d.state === 'installing') {
-                    actions = `<button class="outline" data-pcancel="${d.id}" style="padding:6px 14px;font-size:12px;border-radius:8px;">Cancel</button>`;
+                const pBtn = 'padding:6px 14px;font-size:12px;border-radius:8px;';
+                if (d.state === 'downloading' || d.state === 'resolving' || d.state === 'queued') {
+                    actions = `<button class="outline" data-ppause="${d.id}" style="${pBtn}">⏸ Pause</button><button class="outline" data-pcancel="${d.id}" style="${pBtn}">Cancel</button>`;
+                } else if (d.state === 'processing' || d.state === 'installing') {
+                    actions = `<button class="outline" data-pcancel="${d.id}" style="${pBtn}">Cancel</button>`;
+                } else if (d.state === 'paused') {
+                    actions = `<button class="outline" data-presume="${d.id}" style="${pBtn}">▶ Resume</button><button class="outline" data-pcancel="${d.id}" style="${pBtn}">Cancel</button>`;
                 } else if (d.state === 'done') {
                     actions = `<button class="outline" data-pfolder="${d.id}" style="padding:6px 14px;font-size:12px;border-radius:8px;">📂 Open Folder</button><button class="outline" data-pclose="${d.id}" style="padding:6px 14px;font-size:12px;border-radius:8px;">✕ Clear</button>`;
                 } else if (d.state === 'error') {
-                    actions = (d.needsBrowser ? `<button class="outline" data-pbrowser="${d.id}" style="padding:6px 14px;font-size:12px;border-radius:8px;">🌐 Open in Browser</button>` : '') + `<button class="outline" data-pclose="${d.id}" style="padding:6px 14px;font-size:12px;border-radius:8px;">✕ Clear</button>`;
+                    actions = (d.resumeOpts ? `<button class="outline" data-presume="${d.id}" style="${pBtn}">🔄 Retry</button>` : '') + (d.needsBrowser ? `<button class="outline" data-pbrowser="${d.id}" style="padding:6px 14px;font-size:12px;border-radius:8px;">🌐 Open in Browser</button>` : '') + `<button class="outline" data-pclose="${d.id}" style="padding:6px 14px;font-size:12px;border-radius:8px;">✕ Clear</button>`;
                 }
                 if (row) {
                     const bar = row.querySelector('.dl-bar-inner');
@@ -12502,7 +13025,9 @@
                     hist ? body.insertBefore(row, hist) : body.appendChild(row);
                 }
             }
-            body.querySelectorAll('[data-pcancel]').forEach(b => b.onclick = () => { const id = b.getAttribute('data-pcancel'); ipcRenderer.invoke('cancel-download', id); const d = dlQueue.get(id); if (d) { d.state = 'error'; d.error = 'Cancelled'; renderDock(); } });
+            body.querySelectorAll('[data-ppause]').forEach(b => b.onclick = () => pauseDownload(b.getAttribute('data-ppause')));
+            body.querySelectorAll('[data-presume]').forEach(b => b.onclick = () => resumeDownload(b.getAttribute('data-presume')));
+            body.querySelectorAll('[data-pcancel]').forEach(b => b.onclick = () => { const id = b.getAttribute('data-pcancel'); cancelDownload(id); body.querySelector(`[data-dlp-id="${id}"]`)?.remove(); if (!dlQueue.size && empty) empty.style.display = dlHistory.length ? 'none' : 'flex'; });
             body.querySelectorAll('[data-pclose]').forEach(b => b.onclick = () => { const id = b.getAttribute('data-pclose'); const d = dlQueue.get(id); if (d && d.state === 'done') addToHistory(d); dlQueue.delete(id); body.querySelector(`[data-dlp-id="${id}"]`)?.remove(); if (!dlQueue.size && empty) empty.style.display = dlHistory.length ? 'none' : 'flex'; renderHistorySection(); });
             body.querySelectorAll('[data-pfolder]').forEach(b => b.onclick = () => { const d = dlQueue.get(b.getAttribute('data-pfolder')); if (d && d.folder) ipcRenderer.invoke('show-item-in-folder', d.exePath || d.folder); });
             body.querySelectorAll('[data-pbrowser]').forEach(b => b.onclick = () => { const d = dlQueue.get(b.getAttribute('data-pbrowser')); if (d && d.url) openDownloadInAppBrowser(d.url); });
@@ -12560,33 +13085,59 @@
             if (clearBtn) clearBtn.onclick = () => { dlHistory.length = 0; persistDlHistory(); renderHistorySection(); };
         }
 
-        window.startGameDownload = function (item, link, sourceId) {
+        // Display name of the connected (validated) debrid service, if any — used to show
+        // "Resolving via TorBox…" the instant a download is clicked, before main replies.
+        function activeDebridName() {
+            try {
+                const d = getDebridState();
+                if (d.active && d.status[d.active] && d.status[d.active].ok) {
+                    const svc = DEBRID_SERVICES.find(s => s.id === d.active);
+                    if (svc) return svc.name;
+                }
+            } catch (e) {}
+            return '';
+        }
+        function initialResolveLabel() {
+            const n = activeDebridName();
+            return n ? ('Resolving via ' + n + '…') : 'Finding a direct download link…';
+        }
+
+        window.startGameDownload = function (item, link, sourceId, mirrors) {
             const settings = (window.sailDownloadBridge && window.sailDownloadBridge.getSettings()) || {};
             const id = 'dl_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
-            dlQueue.set(id, { id, name: item.name, image: item.image, sourceId, category: 'game', url: link.url, percent: 0, state: 'queued' });
-            renderDock();
-            if (settings.autoSwitchDownloads) switchMainTab('downloads');
-            ipcRenderer.invoke('download-game', {
+            const opts = {
                 id, gameName: item.name, image: item.image, url: link.url, sourceId,
+                mirrors: Array.isArray(mirrors) ? mirrors : [],
                 installDir: settings.installDir, maxSpeed: settings.maxSpeed, autoExtract: settings.autoExtract,
                 autoInstall: settings.autoInstall, skipRedist: settings.skipRedist
-            });
+            };
+            // Show "Resolving…" immediately so the dock never looks frozen while the
+            // debrid API / scraper works (main confirms with its own status moments later).
+            // resumeOpts/installDir are kept so Pause→Resume can re-issue the same job and
+            // Cancel can tell main which folder to delete.
+            dlQueue.set(id, { id, name: item.name, image: item.image, sourceId, category: 'game', url: link.url, percent: 0, state: 'resolving', label: initialResolveLabel(), resumeOpts: opts, installDir: settings.installDir });
+            renderDock();
+            if (settings.autoSwitchDownloads) switchMainTab('downloads');
+            ipcRenderer.invoke('download-game', opts);
         };
 
         // Download an entire host set (all parts) as one job; main bundles & extracts.
-        window.startGameDownloadSet = function (item, set, sourceId) {
+        window.startGameDownloadSet = function (item, set, sourceId, mirrors) {
             const settings = (window.sailDownloadBridge && window.sailDownloadBridge.getSettings()) || {};
             const id = 'dl_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
             const links = set.parts.map(p => ({ url: p.url, name: p.label || '' }));
             if (!links.length) return;
-            dlQueue.set(id, { id, name: item.name, image: item.image, sourceId, category: 'game', url: links[0].url, percent: 0, state: 'queued', partCount: links.length });
-            renderDock();
-            if (settings.autoSwitchDownloads) switchMainTab('downloads');
-            ipcRenderer.invoke('download-game', {
+            const opts = {
                 id, gameName: item.name, image: item.image, links, sourceId,
+                // Only single-file sets have interchangeable mirrors to race; ignore otherwise.
+                mirrors: (set.parts.length === 1 && Array.isArray(mirrors)) ? mirrors : [],
                 installDir: settings.installDir, maxSpeed: settings.maxSpeed, autoExtract: settings.autoExtract,
                 autoInstall: settings.autoInstall, skipRedist: settings.skipRedist
-            });
+            };
+            dlQueue.set(id, { id, name: item.name, image: item.image, sourceId, category: 'game', url: links[0].url, percent: 0, state: 'resolving', label: initialResolveLabel(), partCount: links.length, resumeOpts: opts, installDir: settings.installDir });
+            renderDock();
+            if (settings.autoSwitchDownloads) switchMainTab('downloads');
+            ipcRenderer.invoke('download-game', opts);
         };
 
         ipcRenderer.on('download-engine-status', (e, p) => { /* surfaced per-download below */ });
@@ -12600,13 +13151,8 @@
                 patchActiveRow(p.id);
             } else {
                 renderDock();
-                // Show desktop notification when a download finishes (state just became 'done').
-                if (d.state === 'done' && prevState !== 'done') {
-                    const settings = (window.sailDownloadBridge && window.sailDownloadBridge.getSettings()) || {};
-                    if (settings.notifyOnComplete) {
-                        try { new Notification('Download complete', { body: d.name || 'Your download is ready.' }); } catch (e) {}
-                    }
-                }
+                // Completion notification is fired from the 'download-complete' handler — main
+                // never sends a 'download-progress' with state 'done', so don't gate it here.
             }
         });
         ipcRenderer.on('download-error', (e, p) => {
@@ -12690,7 +13236,129 @@
             d.name = cleanName;
             addToHistory(d);
             renderDock();
+            // Desktop notification — fire HERE (main signals completion via 'download-complete',
+            // never a 'download-progress' with state 'done', so the dock handler never saw it).
+            if (settings.notifyOnComplete) {
+                try { new Notification('Download complete', { body: (cleanName || d.name || 'Your download') + ' is ready to play.' }); } catch (e) {}
+            }
         });
+
+        // ---- Debrid services ---------------------------------------------
+        // State lives in globalSettings.debrid = { keys:{id:key}, status:{id:{ok,user}}, active:'id' }.
+        const DEBRID_SERVICES = [
+            { id: 'realdebrid', name: 'Real-Debrid', color: '#6db33f', hint: 'Settings → API token (real-debrid.com/apitoken)' },
+            { id: 'alldebrid', name: 'AllDebrid', color: '#f5a623', hint: 'Account → API Keys (alldebrid.com/apikeys)' },
+            { id: 'premiumize', name: 'Premiumize', color: '#22c55e', hint: 'Account → API → Your API Key (premiumize.me/account)' },
+            { id: 'debridlink', name: 'Debrid-Link', color: '#3b82f6', hint: 'Account → API → Personal token (debrid-link.com/webapp/apikey)' },
+            { id: 'torbox', name: 'TorBox', color: '#a855f7', hint: 'Settings → API Keys (torbox.app/settings)' }
+        ];
+        function getDebridState() {
+            if (!globalSettings.debrid || typeof globalSettings.debrid !== 'object') globalSettings.debrid = { keys: {}, status: {}, active: '' };
+            const d = globalSettings.debrid;
+            if (!d.keys || typeof d.keys !== 'object') d.keys = {};
+            if (!d.status || typeof d.status !== 'object') d.status = {};
+            if (typeof d.active !== 'string') d.active = '';
+            return d;
+        }
+        // Connected = the active service has a validated key.
+        window.debridConnected = function () {
+            const d = getDebridState();
+            return !!(d.active && d.keys[d.active] && d.status[d.active] && d.status[d.active].ok);
+        };
+        // Push the active service + key to the main process (used by the download resolver).
+        window.pushDebridConfigToMain = function () {
+            const d = getDebridState();
+            const active = window.debridConnected() ? d.active : '';
+            try { ipcRenderer.send('set-debrid-config', { service: active, key: active ? (d.keys[active] || '') : '' }); } catch (e) {}
+        };
+        // Pick the active service: the currently-active one if still valid, else the first connected.
+        function recomputeDebridActive() {
+            const d = getDebridState();
+            if (d.active && d.status[d.active] && d.status[d.active].ok && d.keys[d.active]) return;
+            d.active = '';
+            for (const svc of DEBRID_SERVICES) {
+                if (d.keys[svc.id] && d.status[svc.id] && d.status[svc.id].ok) { d.active = svc.id; break; }
+            }
+        }
+        window.updateDebridBadge = function updateDebridBadge() {
+            const badge = document.getElementById('dlDebridBadge');
+            if (!badge) return;
+            const d = getDebridState();
+            if (window.debridConnected()) {
+                const svc = DEBRID_SERVICES.find(s => s.id === d.active);
+                const user = (d.status[d.active] && d.status[d.active].user) || '';
+                badge.textContent = '🔓 ' + (svc ? svc.name : d.active) + (user ? ' · ' + user : '');
+                badge.style.display = 'inline-flex';
+            } else {
+                badge.style.display = 'none';
+            }
+        }
+        // After any debrid change: persist, push config, refresh badge + source chips (SteamRIP gate).
+        function afterDebridChange() {
+            recomputeDebridActive();
+            saveToMemory();
+            window.pushDebridConfigToMain();
+            window.updateDebridBadge();
+            try { window.renderDownloadSourceChips(); } catch (e) {}
+        }
+        function debridBadgeHtml(st) {
+            if (!st) return '<span style="font-size:11px;opacity:0.5;">Not connected</span>';
+            if (st.checking) return '<span style="font-size:11px;color:#f5a623;"><span class="dl-spinner" style="width:10px;height:10px;border-width:2px;"></span> Checking…</span>';
+            if (st.ok) return '<span style="font-size:11px;color:#22c55e;font-weight:bold;">✓ Connected' + (st.user ? ' (' + st.user + ')' : '') + '</span>';
+            return '<span style="font-size:11px;color:#ef4444;font-weight:bold;">✕ ' + (st.error ? st.error : 'Invalid key') + '</span>';
+        }
+        function renderDebridServices() {
+            const wrap = document.getElementById('debridServiceList');
+            if (!wrap) return;
+            const d = getDebridState();
+            wrap.innerHTML = '';
+            DEBRID_SERVICES.forEach(svc => {
+                const row = document.createElement('div');
+                row.style.cssText = 'border:1px solid var(--border-color);border-radius:10px;padding:10px 12px;background:var(--bg-color);';
+                const isActive = d.active === svc.id && window.debridConnected();
+                row.innerHTML =
+                    '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px;">' +
+                        '<div style="display:flex;align-items:center;gap:8px;">' +
+                            '<span style="font-weight:bold;font-size:13px;">' + svc.name + '</span>' +
+                            (isActive ? '<span style="font-size:10px;padding:2px 7px;border-radius:99px;background:rgba(34,197,94,0.15);color:#22c55e;font-weight:bold;">ACTIVE</span>' : '') +
+                        '</div>' +
+                        '<span class="debrid-badge" data-id="' + svc.id + '">' + debridBadgeHtml(d.status[svc.id]) + '</span>' +
+                    '</div>' +
+                    '<div style="display:flex;gap:8px;align-items:center;">' +
+                        '<input type="password" class="debrid-key" data-id="' + svc.id + '" placeholder="Paste API key…" value="' + (d.keys[svc.id] ? String(d.keys[svc.id]).replace(/"/g, '&quot;') : '') + '" style="flex:1;padding:8px 10px;background:var(--card-color, var(--bg-color));border:1px solid var(--border-color);color:var(--text-color);border-radius:7px;box-sizing:border-box;font-size:12px;">' +
+                        '<button class="outline debrid-validate" data-id="' + svc.id + '" style="padding:8px 12px;border-radius:7px;font-size:12px;white-space:nowrap;">Connect</button>' +
+                        '<button class="outline debrid-clear" data-id="' + svc.id + '" title="Disconnect" style="padding:8px 10px;border-radius:7px;font-size:12px;">✕</button>' +
+                    '</div>' +
+                    '<div style="font-size:10px;opacity:0.45;margin-top:5px;">' + svc.hint + '</div>';
+                wrap.appendChild(row);
+            });
+            wrap.querySelectorAll('.debrid-validate').forEach(b => b.onclick = () => debridValidateService(b.getAttribute('data-id')));
+            wrap.querySelectorAll('.debrid-clear').forEach(b => b.onclick = () => debridClearService(b.getAttribute('data-id')));
+            wrap.querySelectorAll('.debrid-key').forEach(inp => inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); debridValidateService(inp.getAttribute('data-id')); } }));
+        }
+        async function debridValidateService(id) {
+            const wrap = document.getElementById('debridServiceList');
+            if (!wrap) return;
+            const inp = wrap.querySelector('.debrid-key[data-id="' + id + '"]');
+            const badge = wrap.querySelector('.debrid-badge[data-id="' + id + '"]');
+            const key = inp ? inp.value.trim() : '';
+            const d = getDebridState();
+            if (!key) { delete d.keys[id]; delete d.status[id]; if (badge) badge.innerHTML = debridBadgeHtml(null); afterDebridChange(); renderDebridServices(); return; }
+            if (badge) badge.innerHTML = debridBadgeHtml({ checking: true });
+            let res = null;
+            try { res = await ipcRenderer.invoke('debrid-validate', { service: id, key }); } catch (e) { res = { ok: false, error: 'Request failed' }; }
+            d.keys[id] = key;
+            d.status[id] = res && res.ok ? { ok: true, user: res.user || '' } : { ok: false, error: (res && res.error) || 'Invalid key' };
+            if (res && res.ok && !window.debridConnected()) d.active = id; // first one to connect becomes active
+            afterDebridChange();
+            renderDebridServices();
+        }
+        function debridClearService(id) {
+            const d = getDebridState();
+            delete d.keys[id]; delete d.status[id];
+            afterDebridChange();
+            renderDebridServices();
+        }
 
         // ---- Download settings modal -------------------------------------
         window.openDownloadSettings = function () {
@@ -12707,12 +13375,39 @@
             document.getElementById('dlMaxConcurrentInput').value = s.maxConcurrent || 3;
             document.getElementById('dlAutoSwitchToggle').checked = !!s.autoSwitchDownloads;
             document.getElementById('dlNotifyCompleteToggle').checked = !!s.notifyOnComplete;
+            document.getElementById('dlDebridCacheToggle').checked = s.debridCache !== false;
             // Instant-apply: flipping the DODI / Online-Fix gate takes effect immediately
             // (no need to scroll down to "Save"), and the source chip reappears at once.
             wireDownloadGate('dlEnableDodiToggle', 'dlEnableDodi', 'dodi');
             wireDownloadGate('dlEnableOnlineFixToggle', 'dlEnableOnlineFix', 'onlinefix');
+            // Auto-switch + completion-notification toggles also apply instantly, so they work
+            // even if the user flips them and closes the modal without pressing "Save".
+            wireInstantToggle('dlAutoSwitchToggle', 'dlAutoSwitchDownloads');
+            wireInstantToggle('dlNotifyCompleteToggle', 'dlNotifyComplete');
+            // Caching toggle also pushes its new state to the main-process resolver at once.
+            wireInstantToggle('dlDebridCacheToggle', 'dlDebridCache', () => {
+                try { ipcRenderer.send('set-debrid-cache-enabled', document.getElementById('dlDebridCacheToggle').checked); } catch (e) {}
+            });
+            // Debrid services + PixelDrain proxy pool
+            renderDebridServices();
+            const pxBox = document.getElementById('dlPixeldrainProxies');
+            if (pxBox) pxBox.value = window.getPixeldrainProxies().join('\n');
             window.openModal('downloadSettingsModal');
         };
+
+        // Persist a plain boolean download setting the instant its toggle flips (idempotent).
+        // Optional onChange runs after persisting (e.g. to push the new value to main).
+        function wireInstantToggle(toggleId, settingKey, onChange) {
+            const el = document.getElementById(toggleId);
+            if (!el || el.dataset.instantWired) return;
+            el.dataset.instantWired = '1';
+            el.addEventListener('change', () => {
+                if (window.sailDownloadBridge && window.sailDownloadBridge.setDownloadGate) {
+                    window.sailDownloadBridge.setDownloadGate(settingKey, el.checked);
+                }
+                if (typeof onChange === 'function') { try { onChange(); } catch (e) {} }
+            });
+        }
 
         // Attach an idempotent change handler that persists a source gate the moment it's toggled.
         function wireDownloadGate(toggleId, gateKey, sourceId) {
@@ -12748,10 +13443,18 @@
                 enableOnlineFix: document.getElementById('dlEnableOnlineFixToggle').checked,
                 maxConcurrent: Number(document.getElementById('dlMaxConcurrentInput').value) || 3,
                 autoSwitchDownloads: document.getElementById('dlAutoSwitchToggle').checked,
-                notifyOnComplete: document.getElementById('dlNotifyCompleteToggle').checked
+                notifyOnComplete: document.getElementById('dlNotifyCompleteToggle').checked,
+                debridCache: document.getElementById('dlDebridCacheToggle').checked
             };
+            try { ipcRenderer.send('set-debrid-cache-enabled', s.debridCache); } catch (e) {}
             if (window.sailDownloadBridge) window.sailDownloadBridge.saveSettings(s);
             ipcRenderer.invoke('set-adblock', s.adBlock);
+            // PixelDrain proxy pool: persist + push to the download resolver
+            const pxBox = document.getElementById('dlPixeldrainProxies');
+            const proxies = pxBox ? pxBox.value.split('\n').map(x => x.trim()).filter(x => /^https?:\/\//i.test(x)) : [];
+            globalSettings.dlPixeldrainProxies = proxies;
+            saveToMemory();
+            try { ipcRenderer.send('set-pixeldrain-proxies', proxies); } catch (e) {}
             dlEnabled.dodi = s.enableDodi;
             dlEnabled.onlinefix = s.enableOnlineFix;
             // refresh opt-in chip visibility (dodi + online-fix)
@@ -12761,12 +13464,26 @@
             if (ofChip) ofChip.style.display = s.enableOnlineFix ? '' : 'none';
             window.closeModal('downloadSettingsModal');
         };
+
+        // Clear Cache button — wipes resolved-link + in-app browser cache via main.
+        window.clearDownloadCache = async function () {
+            const btn = document.getElementById('dlClearCacheBtn');
+            const orig = btn ? btn.innerHTML : '';
+            if (btn) { btn.disabled = true; btn.innerHTML = '⏳ Clearing…'; }
+            try {
+                const r = await ipcRenderer.invoke('clear-cache');
+                if (btn) btn.innerHTML = (r && r.success) ? '✅ Cache cleared' : '⚠️ Couldn\'t clear';
+            } catch (e) {
+                if (btn) btn.innerHTML = '⚠️ Couldn\'t clear';
+            }
+            setTimeout(() => { if (btn) { btn.disabled = false; btn.innerHTML = orig || '🧹 Clear Cache'; } }, 1800);
+        };
     })();
     </script>
 
     <div id="cloudSyncOverlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(4px); justify-content: center; align-items: center; z-index: 99999;">
         <div class="modal-content" style="width: 320px; text-align: center; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 25px 20px;">
-            <div style="font-size: 32px; color: var(--accent); margin-bottom: 5px; animation: pulse 1.5s infinite;">☁️</div>
+            <div style="font-size: 32px; color: var(--accent); margin-bottom: 5px; animation: iconPulse 1.5s infinite;">☁️</div>
             <div style="font-weight: bold; font-size: 16px; color: var(--text-color);" id="cloudSyncOverlayTitle">Syncing Cloud Saves...</div>
             <div style="font-size: 13px; opacity: 0.6; color: var(--text-color);" id="cloudSyncOverlayStatus">Please wait a moment.</div>
             <button class="outline" onclick="skipCloudSyncOverlay()" style="margin-top: 10px; width: 100%; padding: 10px; font-size: 13px; border-radius: 8px;">Skip Sync</button>
