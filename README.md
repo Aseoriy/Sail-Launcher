@@ -1,5 +1,6 @@
 # Sail Launcher 🚀
 
+# Website is down at the moment - switching hosting service, please be patient.
 ## PLEASE REPORT ANY BUGS YOU FIND
 
 **Sail Hub Website**: [sailhub.fyi](https://sailhub.fyi)
