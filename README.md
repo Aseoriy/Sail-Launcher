@@ -122,8 +122,7 @@ It automatically fetches game metadata, covers, and hero banners directly from S
 ---
 
 ## 📸 Screenshots
+<img width="2000" height="1135" alt="image" src="https://github.com/user-attachments/assets/9fb3128d-0c1b-414e-b1ba-c042361a23cc" />
 
-<img width="2350" height="1368" alt="image" src="https://github.com/user-attachments/assets/24f488b6-4e42-40af-aaef-e9037818a554" />
-
-<img width="2350" height="1368" alt="image" src="https://github.com/user-attachments/assets/2a7ff32d-62fb-4982-8de0-c170d9c035d2" />
+<img width="2000" height="1135" alt="image" src="https://github.com/user-attachments/assets/bdc76c5c-2be6-42eb-956c-f40f28bc2732" />
 
