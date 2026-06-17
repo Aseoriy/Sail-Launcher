@@ -1,27 +1,3 @@
-/**
- * Sail Launcher — PixelDrain proxy (Cloudflare Worker)
- * ===================================================================
- * PixelDrain enforces a 10 GB/day download cap PER IP ADDRESS. By routing the
- * download through a Cloudflare Worker, the request to PixelDrain originates from
- * Cloudflare's edge IP instead of the user's home IP, so the cap is spread across
- * Cloudflare's address space and effectively never hit by a single user.
- *
- * Sail Launcher calls this worker as:   https://<your-worker>/?url=<encoded pixeldrain api url>
- * e.g.  https://my-proxy.workers.dev/?url=https%3A%2F%2Fpixeldrain.com%2Fapi%2Ffile%2FabCdEf%3Fdownload
- * It forwards the Range header (so aria2's multi-connection / resume keeps working)
- * and streams the body straight back — the worker never buffers the multi-GB file.
- *
- * ------------------------------------------------------------------
- * DEPLOY (free Cloudflare account, ~2 minutes):
- *   1. Dashboard → Workers & Pages → Create → Worker → name it, Deploy.
- *   2. "Edit code" → paste this whole file → Deploy.
- *   3. Copy the *.workers.dev URL (e.g. https://my-proxy.workers.dev).
- *   4. Paste it into Sail Launcher → Download Settings → "PixelDrain Proxy Workers".
- *   Deploy a few (different names) and add one per line for the rotating pool.
- *
- *   Or with Wrangler:  npx wrangler deploy cloudflare-worker/pixeldrain-proxy.js
- * ------------------------------------------------------------------
- */
 
 // Only these hosts may be proxied — keeps the worker from being abused as an open proxy.
 const ALLOWED_HOSTS = /^(?:[a-z0-9-]+\.)*pixeldrain\.(?:com|net)$/i;

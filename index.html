@@ -759,7 +759,7 @@
             overflow: hidden;
             display: flex;
             flex-direction: column;
-            transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s, opacity 0.2s;
+            transition: transform 0.2s 0.08s, box-shadow 0.2s, border-color 0.2s, opacity 0.2s;
             border-radius: 12px;
         }
 
@@ -767,6 +767,14 @@
             border-color: var(--accent);
             box-shadow: 0 8px 25px rgba(0, 0, 0, 0.5), 0 0 0 1px var(--accent);
             transform: translateY(-4px);
+            transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s, opacity 0.2s;
+        }
+
+        .game-card.hover-extend {
+            border-color: var(--accent);
+            box-shadow: 0 8px 25px rgba(0, 0, 0, 0.5), 0 0 0 1px var(--accent);
+            transform: translateY(-4px);
+            transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s, opacity 0.2s;
         }
 
         .game-card:active:not(:has(.fav-btn:active)):not(:has(.tile-stop-btn:active)) {
@@ -2451,9 +2459,19 @@
             transform: translateY(-8px) scale(1.03) !important;
             background: color-mix(in srgb, var(--card-bg) 55%, transparent) !important;
             border-color: var(--accent) !important;
-            box-shadow: 
-                0 20px 40px rgba(0, 0, 0, 0.4), 
-                0 0 25px 3px color-mix(in srgb, var(--accent) 35%, transparent), 
+            box-shadow:
+                0 20px 40px rgba(0, 0, 0, 0.4),
+                0 0 25px 3px color-mix(in srgb, var(--accent) 35%, transparent),
+                inset 0 1px 0 0 color-mix(in srgb, var(--text-color) 35%, transparent) !important;
+        }
+
+        body.glassmorphic-mode .game-card.hover-extend {
+            transform: translateY(-8px) scale(1.03) !important;
+            background: color-mix(in srgb, var(--card-bg) 55%, transparent) !important;
+            border-color: var(--accent) !important;
+            box-shadow:
+                0 20px 40px rgba(0, 0, 0, 0.4),
+                0 0 25px 3px color-mix(in srgb, var(--accent) 35%, transparent),
                 inset 0 1px 0 0 color-mix(in srgb, var(--text-color) 35%, transparent) !important;
         }
 
@@ -3058,7 +3076,7 @@
             <div id="topHeaderDropdownContainer" class="action-dropdown-container"
                 style="display: none; position: absolute; left: calc(var(--main-sidebar-total-width, 270px)); -webkit-app-region: no-drag; z-index: 99999;">
                 <button class="outline" style="padding: 4px 10px; font-size: 12px; border-radius: 4px !important;"
-                    onclick="document.getElementById('actionDropdownMenu').classList.toggle('show'); event.stopPropagation();">Menu
+                    onclick="document.getElementById('actionDropdownMenu').classList.toggle('show');">Menu
                     ☰</button>
                 <div id="actionDropdownMenu" class="action-dropdown-menu"></div>
             </div>
@@ -3079,6 +3097,9 @@
     <div class="app-container">
 
         <div class="sidebar" id="mainSidebar">
+            <div style="display:flex; justify-content:flex-start; padding: 4px 12px 0;">
+                <button class="sidebar-toggle-btn" onclick="toggleSidebar()">☰</button>
+            </div>
             <div class="sidebar-header" id="sidebarNavHeader" style="justify-content: flex-start; gap: 12px; flex-wrap: wrap;">
                 <h2 class="sidebar-title active-tab" id="tabLibrary" onclick="switchMainTab('library')"
                     style="cursor:pointer; opacity:1;" data-i18n="library">Library</h2>
@@ -3090,8 +3111,6 @@
                     style="cursor:pointer; opacity: 0.5;">Game Downloads</h2>
                 <h2 class="sidebar-title" id="tabDownloadsMgr" onclick="switchMainTab('downloadsmgr')"
                     style="cursor:pointer; opacity: 0.5;">Download Manager</h2>
-                <div style="flex-grow:1;"></div>
-                <button class="sidebar-toggle-btn" onclick="toggleSidebar()">☰</button>
             </div>
             <div id="coreSectionsList" class="sidebar-section"></div>
 
@@ -3162,8 +3181,8 @@
             </div>
 
             <div id="storeView" style="display: none; height: 100%; width: 100%;">
-                <iframe id="storeIframe" src="about:blank"
-                    style="width: 100%; height: 100%; border: none; border-radius: 12px; background: var(--bg-color);"></iframe>
+                <webview id="storeIframe" src="about:blank" partition="sailhub-mods"
+                    style="width: 100%; height: 100%; border: none; border-radius: 12px; background: var(--bg-color);"></webview>
             </div>
 
             <div id="workshopView" style="display: none; box-sizing: border-box; flex-direction: column; width: 100%;">
@@ -4523,7 +4542,7 @@
                     style="margin-top: 30px; border-top: 1px solid var(--border-color); padding-top: 20px; display:flex; gap:10px;">
                     <button class="outline" style="flex-grow:1;"
                         onclick="require('electron').ipcRenderer.invoke('open-url', 'https://github.com/Aseoriy/Sail-Launcher')">⛵
-                        Sail Launcher v5.0.0-beta-3</button>
+                        Sail Launcher v5.0.0</button>
                     <button id="checkUpdateBtn" style="min-width: 150px; transition: 0.3s;"
                         data-i18n="checkUpdates">Check Updates</button>
                 </div>
@@ -4999,7 +5018,7 @@
             window.syncMuteBtn();
         });
 
-        const APP_VERSION = "v5.0.0-beta-3";
+        const APP_VERSION = "v5.0.0";
         let currentTabName = 'library';
         let skipStaggerAnimation = false;
 
@@ -5014,8 +5033,8 @@
         }
 
         function syncThemeToIframe() {
-            const iframe = document.getElementById('storeIframe');
-            if (!iframe) return;
+            const webview = document.getElementById('storeIframe');
+            if (!webview) return;
             const styles = getComputedStyle(document.body);
             const colors = {};
             colors['bg'] = (styles.getPropertyValue('--bg-color') || '#09090b').trim();
@@ -5024,15 +5043,12 @@
             colors['border'] = (styles.getPropertyValue('--border-color') || '#27272a').trim();
             colors['accent'] = (styles.getPropertyValue('--accent') || '#a855f7').trim();
             colors['accent-hover'] = (styles.getPropertyValue('--accent-hover') || '#c084fc').trim();
-            try {
-                iframe.contentWindow.postMessage({ type: 'apply-theme', colors }, '*');
-            } catch (err) {
-                console.error("Failed to post theme to iframe:", err);
-            }
+            const message = JSON.stringify({ type: 'apply-theme', colors });
+            webview.executeJavaScript(`window.postMessage(${message}, '*')`).catch(() => {});
         }
 
-        // Listen for store iframe loads to sync theme
-        document.getElementById('storeIframe').addEventListener('load', syncThemeToIframe);
+        // Listen for store webview loads to sync theme
+        document.getElementById('storeIframe').addEventListener('did-finish-load', syncThemeToIframe);
 
         let dataPath = '';
         let selectModeActive = false;
@@ -6074,11 +6090,63 @@
                 if (tg) ipcRenderer.send('show-launch-splash', tg.name);
             }
 
-            // Document click to close dropdowns
-            document.addEventListener('click', () => {
+            // Close dropdown on mousedown outside its container (prevents re-open race on toggle button)
+            document.addEventListener('mousedown', (e) => {
+                const wrapper = document.getElementById('topHeaderDropdownContainer');
+                if (wrapper && wrapper.contains(e.target)) return;
                 const dropdown = document.getElementById('actionDropdownMenu');
                 if (dropdown && dropdown.classList.contains('show')) dropdown.classList.remove('show');
             });
+
+            // Extend game card hover zone: when cursor slips below a lifted card, keep it hovered
+            // until it reaches the card's original (pre-lift) bottom edge
+            (function() {
+                let extendedCard = null;
+
+                function getLift(card) {
+                    const t = window.getComputedStyle(card).transform;
+                    if (!t || t === 'none') return 0;
+                    const m = t.match(/matrix\([^)]+\)/);
+                    if (m) {
+                        const v = m[0].slice(7, -1).split(',');
+                        if (v.length >= 6) return Math.abs(parseFloat(v[5]));
+                    }
+                    return 0;
+                }
+
+                document.addEventListener('mouseout', function(e) {
+                    const card = e.target && e.target.closest && e.target.closest('.game-card');
+                    if (!card) return;
+                    const to = e.relatedTarget;
+                    if (to && card.contains(to)) return;
+                    const lift = getLift(card);
+                    if (lift === 0) return;
+                    const r = card.getBoundingClientRect();
+                    if (e.clientX >= r.left && e.clientX <= r.right &&
+                        e.clientY > r.bottom && e.clientY <= r.bottom + lift + 2) {
+                        if (extendedCard && extendedCard !== card) extendedCard.classList.remove('hover-extend');
+                        extendedCard = card;
+                        card.classList.add('hover-extend');
+                    }
+                });
+
+                document.addEventListener('mousemove', function(e) {
+                    if (!extendedCard) return;
+                    const overCard = e.target && e.target.closest && e.target.closest('.game-card');
+                    if (overCard === extendedCard) {
+                        extendedCard.classList.remove('hover-extend');
+                        extendedCard = null;
+                        return;
+                    }
+                    const lift = getLift(extendedCard);
+                    const r = extendedCard.getBoundingClientRect();
+                    if (!(e.clientX >= r.left && e.clientX <= r.right &&
+                          e.clientY > r.bottom && e.clientY <= r.bottom + lift + 2)) {
+                        extendedCard.classList.remove('hover-extend');
+                        extendedCard = null;
+                    }
+                }, { passive: true });
+            })();
 
             updateActionButtonsLocation();
             applyUiResizing();
@@ -6838,6 +6906,10 @@
         window.openSelectDropdown = function (selectEl) {
             if (!selectEl) return;
             try {
+                if (document.getElementById('anchoredSelect') && currentDropdownTarget === selectEl) {
+                    closeAnchoredSelect();
+                    return;
+                }
                 closeAnchoredSelect();
                 currentDropdownTarget = selectEl;
                 const dd = document.createElement('div');
@@ -11349,30 +11421,39 @@
         document.getElementById('browseExeBtn').addEventListener('click', async () => { const p = await ipcRenderer.invoke('dialog-select-file'); if (p) { document.getElementById('gamePath').value = p; document.getElementById('quickPathGameBtn').style.display = 'inline-block'; } });
         document.getElementById('browseShortcutIconBtn').addEventListener('click', async () => { const p = await ipcRenderer.invoke('dialog-select-icon'); if (p) document.getElementById('shortcutIconPath').value = p; });
         document.getElementById('browseBannerBtn').addEventListener('click', async () => { const p = await ipcRenderer.invoke('dialog-select-image'); if (p) document.getElementById('customBannerPath').value = p; });
-        document.getElementById('browseLocalBtn').addEventListener('click', async () => { const p = await ipcRenderer.invoke('dialog-select-folder'); if (p) document.getElementById('localSave').value = p; });
+        document.getElementById('browseLocalBtn').addEventListener('click', async () => {
+            if (globalSettings.enableSaveDetection && !saveDetectionOverridden) {
+                runAutoSaveDetection();
+            } else {
+                const p = await ipcRenderer.invoke('dialog-select-folder');
+                if (p) document.getElementById('localSave').value = p;
+            }
+        });
         let saveDetectionOverridden = false;
         window.updateSaveDetectionUI = function() {
             const localSaveInput = document.getElementById('localSave');
             const browseBtn = document.getElementById('browseLocalBtn');
             const overrideBtn = document.getElementById('overrideSaveBtn');
-            
+
             const isDetectionEnabled = !!globalSettings.enableSaveDetection;
-            
+
             if (isDetectionEnabled) {
                 overrideBtn.style.display = 'inline-block';
                 if (saveDetectionOverridden) {
                     localSaveInput.disabled = false;
                     localSaveInput.style.opacity = '1';
                     localSaveInput.style.cursor = 'text';
+                    browseBtn.textContent = 'Browse';
                     browseBtn.disabled = false;
                     browseBtn.style.opacity = '1';
-                    overrideBtn.innerText = "Re-detect";
+                    overrideBtn.innerText = "Cancel";
                 } else {
                     localSaveInput.disabled = true;
                     localSaveInput.style.opacity = '0.5';
                     localSaveInput.style.cursor = 'not-allowed';
-                    browseBtn.disabled = true;
-                    browseBtn.style.opacity = '0.5';
+                    browseBtn.textContent = 'Scan';
+                    browseBtn.disabled = false;
+                    browseBtn.style.opacity = '1';
                     overrideBtn.innerText = "Override";
                 }
             } else {
@@ -11380,6 +11461,7 @@
                 localSaveInput.disabled = false;
                 localSaveInput.style.opacity = '1';
                 localSaveInput.style.cursor = 'text';
+                browseBtn.textContent = 'Browse';
                 browseBtn.disabled = false;
                 browseBtn.style.opacity = '1';
             }
@@ -13629,6 +13711,14 @@
             transition: transform 0.14s ease-out,
                         border-color 0.3s ease,
                         box-shadow 0.3s ease !important;
+        }
+
+        #gameGrid:not(.list-view) .game-card.hover-extend {
+            transform: perspective(1100px) translateY(-8px) scale(1.03) !important;
+            border-color: color-mix(in srgb, var(--accent) 60%, transparent) !important;
+            box-shadow: 0 20px 44px -16px rgba(0, 0, 0, 0.9),
+                        0 0 0 1px color-mix(in srgb, var(--accent) 60%, transparent),
+                        0 0 34px -6px color-mix(in srgb, var(--accent) 55%, transparent) !important;
         }
 
         /* --- Cursor-following spotlight (free ::before pseudo; never on a

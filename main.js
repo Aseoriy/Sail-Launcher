@@ -256,6 +256,20 @@ function createWindow() {
         'ad-delivery', 'adcontent', 'analytics'
     ];
 
+    const patchSailhubHeaders = (details, callback) => {
+        const h = details.requestHeaders;
+        const uaKey = Object.keys(h).find(k => k.toLowerCase() === 'user-agent');
+        if (uaKey) h[uaKey] = h[uaKey].replace(/\s*Electron\/[\d.]+/g, '').trim();
+        const chuaKey = Object.keys(h).find(k => k.toLowerCase() === 'sec-ch-ua');
+        if (chuaKey) h[chuaKey] = h[chuaKey].replace(/"Electron";v="[^"]*",?\s*/g, '').replace(/,\s*$/, '').trim();
+        const refKey = Object.keys(h).find(k => k.toLowerCase() === 'referer');
+        if (refKey && h[refKey].startsWith('file://')) delete h[refKey];
+        callback({ requestHeaders: h });
+    };
+    win.webContents.session.webRequest.onBeforeSendHeaders({ urls: ['https://sailhub.fyi/*'] }, patchSailhubHeaders);
+    session.fromPartition('sailhub-mods').webRequest.onBeforeSendHeaders({ urls: ['https://sailhub.fyi/*'] }, patchSailhubHeaders);
+
+
     win.webContents.session.webRequest.onBeforeRequest({ urls: ['*://*/*'] }, (details, callback) => {
         const url = details.url.toLowerCase();
         const shouldBlock = adBlockList.some(domain => url.includes(domain));
@@ -2348,6 +2362,9 @@ function runSilentInstall(installerPath, targetDir, ctl, skipExtras) {
             '# unrelated "setup" for ours.',
             '$pre = @{}',
             'try { foreach ($p in @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $base -ne "" -and $_.ProcessName -ieq $base })) { $pre[[int]$p.Id] = $true } } catch {}',
+            '# Snapshot pre-existing cmd.exe PIDs so we only auto-close installer-spawned cmd windows',
+            '$preCmdPids = @{}',
+            'try { foreach ($p in @(Get-Process "cmd" -ErrorAction SilentlyContinue)) { $preCmdPids[[int]$p.Id] = $true } } catch {}',
             'function Get-FolderSize($p) { try { return [double]((Get-ChildItem -LiteralPath $p -Recurse -File -Force -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum) } catch { return [double]0 } }',
             'Write-Host ("LAUNCH base=" + $base + " installer=" + $installer + " target=" + $target)',
             '# Bail clearly if the installer path the renderer handed us does not actually exist',
@@ -2378,7 +2395,7 @@ function runSilentInstall(installerPath, targetDir, ctl, skipExtras) {
             '$g = 0',
             'while ($g -lt 30) {',
             '    $act = @()',
-            '    try { $act = @(Get-Process -ErrorAction SilentlyContinue | Where-Object { ($root -ne 0 -and $_.Id -eq $root) -or ($base -ne "" -and $_.ProcessName -ieq $base -and -not $pre.ContainsKey([int]$_.Id)) }) } catch {}',
+            '    try { $act = @(Get-Process -ErrorAction SilentlyContinue | Where-Object { ($root -ne 0 -and $_.Id -eq $root) -or ($base -ne "" -and ($_.ProcessName -ieq $base -or $_.ProcessName -ilike ($base + ".*")) -and -not $pre.ContainsKey([int]$_.Id)) }) } catch {}',
             '    if ($act.Count -gt 0) { $seen = $true; break }',
             '    if (((Get-FolderSize $target) - $startSize) -gt 2MB) { $seen = $true; break }',
             '    Start-Sleep -Milliseconds 1000',
@@ -2395,7 +2412,7 @@ function runSilentInstall(installerPath, targetDir, ctl, skipExtras) {
             '$loops = 0',
             'while ($true) {',
             '    $act = @()',
-            '    try { $act = @(Get-Process -ErrorAction SilentlyContinue | Where-Object { ($root -ne 0 -and $_.Id -eq $root) -or ($base -ne "" -and $_.ProcessName -ieq $base -and -not $pre.ContainsKey([int]$_.Id)) }) } catch {}',
+            '    try { $act = @(Get-Process -ErrorAction SilentlyContinue | Where-Object { ($root -ne 0 -and $_.Id -eq $root) -or ($base -ne "" -and ($_.ProcessName -ieq $base -or $_.ProcessName -ilike ($base + ".*")) -and -not $pre.ContainsKey([int]$_.Id)) }) } catch {}',
             '    if ($act.Count -gt 0) {',
             '        $seen = $true',
             '        $idle = 0',
@@ -2404,7 +2421,16 @@ function runSilentInstall(installerPath, targetDir, ctl, skipExtras) {
             '        $muteState = $true',
             '        try { if ((Get-Content -LiteralPath "$env:SAIL_MUTE_FLAG" -ErrorAction SilentlyContinue) -eq "0") { $muteState = $false } } catch {}',
             '        try { [void][AppMuter]::SetMute($ids.ToArray(), $muteState) } catch {}',
-            '        if ($env:SAIL_SKIP_REDIST -eq "1") { try { Get-Process -Name "dxwebsetup", "vcredist*", "vc_redist*", "dotNetFx*", "dotnet*" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue } catch {} }',
+            '        if ($env:SAIL_SKIP_REDIST -eq "1") {',
+            '            # Kill FitGirl file checker ("Finisher") and all redistributable installers by name',
+            '            try { Get-Process -Name "Finisher","dxwebsetup","dxsetup","vcredist*","vc_redist*","dotNetFx*","dotnet*" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue } catch {}',
+            '            # Close installer-spawned cmd.exe windows (e.g. FitGirl hosts-file protection script)',
+            '            try {',
+            '                Get-Process "cmd" -ErrorAction SilentlyContinue | Where-Object {',
+            '                    -not $preCmdPids.ContainsKey([int]$_.Id)',
+            '                } | ForEach-Object { try { [void]$_.CloseMainWindow() } catch {} }',
+            '            } catch {}',
+            '        }',
             '    } else {',
             '        $sz = Get-FolderSize $target',
             '        if (($sz - $lastSize) -gt 1MB) { $idle = 0 } else { $idle++ }',
