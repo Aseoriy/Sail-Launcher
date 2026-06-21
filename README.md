@@ -4,7 +4,7 @@
 
 **Sail Launcher Website**: [Website](https://sail-launcher.sailhub.fyi)
 
-**Sail Hub Website**: [sailhub.fyi](https://sailhub.fyi)
+**Sail Hub Website**: [Website](https://sailhub.fyi)
 
 Sail Launcher is a modern, feature-rich custom game and application launcher. It is perfect for managing non-Steam games "ones you dont *own*", and emulated retro games.
 
