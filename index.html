@@ -2698,6 +2698,17 @@
             background: var(--bg-color) !important;
         }
 
+        /* Force Translucency (Experimental) — for custom themes whose opaque custom / UI-editor
+           background (uiAppBg) would otherwise hide the desktop. Re-applies the glass translucency
+           at the user's slider level (--glass-opacity-percent). The compound selectors carry higher
+           specificity than the theme / uiAppBg background rules (body.theme-custom, body.glassmorphic-mode),
+           so this wins in every mode. Scoped to .theme-custom so it only affects custom themes. */
+        body.force-translucency.theme-custom,
+        body.force-translucency.theme-custom.glassmorphic-mode {
+            background: color-mix(in srgb, var(--bg-color) var(--glass-opacity-percent, 40%), transparent) !important;
+            background-attachment: fixed !important;
+        }
+
         body.glassmorphic-mode.dedicated-settings-page #settingsModal .modal-content {
             background: transparent !important;
             border: none !important;
@@ -2975,6 +2986,7 @@
                     if (data.glassmorphicUi) classes.push('glassmorphic-mode');
                     if (data.transparentSettings) classes.push('transparent-settings-mode');
                     if (data.disableTranslucency) classes.push('disable-translucency');
+                    if (data.forceTranslucency) classes.push('force-translucency');
                     if (data.hideStars) classes.push('hide-stars');
                     if (data.fullTileImage) classes.push('full-tile-image');
                     if (data.verticalCards) classes.push('vertical-cards');
@@ -3086,6 +3098,7 @@
                 style="display:none; align-items: center; margin-right: 15px; font-size: 12px; opacity: 0.8;"
                 title="Cloud Sync in Progress"><span class="spin-icon">🔄</span> Syncing to Cloud...</div>
             <button class="titlebar-btn" id="muteBtn" title="Mute / unmute launcher sounds">🔊</button>
+            <button class="titlebar-btn" id="supportersBtn" title="Supporters — thank you for keeping the fleet sailing!" onclick="openSupportersModal()" style="margin-right: 16px;">💜</button>
             <button class="titlebar-btn" id="minBtn">─</button>
             <button class="titlebar-btn" id="maxBtn">□</button>
             <button class="titlebar-btn close" id="closeBtn">✕</button>
@@ -3274,7 +3287,7 @@
                         <div id="downloadEmptyState" style="display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; margin: auto; max-width: 460px; opacity: 0.7; padding: 40px 0;">
                             <div style="font-size: 48px; margin-bottom: 15px;">🏴‍☠️</div>
                             <h3 style="margin: 0 0 8px 0; font-size: 18px;">Search to get started</h3>
-                            <p style="font-size: 13px; margin: 0; line-height: 1.5;">Type a game name above and hit Search. Results from SteamGG, FitGirl and Online-Fix will appear here. Click a result to open its store-style page and download.</p>
+                            <p style="font-size: 13px; margin: 0; line-height: 1.5;">Type a game name above and hit Search. Results from whatever sources you selected will appear here. Click a result to open its store-style page and download.</p>
                         </div>
                     </div>
                 </div>
@@ -4006,8 +4019,8 @@
                     Library Management</div>
                 <div class="settings-tab" tabindex="0" onclick="switchSettingsTab('experimental')">🧪
                     Experimental</div>
-                <div class="settings-tab" tabindex="0" onclick="switchSettingsTab('alerts')" id="tabButtonAlerts" style="display: none;">📢
-                    Alerts Manager</div>
+                <div class="settings-tab" tabindex="0" onclick="switchSettingsTab('alerts')" id="tabButtonAlerts" style="display: none;">🧑‍💻
+                    Developer</div>
             </div>
 
             <div id="tab-appearance" class="settings-pane active">
@@ -4438,6 +4451,11 @@
                         <div class="toggle-switch"></div>
                         <span>Show 'Mods' page in sidebar</span>
                     </label>
+                    <label class="toggle-label" tabindex="0" style="margin-top:14px;">
+                        <input type="checkbox" id="showDiscoverPageToggle">
+                        <div class="toggle-switch"></div>
+                        <span>Show 'Discover' page in sidebar</span>
+                    </label>
                 </div>
 
                 <div style="margin-bottom: 20px; border-top: 1px solid var(--border-color); padding-top: 20px;">
@@ -4542,9 +4560,14 @@
                     style="margin-top: 30px; border-top: 1px solid var(--border-color); padding-top: 20px; display:flex; gap:10px;">
                     <button class="outline" style="flex-grow:1;"
                         onclick="require('electron').ipcRenderer.invoke('open-url', 'https://github.com/Aseoriy/Sail-Launcher')">⛵
-                        Sail Launcher v5.0.0</button>
+                        Sail Launcher v5.1.0</button>
                     <button id="checkUpdateBtn" style="min-width: 150px; transition: 0.3s;"
                         data-i18n="checkUpdates">Check Updates</button>
+                </div>
+
+                <div id="updateMuteRow" style="display: none; margin-top: 12px; align-items: center; gap: 10px; padding: 10px 14px; border: 1px solid #f59e0b; background: rgba(245, 158, 11, 0.08); border-radius: 8px;">
+                    <span id="updateMuteText" style="font-size: 12.5px; color: #f59e0b; flex-grow: 1;">🔕 Update notifications are muted.</span>
+                    <button class="outline" id="updateUnmuteBtn" onclick="unmuteUpdates()" style="border-color: #f59e0b; color: #f59e0b; padding: 7px 14px; font-size: 12px; white-space: nowrap;">🔔 Turn back on</button>
                 </div>
             </div>
 
@@ -4556,7 +4579,7 @@
                         <span>Enable Developer Mode</span>
                     </label>
                     <p style="font-size: 11px; color: rgba(255,255,255,0.5); text-align: left; margin-top: 5px;">
-                        Enables developer-only options like the Alerts Manager. Password required.</p>
+                        Enables developer-only options like the Developer tab (Alerts &amp; Feature Testing). Password required.</p>
                 </div>
 
                 <div style="margin-bottom: 20px; border: 1px solid rgba(168,85,247,0.35); border-radius: 10px; padding: 14px; background: rgba(168,85,247,0.06);">
@@ -4575,25 +4598,8 @@
                     <button class="outline" id="openUiEditorBtn" onclick="openUiEditor()" style="margin-top:10px; padding:9px 14px; border-radius:8px; font-size:12px; border-color: var(--accent); opacity:0.5; pointer-events:none;">🎛️ Open UI Editor</button>
                 </div>
 
-                <div style="margin-bottom: 20px;">
-                    <label class="toggle-label">
-                        <input type="checkbox" id="workshopDownloaderToggle">
-                        <div class="toggle-switch"></div>
-                        <span>Enable Steam Workshop Downloader</span>
-                    </label>
-                    <p style="font-size: 11px; color: rgba(255,255,255,0.5); text-align: left; margin-top: 5px;">
-                        Adds a button to the Game Page to anonymously download Steam Workshop items via SteamCMD.</p>
-                </div>
-
-                <div style="margin-bottom: 20px;">
-                    <label class="toggle-label">
-                        <input type="checkbox" id="enableDiscoverToggle">
-                        <div class="toggle-switch"></div>
-                        <span>Enable Discover Page</span>
-                    </label>
-                    <p style="font-size: 11px; color: rgba(255,255,255,0.5); text-align: left; margin-top: 5px;">
-                        Adds a 'Discover' tab to the sidebar showing custom Sail Launcher web resources.</p>
-                </div>
+                <!-- "Enable Steam Workshop Downloader" and "Enable Discover Page" moved to the
+                     Extra tab's "Home & Sidebar Pages" section (they duplicated page toggles). -->
 
                 <!-- Sources page removed in v5 (replaced by the Download tab); toggle hidden but kept for compatibility -->
                 <div style="margin-bottom: 20px; display: none;">
@@ -4635,6 +4641,17 @@
                     </label>
                     <p style="font-size: 11px; color: rgba(255,255,255,0.5); text-align: left; margin-top: 5px;">
                         Makes the launcher window background solid so you cannot see through to the desktop, while keeping the glass animations and styled panels.</p>
+                </div>
+
+                <div style="margin-bottom: 20px;">
+                    <label class="toggle-label">
+                        <input type="checkbox" id="forceTranslucencyToggle">
+                        <div class="toggle-switch"></div>
+                        <span>Force Translucency (Custom Themes)</span>
+                    </label>
+                    <p style="font-size: 11px; color: rgba(255,255,255,0.5); text-align: left; margin-top: 5px;">
+                        Some custom themes paint a solid custom background that hides the desktop. Turn this on to
+                        re-apply see-through translucency at your Glass Translucency slider level. Only affects custom themes.</p>
                 </div>
 
                 <div style="margin-bottom: 20px;">
@@ -4851,9 +4868,31 @@
             </div>
 
             <div id="tab-alerts" class="settings-pane">
+                <style>
+                    .dev-subtabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border-color); margin-bottom: 20px; }
+                    .dev-subtab { padding: 10px 18px; cursor: pointer; font-size: 14px; font-weight: 600; opacity: 0.55; border-bottom: 2px solid transparent; transition: 0.2s; user-select: none; }
+                    .dev-subtab:hover { opacity: 0.85; }
+                    .dev-subtab.active { opacity: 1; color: var(--accent); border-bottom-color: var(--accent); }
+                    .dev-subpane { display: none; }
+                    .dev-subpane.active { display: block; animation: fadeIn 0.25s ease; }
+                    .ftest-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+                    .ftest-card { border: 1px solid var(--border-color); border-radius: 10px; padding: 14px; background: rgba(255,255,255,0.02); display: flex; flex-direction: column; gap: 8px; }
+                    .ftest-card h4 { margin: 0; font-size: 13.5px; }
+                    .ftest-card p { margin: 0; font-size: 11px; opacity: 0.6; line-height: 1.45; flex-grow: 1; }
+                    .ftest-card button { padding: 9px 12px; border-radius: 8px; font-size: 12.5px; font-weight: 600; cursor: pointer; border: 1px solid var(--accent); background: transparent; color: var(--accent); transition: 0.2s; }
+                    .ftest-card button:hover { background: var(--accent); color: #fff; }
+                    @media (max-width: 720px) { .ftest-grid { grid-template-columns: 1fr; } }
+                </style>
+
+                <div class="dev-subtabs">
+                    <div class="dev-subtab active" tabindex="0" onclick="switchDevSubTab('alerts')">📢 Alerts</div>
+                    <div class="dev-subtab" tabindex="0" onclick="switchDevSubTab('testing')">🧪 Feature Testing</div>
+                </div>
+
+                <div id="dev-sub-alerts" class="dev-subpane active">
                 <h3 style="margin-top: 0;">📢 Alerts Manager</h3>
                 <p style="font-size: 13px; opacity: 0.7; margin-bottom: 20px;">Publish notifications or hotfix alerts directly to all Sail Launcher users.</p>
-                
+
                 <div style="border: 1px solid var(--border-color); border-radius: 8px; padding: 15px; display: flex; flex-direction: column; gap: 12px; background: rgba(255, 255, 255, 0.02);">
                     <div style="display: flex; flex-direction: column; gap: 4px;">
                         <label style="font-size: 12px; font-weight: bold; opacity: 0.8;">Supabase Service Role Key (Admin Secret)</label>
@@ -4897,6 +4936,44 @@
                         </div>
                         
                         <button class="outline" id="publishAlertBtn" onclick="publishAlertFromAdmin()" style="margin-top: 8px; width: 100%; padding: 12px; font-weight: bold; background: var(--accent); color: var(--bg-color); border: none;">📢 Publish Alert</button>
+                    </div>
+                </div>
+                </div>
+
+                <div id="dev-sub-testing" class="dev-subpane">
+                    <h3 style="margin-top: 0;">🧪 Feature Testing</h3>
+                    <p style="font-size: 13px; opacity: 0.7; margin-bottom: 16px;">Trigger launcher features on demand to verify they work. <strong style="color:#f59e0b;">These run for real</strong> — windows open, live data is fetched, and the downloader actually downloads a small sample file.</p>
+                    <div class="ftest-grid">
+                        <div class="ftest-card">
+                            <h4>🚀 Update check</h4>
+                            <p>Runs the real update check against GitHub and shows the update window if one is available (or "up to date").</p>
+                            <button onclick="checkForUpdates(false)">Run update check</button>
+                        </div>
+                        <div class="ftest-card">
+                            <h4>🎉 "Update complete" window</h4>
+                            <p>Opens the real post-update window for the current version, including the View Changelog button.</p>
+                            <button onclick="openUpdateCompleteModal(APP_VERSION.replace(/^v/i,''), 'https://github.com/Aseoriy/Sail-Launcher/releases/tag/' + APP_VERSION)">Show window</button>
+                        </div>
+                        <div class="ftest-card">
+                            <h4>🔔 Alert banner (live)</h4>
+                            <p>Re-fetches the live alert from Supabase and renders the in-app banner exactly as users see it.</p>
+                            <button onclick="checkRemoteAlerts()">Re-check alerts</button>
+                        </div>
+                        <div class="ftest-card">
+                            <h4>💜 Supporters window</h4>
+                            <p>Opens the Supporters window and pulls the live list from the Sail Hub supporters page.</p>
+                            <button onclick="openSupportersModal()">Open supporters</button>
+                        </div>
+                        <div class="ftest-card">
+                            <h4>🧩 Plugin update check</h4>
+                            <p>Runs the real plugin update check and refreshes the sidebar Plugins update badge.</p>
+                            <button onclick="checkPluginUpdates()">Check plugins</button>
+                        </div>
+                        <div class="ftest-card">
+                            <h4>⬇️ Downloader (real sample)</h4>
+                            <p>Starts a genuine download job through the full pipeline using a small real .zip, so the dock, progress and extraction all run for real.</p>
+                            <button onclick="runDownloaderTest()">Run download test</button>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -5018,7 +5095,7 @@
             window.syncMuteBtn();
         });
 
-        const APP_VERSION = "v5.0.0";
+        const APP_VERSION = "v5.1.0";
         let currentTabName = 'library';
         let skipStaggerAnimation = false;
 
@@ -5082,6 +5159,7 @@
             glassmorphicUi: true,
             betaUpdates: false,
             disableTranslucency: false,
+            forceTranslucency: false,
             autoSettingsSync: true,
             enableSourcesPage: false,
             sources: [
@@ -5659,14 +5737,23 @@
                             btn.style.background = 'var(--accent)';
                             btn.style.color = '#fff';
                         }
-                        let description = response.body ? response.body.trim() : '';
-                        if (description.length > 800) {
-                            description = description.substring(0, 800) + '\n... (truncated)';
-                        }
-                        const notes = description ? `\n\nPatchnotes:\n${description}` : '';
-                        const doUpdate = confirm(`🚀 A new version of Sail Launcher is available!\n\nCurrent: v${currentTag}\nLatest: v${latestTag}${notes}\n\nWould you like to open the download page?`);
-                        if (doUpdate) {
-                            ipcRenderer.invoke('open-url', response.html_url || 'https://github.com/Aseoriy/Sail-Launcher/releases/latest');
+                        // Locate the Windows installer asset (the .exe) so we can
+                        // download it directly. Falls back to the release page.
+                        const assets = Array.isArray(response.assets) ? response.assets : [];
+                        const exeAsset = assets.find(a => /\.exe$/i.test(a.name || '') && !/blockmap/i.test(a.name || ''));
+                        const info = {
+                            currentTag,
+                            latestTag,
+                            body: response.body || '',
+                            htmlUrl: response.html_url || 'https://github.com/Aseoriy/Sail-Launcher/releases/latest',
+                            assetUrl: exeAsset ? exeAsset.browser_download_url : null
+                        };
+                        // A silent (startup) check honours the user's snooze window;
+                        // an explicit "Check Updates" click always shows the window.
+                        if (silent && isUpdateSnoozed()) {
+                            // Stay quiet — user muted notifications for now.
+                        } else {
+                            openUpdateModal(info);
                         }
                     } else {
                         if (!silent && btn) {
@@ -5693,6 +5780,271 @@
         }
 
         document.getElementById('checkUpdateBtn').addEventListener('click', () => checkForUpdates(false));
+
+        // ===================== Auto-updater UI & flow =====================
+        // Is the user currently muting update notifications? (silent checks only)
+        function isUpdateSnoozed() {
+            const until = globalSettings.updateSnoozeUntil;
+            if (until === 'forever') return true;
+            if (typeof until === 'number' && Date.now() < until) return true;
+            return false;
+        }
+
+        // Tiny dependency-free Markdown -> HTML renderer for release notes.
+        // Handles headings, bold/italic/strike, inline & fenced code, links,
+        // images, ordered/unordered lists, blockquotes and horizontal rules.
+        function renderMarkdown(md) {
+            if (!md || !md.trim()) return '<p class="upd-empty">No release notes were provided for this version.</p>';
+            const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            const blocks = [];
+            md = md.replace(/```[\s\S]*?```/g, m => {
+                const code = m.replace(/^```[^\n]*\n?/, '').replace(/```\s*$/, '');
+                blocks.push('<pre class="upd-pre"><code>' + esc(code) + '</code></pre>');
+                return '@@CB' + (blocks.length - 1) + '@@';
+            });
+            const inline = t => esc(t)
+                .replace(/!\[([^\]]*)\]\(([^)\s]+)[^)]*\)/g, '<img alt="$1" src="$2" class="upd-img">')
+                .replace(/\[([^\]]+)\]\(([^)\s]+)[^)]*\)/g, '<a href="$2" class="upd-link" target="_blank" rel="noopener">$1</a>')
+                .replace(/`([^`]+)`/g, '<code>$1</code>')
+                .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+                .replace(/(^|[^*])\*([^*\n]+)\*/g, '$1<em>$2</em>')
+                .replace(/~~([^~]+)~~/g, '<del>$1</del>');
+            let html = '', inUl = false, inOl = false;
+            const closeLists = () => { if (inUl) { html += '</ul>'; inUl = false; } if (inOl) { html += '</ol>'; inOl = false; } };
+            for (let raw of (md.split(/\r?\n/))) {
+                const line = raw.replace(/@@CB(\d+)@@/g, (_, i) => blocks[i]);
+                if (/^\s*<pre/.test(line)) { closeLists(); html += line; continue; }
+                if (/^\s*$/.test(line)) { closeLists(); continue; }
+                let m;
+                if (m = line.match(/^\s*(#{1,6})\s+(.*)$/)) { closeLists(); const l = m[1].length; html += `<h${l} class="upd-h">${inline(m[2])}</h${l}>`; continue; }
+                if (/^\s*([-*_])(\s*\1){2,}\s*$/.test(line)) { closeLists(); html += '<hr class="upd-hr">'; continue; }
+                if (m = line.match(/^\s*>\s?(.*)$/)) { closeLists(); html += `<blockquote class="upd-quote">${inline(m[1])}</blockquote>`; continue; }
+                if (m = line.match(/^\s*[-*+]\s+(.*)$/)) { if (inOl) { html += '</ol>'; inOl = false; } if (!inUl) { html += '<ul class="upd-ul">'; inUl = true; } html += `<li>${inline(m[1])}</li>`; continue; }
+                if (m = line.match(/^\s*\d+\.\s+(.*)$/)) { if (inUl) { html += '</ul>'; inUl = false; } if (!inOl) { html += '<ol class="upd-ol">'; inOl = true; } html += `<li>${inline(m[1])}</li>`; continue; }
+                closeLists(); html += `<p class="upd-p">${inline(line)}</p>`;
+            }
+            closeLists();
+            return html;
+        }
+
+        let _pendingUpdate = null; // { currentTag, latestTag, body, htmlUrl, assetUrl }
+
+        function openUpdateModal(info) {
+            _pendingUpdate = info;
+            const modal = document.getElementById('updateModal');
+            document.getElementById('updVerCurrent').textContent = 'v' + info.currentTag;
+            document.getElementById('updVerLatest').textContent = 'v' + info.latestTag;
+            document.getElementById('updNotes').innerHTML = renderMarkdown(info.body);
+            document.getElementById('updNotes').scrollTop = 0;
+            // Reset transient UI (progress / button states) each time it opens.
+            document.getElementById('updProgressWrap').style.display = 'none';
+            document.getElementById('updProgressBar').style.width = '0%';
+            document.getElementById('updMuteMenu').style.display = 'none';
+            const btn = document.getElementById('updNowBtn');
+            btn.disabled = false;
+            btn.textContent = '⬇️ Update Now';
+            modal.classList.add('show');
+        }
+
+        function closeUpdateModal() {
+            const modal = document.getElementById('updateModal');
+            modal.classList.add('closing');
+            setTimeout(() => { modal.classList.remove('show'); modal.classList.remove('closing'); }, 300);
+        }
+
+        // Mute update notifications for a period, or indefinitely.
+        function snoozeUpdates(kind) {
+            if (kind === 'forever') globalSettings.updateSnoozeUntil = 'forever';
+            else if (kind === '1d') globalSettings.updateSnoozeUntil = Date.now() + 86400000;
+            else if (kind === '1w') globalSettings.updateSnoozeUntil = Date.now() + 7 * 86400000;
+            else if (kind === '30d') globalSettings.updateSnoozeUntil = Date.now() + 30 * 86400000;
+            saveToMemory();
+            updateMuteStatusRow();
+            closeUpdateModal();
+        }
+
+        // Clear any update-notification mute so silent startup checks resume.
+        window.unmuteUpdates = function () {
+            globalSettings.updateSnoozeUntil = null;
+            saveToMemory();
+            updateMuteStatusRow();
+        };
+
+        // Reflect the current mute state in the Data & Backup tab (row hidden when not muted).
+        function updateMuteStatusRow() {
+            const row = document.getElementById('updateMuteRow');
+            const text = document.getElementById('updateMuteText');
+            if (!row || !text) return;
+            const until = globalSettings.updateSnoozeUntil;
+            if (until === 'forever') {
+                text.textContent = '🔕 Update notifications are turned off indefinitely.';
+                row.style.display = 'flex';
+            } else if (typeof until === 'number' && Date.now() < until) {
+                const d = new Date(until);
+                text.textContent = `🔕 Update notifications muted until ${d.toLocaleDateString()} ${d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}.`;
+                row.style.display = 'flex';
+            } else {
+                row.style.display = 'none';
+            }
+        }
+
+        // Download the installer, run it silently, then quit for the restart.
+        async function startUpdateDownload() {
+            const info = _pendingUpdate;
+            if (!info) return;
+            const btn = document.getElementById('updNowBtn');
+            // No .exe asset on the release? Fall back to opening the download page.
+            if (!info.assetUrl) {
+                ipcRenderer.invoke('open-url', info.htmlUrl);
+                closeUpdateModal();
+                return;
+            }
+            btn.disabled = true;
+            btn.textContent = '⏳ Downloading…';
+            document.getElementById('updProgressWrap').style.display = 'block';
+            const bar = document.getElementById('updProgressBar');
+            const label = document.getElementById('updProgressLabel');
+            const onProgress = (_e, p) => {
+                bar.style.width = (p.percent || 0) + '%';
+                const mb = n => (n / 1048576).toFixed(1);
+                label.textContent = p.total ? `${p.percent}%  (${mb(p.received)} / ${mb(p.total)} MB)` : `${mb(p.received)} MB…`;
+            };
+            ipcRenderer.on('update-download-progress', onProgress);
+            try {
+                await ipcRenderer.invoke('download-update-installer', info.assetUrl);
+                bar.style.width = '100%';
+                label.textContent = 'Download complete — installing & restarting…';
+                btn.textContent = '🔄 Installing…';
+                // Remember which version we're installing so the fresh build can
+                // show the "Update complete" window on next launch.
+                globalSettings.pendingUpdateVersion = info.latestTag;
+                globalSettings.updateSnoozeUntil = null; // clear any mute; we're updating now
+                saveToMemory();
+                await ipcRenderer.invoke('run-update-installer'); // app quits here
+            } catch (err) {
+                console.error('Update download/install failed:', err);
+                label.textContent = '❌ ' + (err && err.message ? err.message : 'Update failed');
+                btn.disabled = false;
+                btn.textContent = '↻ Retry';
+            } finally {
+                ipcRenderer.removeListener('update-download-progress', onProgress);
+            }
+        }
+
+        // ----- "Update complete" window (shown once after a successful update) -----
+        function openUpdateCompleteModal(version, changelogUrl) {
+            document.getElementById('updDoneVersion').textContent = 'v' + version;
+            const modal = document.getElementById('updateCompleteModal');
+            document.getElementById('updChangelogBtn').onclick = () => ipcRenderer.invoke('open-url', changelogUrl);
+            modal.classList.add('show');
+        }
+        function closeUpdateCompleteModal() {
+            const modal = document.getElementById('updateCompleteModal');
+            modal.classList.add('closing');
+            setTimeout(() => { modal.classList.remove('show'); modal.classList.remove('closing'); }, 300);
+        }
+
+        // On startup: if we just applied an update, celebrate & tidy up.
+        function checkUpdateCompleted() {
+            const pv = globalSettings.pendingUpdateVersion;
+            if (!pv) return;
+            const cur = APP_VERSION.replace(/^v/i, '');
+            if (pv.replace(/^v/i, '') === cur) {
+                openUpdateCompleteModal(cur, `https://github.com/Aseoriy/Sail-Launcher/releases/tag/v${cur}`);
+            }
+            // Clear the flag and remove the downloaded installer folder either way.
+            globalSettings.pendingUpdateVersion = null;
+            saveToMemory();
+            ipcRenderer.invoke('cleanup-update-folder').catch(() => {});
+        }
+
+        // ===================== Supporters (live from Sail Hub) =====================
+        let _supportersCache = null;
+        window.openSupportersModal = function () {
+            const modal = document.getElementById('supportersModal');
+            modal.classList.add('show');
+            const list = document.getElementById('supList');
+            if (_supportersCache) { renderSupporters(_supportersCache); return; }
+            list.innerHTML = '<div class="sup-state">Loading supporters…</div>';
+            document.getElementById('supTotal').textContent = '';
+            fetchSupporters()
+                .then(data => { _supportersCache = data; renderSupporters(data); })
+                .catch(err => {
+                    console.error('Supporters fetch failed:', err);
+                    list.innerHTML = '<div class="sup-state">Couldn\'t load supporters right now — check your connection, or open the page on Sail Hub below.</div>';
+                });
+        };
+        window.closeSupportersModal = function () {
+            const modal = document.getElementById('supportersModal');
+            modal.classList.add('closing');
+            setTimeout(() => { modal.classList.remove('show'); modal.classList.remove('closing'); }, 300);
+        };
+        // Fetch the Sail Hub supporters page and pull out its embedded SUPPORTERS array
+        // (the page renders client-side from a plain JS array, so we parse that directly).
+        function fetchSupporters() {
+            return new Promise((resolve, reject) => {
+                const https = require('https');
+                https.get('https://sailhub.fyi/supporters', { headers: { 'User-Agent': 'Sail-Launcher' } }, (res) => {
+                    if (res.statusCode !== 200) { res.resume(); return reject(new Error('HTTP ' + res.statusCode)); }
+                    let html = '';
+                    res.on('data', c => html += c);
+                    res.on('end', () => {
+                        try {
+                            const m = html.match(/const\s+SUPPORTERS\s*=\s*(\[[\s\S]*?\]);/);
+                            if (!m) return reject(new Error('Supporter list not found on page'));
+                            // Evaluate the page's own trusted array literal (it's JS — has comments,
+                            // unquoted keys and trailing commas — so JSON.parse won't do).
+                            const data = new Function('return (' + m[1] + ')')();
+                            resolve(Array.isArray(data) ? data : []);
+                        } catch (e) { reject(e); }
+                    });
+                }).on('error', reject);
+            });
+        }
+        function renderSupporters(tiers) {
+            const list = document.getElementById('supList');
+            const totalEl = document.getElementById('supTotal');
+            const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+            const initial = n => { const t = String(n).trim(); return t ? t[0].toUpperCase() : '?'; };
+            let total = 0;
+            list.innerHTML = (tiers || []).map(tier => {
+                const members = tier.members || [];
+                total += members.length;
+                const countLabel = members.length === 1 ? '1 supporter' : `${members.length} supporters`;
+                const color = esc(tier.color || '#a855f7');
+                let membersHtml;
+                if (!members.length) {
+                    membersHtml = `<div class="sup-empty">This tier's still empty — be the first to join!</div>`;
+                } else {
+                    membersHtml = '<div class="sup-members">' + members.map(mm => {
+                        const name = typeof mm === 'string' ? mm : (mm.name || '');
+                        const url = (typeof mm === 'object' && mm.url) ? mm.url : null;
+                        const inner = `<span class="sup-avatar">${esc(initial(name))}</span><span>${esc(name)}</span>`;
+                        return url
+                            ? `<a class="sup-member" href="#" data-sup-url="${esc(url)}">${inner}</a>`
+                            : `<span class="sup-member">${inner}</span>`;
+                    }).join('') + '</div>';
+                }
+                return `<div class="sup-tier" style="--sup-color:${color};">
+                    <div class="sup-tier-head">
+                        <div class="sup-emoji">${esc(tier.emoji || '💜')}</div>
+                        <div>
+                            <div class="sup-tier-name">${esc(tier.name || 'Supporter')}</div>
+                            ${tier.price ? `<div class="sup-tier-price">${esc(tier.price)}</div>` : ''}
+                        </div>
+                        <span class="sup-count">${countLabel}</span>
+                    </div>
+                    ${tier.tagline ? `<p class="sup-tagline">${esc(tier.tagline)}</p>` : ''}
+                    ${membersHtml}
+                </div>`;
+            }).join('');
+            totalEl.textContent = total === 0 ? '' : `${total} ${total === 1 ? 'supporter' : 'supporters'} 💜`;
+        }
+        // Delegated open-in-browser for any member with a link (avoids inline-onclick injection).
+        { const sl = document.getElementById('supList'); if (sl) sl.addEventListener('click', (e) => {
+            const a = e.target.closest && e.target.closest('[data-sup-url]');
+            if (a) { e.preventDefault(); ipcRenderer.invoke('open-url', a.getAttribute('data-sup-url')); }
+        }); }
 
         window.updateAlertsTabVisibility = function() {
             const tabButton = document.getElementById('tabButtonAlerts');
@@ -5974,7 +6326,6 @@
             document.getElementById('disableLocalSavesToggle').checked = !!globalSettings.disableLocalSaves;
             updateDisableLocalSavesUI();
             document.getElementById('hideStarsToggle').checked = globalSettings.hideStars;
-            document.getElementById('workshopDownloaderToggle').checked = globalSettings.workshopDownloader;
             document.getElementById('favoritesFirstToggle').checked = globalSettings.favoritesFirst !== false;
             document.getElementById('developerModeToggle').checked = !!globalSettings.developerModeActive;
             updateAlertsTabVisibility();
@@ -5985,7 +6336,10 @@
 
             document.getElementById('disableTranslucencyToggle').checked = !!globalSettings.disableTranslucency;
             document.body.classList.toggle('disable-translucency', !!globalSettings.disableTranslucency);
+            { const t = document.getElementById('forceTranslucencyToggle'); if (t) t.checked = !!globalSettings.forceTranslucency; }
+            document.body.classList.toggle('force-translucency', !!globalSettings.forceTranslucency);
             document.getElementById('betaUpdatesToggle').checked = !!globalSettings.betaUpdates;
+            updateMuteStatusRow();
 
             if (globalSettings.glassOpacity === undefined) globalSettings.glassOpacity = 40;
             const opacitySlider = document.getElementById('glassOpacitySlider');
@@ -6002,7 +6356,7 @@
             document.getElementById('enableSaveDetectionToggle').checked = !!globalSettings.enableSaveDetection;
             document.getElementById('saveDetectionModeSelect').value = globalSettings.saveDetectionMode || 'auto';
             document.getElementById('saveDetectionOptionsContainer').style.display = globalSettings.enableSaveDetection ? 'block' : 'none';
-            document.getElementById('enableDiscoverToggle').checked = !!globalSettings.enableDiscoverPage;
+            { const t = document.getElementById('showDiscoverPageToggle'); if (t) t.checked = !!globalSettings.enableDiscoverPage; }
             updateLegacySettingsToggleVisibility();
             updateSourcesTabVisibility();
             updateDiscoverTabVisibility();
@@ -6293,6 +6647,9 @@
                     hubAlert('❌ Installation failed: ' + err);
                 }
             });
+
+            // If we just came back from an update, show the completion window.
+            try { checkUpdateCompleted(); } catch (e) { console.error('Update-complete check failed:', e); }
 
             // Auto-check for updates silently on startup
             setTimeout(() => checkForUpdates(true), 3000);
@@ -6620,6 +6977,7 @@
                     glassmorphicUi: globalSettings.glassmorphicUi,
                     transparentSettings: globalSettings.transparentSettings,
                     disableTranslucency: globalSettings.disableTranslucency,
+                    forceTranslucency: globalSettings.forceTranslucency,
                     hideStars: globalSettings.hideStars,
                     fullTileImage: globalSettings.fullTileImage,
                     tileSize: globalSettings.tileSize,
@@ -6838,6 +7196,29 @@
             document.querySelector(`.settings-tab[onclick*="${tabId}"]`).classList.add('active');
             document.getElementById(`tab-${tabId}`).classList.add('active');
             if (!skipHistory) pushNavState();
+        };
+
+        // Developer page — its own top bar with Alerts / Feature Testing sub-tabs.
+        window.switchDevSubTab = function (name) {
+            document.querySelectorAll('#tab-alerts .dev-subtab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('#tab-alerts .dev-subpane').forEach(p => p.classList.remove('active'));
+            const tab = document.querySelector(`#tab-alerts .dev-subtab[onclick*="'${name}'"]`);
+            if (tab) tab.classList.add('active');
+            const pane = document.getElementById('dev-sub-' + name);
+            if (pane) pane.classList.add('active');
+        };
+
+        // Feature Testing — runs the REAL download pipeline with a small public sample .zip.
+        window.runDownloaderTest = function () {
+            if (!confirm('This starts a REAL download (a ~2 MB sample .zip) through the full pipeline — it will appear in your downloads and may auto-extract to your install folder. Continue?')) return;
+            if (typeof startGameDownload !== 'function') { alert('Downloader is not ready yet.'); return; }
+            startGameDownload(
+                { name: '🧪 Downloader Test (aria2 sample)', image: '' },
+                { url: 'https://github.com/aria2/aria2/releases/download/release-1.37.0/aria2-1.37.0-win-64bit-build1.zip' },
+                'test',
+                []
+            );
+            try { closeModal('settingsModal'); } catch (e) {}
         };
 
         const modalStack = [];
@@ -8110,7 +8491,7 @@
             if (storeIframe) {
                 if (tab === 'store') {
                     if (storeIframe.src === '' || storeIframe.src === 'about:blank' || storeIframe.getAttribute('src') === 'about:blank') {
-                        storeIframe.src = 'https://sailhub.fyi/plugins';
+                        storeIframe.src = 'https://sail-launcher.sailhub.fyi/plugins';
                     }
                 } else {
                     if (storeIframe.src !== 'about:blank' && storeIframe.getAttribute('src') !== 'about:blank') {
@@ -8269,7 +8650,7 @@
 
             const workshopBtn = document.getElementById('gpWorkshopBtn');
             if (workshopBtn) {
-                if (game.steamAppId && globalSettings.workshopDownloader) {
+                if (game.steamAppId && globalSettings.showWorkshopPage !== false) {
                     workshopBtn.style.display = 'block';
                 } else {
                     workshopBtn.style.display = 'none';
@@ -8546,9 +8927,9 @@
         window.updateWorkshopTabVisibility = function() {
             const tabWorkshop = document.getElementById('tabWorkshop');
             if (tabWorkshop) {
-                tabWorkshop.style.display = globalSettings.workshopDownloader ? 'block' : 'none';
+                tabWorkshop.style.display = globalSettings.showWorkshopPage !== false ? 'block' : 'none';
             }
-            if (!globalSettings.workshopDownloader && currentTabName === 'workshop') {
+            if (globalSettings.showWorkshopPage === false && currentTabName === 'workshop') {
                 switchMainTab('library');
             }
         };
@@ -10644,12 +11025,6 @@
             updateDisableLocalSavesUI();
         });
         document.getElementById('hideStarsToggle').addEventListener('change', (e) => { globalSettings.hideStars = e.target.checked; saveToMemory(); document.body.classList.toggle('hide-stars', e.target.checked); });
-        document.getElementById('workshopDownloaderToggle').addEventListener('change', (e) => {
-            globalSettings.workshopDownloader = e.target.checked;
-            saveToMemory();
-            updateWorkshopVisibility();
-            updateWorkshopTabVisibility();
-        });
         document.getElementById('enableSourcesToggle').addEventListener('change', (e) => {
             globalSettings.enableSourcesPage = e.target.checked;
             saveToMemory();
@@ -10665,11 +11040,11 @@
             globalSettings.saveDetectionMode = e.target.value;
             saveToMemory();
         });
-        document.getElementById('enableDiscoverToggle').addEventListener('change', (e) => {
+        { const t = document.getElementById('showDiscoverPageToggle'); if (t) t.addEventListener('change', (e) => {
             globalSettings.enableDiscoverPage = e.target.checked;
             saveToMemory();
             updateDiscoverTabVisibility();
-        });
+        }); }
         document.getElementById('legacySettingsToggle').addEventListener('change', (e) => { globalSettings.legacySettings = e.target.checked; saveToMemory(); applyLegacySettings(); });
         document.getElementById('transparentSettingsToggle').addEventListener('change', (e) => { globalSettings.transparentSettings = e.target.checked; saveToMemory(); document.body.classList.toggle('transparent-settings-mode', e.target.checked); });
         document.getElementById('legacyUiToggle').addEventListener('change', (e) => { 
@@ -11095,6 +11470,7 @@
             if (document.body.classList.contains('transparent-settings-mode')) classesToKeep.push('transparent-settings-mode');
             if (document.body.classList.contains('dedicated-settings-page')) classesToKeep.push('dedicated-settings-page');
             if (document.body.classList.contains('disable-translucency')) classesToKeep.push('disable-translucency');
+            if (document.body.classList.contains('force-translucency')) classesToKeep.push('force-translucency');
 
             if (themeId && themeId.startsWith('theme-custom-')) {
                 const ctId = themeId.replace('theme-custom-', ''); const ct = (globalSettings.customThemes || []).find(t => t.id === ctId);
@@ -11739,6 +12115,12 @@
             document.body.classList.toggle('disable-translucency', e.target.checked);
         });
 
+        { const t = document.getElementById('forceTranslucencyToggle'); if (t) t.addEventListener('change', (e) => {
+            globalSettings.forceTranslucency = e.target.checked;
+            saveToMemory();
+            document.body.classList.toggle('force-translucency', e.target.checked);
+        }); }
+
         document.getElementById('betaUpdatesToggle').addEventListener('change', (e) => {
             globalSettings.betaUpdates = e.target.checked;
             saveToMemory();
@@ -11839,7 +12221,7 @@
 
     <!-- ============================================================
          Download Games tab — unified repack/source search & links
-         Sources: SteamGG, FitGirl, Online-Fix, DODI
+         Sources: SteamGG, FitGirl, SteamRip, Online-Fix, DODI
          ============================================================ -->
     <style>
         @keyframes dlFadeUp { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
@@ -14301,6 +14683,135 @@
             };
         })();
     </script>
+    <!-- ============ Auto-updater: "Update Available" window ============ -->
+    <style>
+        #updateModal .modal-content { width: 640px; max-width: 94vw; gap: 18px; }
+        .upd-header { display: flex; align-items: center; gap: 14px; }
+        .upd-header .upd-title { font-size: 20px; font-weight: 700; margin: 0; }
+        .upd-vers { display: flex; align-items: center; gap: 8px; font-size: 13px; margin-left: auto; }
+        .upd-vpill { padding: 3px 10px; border-radius: 999px; border: 1px solid var(--border-color); background: color-mix(in srgb, var(--card-bg) 60%, transparent); }
+        .upd-vpill.latest { border-color: var(--accent); color: var(--accent); font-weight: 700; }
+        .upd-arrow { opacity: 0.5; }
+        #updNotes {
+            background: color-mix(in srgb, var(--bg-color) 55%, transparent);
+            border: 1px solid var(--border-color); border-radius: 10px;
+            padding: 14px 18px; max-height: 46vh; overflow-y: auto;
+            font-size: 13.5px; line-height: 1.6; word-break: break-word;
+        }
+        #updNotes .upd-h { margin: 14px 0 8px; line-height: 1.3; }
+        #updNotes h1.upd-h { font-size: 19px; } #updNotes h2.upd-h { font-size: 17px; }
+        #updNotes h3.upd-h { font-size: 15px; } #updNotes .upd-h:first-child { margin-top: 0; }
+        #updNotes .upd-p { margin: 8px 0; } #updNotes .upd-empty { opacity: 0.6; font-style: italic; }
+        #updNotes ul.upd-ul, #updNotes ol.upd-ol { margin: 8px 0; padding-left: 22px; }
+        #updNotes li { margin: 4px 0; }
+        #updNotes a.upd-link { color: var(--accent); text-decoration: none; }
+        #updNotes a.upd-link:hover { text-decoration: underline; }
+        #updNotes code { background: color-mix(in srgb, var(--accent) 14%, transparent); padding: 1px 6px; border-radius: 5px; font-family: 'Consolas', monospace; font-size: 12.5px; }
+        #updNotes pre.upd-pre { background: color-mix(in srgb, var(--bg-color) 70%, #000 8%); border: 1px solid var(--border-color); border-radius: 8px; padding: 12px; overflow-x: auto; margin: 10px 0; }
+        #updNotes pre.upd-pre code { background: none; padding: 0; }
+        #updNotes blockquote.upd-quote { margin: 8px 0; padding: 4px 14px; border-left: 3px solid var(--accent); opacity: 0.85; }
+        #updNotes hr.upd-hr { border: none; border-top: 1px solid var(--border-color); margin: 12px 0; }
+        #updNotes .upd-img { max-width: 100%; border-radius: 8px; margin: 6px 0; }
+        #updProgressWrap { display: none; }
+        .upd-progress-track { height: 10px; border-radius: 999px; background: color-mix(in srgb, var(--bg-color) 60%, transparent); border: 1px solid var(--border-color); overflow: hidden; }
+        #updProgressBar { height: 100%; width: 0%; background: linear-gradient(90deg, var(--accent), var(--accent-hover)); transition: width 0.25s ease; }
+        #updProgressLabel { font-size: 12px; opacity: 0.75; margin-top: 6px; text-align: center; }
+        .upd-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .upd-btn { padding: 10px 18px; border-radius: 9px; cursor: pointer; font-weight: 600; font-size: 14px; border: 1px solid var(--border-color); background: transparent; color: var(--text-color); transition: 0.2s; }
+        .upd-btn:hover { border-color: var(--accent); }
+        .upd-btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+        .upd-btn.primary:hover { background: var(--accent-hover); }
+        .upd-btn:disabled { opacity: 0.6; cursor: default; }
+        .upd-mute-wrap { position: relative; margin-left: auto; }
+        #updMuteMenu { position: absolute; bottom: calc(100% + 6px); right: 0; min-width: 190px; background: var(--card-bg); border: 1px solid var(--border-color); border-radius: 10px; padding: 6px; box-shadow: 0 12px 34px rgba(0,0,0,0.5); z-index: 5; }
+        #updMuteMenu button { display: block; width: 100%; text-align: left; padding: 9px 12px; background: transparent; border: none; color: var(--text-color); border-radius: 7px; cursor: pointer; font-size: 13px; }
+        #updMuteMenu button:hover { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+    </style>
+    <div id="updateModal" class="modal">
+        <div class="modal-content">
+            <button class="close-x" onclick="closeUpdateModal()">✕</button>
+            <div class="upd-header">
+                <div>
+                    <p class="upd-title">🚀 Update Available</p>
+                </div>
+                <div class="upd-vers">
+                    <span class="upd-vpill" id="updVerCurrent">v?</span>
+                    <span class="upd-arrow">→</span>
+                    <span class="upd-vpill latest" id="updVerLatest">v?</span>
+                </div>
+            </div>
+            <div id="updNotes"></div>
+            <div id="updProgressWrap">
+                <div class="upd-progress-track"><div id="updProgressBar"></div></div>
+                <div id="updProgressLabel"></div>
+            </div>
+            <div class="upd-actions">
+                <button class="upd-btn primary" id="updNowBtn" onclick="startUpdateDownload()">⬇️ Update Now</button>
+                <button class="upd-btn" onclick="closeUpdateModal()">Later</button>
+                <div class="upd-mute-wrap">
+                    <button class="upd-btn" onclick="(function(m){m.style.display = m.style.display==='block'?'none':'block';})(document.getElementById('updMuteMenu'))">🔕 Mute ▾</button>
+                    <div id="updMuteMenu" style="display:none;">
+                        <button onclick="snoozeUpdates('1d')">For 1 day</button>
+                        <button onclick="snoozeUpdates('1w')">For 1 week</button>
+                        <button onclick="snoozeUpdates('30d')">For 1 month</button>
+                        <button onclick="snoozeUpdates('forever')">Turn off indefinitely</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============ Auto-updater: "Update Complete" window ============ -->
+    <div id="updateCompleteModal" class="modal">
+        <div class="modal-content" style="width: 440px; max-width: 92vw; text-align: center; align-items: center; gap: 16px;">
+            <div style="font-size: 46px; line-height: 1;">🎉</div>
+            <p style="font-size: 20px; font-weight: 700; margin: 0;">Update Complete</p>
+            <p style="margin: 0; opacity: 0.8;">You're now running <strong id="updDoneVersion" style="color: var(--accent);">v?</strong></p>
+            <div class="upd-actions" style="justify-content: center; width: 100%;">
+                <button class="upd-btn primary" id="updChangelogBtn">📜 View Changelog</button>
+                <button class="upd-btn" onclick="closeUpdateCompleteModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ============ Supporters (live from sailhub.fyi/supporters) ============ -->
+    <style>
+        #supportersModal .modal-content { width: 600px; max-width: 94vw; gap: 16px; }
+        .sup-header { display: flex; align-items: center; gap: 12px; }
+        .sup-header .sup-title { font-size: 20px; font-weight: 700; margin: 0; }
+        .sup-total { margin-left: auto; font-size: 12.5px; opacity: 0.7; }
+        #supList { max-height: 56vh; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; padding-right: 4px; }
+        .sup-tier { border: 1px solid var(--border-color); border-radius: 12px; padding: 16px 18px; position: relative; overflow: hidden; background: color-mix(in srgb, var(--card-bg) 55%, transparent); }
+        .sup-tier::before { content: ""; position: absolute; top: 0; left: 0; width: 4px; height: 100%; background: var(--sup-color, var(--accent)); }
+        .sup-tier-head { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; flex-wrap: wrap; }
+        .sup-emoji { width: 40px; height: 40px; border-radius: 11px; display: flex; align-items: center; justify-content: center; font-size: 20px; background: color-mix(in srgb, var(--sup-color, var(--accent)) 14%, transparent); border: 1px solid color-mix(in srgb, var(--sup-color, var(--accent)) 34%, transparent); }
+        .sup-tier-name { font-size: 1.15rem; font-weight: 800; letter-spacing: -0.2px; }
+        .sup-tier-price { font-size: 0.8rem; opacity: 0.6; font-weight: 600; }
+        .sup-count { margin-left: auto; font-size: 0.72rem; padding: 4px 10px; border-radius: 999px; font-weight: 700; color: var(--sup-color, var(--accent)); background: color-mix(in srgb, var(--sup-color, var(--accent)) 12%, transparent); border: 1px solid color-mix(in srgb, var(--sup-color, var(--accent)) 30%, transparent); }
+        .sup-tagline { opacity: 0.7; font-size: 0.85rem; line-height: 1.5; margin: 4px 0 12px; }
+        .sup-members { display: flex; flex-wrap: wrap; gap: 8px; }
+        .sup-member { display: flex; align-items: center; gap: 8px; padding: 6px 12px 6px 6px; border-radius: 999px; border: 1px solid var(--border-color); background: color-mix(in srgb, var(--bg-color) 40%, transparent); font-size: 13px; font-weight: 600; text-decoration: none; color: var(--text-color); }
+        a.sup-member:hover { border-color: var(--sup-color, var(--accent)); }
+        .sup-avatar { width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 800; color: #fff; background: var(--sup-color, var(--accent)); }
+        .sup-empty { opacity: 0.55; font-style: italic; font-size: 0.85rem; }
+        .sup-state { text-align: center; opacity: 0.7; padding: 30px 10px; font-size: 14px; }
+    </style>
+    <div id="supportersModal" class="modal">
+        <div class="modal-content">
+            <button class="close-x" onclick="closeSupportersModal()">✕</button>
+            <div class="sup-header">
+                <p class="sup-title">💜 Supporters</p>
+                <span class="sup-total" id="supTotal"></span>
+            </div>
+            <p style="margin: -6px 0 0; opacity: 0.7; font-size: 13px;">The amazing people keeping the fleet sailing. Thank you!</p>
+            <div id="supList"><div class="sup-state">Loading supporters…</div></div>
+            <div class="upd-actions" style="justify-content: center;">
+                <button class="upd-btn primary" onclick="require('electron').ipcRenderer.invoke('open-url', 'https://www.patreon.com/cw/Aseoriy')">❤️ Support on Patreon</button>
+                <button class="upd-btn" onclick="require('electron').ipcRenderer.invoke('open-url', 'https://sailhub.fyi/supporters')">🌐 Open on Sail Hub</button>
+            </div>
+        </div>
+    </div>
+
 </body>
 
 </html>

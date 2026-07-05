@@ -208,11 +208,22 @@ function createWindow() {
     win.on('resized', debouncedSaveBounds);
     win.on('moved', debouncedSaveBounds);
 
+    // Allow internal navigation on sailhub.fyi and any of its subdomains
+    // (e.g. sail-launcher.sailhub.fyi). Everything else opens in the user's browser.
+    const isSailHubUrl = (u) => {
+        try {
+            const { protocol, hostname } = new URL(u);
+            return protocol === 'https:' && (hostname === 'sailhub.fyi' || hostname.endsWith('.sailhub.fyi'));
+        } catch (e) {
+            return false;
+        }
+    };
+
     win.webContents.on('will-navigate', (event, url) => {
         if (!url.startsWith('http://') && !url.startsWith('https://')) {
             return;
         }
-        if (!url.startsWith('https://sailhub.fyi')) {
+        if (!isSailHubUrl(url)) {
             event.preventDefault();
             shell.openExternal(url);
         }
@@ -223,7 +234,7 @@ function createWindow() {
         if (!url.startsWith('http://') && !url.startsWith('https://')) {
             return;
         }
-        if (!event.isMainFrame && !url.startsWith('https://sailhub.fyi')) {
+        if (!event.isMainFrame && !isSailHubUrl(url)) {
             event.preventDefault();
             shell.openExternal(url);
         }
@@ -233,7 +244,7 @@ function createWindow() {
         if (!url.startsWith('http://') && !url.startsWith('https://')) {
             return { action: 'allow' };
         }
-        if (!url.startsWith('https://sailhub.fyi')) {
+        if (!isSailHubUrl(url)) {
             shell.openExternal(url);
             return { action: 'deny' };
         }
@@ -266,8 +277,9 @@ function createWindow() {
         if (refKey && h[refKey].startsWith('file://')) delete h[refKey];
         callback({ requestHeaders: h });
     };
-    win.webContents.session.webRequest.onBeforeSendHeaders({ urls: ['https://sailhub.fyi/*'] }, patchSailhubHeaders);
-    session.fromPartition('sailhub-mods').webRequest.onBeforeSendHeaders({ urls: ['https://sailhub.fyi/*'] }, patchSailhubHeaders);
+    const sailhubHeaderUrls = ['https://sailhub.fyi/*', 'https://*.sailhub.fyi/*'];
+    win.webContents.session.webRequest.onBeforeSendHeaders({ urls: sailhubHeaderUrls }, patchSailhubHeaders);
+    session.fromPartition('sailhub-mods').webRequest.onBeforeSendHeaders({ urls: sailhubHeaderUrls }, patchSailhubHeaders);
 
 
     win.webContents.session.webRequest.onBeforeRequest({ urls: ['*://*/*'] }, (details, callback) => {
@@ -930,6 +942,72 @@ ipcMain.handle('create-zip', async (e, { sourceDir, destPath }) => {
 
 ipcMain.handle('open-url', (e, url) => shell.openExternal(url));
 ipcMain.handle('show-item-in-folder', (e, itemPath) => shell.showItemInFolder(itemPath));
+
+// ============================================================================
+// Auto-updater: download the launcher installer, run it silently, restart.
+// ----------------------------------------------------------------------------
+// The installer lives in %LOCALAPPDATA%\sail-launcher-updater\installer.exe.
+// The SAME NSIS installer serves double duty: double-clicked by a user it shows
+// the normal wizard; run by Sail with "/S --force-run" it installs silently and
+// relaunches the app — so there is only ONE installer and ONE release asset.
+// ============================================================================
+const UPDATER_DIR = path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), 'sail-launcher-updater');
+const UPDATER_EXE = path.join(UPDATER_DIR, 'installer.exe');
+
+// Download `url` (a GitHub release .exe asset) to installer.exe, following the
+// redirect chain GitHub uses for asset downloads, streaming percent progress
+// back to the renderer via 'update-download-progress'.
+ipcMain.handle('download-update-installer', async (e, url) => {
+    const wc = e.sender;
+    // Wipe any stale folder/installer first so we never launch an old build.
+    try { fs.rmSync(UPDATER_DIR, { recursive: true, force: true }); } catch (_) {}
+    fs.mkdirSync(UPDATER_DIR, { recursive: true });
+
+    await new Promise((resolve, reject) => {
+        let hops = 0;
+        const get = (u) => {
+            if (++hops > 8) return reject(new Error('Too many redirects'));
+            const lib = u.startsWith('http:') ? http : https;
+            lib.get(u, { headers: { 'User-Agent': 'Sail-Launcher' } }, (res) => {
+                if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+                    res.resume();
+                    return get(new URL(res.headers.location, u).toString());
+                }
+                if (res.statusCode !== 200) { res.resume(); return reject(new Error('HTTP ' + res.statusCode)); }
+                const total = Number(res.headers['content-length']) || 0;
+                let received = 0;
+                const out = fs.createWriteStream(UPDATER_EXE);
+                res.on('data', (chunk) => {
+                    received += chunk.length;
+                    try { wc.send('update-download-progress', { received, total, percent: total ? Math.round(received / total * 100) : 0 }); } catch (_) {}
+                });
+                res.pipe(out);
+                out.on('finish', () => out.close(() => resolve()));
+                out.on('error', (err) => { try { fs.rmSync(UPDATER_EXE, { force: true }); } catch (_) {} reject(err); });
+            }).on('error', reject);
+        };
+        get(url);
+    });
+    return UPDATER_EXE;
+});
+
+// Run the freshly-downloaded installer silently, then quit so it can replace our
+// files. "--force-run" tells electron-builder's NSIS installer to relaunch the
+// app after a silent install (the same flags electron-updater itself uses).
+ipcMain.handle('run-update-installer', async () => {
+    if (!fs.existsSync(UPDATER_EXE)) throw new Error('Installer not found — download it first.');
+    const child = spawn(UPDATER_EXE, ['/S', '--updated', '--force-run'], { detached: true, stdio: 'ignore' });
+    child.unref();
+    // Give the installer a beat to spin up before we release our file locks.
+    setTimeout(() => { isQuitting = true; app.quit(); }, 1500);
+    return true;
+});
+
+// Best-effort removal of the updater folder (called on startup once an update
+// has been applied — the installer is no longer running so the exe is unlocked).
+ipcMain.handle('cleanup-update-folder', async () => {
+    try { fs.rmSync(UPDATER_DIR, { recursive: true, force: true }); return true; } catch (_) { return false; }
+});
 
 ipcMain.handle('kill-process', (e, targetExeName) => exec(`taskkill /F /T /IM "${targetExeName}"`));
 
