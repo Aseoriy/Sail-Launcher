@@ -11,7 +11,7 @@
     <meta property="og:title" content="Sail Launcher - Full Feature List">
     <meta property="og:description" content="Complete feature list for Sail Launcher — core launching, game library, workshop, interface customization, cloud backups, and social integration.">
     <meta property="og:image" content="icon.png">
-    <meta property="og:url" content="https://sailhub.fyi/features">
+    <meta property="og:url" content="https://sail-launcher.sailhub.fyi/features">
     <meta property="og:type" content="website">
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:image" content="icon.png">
@@ -238,7 +238,7 @@
                 <div class="category-title">
                     <span class="category-emoji">🎮</span>
                     <span class="category-name">Game Library &amp; Management</span>
-                    <span class="category-count">9 features</span>
+                    <span class="category-count">11 features</span>
                 </div>
                 <svg class="chevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"></polyline></svg>
             </button>
@@ -252,7 +252,7 @@
                             </li>
                             <li class="feature-item">
                                 <div class="feature-dot"></div>
-                                <div class="feature-item-text"><b>Save File Detection</b>: Automatically detects save file locations when entering a Steam App ID. <span class="feature-tag">Beta</span></div>
+                                <div class="feature-item-text"><b>Save File Detection</b>: Automatically detects save file locations when entering a Steam app ID. The Browse button now shows as "Scan" and actively triggers a scan when enabled, and the Override button toggles to "Cancel" for a cleaner flow. <span class="feature-tag">v5.0.0</span></div>
                             </li>
                             <li class="feature-item">
                                 <div class="feature-dot"></div>
@@ -282,19 +282,28 @@
                                 <div class="feature-dot"></div>
                                 <div class="feature-item-text"><b>Favorites System</b>: Keep your most played games starred at the top.</div>
                             </li>
+                            <li class="feature-item">
+                                <div class="feature-dot"></div>
+                                <div class="feature-item-text"><b>Continue Playing Banner</b>: A featured banner above your library grid highlighting your last played game with cover art, playtime, and a quick-play button. <span class="feature-tag">New v5.0.0</span></div>
+                            </li>
+                            <li class="feature-item">
+                                <div class="feature-dot"></div>
+                                <div class="feature-item-text"><b>Poster Cover-Tiles</b>: Landscape cover-art tiles by default, with a Vertical (Poster) toggle in Settings → Appearance. <span class="feature-tag">New v5.0.0</span></div>
+                            </li>
                         </ul>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- 3. Workshop, Sources & Mods -->
-        <div class="category" id="cat-workshop">
+        <!-- 3. Game Downloads, Debrid & Auto-Install -->
+        <div class="category" id="cat-downloads">
             <button class="category-header" aria-expanded="false">
                 <div class="category-title">
-                    <span class="category-emoji">🔌</span>
-                    <span class="category-name">Workshop, Sources &amp; Mods</span>
-                    <span class="category-count">6 features</span>
+                    <span class="category-emoji">📥</span>
+                    <span class="category-name">Game Downloads, Debrid &amp; Auto-Install</span>
+                    <span class="category-count">7 features</span>
+                    <span class="feature-tag" style="margin-left:4px;">New v5.0.0</span>
                 </div>
                 <svg class="chevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"></polyline></svg>
             </button>
@@ -304,7 +313,55 @@
                         <ul>
                             <li class="feature-item">
                                 <div class="feature-dot"></div>
-                                <div class="feature-item-text"><b>Dedicated Steam Workshop Hub</b>: Browse, search, and install mods for your games inside a dedicated full-page tab. <span class="feature-tag">v4.2.0</span></div>
+                                <div class="feature-item-text"><b>Built-in Download Engine</b>: Bundled aria2 engine handles direct file-host links and magnet/torrents in-app, with progress, speed limiting, and resume support.</div>
+                            </li>
+                            <li class="feature-item">
+                                <div class="feature-dot"></div>
+                                <div class="feature-item-text"><b>Multi-Source Search</b>: Search FitGirl and SteamGG at once, with results shown as animated cover-art cards and a source badge.</div>
+                            </li>
+                            <li class="feature-item">
+                                <div class="feature-dot"></div>
+                                <div class="feature-item-text"><b>Debrid Service Integration</b>: Connect TorBox, Real-Debrid, AllDebrid, Premiumize, or Debrid-Link with a single API key to unlock SteamRIP and filehosts like DataNodes, AkiraBox, and VikingFile, with live connection status and resolved-link caching.</div>
+                            </li>
+                            <li class="feature-item">
+                                <div class="feature-dot"></div>
+                                <div class="feature-item-text"><b>PixelDrain Cloudflare Worker Proxy</b>: Transparently routes PixelDrain downloads through a configurable worker pool to bypass the 10 GB daily rate limit.</div>
+                            </li>
+                            <li class="feature-item">
+                                <div class="feature-dot"></div>
+                                <div class="feature-item-text"><b>Auto-Install &amp; Library Integration</b>: Finished downloads are extracted or silently installed and added to your library automatically with fetched Steam art and metadata.</div>
+                            </li>
+                            <li class="feature-item">
+                                <div class="feature-dot"></div>
+                                <div class="feature-item-text"><b>Multi-Part Archive Handling</b>: Automatically groups and extracts part files, including those nested inside <code>.rar</code> archives, with junk files cleaned up afterward.</div>
+                            </li>
+                            <li class="feature-item">
+                                <div class="feature-dot"></div>
+                                <div class="feature-item-text"><b>Floating Downloads Dock</b>: Live progress, speed, ETA, and current part, with retry, cancel, and "open folder" actions.</div>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 4. Workshop, Sources & Mods -->
+        <div class="category" id="cat-workshop">
+            <button class="category-header" aria-expanded="false">
+                <div class="category-title">
+                    <span class="category-emoji">🔌</span>
+                    <span class="category-name">Workshop, Sources &amp; Mods</span>
+                    <span class="category-count">7 features</span>
+                </div>
+                <svg class="chevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </button>
+            <div class="category-body">
+                <div class="inner">
+                    <div class="feature-list">
+                        <ul>
+                            <li class="feature-item">
+                                <div class="feature-dot"></div>
+                                <div class="feature-item-text"><b>Dedicated Steam Workshop Hub</b>: Browse, search, and install mods for your games inside a dedicated full-page tab.</div>
                             </li>
                             <li class="feature-item">
                                 <div class="feature-dot"></div>
@@ -312,19 +369,23 @@
                             </li>
                             <li class="feature-item">
                                 <div class="feature-dot"></div>
-                                <div class="feature-item-text"><b>Custom Web Sources</b>: Add and manage custom website URLs (e.g. repacks or mod guides) to browse inside the launcher. <span class="feature-tag">v4.2.2</span></div>
+                                <div class="feature-item-text"><b>Custom Web Sources</b>: Add and manage custom website URLs (e.g. repacks or mod guides) to browse inside the launcher.</div>
                             </li>
                             <li class="feature-item">
                                 <div class="feature-dot"></div>
-                                <div class="feature-item-text"><b>Built-in Web Browser</b>: Integrated web browser with back/forward history buttons and external link navigation confirmations. <span class="feature-tag">v4.2.2</span></div>
+                                <div class="feature-item-text"><b>Built-in Web Browser</b>: Integrated web browser with back/forward history buttons and external link navigation confirmations.</div>
                             </li>
                             <li class="feature-item">
                                 <div class="feature-dot"></div>
-                                <div class="feature-item-text"><b>Download Location Chooser</b>: Choose custom folders when downloading files from sources. <span class="feature-tag">v4.2.2</span></div>
+                                <div class="feature-item-text"><b>Isolated Mods Webview</b>: The Mods tab now runs in an isolated in-memory partition with Electron-identifying headers stripped, fixing Cloudflare bot-detection black screens. <span class="feature-tag">Fixed v5.0.0</span></div>
                             </li>
                             <li class="feature-item">
                                 <div class="feature-dot"></div>
-                                <div class="feature-item-text"><b>Automatic Extraction</b>: Handles zipped, raw, RAR, and <code>.7z</code> mod archives automatically.</div>
+                                <div class="feature-item-text"><b>Download Location Chooser</b>: Choose custom folders when downloading files from sources.</div>
+                            </li>
+                            <li class="feature-item">
+                                <div class="feature-dot"></div>
+                                <div class="feature-item-text"><b>Automatic Extraction</b>: Handles zipped, raw, RAR, and <code>.7z</code> mod archives automatically (with packaged release fixes).</div>
                             </li>
                         </ul>
                     </div>
@@ -332,13 +393,13 @@
             </div>
         </div>
 
-        <!-- 4. Interface, Customization & Visuals -->
+        <!-- 5. Interface, Customization & Visuals -->
         <div class="category" id="cat-interface">
             <button class="category-header" aria-expanded="false">
                 <div class="category-title">
                     <span class="category-emoji">🎨</span>
                     <span class="category-name">Interface, Customization &amp; Visuals</span>
-                    <span class="category-count">10 features</span>
+                    <span class="category-count">11 features</span>
                 </div>
                 <svg class="chevron" viewBox="0 0 24 24"><polyline points="6 9 12 15 18 9"></polyline></svg>
             </button>
@@ -348,23 +409,27 @@
                         <ul>
                             <li class="feature-item">
                                 <div class="feature-dot"></div>
-                                <div class="feature-item-text"><b>Frosted-Glass Mode</b>: Enable translucent layouts with fixed background blobs and physics-based spring animations. <span class="feature-tag">v4.2.0</span></div>
+                                <div class="feature-item-text"><b>Frosted-Glass Mode</b>: Enable translucent layouts in settings with fixed background blobs and physics-based spring animations.</div>
                             </li>
                             <li class="feature-item">
                                 <div class="feature-dot"></div>
-                                <div class="feature-item-text"><b>Custom Theme Creator</b>: Build custom color schemes, adjusting backdrop blur, borders, fonts, and opacity. <span class="feature-tag">v4.2.0</span></div>
+                                <div class="feature-item-text"><b>Custom Theme Creator</b>: Build custom color schemes, adjusting backdrop blur, borders, fonts, and opacity.</div>
                             </li>
                             <li class="feature-item">
                                 <div class="feature-dot"></div>
-                                <div class="feature-item-text"><b>Animated Backgrounds</b>: Pulse, Grid, Wave, Ripple, and Frost Sweep animations. <span class="feature-tag">v4.2.0</span></div>
+                                <div class="feature-item-text"><b>Canvas UI Editor</b>: A full live visual editor — drag, resize, and reposition elements; rename text labels; build per-element or global gradients; apply live CSS animations (pulse, float, glow, spin, gradient-shift, shimmer); edit across multiple pages with a draggable inspector panel; fully compatible with theme import/export. <span class="feature-tag">New v5.0.0</span></div>
                             </li>
                             <li class="feature-item">
                                 <div class="feature-dot"></div>
-                                <div class="feature-item-text"><b>Big Picture Mode</b>: Console-style interface with full gamepad navigation, boot sounds, and monitor target selection. <span class="feature-tag">v4.2.0</span></div>
+                                <div class="feature-item-text"><b>Animated Backgrounds</b>: Pulse, Grid, Wave, Ripple, and Frost Sweep animations.</div>
                             </li>
                             <li class="feature-item">
                                 <div class="feature-dot"></div>
-                                <div class="feature-item-text"><b>Collapsible Sidebar</b>: Collapsible folders sidebar with fixed favorites spacing and responsive layouts. <span class="feature-tag">v4.2.2</span></div>
+                                <div class="feature-item-text"><b>Big Picture Mode</b>: Console-style interface with full gamepad navigation, boot sounds, and monitor target selection.</div>
+                            </li>
+                            <li class="feature-item">
+                                <div class="feature-dot"></div>
+                                <div class="feature-item-text"><b>Collapsible Sidebar</b>: Collapsible folders sidebar with fixed favorites spacing and responsive layouts.</div>
                             </li>
                             <li class="feature-item">
                                 <div class="feature-dot"></div>
@@ -392,7 +457,7 @@
             </div>
         </div>
 
-        <!-- 5. Backups, Sync & Version History -->
+        <!-- 6. Backups, Sync & Version History -->
         <div class="category" id="cat-backups">
             <button class="category-header" aria-expanded="false">
                 <div class="category-title">
@@ -408,15 +473,15 @@
                         <ul>
                             <li class="feature-item">
                                 <div class="feature-dot"></div>
-                                <div class="feature-item-text"><b>Native Cloud Save Sync</b>: Sync saves directly with Google Drive, OneDrive, Dropbox, or Mediafire APIs. <span class="feature-tag">v4.2.0</span></div>
+                                <div class="feature-item-text"><b>Native Cloud Save Sync</b>: Sync saves directly with Google Drive, OneDrive, Dropbox, or Mediafire APIs.</div>
                             </li>
                             <li class="feature-item">
                                 <div class="feature-dot"></div>
-                                <div class="feature-item-text"><b>Auto Settings Sync</b>: Automatically download and import launcher settings and custom themes upon linking a sync provider. <span class="feature-tag">v4.2.2</span></div>
+                                <div class="feature-item-text"><b>Auto Settings Sync</b>: Automatically download and import launcher settings and custom themes upon linking a sync provider.</div>
                             </li>
                             <li class="feature-item">
                                 <div class="feature-dot"></div>
-                                <div class="feature-item-text"><b>Secure Encryption</b>: Authentication credentials and tokens are encrypted using Electron's native <code>safeStorage</code>.</div>
+                                <div class="feature-item-text"><b>Secure Encryption</b>: Authentication credentials and tokens are encrypted securely using Electron's native <code>safeStorage</code>.</div>
                             </li>
                             <li class="feature-item">
                                 <div class="feature-dot"></div>
@@ -436,7 +501,7 @@
             </div>
         </div>
 
-        <!-- 6. Social & Protocol Integration -->
+        <!-- 7. Social & Protocol Integration -->
         <div class="category" id="cat-social">
             <button class="category-header" aria-expanded="false">
                 <div class="category-title">
@@ -460,7 +525,7 @@
                             </li>
                             <li class="feature-item">
                                 <div class="feature-dot"></div>
-                                <div class="feature-item-text"><b>Friend Activity Bar</b>: Integrates Steam/Discord friend statuses directly in the launcher.</div>
+                                <div class="feature-item-text"><b>Friend Activity Bar</b>: Integrates Steam/Discord friend statuses directly in the launcher, now with colored presence dots (🔵 online, 🟢 playing, 🟡 away, 🔴 dnd, ⚪ offline) and soft glow effects. <span class="feature-tag">v5.0.0</span></div>
                             </li>
                         </ul>
                     </div>
@@ -483,6 +548,16 @@
         <a href="/privacy" style="margin-right: 10px;">Privacy Policy</a> &bull;
         <a href="/terms" style="margin-left: 10px;">Terms of Service</a>
     </p>
+    <div style="margin-top: 16px; display:flex; gap:10px; justify-content:center; flex-wrap:wrap;">
+        <a href="https://www.patreon.com/cw/Aseoriy" target="_blank" rel="noopener" style="display:inline-flex; align-items:center; gap:7px; padding:7px 16px; border:1px solid rgba(168,85,247,0.3); border-radius:99px; background:rgba(168,85,247,0.07); color:var(--accent-hover); font-weight:600; text-decoration:none;">
+            <svg viewBox="0 0 24 24" fill="currentColor" style="width:14px; height:14px;"><path d="M14.82 2.41c-4.6 0-8.34 3.74-8.34 8.34 0 4.59 3.74 8.32 8.34 8.32 4.58 0 8.31-3.73 8.31-8.32 0-4.6-3.73-8.34-8.31-8.34M1 21.6h4.07V2.41H1z"/></svg>
+            Support me on Patreon
+        </a>
+        <a href="https://sailhub.fyi/supporters" style="display:inline-flex; align-items:center; gap:7px; padding:7px 16px; border:1px solid var(--border); border-radius:99px; background:rgba(255,255,255,0.03); color:var(--text); font-weight:600; text-decoration:none;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px; height:14px;"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+            Supporters
+        </a>
+    </div>
 </footer>
 
 <script>

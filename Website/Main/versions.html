@@ -12,7 +12,7 @@
     <meta property="og:title" content="Sail Launcher - Version History & Changelog">
     <meta property="og:description" content="Full version history and changelog for Sail Launcher. Browse every stable release and read the complete release notes.">
     <meta property="og:image" content="icon.png">
-    <meta property="og:url" content="https://sailhub.fyi/versions">
+    <meta property="og:url" content="https://sail-launcher.sailhub.fyi/versions">
     <meta property="og:type" content="website">
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:image" content="icon.png">
@@ -122,6 +122,7 @@
             padding: 3px 9px; border-radius: 99px; white-space: nowrap;
         }
         .badge-latest { background: rgba(168, 85, 247, 0.15); border: 1px solid rgba(168, 85, 247, 0.4); color: #d8b4fe; }
+        .badge-outdated { background: rgba(161, 161, 170, 0.08); border: 1px solid rgba(161, 161, 170, 0.25); color: #71717a; }
 
         .release-meta { display: flex; align-items: center; gap: 16px; flex-shrink: 0; }
         .release-date { color: var(--muted); font-size: 0.88rem; white-space: nowrap; }
@@ -158,6 +159,20 @@
         .release-footer { display: flex; gap: 12px; flex-wrap: wrap; padding: 16px 0 22px; }
         .release-link { font-size: 0.86rem; color: var(--accent); text-decoration: none; font-weight: 600; display: inline-flex; align-items: center; gap: 5px; }
         .release-link:hover { color: var(--accent-hover); }
+
+        .download-section { padding: 14px 0 4px; }
+        .download-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 1px; color: var(--muted); font-weight: 700; margin-bottom: 10px; }
+        .download-buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+        .download-btn {
+            display: inline-flex; align-items: center; gap: 6px;
+            padding: 7px 13px; border-radius: 8px;
+            background: rgba(168, 85, 247, 0.08); border: 1px solid rgba(168, 85, 247, 0.28);
+            color: var(--accent); font-size: 0.83rem; font-weight: 600;
+            text-decoration: none; transition: all 0.2s; white-space: nowrap;
+        }
+        .download-btn:hover { background: rgba(168, 85, 247, 0.18); border-color: rgba(168, 85, 247, 0.5); color: var(--accent-hover); transform: translateY(-1px); }
+        .download-btn svg { flex-shrink: 0; }
+        .download-btn .file-size { color: var(--muted); font-weight: 400; font-size: 0.78rem; }
 
         /* Loading / error states */
         .state { text-align: center; padding: 60px 20px; color: var(--muted); }
@@ -233,6 +248,16 @@
         <a href="/privacy" style="margin-right: 10px;">Privacy Policy</a> &bull;
         <a href="/terms" style="margin-left: 10px;">Terms of Service</a>
     </p>
+    <div style="margin-top: 16px; display:flex; gap:10px; justify-content:center; flex-wrap:wrap;">
+        <a href="https://www.patreon.com/cw/Aseoriy" target="_blank" rel="noopener" style="display:inline-flex; align-items:center; gap:7px; padding:7px 16px; border:1px solid rgba(168,85,247,0.3); border-radius:99px; background:rgba(168,85,247,0.07); color:var(--accent-hover); font-weight:600; text-decoration:none;">
+            <svg viewBox="0 0 24 24" fill="currentColor" style="width:14px; height:14px;"><path d="M14.82 2.41c-4.6 0-8.34 3.74-8.34 8.34 0 4.59 3.74 8.32 8.34 8.32 4.58 0 8.31-3.73 8.31-8.32 0-4.6-3.73-8.34-8.31-8.34M1 21.6h4.07V2.41H1z"/></svg>
+            Support me on Patreon
+        </a>
+        <a href="https://sailhub.fyi/supporters" style="display:inline-flex; align-items:center; gap:7px; padding:7px 16px; border:1px solid var(--border); border-radius:99px; background:rgba(255,255,255,0.03); color:var(--text); font-weight:600; text-decoration:none;">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:14px; height:14px;"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle><path d="M23 21v-2a4 4 0 0 0-3-3.87"></path><path d="M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+            Supporters
+        </a>
+    </div>
 </footer>
 
 <script>
@@ -255,18 +280,42 @@ function renderNotes(body) {
     return window.DOMPurify ? DOMPurify.sanitize(html) : html;
 }
 
+function escHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function formatSize(bytes) {
+    if (bytes >= 1024 * 1024) return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    if (bytes >= 1024) return (bytes / 1024).toFixed(1) + ' KB';
+    return bytes + ' B';
+}
+
+function buildDownloads(assets) {
+    if (!assets || !assets.length) return '';
+    const btns = assets.map(a =>
+        `<a class="download-btn" href="${escHtml(a.browser_download_url)}" download>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+            ${escHtml(a.name)}<span class="file-size">${formatSize(a.size)}</span>
+        </a>`
+    ).join('');
+    return `<div class="download-section"><div class="download-label">Downloads</div><div class="download-buttons">${btns}</div></div>`;
+}
+
 function buildRelease(rel, isLatest) {
     const wrap = document.createElement('div');
     wrap.className = 'release';
 
     const version = rel.tag_name || rel.name || 'Unknown';
     const date = formatDate(rel.published_at);
+    const badge = isLatest
+        ? '<span class="badge badge-latest">Latest</span>'
+        : '<span class="badge badge-outdated">Outdated</span>';
 
     wrap.innerHTML = `
         <button class="release-header" aria-expanded="false">
             <div class="release-title">
                 <span class="version">${version}</span>
-                ${isLatest ? '<span class="badge badge-latest">Latest</span>' : ''}
+                ${badge}
             </div>
             <div class="release-meta">
                 <span class="release-date">${date}</span>
@@ -278,8 +327,9 @@ function buildRelease(rel, isLatest) {
                 <div class="release-notes">
                     <div class="release-notes-pad">
                         <div class="md">${renderNotes(rel.body)}</div>
+                        ${buildDownloads(rel.assets)}
                         <div class="release-footer">
-                            <a class="release-link" href="${rel.html_url}" target="_blank" rel="noopener">View on GitHub &rarr;</a>
+                            <a class="release-link" href="${escHtml(rel.html_url)}" target="_blank" rel="noopener">View on GitHub &rarr;</a>
                         </div>
                     </div>
                 </div>
