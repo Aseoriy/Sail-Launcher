@@ -638,13 +638,13 @@
 
         /* Anchored <select> dropdown (issue #5) — replaces the old centered "Select Option"
            modal with a popup that animates in place from the control it belongs to. */
-        #anchoredSelect { position: fixed; z-index: 100200; min-width: 150px; max-height: 320px; overflow-y: auto; background: rgba(18,18,26,0.98); backdrop-filter: blur(16px); border: 1px solid var(--border-color); border-radius: 11px; box-shadow: 0 16px 44px rgba(0,0,0,0.55); padding: 6px; transform-origin: top center; animation: anchoredSelectIn .14s cubic-bezier(.2,.9,.3,1.2); }
+        #anchoredSelect { position: fixed; z-index: 100200; min-width: 150px; max-height: 320px; overflow-y: auto; background: color-mix(in srgb, var(--bg-color) 78%, transparent); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); border: 1px solid var(--glass-border, var(--border-color)); border-radius: 11px; box-shadow: 0 16px 44px rgba(0,0,0,0.45); padding: 6px; transform-origin: top center; animation: anchoredSelectIn .14s cubic-bezier(.2,.9,.3,1.2); }
         #anchoredSelect.flip-up { transform-origin: bottom center; animation-name: anchoredSelectInUp; }
         @keyframes anchoredSelectIn { from { opacity: 0; transform: translateY(-7px) scale(0.96); } to { opacity: 1; transform: none; } }
         @keyframes anchoredSelectInUp { from { opacity: 0; transform: translateY(7px) scale(0.96); } to { opacity: 1; transform: none; } }
         #anchoredSelect .as-opt { display: block; width: 100%; text-align: left; padding: 8px 12px; border: none; background: transparent; color: inherit; border-radius: 7px; cursor: pointer; font-size: 13px; white-space: nowrap; transition: background .1s; }
         #anchoredSelect .as-opt:hover, #anchoredSelect .as-opt:focus { background: rgba(128,128,128,0.18); outline: none; }
-        #anchoredSelect .as-opt.selected { background: var(--accent); color: #fff; }
+        #anchoredSelect .as-opt.selected { background: color-mix(in srgb, var(--accent) 20%, transparent); color: var(--text-color); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent); }
         #anchoredSelect .as-group { font-weight: 700; opacity: 0.5; padding: 9px 9px 3px; font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; }
 
         /* Inline help tips in the Theme Editor's Advanced mode (issue #2). */
@@ -748,6 +748,9 @@
             flex-grow: 1;
             align-content: flex-start;
         }
+        /* Force Resizing safeguard: in "reflow" mode a resized card can't exceed its (now
+           card-width-sized) grid cell, so cards tile cleanly instead of overlapping. */
+        body.force-resize-reflow #gameGrid .game-card { max-width: 100% !important; }
 
         .game-card {
             background: var(--card-bg);
@@ -2311,6 +2314,17 @@
             100% { transform: scale(1); opacity: 0.8; }
         }
 
+        /* ===== Themed icon system =====
+           SVG line-icons (Lucide-style) that inherit the current text colour via `currentColor`,
+           so they always match the active theme/accent. Each converted emoji call-site becomes
+           <span class="app-ic" data-ic="NAME"></span>; paintIcons() fills it with the SVG (icon
+           mode) or the original emoji (emoji mode — globalSettings.iconStyle === 'emoji'). Sized
+           in `em` so an icon is exactly as big as the text/emoji it replaced, wherever it sits. */
+        .app-ic { display: inline-flex; align-items: center; justify-content: center; vertical-align: -0.14em; line-height: 0; flex: 0 0 auto; }
+        /* flex:none + aspect-ratio keep the glyph square even when a UI-editor-resized parent
+           would otherwise stretch it. */
+        .app-ic > svg { width: 1em; height: 1em; display: block; flex: 0 0 auto; aspect-ratio: 1 / 1; }
+
         /* GLASSMORPHIC UI (iOS 26 like glass & animations) */
         .glass-blob {
             display: none;
@@ -2699,14 +2713,26 @@
         }
 
         /* Force Translucency (Experimental) — for custom themes whose opaque custom / UI-editor
-           background (uiAppBg) would otherwise hide the desktop. Re-applies the glass translucency
-           at the user's slider level (--glass-opacity-percent). The compound selectors carry higher
-           specificity than the theme / uiAppBg background rules (body.theme-custom, body.glassmorphic-mode),
-           so this wins in every mode. Scoped to .theme-custom so it only affects custom themes. */
+           background (uiAppBg) would otherwise hide the desktop. Instead of replacing the custom
+           background with a flat colour (which made themes "look normal"), we PRESERVE it: the
+           real appBg gradient/image is painted onto a fixed body::after backdrop layer and faded
+           to the user's Glass Translucency level so the desktop shows through behind it, while the
+           body itself goes transparent. --force-trans-bg is set by applyUiCustom() to the live
+           appBg (falling back to the theme's --bg-color when no custom appBg is set). The compound
+           selectors out-specify the theme / uiAppBg background rules, so this wins in every mode. */
         body.force-translucency.theme-custom,
         body.force-translucency.theme-custom.glassmorphic-mode {
-            background: color-mix(in srgb, var(--bg-color) var(--glass-opacity-percent, 40%), transparent) !important;
+            background: transparent !important;
+        }
+        body.force-translucency.theme-custom::after {
+            content: "";
+            position: fixed;
+            inset: 0;
+            z-index: -3; /* behind glass blobs (-2) and the theme animation (-1) */
+            pointer-events: none;
+            background: var(--force-trans-bg, var(--bg-color)) !important;
             background-attachment: fixed !important;
+            opacity: var(--glass-opacity, 0.4);
         }
 
         body.glassmorphic-mode.dedicated-settings-page #settingsModal .modal-content {
@@ -3075,8 +3101,8 @@
 
     <div class="custom-titlebar">
         <div class="titlebar-title">
-            <button class="nav-arrow" id="navBackBtn" onclick="navBack()">❮</button>
-            <button class="nav-arrow" id="navFwdBtn" onclick="navFwd()">❯</button>
+            <button class="nav-arrow" id="navBackBtn" onclick="navBack()"><span class="app-ic" data-ic="chevron-left" role="img"></span></button>
+            <button class="nav-arrow" id="navFwdBtn" onclick="navFwd()"><span class="app-ic" data-ic="chevron-right" role="img"></span></button>
             <span class="tb-brand" style="margin-left: 5px;">
                 <img src="icon.ico" class="tb-logo" alt="Sail Launcher" onerror="this.style.display='none'">
                 <span class="tb-brand-name">Sail Launcher</span>
@@ -3089,29 +3115,29 @@
                 style="display: none; position: absolute; left: calc(var(--main-sidebar-total-width, 270px)); -webkit-app-region: no-drag; z-index: 99999;">
                 <button class="outline" style="padding: 4px 10px; font-size: 12px; border-radius: 4px !important;"
                     onclick="document.getElementById('actionDropdownMenu').classList.toggle('show');">Menu
-                    ☰</button>
+                    <span class="app-ic" data-ic="menu" role="img"></span></button>
                 <div id="actionDropdownMenu" class="action-dropdown-menu"></div>
             </div>
         </div>
         <div class="titlebar-controls">
             <div id="globalSyncIndicator"
                 style="display:none; align-items: center; margin-right: 15px; font-size: 12px; opacity: 0.8;"
-                title="Cloud Sync in Progress"><span class="spin-icon">🔄</span> Syncing to Cloud...</div>
-            <button class="titlebar-btn" id="muteBtn" title="Mute / unmute launcher sounds">🔊</button>
+                title="Cloud Sync in Progress"><span class="spin-icon app-ic" data-ic="sync" role="img"></span> Syncing to Cloud...</div>
+            <button class="titlebar-btn" id="muteBtn" title="Mute / unmute launcher sounds"><span class="app-ic" data-ic="volume" role="img"></span></button>
             <button class="titlebar-btn" id="supportersBtn" title="Supporters — thank you for keeping the fleet sailing!" onclick="openSupportersModal()" style="margin-right: 16px;">💜</button>
-            <button class="titlebar-btn" id="minBtn">─</button>
-            <button class="titlebar-btn" id="maxBtn">□</button>
-            <button class="titlebar-btn close" id="closeBtn">✕</button>
+            <button class="titlebar-btn" id="minBtn"><span class="app-ic" data-ic="minimize" role="img"></span></button>
+            <button class="titlebar-btn" id="maxBtn"><span class="app-ic" data-ic="maximize" role="img"></span></button>
+            <button class="titlebar-btn close" id="closeBtn"><span class="app-ic" data-ic="close" role="img"></span></button>
         </div>
     </div>
 
-    <button class="exit-bp-btn" onclick="toggleBigPicture()">🔙 Exit Big Picture</button>
+    <button class="exit-bp-btn" onclick="toggleBigPicture()"><span class="app-ic" data-ic="arrow-left" role="img"></span> Exit Big Picture</button>
 
     <div class="app-container">
 
         <div class="sidebar" id="mainSidebar">
             <div style="display:flex; justify-content:flex-start; padding: 4px 12px 0;">
-                <button class="sidebar-toggle-btn" onclick="toggleSidebar()">☰</button>
+                <button class="sidebar-toggle-btn" onclick="toggleSidebar()"><span class="app-ic" data-ic="menu" role="img"></span></button>
             </div>
             <div class="sidebar-header" id="sidebarNavHeader" style="justify-content: flex-start; gap: 12px; flex-wrap: wrap;">
                 <h2 class="sidebar-title active-tab" id="tabLibrary" onclick="switchMainTab('library')"
@@ -3143,25 +3169,25 @@
             <div id="libraryView">
                 <div class="header">
                     <span id="bpControllerStatus"
-                        style="display:none; background: rgba(16,185,129,0.2); color: #10b981; padding: 6px 12px; border-radius: 99px; font-size: 12px; font-weight: bold; border: 1px solid #10b981; margin-right: auto; margin-left: 20px;">🎮
+                        style="display:none; background: rgba(16,185,129,0.2); color: #10b981; padding: 6px 12px; border-radius: 99px; font-size: 12px; font-weight: bold; border: 1px solid #10b981; margin-right: auto; margin-left: 20px;"><span class="app-ic" data-ic="gamepad"></span>
                         Controller Connected</span>
                     <h1 id="topTitle" data-i18n="myLibrary">My Library</h1>
                     <div class="btn-group" id="actionButtonsGroup">
                         <button class="outline" data-btn-id="bigPicture" onclick="toggleBigPicture()"
                             data-i18n="bigPicture">📺 Big Picture</button>
-                        <button class="outline" data-btn-id="sailHub" onclick="switchMainTab('store')">🌐
+                        <button class="outline" data-btn-id="sailHub" onclick="switchMainTab('store')"><span class="app-ic" data-ic="globe"></span>
                             Sail Hub</button>
                         <button class="outline" data-btn-id="plugins" onclick="openPluginManager()"
-                            style="position:relative;">🧩 Plugins<span id="pluginUpdateBadge"
+                            style="position:relative;"><span class="app-ic" data-ic="puzzle"></span> Plugins<span id="pluginUpdateBadge"
                                 style="display:none; position:absolute; top:-5px; right:-5px; background:#ef4444; color:white; font-size:10px; font-weight:bold; min-width:16px; height:16px; border-radius:50%; display:none; align-items:center; justify-content:center; line-height:1;"></span></button>
-                        <button class="outline" data-btn-id="surpriseMe" id="surpriseMeBtn">🎲 Surprise Me</button>
+                        <button class="outline" data-btn-id="surpriseMe" id="surpriseMeBtn"><span class="app-ic" data-ic="dice"></span> Surprise Me</button>
                         <button class="outline" data-btn-id="stats" id="statsBtn" onclick="openStatsModal()"
                             data-i18n="stats">📊 Stats</button>
                         <button class="outline" data-btn-id="systemSpecs" onclick="openSpecsModal()"
                             data-i18n="sysSpecs">💻 System Specs</button>
                         <button class="outline" data-btn-id="settings" id="settingsBtn" data-i18n="settings">⚙️
                             Settings</button>
-                        <button class="outline" data-btn-id="selectMode" onclick="toggleSelectMode(true)">🎯 Select Mode</button>
+                        <button class="outline" data-btn-id="selectMode" onclick="toggleSelectMode(true)"><span class="app-ic" data-ic="target"></span> Select Mode</button>
                         <button data-btn-id="addGame" id="addGameBtn" data-i18n="addGame">+ Add Game</button>
                     </div>
                 </div>
@@ -4013,13 +4039,13 @@
                     Social</div>
                 <div class="settings-tab" tabindex="0" onclick="switchSettingsTab('data')" data-i18n="dataBackup">💾
                     Data & Backup</div>
-                <div class="settings-tab" tabindex="0" onclick="switchSettingsTab('cloud')">☁️
+                <div class="settings-tab" tabindex="0" onclick="switchSettingsTab('cloud')"><span class="app-ic" data-ic="cloud"></span>
                     Cloud Sync</div>
-                <div class="settings-tab" tabindex="0" onclick="switchSettingsTab('library')">📚
+                <div class="settings-tab" tabindex="0" onclick="switchSettingsTab('library')"><span class="app-ic" data-ic="book"></span>
                     Library Management</div>
-                <div class="settings-tab" tabindex="0" onclick="switchSettingsTab('experimental')">🧪
+                <div class="settings-tab" tabindex="0" onclick="switchSettingsTab('experimental')"><span class="app-ic" data-ic="flask"></span>
                     Experimental</div>
-                <div class="settings-tab" tabindex="0" onclick="switchSettingsTab('alerts')" id="tabButtonAlerts" style="display: none;">🧑‍💻
+                <div class="settings-tab" tabindex="0" onclick="switchSettingsTab('alerts')" id="tabButtonAlerts" style="display: none;"><span class="app-ic" data-ic="code"></span>
                     Developer</div>
             </div>
 
@@ -4140,6 +4166,16 @@
                     </label>
                 </div>
 
+                <div style="margin-bottom: 20px;">
+                    <label class="toggle-label">
+                        <input type="checkbox" id="emojiIconsToggle">
+                        <div class="toggle-switch"></div>
+                        <span>Use Emojis Instead of Line Icons</span>
+                    </label>
+                    <p style="font-size: 11px; color: rgba(255,255,255,0.5); text-align: left; margin-top: 5px;">
+                        The launcher uses clean line icons that match your theme's colour. Prefer the classic look? Turn this on to show emoji throughout the app instead.</p>
+                </div>
+
                 <div style="margin-bottom: 20px; border-top: 1px solid var(--border-color); padding-top: 20px;">
                     <label class="toggle-label">
                         <input type="checkbox" id="fullTileImageToggle">
@@ -4196,6 +4232,32 @@
                         <div class="toggle-switch"></div>
                         <span data-i18n="autoStart">Start Sail Launcher on PC Boot</span>
                     </label>
+                </div>
+
+                <div style="margin-bottom: 20px;">
+                    <label class="toggle-label">
+                        <input type="checkbox" id="forceTranslucencyToggle">
+                        <div class="toggle-switch"></div>
+                        <span>Force Translucency (Custom Themes)</span>
+                    </label>
+                    <p style="font-size: 11px; color: rgba(255,255,255,0.5); text-align: left; margin-top: 5px;">
+                        Some custom themes paint a solid custom background that hides the desktop. Turn this on to
+                        re-apply see-through translucency at your Glass Translucency slider level. Only affects custom themes.</p>
+                </div>
+
+                <div style="margin-bottom: 20px;">
+                    <label style="display:block; font-size:13px; margin-bottom:6px;">Force Resizing (Custom Themes)</label>
+                    <select id="forceResizeModeSelect" class="settings-select" style="width:100%; padding: 8px; background: rgba(0,0,0,0.3); border: 1px solid var(--border-color); color: var(--text-color); border-radius: 4px;">
+                        <option value="off">Off (default)</option>
+                        <option value="reflow">Fit cards to grid (stops overlapping)</option>
+                        <option value="stick">Keep layout applied (re-apply on refresh)</option>
+                        <option value="reset">Reset sizes to default</option>
+                    </select>
+                    <p style="font-size: 11px; color: rgba(255,255,255,0.5); text-align: left; margin-top: 5px;">
+                        For custom themes that moved or resized elements in the Canvas UI editor. <b>Fit cards to grid</b>
+                        reflows the game grid to your resized card width so cards don't overlap. <b>Keep layout applied</b>
+                        re-asserts your tweaks after pages re-render. <b>Reset</b> ignores the size/position tweaks and
+                        restores default sizing. Only affects custom themes.</p>
                 </div>
 
                 <div style="margin-bottom: 20px;">
@@ -4276,7 +4338,7 @@
             </div>
 
             <div id="tab-library" class="settings-pane">
-                <h3 style="margin-top: 0;">📚 Library Management</h3>
+                <h3 style="margin-top: 0;"><span class="app-ic" data-ic="book"></span> Library Management</h3>
                 <p style="font-size: 13px; opacity: 0.7; margin-bottom: 20px;">Scan your system for installed games and automatically import them into your Sail library.</p>
                 <div style="display: flex; gap: 10px; flex-direction: column;">
                     <div>
@@ -4559,8 +4621,8 @@
                 <div
                     style="margin-top: 30px; border-top: 1px solid var(--border-color); padding-top: 20px; display:flex; gap:10px;">
                     <button class="outline" style="flex-grow:1;"
-                        onclick="require('electron').ipcRenderer.invoke('open-url', 'https://github.com/Aseoriy/Sail-Launcher')">⛵
-                        Sail Launcher v5.1.0</button>
+                        onclick="require('electron').ipcRenderer.invoke('open-url', 'https://github.com/Aseoriy/Sail-Launcher')"><img src="icon.ico" alt="" style="width:1.1em;height:1.1em;object-fit:contain;vertical-align:-0.2em;margin-right:2px;" onerror="this.style.display='none'">
+                        Sail Launcher v5.1.1</button>
                     <button id="checkUpdateBtn" style="min-width: 150px; transition: 0.3s;"
                         data-i18n="checkUpdates">Check Updates</button>
                 </div>
@@ -4643,16 +4705,6 @@
                         Makes the launcher window background solid so you cannot see through to the desktop, while keeping the glass animations and styled panels.</p>
                 </div>
 
-                <div style="margin-bottom: 20px;">
-                    <label class="toggle-label">
-                        <input type="checkbox" id="forceTranslucencyToggle">
-                        <div class="toggle-switch"></div>
-                        <span>Force Translucency (Custom Themes)</span>
-                    </label>
-                    <p style="font-size: 11px; color: rgba(255,255,255,0.5); text-align: left; margin-top: 5px;">
-                        Some custom themes paint a solid custom background that hides the desktop. Turn this on to
-                        re-apply see-through translucency at your Glass Translucency slider level. Only affects custom themes.</p>
-                </div>
 
                 <div style="margin-bottom: 20px;">
                     <label class="toggle-label">
@@ -4885,12 +4937,12 @@
                 </style>
 
                 <div class="dev-subtabs">
-                    <div class="dev-subtab active" tabindex="0" onclick="switchDevSubTab('alerts')">📢 Alerts</div>
-                    <div class="dev-subtab" tabindex="0" onclick="switchDevSubTab('testing')">🧪 Feature Testing</div>
+                    <div class="dev-subtab active" tabindex="0" onclick="switchDevSubTab('alerts')"><span class="app-ic" data-ic="megaphone"></span> Alerts</div>
+                    <div class="dev-subtab" tabindex="0" onclick="switchDevSubTab('testing')"><span class="app-ic" data-ic="flask"></span> Feature Testing</div>
                 </div>
 
                 <div id="dev-sub-alerts" class="dev-subpane active">
-                <h3 style="margin-top: 0;">📢 Alerts Manager</h3>
+                <h3 style="margin-top: 0;"><span class="app-ic" data-ic="megaphone"></span> Alerts Manager</h3>
                 <p style="font-size: 13px; opacity: 0.7; margin-bottom: 20px;">Publish notifications or hotfix alerts directly to all Sail Launcher users.</p>
 
                 <div style="border: 1px solid var(--border-color); border-radius: 8px; padding: 15px; display: flex; flex-direction: column; gap: 12px; background: rgba(255, 255, 255, 0.02);">
@@ -4941,21 +4993,21 @@
                 </div>
 
                 <div id="dev-sub-testing" class="dev-subpane">
-                    <h3 style="margin-top: 0;">🧪 Feature Testing</h3>
+                    <h3 style="margin-top: 0;"><span class="app-ic" data-ic="flask"></span> Feature Testing</h3>
                     <p style="font-size: 13px; opacity: 0.7; margin-bottom: 16px;">Trigger launcher features on demand to verify they work. <strong style="color:#f59e0b;">These run for real</strong> — windows open, live data is fetched, and the downloader actually downloads a small sample file.</p>
                     <div class="ftest-grid">
                         <div class="ftest-card">
-                            <h4>🚀 Update check</h4>
+                            <h4><span class="app-ic" data-ic="rocket"></span> Update check</h4>
                             <p>Runs the real update check against GitHub and shows the update window if one is available (or "up to date").</p>
-                            <button onclick="checkForUpdates(false)">Run update check</button>
+                            <button onclick="checkForUpdates(false, this)">Run update check</button>
                         </div>
                         <div class="ftest-card">
-                            <h4>🎉 "Update complete" window</h4>
+                            <h4><span class="app-ic" data-ic="party"></span> "Update complete" window</h4>
                             <p>Opens the real post-update window for the current version, including the View Changelog button.</p>
-                            <button onclick="openUpdateCompleteModal(APP_VERSION.replace(/^v/i,''), 'https://github.com/Aseoriy/Sail-Launcher/releases/tag/' + APP_VERSION)">Show window</button>
+                            <button onclick="openUpdateCompleteModal(APP_VERSION.replace(/^v/i,''), 'https://github.com/Aseoriy/Sail-Launcher/releases/tag/' + APP_VERSION.replace(/^v/i,''))">Show window</button>
                         </div>
                         <div class="ftest-card">
-                            <h4>🔔 Alert banner (live)</h4>
+                            <h4><span class="app-ic" data-ic="bell"></span> Alert banner (live)</h4>
                             <p>Re-fetches the live alert from Supabase and renders the in-app banner exactly as users see it.</p>
                             <button onclick="checkRemoteAlerts()">Re-check alerts</button>
                         </div>
@@ -4965,12 +5017,12 @@
                             <button onclick="openSupportersModal()">Open supporters</button>
                         </div>
                         <div class="ftest-card">
-                            <h4>🧩 Plugin update check</h4>
+                            <h4><span class="app-ic" data-ic="puzzle"></span> Plugin update check</h4>
                             <p>Runs the real plugin update check and refreshes the sidebar Plugins update badge.</p>
                             <button onclick="checkPluginUpdates()">Check plugins</button>
                         </div>
                         <div class="ftest-card">
-                            <h4>⬇️ Downloader (real sample)</h4>
+                            <h4><span class="app-ic" data-ic="download"></span> Downloader (real sample)</h4>
                             <p>Starts a genuine download job through the full pipeline using a small real .zip, so the dock, progress and extraction all run for real.</p>
                             <button onclick="runDownloaderTest()">Run download test</button>
                         </div>
@@ -5040,13 +5092,13 @@
     <div id="pluginManagerModal" class="modal">
         <div class="modal-content" style="width: 600px; max-height: 85vh; display: flex; flex-direction: column;">
             <button class="close-x" onclick="closeModal('pluginManagerModal')">✕</button>
-            <h2 style="margin-top:0; border-bottom: 1px solid var(--border-color); padding-bottom: 10px;">🧩 Plugin
+            <h2 style="margin-top:0; border-bottom: 1px solid var(--border-color); padding-bottom: 10px;"><span class="app-ic" data-ic="puzzle"></span> Plugin
                 Manager</h2>
             <div style="display: flex; gap: 8px; margin-bottom: 15px; flex-wrap: wrap;">
-                <button class="outline" onclick="importPlugin()" style="flex-grow:1;">📥 Import Plugin</button>
-                <button class="outline" onclick="exportPluginPack()" style="flex-grow:1;">📦 Export as Pack</button>
-                <button class="outline" onclick="importPluginPack()" style="flex-grow:1;">📨 Import Pack</button>
-                <button class="outline" onclick="openPluginFolder()" style="flex-grow:1;">📁 Open Folder</button>
+                <button class="outline" onclick="importPlugin()" style="flex-grow:1;"><span class="app-ic" data-ic="download"></span> Import Plugin</button>
+                <button class="outline" onclick="exportPluginPack()" style="flex-grow:1;"><span class="app-ic" data-ic="package"></span> Export as Pack</button>
+                <button class="outline" onclick="importPluginPack()" style="flex-grow:1;"><span class="app-ic" data-ic="inbox"></span> Import Pack</button>
+                <button class="outline" onclick="openPluginFolder()" style="flex-grow:1;"><span class="app-ic" data-ic="folder"></span> Open Folder</button>
                 <button class="outline" id="updatePluginsBtn" onclick="updateAllPlugins()"
                     style="flex-grow:1; border-color: var(--accent); color: var(--accent);">🔄 Update All</button>
                 <button class="outline" id="restartLauncherBtn"
@@ -5085,7 +5137,8 @@
             const btn = document.getElementById('muteBtn');
             if (!btn) return;
             const muted = !!globalSettings.muteSounds;
-            btn.textContent = muted ? '🔇' : '🔊';
+            btn.innerHTML = window.ic(muted ? 'mute' : 'volume');
+            if (typeof paintIcons === 'function') paintIcons(btn);
             btn.title = muted ? 'Installer music muted — click to unmute' : 'Mute installer music';
             try { require('electron').ipcRenderer.send('toggle-installer-mute', muted); } catch (e) {}
         };
@@ -5095,7 +5148,205 @@
             window.syncMuteBtn();
         });
 
-        const APP_VERSION = "v5.1.0";
+        // ========================= Themed icon system =========================
+        // Lucide-style SVG line-icons drawn with `currentColor` so they inherit the active
+        // theme/accent automatically. Emoji call-sites become <span class="app-ic" data-ic="NAME">,
+        // which paintIcons() fills with either the SVG (default) or the original emoji when the
+        // user opts into emoji mode (globalSettings.iconStyle === 'emoji'). Icons are added to the
+        // registry batch-by-batch as more of the UI is converted.
+        const ICONS = {
+            'chevron-left':  '<path d="M15 18l-6-6 6-6"/>',
+            'chevron-right': '<path d="M9 18l6-6-6-6"/>',
+            'menu':          '<path d="M3 6h18M3 12h18M3 18h18"/>',
+            'volume':        '<path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M19 5a9 9 0 0 1 0 14"/>',
+            'mute':          '<path d="M11 5 6 9H2v6h4l5 4z"/><path d="M22 9l-6 6"/><path d="M16 9l6 6"/>',
+            'minimize':      '<path d="M5 12h14"/>',
+            'maximize':      '<rect x="4" y="4" width="16" height="16" rx="1.5"/>',
+            'close':         '<path d="M18 6 6 18"/><path d="M6 6l12 12"/>',
+            'sync':          '<path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M8 16H3v5"/>',
+            'arrow-left':    '<path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/>',
+            'palette':       '<circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"/>',
+            'settings':      '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
+            'wrench':        '<path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/>',
+            'sparkles':      '<path d="M9.94 14.06A2 2 0 0 0 8.5 12.62l-5.6-1.44a.5.5 0 0 1 0-.96l5.6-1.44A2 2 0 0 0 9.94 7.34l1.44-5.6a.5.5 0 0 1 .96 0l1.44 5.6a2 2 0 0 0 1.44 1.44l5.6 1.44a.5.5 0 0 1 0 .96l-5.6 1.44a2 2 0 0 0-1.44 1.44l-1.44 5.6a.5.5 0 0 1-.96 0z"/><path d="M20 3v4"/><path d="M22 5h-4"/><path d="M4 17v2"/><path d="M5 18H3"/>',
+            'chat':          '<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22z"/>',
+            'save':          '<path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/>',
+            'cloud':         '<path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9z"/>',
+            'book':          '<path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/>',
+            'flask':         '<path d="M14 2v6a2 2 0 0 0 .24.96l5.51 10.08A2 2 0 0 1 18 22H6a2 2 0 0 1-1.75-2.96l5.51-10.08A2 2 0 0 0 10 8V2"/><path d="M6.45 15h11.1"/><path d="M8.5 2h7"/>',
+            'code':          '<path d="M16 18l6-6-6-6"/><path d="M8 6l-6 6 6 6"/>',
+            'upload':        '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M17 8l-5-5-5 5"/><path d="M12 3v12"/>',
+            'download':      '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/>',
+            'globe':         '<circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/>',
+            'megaphone':     '<path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/>',
+            'tv':            '<rect width="20" height="15" x="2" y="7" rx="2"/><path d="m17 2-5 5-5-5"/>',
+            'stats':         '<path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/>',
+            'monitor':       '<rect width="20" height="14" x="2" y="3" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/>',
+            'target':        '<circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>',
+            'stop':          '<circle cx="12" cy="12" r="10"/><rect x="9" y="9" width="6" height="6" rx="1"/>',
+            'trash':         '<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6"/><path d="M14 11v6"/>',
+            'gamepad':       '<line x1="6" x2="10" y1="12" y2="12"/><line x1="8" x2="8" y1="10" y2="14"/><line x1="15" x2="15.01" y1="13" y2="13"/><line x1="18" x2="18.01" y1="11" y2="11"/><rect width="20" height="12" x="2" y="6" rx="6"/>',
+            'bomb':          '<circle cx="11" cy="13" r="9"/><path d="M14.35 4.65 16.3 2.7a2.41 2.41 0 0 1 3.4 0l1.6 1.6a2.4 2.4 0 0 1 0 3.4l-1.95 1.95"/><path d="m22 2-1.5 1.5"/>',
+            'sailboat':      '<path d="M22 18H2a4 4 0 0 0 4 4h12a4 4 0 0 0 4-4Z"/><path d="M21 14 10 2 3 14h18Z"/><path d="M10 2v16"/>',
+            'puzzle':        '<path d="M19.5 12.5c.28 0 .5-.22.5-.5v-3a2 2 0 0 0-2-2h-3a.5.5 0 0 1-.5-.5 2.5 2.5 0 0 0-5 0 .5.5 0 0 1-.5.5H6a2 2 0 0 0-2 2v3c0 .28.22.5.5.5a2.5 2.5 0 0 1 0 5c-.28 0-.5.22-.5.5v3a2 2 0 0 0 2 2h3c.28 0 .5-.22.5-.5a2.5 2.5 0 0 1 5 0c0 .28.22.5.5.5h3a2 2 0 0 0 2-2v-3c0-.28-.22-.5-.5-.5a2.5 2.5 0 0 1 0-5Z"/>',
+            'pencil':        '<path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5z"/><path d="m15 5 4 4"/>',
+            'rocket':        '<path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 0 0-2.91-.09z"/><path d="m12 15-3-3a22 22 0 0 1 2-3.95A12.88 12.88 0 0 1 22 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 0 1-4 2z"/><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"/><path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/>',
+            'party':         '<path d="M5.8 11.3 2 22l10.7-3.79"/><path d="M4 3h.01"/><path d="M22 8h.01"/><path d="M15 2h.01"/><path d="M22 20h.01"/><path d="m22 2-2.24.75a2.9 2.9 0 0 0-1.96 3.12c.1.86-.57 1.63-1.45 1.63h-.38c-.86 0-1.6.6-1.76 1.44L14 12"/><path d="m22 13-.82-.33c-.86-.34-1.82.2-1.98 1.11c-.11.7-.72 1.22-1.43 1.22H17"/><path d="m11 2 .33.82c.34.86-.2 1.82-1.11 1.98C9.52 4.9 9 5.52 9 6.23V7"/><path d="M11 13c1.93 1.93 2.83 4.17 2 5-.83.83-3.07-.07-5-2-1.93-1.93-2.83-4.17-2-5 .83-.83 3.07.07 5 2Z"/>',
+            'bell':          '<path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/>',
+            'star':          '<path d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z"/>',
+            'clock':         '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
+            'folder':        '<path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/>',
+            'dice':          '<rect width="18" height="18" x="3" y="3" rx="2"/><path d="M8 8h.01"/><path d="M16 16h.01"/><path d="M12 12h.01"/><path d="M8 16h.01"/><path d="M16 8h.01"/>',
+            'package':       '<path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z"/><path d="M12 22V12"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="m7.5 4.27 9 5.15"/>',
+            'inbox':         '<polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>',
+            'search':        '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+            'warning':       '<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+            'x-circle':      '<circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/>',
+            'check-circle':  '<path d="M21.8 10A10 10 0 1 1 17 3.3"/><path d="m9 11 3 3L22 4"/>',
+            'folder-open':   '<path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/>',
+            'cart':          '<circle cx="8" cy="21" r="1"/><circle cx="19" cy="21" r="1"/><path d="M2.05 2.05h2l2.66 12.42a2 2 0 0 0 2 1.58h9.78a2 2 0 0 0 1.95-1.57l1.65-7.43H5.12"/>',
+            'flag':          '<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" x2="4" y1="22" y2="15"/>',
+            'skull':         '<circle cx="9" cy="12" r="1"/><circle cx="15" cy="12" r="1"/><path d="M8 20v2h8v-2"/><path d="M16 20a2 2 0 0 0 1.56-3.25 8 8 0 1 0-11.12 0A2 2 0 0 0 8 20"/>',
+            'swords':        '<polyline points="14.5 17.5 3 6 3 3 6 3 17.5 14.5"/><line x1="13" x2="19" y1="19" y2="13"/><line x1="16" x2="20" y1="16" y2="20"/><line x1="19" x2="21" y1="21" y2="19"/><polyline points="14.5 6.5 18 3 21 3 21 6 17.5 9.5"/><line x1="5" x2="9" y1="14" y2="18"/><line x1="7" x2="4" y1="17" y2="20"/><line x1="3" x2="5" y1="19" y2="21"/>',
+            'gun':           '<path d="M6 12h12"/><path d="M3 9h18v3a2 2 0 0 1-2 2h-1l-3 5h-3l1-5H5a2 2 0 0 1-2-2z"/>',
+            'car':           '<path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9L18.7 8c-.3-.7-1-1.2-1.8-1.2H7.1c-.8 0-1.5.5-1.8 1.2L4 11.1C3.2 11.3 2.5 12.1 2.5 13v3c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/>',
+            'soccer':        '<circle cx="12" cy="12" r="10"/><path d="m12 7 3 2.2-1.2 3.6h-3.6L9 9.2z"/>',
+            'earth':         '<circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15 15 0 0 1 0 20 15 15 0 0 1 0-20"/>',
+            'joystick':      '<path d="M21 17a2 2 0 0 0-2-2h-1.9a1 1 0 0 1-.99-1.1 5 5 0 1 0-9.22 0A1 1 0 0 1 5.9 15H4a2 2 0 0 0-2 2c0 2 2 4 4 4h12c2 0 4-2 4-4Z"/><path d="M12 15V9"/><circle cx="12" cy="6" r="3"/>',
+            'lock':          '<rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+            'unlock':        '<rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/>',
+            'key':           '<path d="m15.5 7.5 2.3 2.3a1 1 0 0 0 1.4 0l2.1-2.1a1 1 0 0 0 0-1.4L19 4"/><path d="m21 2-9.6 9.6"/><circle cx="7.5" cy="15.5" r="5.5"/>',
+            'bell-off':      '<path d="M8.7 3A6 6 0 0 1 18 8c0 2.1.4 3.6.9 4.7"/><path d="M17 17H4a1 1 0 0 1-.74-1.67C4.6 13.96 6 12.5 6 8a6 6 0 0 1 .27-1.77"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/><path d="m2 2 20 20"/>',
+            'sliders':       '<line x1="4" x2="4" y1="21" y2="14"/><line x1="4" x2="4" y1="10" y2="3"/><line x1="12" x2="12" y1="21" y2="12"/><line x1="12" x2="12" y1="8" y2="3"/><line x1="20" x2="20" y1="21" y2="16"/><line x1="20" x2="20" y1="12" y2="3"/><line x1="2" x2="6" y1="14" y2="14"/><line x1="10" x2="14" y1="8" y2="8"/><line x1="18" x2="22" y1="16" y2="16"/>',
+            'clipboard':     '<rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>',
+            'link':          '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+            'arrow-down':    '<path d="M12 5v14"/><path d="m19 12-7 7-7-7"/>',
+            'siren':         '<path d="M7 18v-6a5 5 0 1 1 10 0v6"/><path d="M5 21a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1"/><path d="M21 12h1"/><path d="M18.5 4.5 18 5"/><path d="M2 12h1"/><path d="M12 2v1"/><path d="m4.9 4.9.7.7"/><path d="M12 12v6"/>',
+            'book-open':     '<path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/>'
+        };
+        // Emoji shown for each icon when the user prefers emoji mode (also the accessible label).
+        const ICON_EMOJI = {
+            'chevron-left': '❮', 'chevron-right': '❯', 'menu': '☰', 'volume': '🔊', 'mute': '🔇',
+            'minimize': '─', 'maximize': '□', 'close': '✕', 'sync': '🔄', 'arrow-left': '🔙',
+            'palette': '🎨', 'settings': '⚙️', 'wrench': '🛠️', 'sparkles': '✨', 'chat': '💬',
+            'save': '💾', 'cloud': '☁️', 'book': '📚', 'flask': '🧪', 'code': '🧑‍💻',
+            'upload': '📤', 'download': '📥', 'globe': '🌐', 'megaphone': '📢',
+            'tv': '📺', 'stats': '📊', 'monitor': '💻', 'target': '🎯', 'stop': '🛑', 'trash': '🗑️',
+            'gamepad': '🎮', 'bomb': '🧨', 'sailboat': '⛵', 'puzzle': '🧩', 'pencil': '✏️',
+            'rocket': '🚀', 'party': '🎉', 'bell': '🔔', 'star': '⭐', 'clock': '🕒', 'folder': '📁',
+            'dice': '🎲', 'package': '📦', 'inbox': '📨',
+            'search': '🔍', 'warning': '⚠️', 'x-circle': '❌', 'check-circle': '✅', 'folder-open': '📂',
+            'cart': '🛒', 'flag': '🏴', 'skull': '💀', 'swords': '⚔️', 'gun': '🔫', 'car': '🏎️',
+            'soccer': '⚽', 'earth': '🌍', 'joystick': '🕹️', 'lock': '🔒', 'unlock': '🔓', 'key': '🔑',
+            'bell-off': '🔕', 'sliders': '🎛️', 'clipboard': '📋', 'link': '🔗', 'arrow-down': '⬇️',
+            'siren': '🚨', 'book-open': '📖'
+        };
+        function _iconSvg(name) {
+            const p = ICONS[name];
+            if (!p) return ICON_EMOJI[name] || '';
+            return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${p}</svg>`;
+        }
+        function _iconMode() {
+            // try/catch guards against globalSettings' temporal dead zone: this can be reached
+            // before the `let globalSettings` declaration executes, and even `typeof` throws then.
+            try { return (globalSettings && globalSettings.iconStyle === 'emoji') ? 'emoji' : 'icons'; }
+            catch (e) { return 'icons'; }
+        }
+        // Build a themed-icon span (usable inside any HTML/template string).
+        window.ic = function (name) { return `<span class="app-ic" data-ic="${name}" role="img"></span>`; };
+        // Fill every unpainted .app-ic in `root` for the current mode. Idempotent via data-mode.
+        function paintIcons(root) {
+            const scope = root && root.querySelectorAll ? root : document;
+            const mode = _iconMode();
+            scope.querySelectorAll('.app-ic').forEach(el => {
+                if (el.getAttribute('data-mode') === mode) return;
+                const name = el.getAttribute('data-ic');
+                if (!name) return;
+                el.innerHTML = mode === 'icons' ? _iconSvg(name) : (ICON_EMOJI[name] || '');
+                // aria-label is the icon NAME, never the emoji — keeping emoji out of attributes so
+                // the iconize pass (which only touches text) can never re-scan it.
+                el.setAttribute('aria-label', name);
+                el.setAttribute('data-mode', mode);
+            });
+        }
+        window.paintIcons = paintIcons;
+        // Force a full re-render (used when the icon/emoji setting flips).
+        function repaintAllIcons() {
+            document.querySelectorAll('.app-ic').forEach(el => el.removeAttribute('data-mode'));
+            paintIcons(document);
+        }
+        window.repaintAllIcons = repaintAllIcons;
+
+        // Reverse lookup (emoji -> icon name) for auto-converting emojis that are baked into
+        // translated UI labels (the i18n dictionary embeds them, e.g. "🎨 Appearance"). Skip
+        // ambiguous single-glyph symbols that could legitimately appear in real text.
+        const _ICONIZE_SKIP = new Set(['─', '□', '✕', '❮', '❯', '☰']);
+        const EMOJI_TO_ICON = {};
+        Object.keys(ICON_EMOJI).forEach(name => {
+            const emo = ICON_EMOJI[name];
+            if (emo && !_ICONIZE_SKIP.has(emo) && !(emo in EMOJI_TO_ICON)) EMOJI_TO_ICON[emo] = name;
+        });
+        // Replace any registered emoji inside a chrome label with a themed icon span (icon mode
+        // only). Applied to translated [data-i18n] elements so their dictionary emojis become icons
+        // in every language without editing the dictionary. Safe: only runs on developer-defined
+        // UI labels, never on user content.
+        function iconizeElement(el) {
+            if (!el || _iconMode() !== 'icons') return;
+            // Walk TEXT NODES only (never innerHTML) so we can't corrupt attributes or re-scan an
+            // already-created icon span. Text inside an existing .app-ic is skipped.
+            const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
+            const targets = [];
+            let node;
+            while ((node = walker.nextNode())) {
+                if (node.parentNode && node.parentNode.closest && node.parentNode.closest('.app-ic')) continue;
+                for (const emo in EMOJI_TO_ICON) { if (node.nodeValue.indexOf(emo) !== -1) { targets.push(node); break; } }
+            }
+            if (!targets.length) return;
+            targets.forEach(textNode => {
+                const frag = document.createDocumentFragment();
+                let text = textNode.nodeValue;
+                while (text.length) {
+                    let best = -1, bestEmo = null;
+                    for (const emo in EMOJI_TO_ICON) {
+                        const idx = text.indexOf(emo);
+                        if (idx !== -1 && (best === -1 || idx < best)) { best = idx; bestEmo = emo; }
+                    }
+                    if (best === -1) { frag.appendChild(document.createTextNode(text)); break; }
+                    if (best > 0) frag.appendChild(document.createTextNode(text.slice(0, best)));
+                    const span = document.createElement('span');
+                    span.className = 'app-ic'; span.setAttribute('data-ic', EMOJI_TO_ICON[bestEmo]); span.setAttribute('role', 'img');
+                    frag.appendChild(span);
+                    text = text.slice(best + bestEmo.length);
+                }
+                textNode.parentNode.replaceChild(frag, textNode);
+            });
+            paintIcons(el);
+        }
+        window.iconizeElement = iconizeElement;
+        // Given a raw stored emoji (e.g. a custom folder's chosen icon), return a themed icon span
+        // if that emoji maps to a registered icon, otherwise the emoji itself unchanged.
+        window.iconOrEmoji = function (emo) { const n = EMOJI_TO_ICON[emo]; return n ? window.ic(n) : (emo || ''); };
+        // Paint on load, then keep painting nodes that dynamic views inject. The observer is
+        // paused around our own writes so paintIcons' innerHTML edits don't re-trigger it.
+        let _iconObserver = null, _iconRaf = null;
+        function initIconSystem() {
+            paintIcons(document);
+            if (_iconObserver) return;
+            _iconObserver = new MutationObserver(() => {
+                if (_iconRaf) return;
+                _iconRaf = requestAnimationFrame(() => {
+                    _iconRaf = null;
+                    _iconObserver.disconnect();
+                    paintIcons(document);
+                    _iconObserver.observe(document.body, { childList: true, subtree: true });
+                });
+            });
+            _iconObserver.observe(document.body, { childList: true, subtree: true });
+        }
+        if (document.readyState !== 'loading') initIconSystem();
+        else document.addEventListener('DOMContentLoaded', initIconSystem);
+
+        const APP_VERSION = "v5.1.1";
         let currentTabName = 'library';
         let skipStaggerAnimation = false;
 
@@ -5160,6 +5411,8 @@
             betaUpdates: false,
             disableTranslucency: false,
             forceTranslucency: false,
+            forceResizeMode: 'off',
+            iconStyle: 'icons',
             autoSettingsSync: true,
             enableSourcesPage: false,
             sources: [
@@ -5204,7 +5457,11 @@
             document.querySelectorAll('[data-i18n]').forEach(el => {
                 const key = el.getAttribute('data-i18n');
                 if (d[key]) el.innerText = d[key];
+                iconizeElement(el);
             });
+            // Whole-container iconize for chrome-only regions (no user content), so every registered
+            // emoji in these becomes an icon without hand-editing each call-site.
+            ['settingsModal', 'pluginManagerModal', 'themeModal'].forEach(id => { const el = document.getElementById(id); if (el) iconizeElement(el); });
             document.querySelectorAll('[data-i18n-ph]').forEach(el => {
                 const key = el.getAttribute('data-i18n-ph');
                 if (d[key]) el.placeholder = d[key];
@@ -5678,8 +5935,12 @@
             }
         }
 
-        async function checkForUpdates(silent = false) {
-            const btn = document.getElementById('checkUpdateBtn');
+        async function checkForUpdates(silent = false, triggerBtn = null) {
+            // Feedback goes to whichever button triggered the check — the settings
+            // "Check Updates" button by default, or the Feature Testing card button
+            // when run from there (so a manual run always shows a visible result).
+            const btn = triggerBtn || document.getElementById('checkUpdateBtn');
+            const btnLabel = btn ? btn.innerText : 'Check Updates';
             if (!silent && btn) {
                 btn.disabled = true;
                 btn.innerText = '⏳ Checking...';
@@ -5758,20 +6019,20 @@
                     } else {
                         if (!silent && btn) {
                             btn.innerText = '✅ Up to Date!';
-                            setTimeout(() => { btn.innerText = 'Check Updates'; btn.disabled = false; btn.style.background = ''; btn.style.color = ''; }, 3000);
+                            setTimeout(() => { btn.innerText = btnLabel; btn.disabled = false; btn.style.background = ''; btn.style.color = ''; }, 3000);
                         }
                     }
                 } else {
                     if (!silent && btn) {
                         btn.innerText = '✅ Up to Date!';
-                        setTimeout(() => { btn.innerText = 'Check Updates'; btn.disabled = false; btn.style.background = ''; btn.style.color = ''; }, 3000);
+                        setTimeout(() => { btn.innerText = btnLabel; btn.disabled = false; btn.style.background = ''; btn.style.color = ''; }, 3000);
                     }
                 }
             } catch (err) {
                 console.error('Update check failed:', err);
                 if (!silent && btn) {
                     btn.innerText = '❌ Check Failed';
-                    setTimeout(() => { btn.innerText = 'Check Updates'; btn.disabled = false; }, 3000);
+                    setTimeout(() => { btn.innerText = btnLabel; btn.disabled = false; }, 3000);
                 }
             }
             if (!silent && btn) {
@@ -5950,7 +6211,7 @@
             if (!pv) return;
             const cur = APP_VERSION.replace(/^v/i, '');
             if (pv.replace(/^v/i, '') === cur) {
-                openUpdateCompleteModal(cur, `https://github.com/Aseoriy/Sail-Launcher/releases/tag/v${cur}`);
+                openUpdateCompleteModal(cur, `https://github.com/Aseoriy/Sail-Launcher/releases/tag/${cur}`);
             }
             // Clear the flag and remove the downloaded installer folder either way.
             globalSettings.pendingUpdateVersion = null;
@@ -6035,6 +6296,7 @@
                         <span class="sup-count">${countLabel}</span>
                     </div>
                     ${tier.tagline ? `<p class="sup-tagline">${esc(tier.tagline)}</p>` : ''}
+                    ${(tier.benefits && tier.benefits.length) ? `<ul class="sup-benefits">${tier.benefits.map(b => `<li>${esc(b)}</li>`).join('')}</ul>` : ''}
                     ${membersHtml}
                 </div>`;
             }).join('');
@@ -6338,6 +6600,12 @@
             document.body.classList.toggle('disable-translucency', !!globalSettings.disableTranslucency);
             { const t = document.getElementById('forceTranslucencyToggle'); if (t) t.checked = !!globalSettings.forceTranslucency; }
             document.body.classList.toggle('force-translucency', !!globalSettings.forceTranslucency);
+            // Migrate the old boolean forceResizing → the forceResizeMode selector.
+            if (globalSettings.forceResizing === true && (!globalSettings.forceResizeMode || globalSettings.forceResizeMode === 'off')) globalSettings.forceResizeMode = 'stick';
+            { const t = document.getElementById('forceResizeModeSelect'); if (t) t.value = globalSettings.forceResizeMode || 'off'; }
+            if (typeof applyUiCustom === 'function') applyUiCustom();
+            { const t = document.getElementById('emojiIconsToggle'); if (t) t.checked = (globalSettings.iconStyle === 'emoji'); }
+            if (typeof repaintAllIcons === 'function') repaintAllIcons();
             document.getElementById('betaUpdatesToggle').checked = !!globalSettings.betaUpdates;
             updateMuteStatusRow();
 
@@ -6899,6 +7167,10 @@
             </div>`;
             }).join('');
 
+            // This list is built dynamically (after the settings-modal iconize pass runs), so the
+            // emojis baked into BUTTON_LABELS never got converted. Iconize it right after rendering.
+            if (typeof iconizeElement === 'function') iconizeElement(container);
+
             container.querySelectorAll('select[data-btnloc-id]').forEach(sel => {
                 sel.addEventListener('change', (e) => {
                     if (!globalSettings.buttonLocations) globalSettings.buttonLocations = {};
@@ -7274,11 +7546,18 @@
             document.removeEventListener('mousedown', anchoredSelectOutside, true);
             document.removeEventListener('keydown', anchoredSelectKey, true);
             window.removeEventListener('resize', closeAnchoredSelect, true);
-            window.removeEventListener('scroll', closeAnchoredSelect, true);
+            window.removeEventListener('scroll', anchoredSelectScroll, true);
         }
         function anchoredSelectOutside(e) {
             const dd = document.getElementById('anchoredSelect');
             if (dd && !dd.contains(e.target) && e.target !== currentDropdownTarget) closeAnchoredSelect();
+        }
+        // Only PAGE scroll should dismiss the dropdown. Scrolling inside it (it can overflow when
+        // there are many options, e.g. the folder-icon list) must keep it open.
+        function anchoredSelectScroll(e) {
+            const dd = document.getElementById('anchoredSelect');
+            if (dd && e.target && (dd === e.target || (dd.contains && dd.contains(e.target)))) return;
+            closeAnchoredSelect();
         }
         function anchoredSelectKey(e) {
             if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); closeAnchoredSelect(); if (currentDropdownTarget) currentDropdownTarget.focus(); }
@@ -7304,7 +7583,11 @@
                         } else if (child.tagName === 'OPTION') {
                             const btn = document.createElement('button');
                             btn.className = 'as-opt' + (child.selected ? ' selected' : '');
-                            btn.textContent = child.text || '';
+                            // Show a themed icon for options that are a single registered emoji
+                            // (e.g. the folder-icon picker); otherwise plain text.
+                            const _t = (child.text || '').trim();
+                            const _n = (typeof EMOJI_TO_ICON !== 'undefined') ? EMOJI_TO_ICON[_t] : null;
+                            if (_n) { btn.innerHTML = window.ic(_n); } else { btn.textContent = child.text || ''; }
                             btn.onclick = (ev) => {
                                 ev.stopPropagation();
                                 selectEl.value = child.value;
@@ -7318,6 +7601,7 @@
                 };
                 addOptions(selectEl);
                 document.body.appendChild(dd);
+                if (typeof paintIcons === 'function') paintIcons(dd);
                 // Anchor under the control, flipping above it when there isn't room below.
                 const r = selectEl.getBoundingClientRect();
                 dd.style.minWidth = r.width + 'px';
@@ -7335,7 +7619,7 @@
                     document.addEventListener('mousedown', anchoredSelectOutside, true);
                     document.addEventListener('keydown', anchoredSelectKey, true);
                     window.addEventListener('resize', closeAnchoredSelect, true);
-                    window.addEventListener('scroll', closeAnchoredSelect, true);
+                    window.addEventListener('scroll', anchoredSelectScroll, true);
                 }, 0);
             } catch (err) {
                 console.error("Error opening select dropdown:", err);
@@ -8484,6 +8768,13 @@
             }
             if (tab === 'downloadsmgr') {
                 if (window.renderDownloadsPage) window.renderDownloadsPage();
+            }
+
+            // Convert registered emojis in the shown page's chrome to themed icons. Skipped for the
+            // library (its cards are user content / already handled) and after a frame so any
+            // just-rendered content is included.
+            if (targetView && targetView.id !== 'libraryView' && typeof iconizeElement === 'function') {
+                requestAnimationFrame(() => iconizeElement(targetView));
             }
 
             // Lazy-load the store iframe only when active to save CPU
@@ -9789,7 +10080,7 @@
             document.getElementById('coreSectionsList').innerHTML = `
             <div tabindex="0">
                 <div tabindex="0" class="section-item ${currentFilterSectionId === 'ALL' ? 'active' : ''} ${expandedSidebarFolders['ALL'] ? 'expanded' : ''}" onclick="filterBySection('ALL')" ondragover="dragOverFolder(event, this)" ondragleave="dragLeaveFolder(event, this)" ondrop="dropToFolder(event, 'ALL', this)">
-                    <span class="folder-icon">🎮</span> <span class="folder-name" style="flex-grow:1">${d.allGames || "All Games"}</span> <span class="folder-caret" onclick="toggleFolderExpansion(event, 'ALL')">▶</span>
+                    <span class="folder-icon">${ic('gamepad')}</span> <span class="folder-name" style="flex-grow:1">${d.allGames || "All Games"}</span> <span class="folder-caret" onclick="toggleFolderExpansion(event, 'ALL')">▶</span>
                 </div>
                 <div class="sidebar-folder-content ${expandedSidebarFolders['ALL'] ? 'expanded' : ''}">
                     ${getFolderGamesHtml('ALL')}
@@ -9798,7 +10089,7 @@
             ${globalSettings.showFavoritesFolder !== false ? `
             <div tabindex="0">
                 <div tabindex="0" class="section-item ${currentFilterSectionId === 'FAVORITES' ? 'active' : ''} ${expandedSidebarFolders['FAVORITES'] ? 'expanded' : ''}" onclick="filterBySection('FAVORITES')" ondragover="dragOverFolder(event, this)" ondragleave="dragLeaveFolder(event, this)" ondrop="dropToFolder(event, 'FAVORITES', this)">
-                    <span class="folder-icon">⭐</span> <span class="folder-name" style="flex-grow:1">${d.favs || "Favorites"}</span> <span class="folder-caret" onclick="toggleFolderExpansion(event, 'FAVORITES')">▶</span>
+                    <span class="folder-icon">${ic('star')}</span> <span class="folder-name" style="flex-grow:1">${d.favs || "Favorites"}</span> <span class="folder-caret" onclick="toggleFolderExpansion(event, 'FAVORITES')">▶</span>
                 </div>
                 <div class="sidebar-folder-content ${expandedSidebarFolders['FAVORITES'] ? 'expanded' : ''}">
                     ${getFolderGamesHtml('FAVORITES')}
@@ -9809,7 +10100,7 @@
             ${globalSettings.showDynamicFolders !== false ? `
             <div tabindex="0">
                 <div tabindex="0" class="section-item ${currentFilterSectionId === 'RECENT' ? 'active' : ''} ${expandedSidebarFolders['RECENT'] ? 'expanded' : ''}" onclick="filterBySection('RECENT')" ondragover="dragOverFolder(event, this)" ondragleave="dragLeaveFolder(event, this)" ondrop="dropToFolder(event, 'RECENT', this)">
-                    <span class="folder-icon">🕒</span> <span class="folder-name" style="flex-grow:1">${d.recentlyPlayed || "Recently Played"}</span> <span class="folder-caret" onclick="toggleFolderExpansion(event, 'RECENT')">▶</span>
+                    <span class="folder-icon">${ic('clock')}</span> <span class="folder-name" style="flex-grow:1">${d.recentlyPlayed || "Recently Played"}</span> <span class="folder-caret" onclick="toggleFolderExpansion(event, 'RECENT')">▶</span>
                 </div>
                 <div class="sidebar-folder-content ${expandedSidebarFolders['RECENT'] ? 'expanded' : ''}">
                     ${getFolderGamesHtml('RECENT')}
@@ -9817,7 +10108,7 @@
             </div>
             <div tabindex="0">
                 <div tabindex="0" class="section-item ${currentFilterSectionId === 'UNPLAYED' ? 'active' : ''} ${expandedSidebarFolders['UNPLAYED'] ? 'expanded' : ''}" onclick="filterBySection('UNPLAYED')" ondragover="dragOverFolder(event, this)" ondragleave="dragLeaveFolder(event, this)" ondrop="dropToFolder(event, 'UNPLAYED', this)">
-                    <span class="folder-icon">✨</span> <span class="folder-name" style="flex-grow:1">${d.unplayed || "Never Played"}</span> <span class="folder-caret" onclick="toggleFolderExpansion(event, 'UNPLAYED')">▶</span>
+                    <span class="folder-icon">${ic('sparkles')}</span> <span class="folder-name" style="flex-grow:1">${d.unplayed || "Never Played"}</span> <span class="folder-caret" onclick="toggleFolderExpansion(event, 'UNPLAYED')">▶</span>
                 </div>
                 <div class="sidebar-folder-content ${expandedSidebarFolders['UNPLAYED'] ? 'expanded' : ''}">
                     ${getFolderGamesHtml('UNPLAYED')}
@@ -9837,7 +10128,7 @@
                 item.setAttribute('ondrop', `dropToFolder(event, '${section.name}', this)`);
                 item.onclick = () => filterBySection(section.name);
 
-                const iconHtml = section.customIcon ? `<img src="file://${section.customIcon.replace(/\\/g, '/')}" class="folder-custom-icon">` : `<span class="folder-icon">${section.icon || '📁'}</span>`;
+                const iconHtml = section.customIcon ? `<img src="file://${section.customIcon.replace(/\\/g, '/')}" class="folder-custom-icon">` : `<span class="folder-icon">${section.icon ? iconOrEmoji(section.icon) : ic('folder')}</span>`;
 
                 item.innerHTML = `${iconHtml} <span class="folder-name" style="flex-grow:1">${section.name}</span>
               <div class="folder-actions"><button class="action-btn edit" onclick="editSection('${section.name}', event)">✏️</button><button class="action-btn del" onclick="deleteSection('${section.name}', event)">✕</button></div>
@@ -10142,12 +10433,21 @@
 
         // ---- Per-element override application -----------------------------
         const UIE_ANIM = { pulse: 'uie-pulse 2.4s ease-in-out infinite', float: 'uie-float 3s ease-in-out infinite', glow: 'uie-glow 2.2s ease-in-out infinite', spin: 'uie-spin 6s linear infinite', gradshift: 'uie-gradshift 6s ease infinite', shimmer: 'uie-shimmer 2s ease-in-out infinite' };
-        function uieBuildRule(o) {
+        function uieBuildRule(o, skipGeom) {
             const p = [];
             const tx = o.x || 0, ty = o.y || 0, rot = o.rot || 0;
-            if (tx || ty || rot) p.push('transform: translate(' + tx + 'px,' + ty + 'px)' + (rot ? ' rotate(' + rot + 'deg)' : '') + ' !important');
-            if (o.w != null) p.push('width: ' + o.w + 'px !important', 'min-width: ' + o.w + 'px !important', 'max-width: none !important', 'flex: 0 0 auto !important');
-            if (o.h != null) p.push('height: ' + o.h + 'px !important', 'min-height: 0 !important');
+            // Position (translate/rotate) always applies. Use the INDEPENDENT `translate`/`rotate`
+            // properties instead of `transform: translate()` so an element's hover/keyframe animations
+            // (which use transform: scale/translateY) keep working after it's moved in the UI editor —
+            // previously the `transform !important` killed them.
+            if (tx || ty) p.push('translate: ' + tx + 'px ' + ty + 'px !important');
+            if (rot) p.push('rotate: ' + rot + 'deg !important');
+            // skipGeom = Force Resizing "reset sizes" mode: drop only the width/height overrides
+            // (which are what stretch/overlap elements), while keeping moves and colour tweaks.
+            if (!skipGeom) {
+                if (o.w != null) p.push('width: ' + o.w + 'px !important', 'min-width: ' + o.w + 'px !important', 'max-width: none !important', 'flex: 0 0 auto !important');
+                if (o.h != null) p.push('height: ' + o.h + 'px !important', 'min-height: 0 !important');
+            }
             if (o.textGrad) {
                 // Gradient TEXT: paint the gradient as the element's background but clip it to the
                 // glyph shapes so the letters carry the gradient while the box stays transparent.
@@ -10178,12 +10478,23 @@
         function applyUiCustom() {
             let st = document.getElementById('uiCustomOverride');
             const data = globalSettings.uiCustom || {};
+            const mode = globalSettings.forceResizeMode || 'off';   // Force Resizing (custom themes)
+            const skipGeom = (mode === 'reset');                    // reset: drop size/position tweaks
             const blocks = [];
+            let cardW = 0;
             for (const sel in data) {
                 let rule = '';
-                try { rule = uieBuildRule(data[sel] || {}); } catch (e) {}
+                try { rule = uieBuildRule(data[sel] || {}, skipGeom); } catch (e) {}
                 if (rule) blocks.push(sel + ' { ' + rule + ' }');
+                // "reflow" mode: track the widest game-card size override so the grid can match it.
+                if (/game-card/i.test(sel) && data[sel] && data[sel].w) cardW = Math.max(cardW, data[sel].w);
             }
+            // "reflow": widen the game-grid columns to the resized card width so cards tile without
+            // overlapping. Clearing the inline var lets the theme/default --tile-min-width stand.
+            document.body.classList.toggle('force-resize-reflow', mode === 'reflow');
+            document.body.classList.toggle('force-resize-reset', mode === 'reset');
+            if (mode === 'reflow' && cardW) document.body.style.setProperty('--tile-min-width', cardW + 'px', 'important');
+            else document.body.style.removeProperty('--tile-min-width');
             const appBg = (globalSettings.uiAppBg || '').trim();
             // The whole-window backdrop lives on <body> (background-color: var(--bg-color));
             // .main-content-area and .app-container are transparent, so a body gradient shows
@@ -10200,6 +10511,11 @@
             // every mode. The theme's animated body::before still renders on top, so an animated
             // background keeps moving over the new gradient.
             if (appBg) blocks.push('body, body.glassmorphic-mode, body.theme-custom { background: ' + appBg + ' !important; background-attachment: fixed !important; }');
+            // Force Translucency reads the live appBg from this variable so it can fade the real
+            // custom background over the desktop instead of blanking it. Remove it (rather than
+            // set empty) when there's no appBg, so the CSS falls back to the theme's --bg-color.
+            if (appBg) document.body.style.setProperty('--force-trans-bg', appBg);
+            else document.body.style.removeProperty('--force-trans-bg');
             if (!blocks.length) { if (st) st.remove(); }
             else {
                 if (!st) { st = document.createElement('style'); st.id = 'uiCustomOverride'; document.head.appendChild(st); }
@@ -11507,7 +11823,10 @@
                         if (ct.uiAppBg !== undefined) globalSettings.uiAppBg = ct.uiAppBg;
                         if (ct.uiAppBgStore) globalSettings.uiAppBgStore = _clone(ct.uiAppBgStore);
                         if (ct.uiAccent !== undefined) globalSettings.uiAccent = ct.uiAccent;
-                        if (ct.uiCustom || ct.uiAppBg !== undefined) applyUiCustom();
+                        // Always run: keeps the #uiCustomOverride stylesheet AND the
+                        // --force-trans-bg variable in sync with the current appBg, so switching
+                        // between custom themes never leaves a stale force-translucency backdrop.
+                        applyUiCustom();
                         if (ct.uiAccent !== undefined && typeof applyUiAccent === 'function') applyUiAccent();
                     } catch (e) {}
                 }
@@ -12119,6 +12438,23 @@
             globalSettings.forceTranslucency = e.target.checked;
             saveToMemory();
             document.body.classList.toggle('force-translucency', e.target.checked);
+        }); }
+
+        { const t = document.getElementById('forceResizeModeSelect'); if (t) t.addEventListener('change', (e) => {
+            globalSettings.forceResizeMode = e.target.value;
+            saveToMemory();
+            // Re-emit the UI-editor overrides under the new mode (reflow/stick/reset/off).
+            if (typeof applyUiCustom === 'function') applyUiCustom();
+            if (globalSettings.forceResizeMode === 'stick' && typeof renderGames === 'function') { try { renderGames(); } catch (e) {} }
+        }); }
+
+        { const t = document.getElementById('emojiIconsToggle'); if (t) t.addEventListener('change', (e) => {
+            globalSettings.iconStyle = e.target.checked ? 'emoji' : 'icons';
+            saveToMemory();
+            // Re-run translations first: this restores the dictionary emoji text (emoji mode) or
+            // re-iconizes it (icon mode), then repaint the explicit .app-ic spans.
+            if (typeof applyTranslations === 'function') applyTranslations();
+            repaintAllIcons();
         }); }
 
         document.getElementById('betaUpdatesToggle').addEventListener('change', (e) => {
@@ -14788,7 +15124,10 @@
         .sup-tier-name { font-size: 1.15rem; font-weight: 800; letter-spacing: -0.2px; }
         .sup-tier-price { font-size: 0.8rem; opacity: 0.6; font-weight: 600; }
         .sup-count { margin-left: auto; font-size: 0.72rem; padding: 4px 10px; border-radius: 999px; font-weight: 700; color: var(--sup-color, var(--accent)); background: color-mix(in srgb, var(--sup-color, var(--accent)) 12%, transparent); border: 1px solid color-mix(in srgb, var(--sup-color, var(--accent)) 30%, transparent); }
-        .sup-tagline { opacity: 0.7; font-size: 0.85rem; line-height: 1.5; margin: 4px 0 12px; }
+        .sup-tagline { opacity: 0.7; font-size: 0.85rem; line-height: 1.5; margin: 4px 0 8px; }
+        .sup-benefits { list-style: none; margin: 0 0 12px; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+        .sup-benefits li { font-size: 0.83rem; line-height: 1.45; opacity: 0.85; padding-left: 18px; position: relative; }
+        .sup-benefits li::before { content: "✓"; position: absolute; left: 0; color: var(--sup-color, var(--accent)); font-weight: 700; }
         .sup-members { display: flex; flex-wrap: wrap; gap: 8px; }
         .sup-member { display: flex; align-items: center; gap: 8px; padding: 6px 12px 6px 6px; border-radius: 999px; border: 1px solid var(--border-color); background: color-mix(in srgb, var(--bg-color) 40%, transparent); font-size: 13px; font-weight: 600; text-decoration: none; color: var(--text-color); }
         a.sup-member:hover { border-color: var(--sup-color, var(--accent)); }
