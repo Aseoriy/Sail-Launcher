@@ -3511,18 +3511,16 @@
                 <input type="checkbox" id="dlAdBlockToggle"><div class="toggle-switch"></div>
                 <span style="font-size: 14px;">Block ads &amp; pop-ups in the in-app browser</span>
             </label>
-            <label class="toggle-label" style="display: flex; align-items: center; gap: 10px; margin-bottom: 14px;">
-                <input type="checkbox" id="dlEnableDodiToggle"><div class="toggle-switch"></div>
-                <span style="font-size: 14px;">Enable DODI Repacks source</span>
+            <label class="toggle-label" style="display: flex; align-items: center; gap: 10px; margin-bottom: 6px;">
+                <input type="checkbox" id="dlRestrictedDownloadsToggle"><div class="toggle-switch"></div>
+                <span style="font-size: 14px;">Enable restricted downloads</span>
             </label>
-            <p style="font-size: 11px; opacity: 0.55; margin: -6px 0 16px 30px; line-height: 1.5;">DODI is blocked by Cloudflare for in-app search. When enabled, searching DODI opens it in the in-app browser so you can pass the Cloudflare check manually.</p>
-
-            <label class="toggle-label" style="display: flex; align-items: center; gap: 10px; margin-bottom: 14px;">
-                <input type="checkbox" id="dlEnableOnlineFixToggle"><div class="toggle-switch"></div>
-                <span style="font-size: 14px;">Enable Online-Fix source</span>
+            <p style="font-size: 11px; opacity: 0.55; margin: 0 0 14px 34px; line-height: 1.5;">Shows interactive hosts such as BuzzHeavier and routes restricted-host buttons to Sail's built-in browser so you can complete their verification or final download step yourself.</p>
+            <label class="toggle-label" style="display: flex; align-items: center; gap: 10px; margin-bottom: 6px;">
+                <input type="checkbox" id="dlCaptureBrowserDownloadsToggle"><div class="toggle-switch"></div>
+                <span style="font-size: 14px;">Capture downloads started in the built-in browser</span>
             </label>
-            <p style="font-size: 11px; margin: -6px 0 16px 30px; line-height: 1.5; color: #f59e0b;">⚠️ Online-Fix doesn't work correctly right now — its downloads are behind a login + captcha + JavaScript popup that can't be auto-resolved yet. It's off by default; enable only to browse/search. You'll need to download manually from the site.</p>
-
+            <p style="font-size: 11px; opacity: 0.55; margin: 0 0 16px 34px; line-height: 1.5;">Sail takes over files started from the browser, shows their progress and speed in Downloads, then extracts archives and prepares them like any other game download.</p>
             <div style="height:1px;background:var(--border-color);margin:4px 0 16px 0;opacity:0.5;"></div>
             <label style="font-size: 12px; font-weight: bold; text-transform: uppercase; opacity: 0.6;">Debrid Services</label>
             <p style="font-size: 11px; opacity: 0.55; margin: 6px 0 12px 0; line-height: 1.5;">Connect a debrid account to unlock premium filehosts (GoFile, 1Fichier, Rapidgator…) and the <b>SteamRIP</b> source. When connected, downloads automatically resolve through the service. Paste an API key and it validates instantly.</p>
@@ -3555,7 +3553,10 @@
             <div style="height:1px;background:var(--border-color);margin:4px 0 16px 0;opacity:0.5;"></div>
             <label style="font-size: 12px; font-weight: bold; text-transform: uppercase; opacity: 0.6;">Cache</label>
             <p style="font-size: 11px; opacity: 0.55; margin: 6px 0 8px 0; line-height: 1.5;">Clears cached resolved download links and the in-app browser's stored cache so stale or expired links are fetched fresh. Your settings, library and downloaded games are not touched.</p>
-            <button class="outline" id="dlClearCacheBtn" onclick="clearDownloadCache()" style="padding: 10px 16px; border-radius: 8px; margin-bottom: 4px;">🧹 Clear Cache</button>
+            <div style="display:flex;align-items:center;gap:12px;margin-bottom:4px;">
+                <button class="outline" id="dlClearCacheBtn" onclick="clearDownloadCache()" style="padding: 10px 16px; border-radius: 8px;">🧹 Clear Cache</button>
+                <span id="dlCacheSizeIndicator" style="font-size:12px;opacity:0.65;">Calculating storage…</span>
+            </div>
 
             <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px;">
                 <button onclick="saveDownloadSettings()" style="padding: 10px 22px; border-radius: 8px;">Save</button>
@@ -4622,7 +4623,7 @@
                     style="margin-top: 30px; border-top: 1px solid var(--border-color); padding-top: 20px; display:flex; gap:10px;">
                     <button class="outline" style="flex-grow:1;"
                         onclick="require('electron').ipcRenderer.invoke('open-url', 'https://github.com/Aseoriy/Sail-Launcher')"><img src="icon.ico" alt="" style="width:1.1em;height:1.1em;object-fit:contain;vertical-align:-0.2em;margin-right:2px;" onerror="this.style.display='none'">
-                        Sail Launcher v5.1.1</button>
+                        Sail Launcher v5.1.2</button>
                     <button id="checkUpdateBtn" style="min-width: 150px; transition: 0.3s;"
                         data-i18n="checkUpdates">Check Updates</button>
                 </div>
@@ -5222,7 +5223,8 @@
             'link':          '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
             'arrow-down':    '<path d="M12 5v14"/><path d="m19 12-7 7-7-7"/>',
             'siren':         '<path d="M7 18v-6a5 5 0 1 1 10 0v6"/><path d="M5 21a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1"/><path d="M21 12h1"/><path d="M18.5 4.5 18 5"/><path d="M2 12h1"/><path d="M12 2v1"/><path d="m4.9 4.9.7.7"/><path d="M12 12v6"/>',
-            'book-open':     '<path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/>'
+            'book-open':     '<path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/>',
+            'rewind':        '<polygon points="11 19 2 12 11 5 11 19"/><polygon points="22 19 13 12 22 5 22 19"/>'
         };
         // Emoji shown for each icon when the user prefers emoji mode (also the accessible label).
         const ICON_EMOJI = {
@@ -5239,7 +5241,7 @@
             'cart': '🛒', 'flag': '🏴', 'skull': '💀', 'swords': '⚔️', 'gun': '🔫', 'car': '🏎️',
             'soccer': '⚽', 'earth': '🌍', 'joystick': '🕹️', 'lock': '🔒', 'unlock': '🔓', 'key': '🔑',
             'bell-off': '🔕', 'sliders': '🎛️', 'clipboard': '📋', 'link': '🔗', 'arrow-down': '⬇️',
-            'siren': '🚨', 'book-open': '📖'
+            'siren': '🚨', 'book-open': '📖', 'rewind': '⏪'
         };
         function _iconSvg(name) {
             const p = ICONS[name];
@@ -5285,6 +5287,11 @@
         Object.keys(ICON_EMOJI).forEach(name => {
             const emo = ICON_EMOJI[name];
             if (emo && !_ICONIZE_SKIP.has(emo) && !(emo in EMOJI_TO_ICON)) EMOJI_TO_ICON[emo] = name;
+        });
+        // Glyph aliases: alternate emoji that mean the same icon. The dictionary uses ⬅️ for
+        // "Back to Library" while the registry's arrow-left is 🔙 — map both to the same icon.
+        [['⬅️', 'arrow-left'], ['⬅', 'arrow-left'], ['◀️', 'rewind']].forEach(([emo, name]) => {
+            if (ICONS[name] && !(emo in EMOJI_TO_ICON)) EMOJI_TO_ICON[emo] = name;
         });
         // Replace any registered emoji inside a chrome label with a themed icon span (icon mode
         // only). Applied to translated [data-i18n] elements so their dictionary emojis become icons
@@ -5346,7 +5353,7 @@
         if (document.readyState !== 'loading') initIconSystem();
         else document.addEventListener('DOMContentLoaded', initIconSystem);
 
-        const APP_VERSION = "v5.1.1";
+        const APP_VERSION = "v5.1.2";
         let currentTabName = 'library';
         let skipStaggerAnimation = false;
 
@@ -5461,7 +5468,7 @@
             });
             // Whole-container iconize for chrome-only regions (no user content), so every registered
             // emoji in these becomes an icon without hand-editing each call-site.
-            ['settingsModal', 'pluginManagerModal', 'themeModal'].forEach(id => { const el = document.getElementById(id); if (el) iconizeElement(el); });
+            ['settingsModal', 'pluginManagerModal', 'themeModal', 'gameSettingsModal', 'gamePageView'].forEach(id => { const el = document.getElementById(id); if (el) iconizeElement(el); });
             document.querySelectorAll('[data-i18n-ph]').forEach(el => {
                 const key = el.getAttribute('data-i18n-ph');
                 if (d[key]) el.placeholder = d[key];
@@ -7193,8 +7200,8 @@
                     autoInstall: globalSettings.dlAutoInstall !== false,
                     skipRedist: globalSettings.dlSkipRedist !== false,
                     adBlock: globalSettings.dlAdBlock !== false,
-                    enableDodi: !!globalSettings.dlEnableDodi,
-                    enableOnlineFix: !!globalSettings.dlEnableOnlineFix,
+                    restrictedDownloads: !!globalSettings.dlRestrictedDownloads,
+                    captureBrowserDownloads: !!globalSettings.dlCaptureBrowserDownloads,
                     maxConcurrent: Number(globalSettings.dlMaxConcurrent) || 3,
                     enabledSources: globalSettings.dlEnabledSources || null,
                     autoSwitchDownloads: !!globalSettings.dlAutoSwitchDownloads,
@@ -7210,8 +7217,8 @@
                 globalSettings.dlAutoInstall = !!s.autoInstall;
                 globalSettings.dlSkipRedist = !!s.skipRedist;
                 globalSettings.dlAdBlock = !!s.adBlock;
-                globalSettings.dlEnableDodi = !!s.enableDodi;
-                globalSettings.dlEnableOnlineFix = !!s.enableOnlineFix;
+                globalSettings.dlRestrictedDownloads = !!s.restrictedDownloads;
+                globalSettings.dlCaptureBrowserDownloads = !!s.captureBrowserDownloads;
                 globalSettings.dlMaxConcurrent = Number(s.maxConcurrent) || 3;
                 globalSettings.dlAutoSwitchDownloads = !!s.autoSwitchDownloads;
                 globalSettings.dlNotifyComplete = !!s.notifyOnComplete;
@@ -8552,7 +8559,7 @@
             if (backupRunning) {
                 btn.innerText = "📦 Zipping..."; btn.disabled = true; cancelBtn.style.display = "block"; pgBg.style.display = "block";
             } else {
-                btn.innerText = "📦 Backup Game Folder"; btn.disabled = false; cancelBtn.style.display = "none"; pgBg.style.display = "none";
+                btn.innerText = "📦 Backup Game Folder"; if (typeof iconizeElement === 'function') iconizeElement(btn); btn.disabled = false; cancelBtn.style.display = "none"; pgBg.style.display = "none";
             }
 
             btn.onclick = async () => {
@@ -8560,7 +8567,7 @@
                 backupActionsRow.style.display = 'none';
                 const maxBackups = globalSettings.saveBackupCount !== undefined ? globalSettings.saveBackupCount : 3;
                 const res = await ipcRenderer.invoke('backup-game', game.exePath, game.name, maxBackups);
-                btn.disabled = false; btn.innerText = "📦 Backup Game Folder"; cancelBtn.style.display = "none"; pgBg.style.display = "none";
+                btn.disabled = false; btn.innerText = "📦 Backup Game Folder"; if (typeof iconizeElement === 'function') iconizeElement(btn); cancelBtn.style.display = "none"; pgBg.style.display = "none";
                 if (res) {
                     const newBackups = await ipcRenderer.invoke('check-backup', game.exePath, game.name);
                     backupSelect.innerHTML = '';
@@ -8577,7 +8584,7 @@
 
             cancelBtn.onclick = async () => {
                 await ipcRenderer.invoke('cancel-backup');
-                btn.disabled = false; btn.innerText = "📦 Backup Game Folder"; cancelBtn.style.display = "none"; pgBg.style.display = "none";
+                btn.disabled = false; btn.innerText = "📦 Backup Game Folder"; if (typeof iconizeElement === 'function') iconizeElement(btn); cancelBtn.style.display = "none"; pgBg.style.display = "none";
                 const existsNow = await ipcRenderer.invoke('check-backup', game.exePath, game.name);
                 backupActionsRow.style.display = existsNow && existsNow.length > 0 ? 'flex' : 'none';
             };
@@ -10282,6 +10289,7 @@
         window.editGame = function (index) {
             editingIndex = index; const game = myGames[index];
             document.getElementById('modalTitle').innerText = dict[globalSettings.language || 'english'].edit || "Edit Game";
+            if (typeof iconizeElement === 'function') iconizeElement(document.getElementById('modalTitle'));
             document.getElementById('gameName').value = game.name;
 
             document.getElementById('romToggle').checked = !!game.isRom;
@@ -12344,6 +12352,9 @@
             }
 
             if (webview) {
+                webview.addEventListener('dom-ready', () => {
+                    try { ipcRenderer.invoke('register-browser-webview', webview.getWebContentsId()); } catch (e) {}
+                });
                 webview.addEventListener('new-window', (e) => {
                     try {
                         const urlObj = new URL(e.url);
@@ -12638,7 +12649,7 @@
             '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="225"><rect fill="#18181b" width="400" height="225"/><text fill="#a1a1aa" font-family="sans-serif" font-size="16" x="50%" y="50%" text-anchor="middle" dominant-baseline="middle">No Image</text></svg>'
         );
 
-        const DL_HOSTS = /magnet:|megadb|gofile|datanodes|1fichier|pixeldrain|akirabox|filekeeper|filecrypt|mediafire|mega\.nz|qiwi|multiup|fuckingfast|bowfile|hexload|vikingfile|rootz|1337x|torrent|\.torrent/i;
+        const DL_HOSTS = /magnet:|megadb|gofile|datanodes|1fichier|pixeldrain|akirabox|filekeeper|filecrypt|mediafire|mega\.nz|qiwi|multiup|fuckingfast|buzzheavier|bzzhr|bowfile|hexload|vikingfile|rootz|1337x|torrent|\.torrent/i;
 
         // Decode HTML entities (REST API titles come with &#8217; &amp; etc.)
         function dlDecodeEntities(s) {
@@ -12694,6 +12705,42 @@
         function dlHostLabel(url) {
             if (url.startsWith('magnet:')) return 'Magnet / Torrent';
             try { return new URL(url).hostname.replace(/^www\./, ''); } catch (e) { return 'Download link'; }
+        }
+
+        // Modern source pages often put the real file-host URL behind a same-site
+        // redirect button (or in data-* / onclick) instead of exposing it as href.
+        // Resolve those wrappers, then validate the destination hostname.
+        function dlDirectHostUrl(raw, base, hostRe) {
+            const queue = [String(raw || '').trim()];
+            const seen = new Set();
+            for (let i = 0; i < queue.length && i < 24; i++) {
+                let value = queue[i];
+                if (!value || seen.has(value)) continue;
+                seen.add(value);
+                value = value.replace(/&amp;/gi, '&').replace(/\\u0026/gi, '&').replace(/\\\//g, '/');
+                for (let n = 0; n < 2; n++) {
+                    try { const decoded = decodeURIComponent(value); if (decoded === value) break; value = decoded; } catch (e) { break; }
+                }
+                const embedded = value.match(/https?:\/\/[^'"\s<>]+/ig) || [];
+                embedded.forEach(u => { if (u !== value) queue.push(u); });
+                let u;
+                try { u = new URL(value, base); } catch (e) { continue; }
+                if (/^https?:$/i.test(u.protocol) && hostRe.test(u.hostname)) return u.href;
+                ['url', 'u', 'target', 'redirect', 'redirect_url', 'link', 'destination', 'dest', 'to', 'out'].forEach(k => {
+                    const nested = u.searchParams.get(k);
+                    if (nested) queue.push(nested);
+                });
+            }
+            return '';
+        }
+
+        function dlElementHostUrl(el, base, hostRe) {
+            const attrs = ['href', 'data-url', 'data-href', 'data-link', 'data-download', 'data-target', 'onclick'];
+            for (const attr of attrs) {
+                const direct = dlDirectHostUrl(el.getAttribute(attr) || '', base, hostRe);
+                if (direct) return direct;
+            }
+            return '';
         }
 
         // Generic search-result parser driven by per-source selectors
@@ -12808,34 +12855,47 @@
                 detail: wpDetail
             },
             steamrip: {
-                name: 'SteamRIP', color: '#3b82f6', requiresDebrid: true,
+                name: 'SteamRIP', color: '#3b82f6', requiresDebrid: true, renderOnly: true,
                 searchUrl: q => `https://steamrip.com/?s=${encodeURIComponent(q)}`,
-                // SteamRIP game pages live at /<slug>-free-download/ — match those anchors.
+                // Support both legacy /<slug>-free-download/ URLs and the redesigned game cards.
                 results: doc => {
                     const base = 'https://steamrip.com';
                     const out = [], seen = new Set();
-                    doc.querySelectorAll('a[href]').forEach(a => {
+                    const scope = doc.querySelector('main, #main, .site-main, .content-area') || doc.body || doc;
+                    scope.querySelectorAll('a[href]').forEach(a => {
                         let href = dlAbs(a.getAttribute('href') || '', base);
-                        if (!href || !/steamrip\.com\/[^?#]*free-download/i.test(href)) return;
+                        let parsed; try { parsed = new URL(href); } catch (e) { return; }
+                        if (!/(^|\.)steamrip\.com$/i.test(parsed.hostname)) return;
+                        const card = a.closest('article, .post, .card, .game-card, .game-item, .product, li');
+                        const legacy = /free-download\/?$/i.test(parsed.pathname);
+                        if (!legacy && !card) return;
+                        if (a.closest('nav, header, footer, .menu, .navigation, .pagination')) return;
+                        if (/^\/?$|\/(category|tag|author|page|genre|platform|wp-content|wp-json)(\/|$)/i.test(parsed.pathname)) return;
                         href = href.split('#')[0].split('?')[0];
                         if (seen.has(href)) return;
-                        let name = dlClean(a.textContent);
-                        if (!name || name.length < 2) { const img = a.querySelector('img'); name = img ? dlClean(img.getAttribute('alt') || '') : ''; }
+                        let name = '';
+                        if (card) {
+                            const title = card.querySelector('h1, h2, h3, h4, .title, .entry-title, [class*="title"]');
+                            name = title ? dlClean(title.textContent) : '';
+                        }
+                        if (!name || name.length < 2) { const img = a.querySelector('img') || (card && card.querySelector('img')); name = img ? dlClean(img.getAttribute('alt') || '') : ''; }
+                        if (!name || name.length < 2) name = dlClean(a.textContent);
+                        if (/^(view|details|read more|download|free download)$/i.test(name)) return;
                         if (!name || name.length < 2) return;
                         seen.add(href);
-                        out.push({ name: name.replace(/\s*free\s*download.*/i, '').trim() || name, url: href, image: dlContainerImage(a.closest('article, .post, li, .card, div') || a, base) });
+                        out.push({ name: name.replace(/\s*free\s*download.*/i, '').trim() || name, url: href, image: dlContainerImage(card || a.closest('div') || a, base) });
                     });
                     return out.slice(0, 12);
                 },
                 // Detail pages list premium-filehost links (MegaDB / 1Fichier / GoFile /
                 // Buzzheavier / Rapidgator / …). A connected debrid service unlocks them.
                 detail: (doc, base) => {
-                    const HOST = /megadb|gofile|datanodes|1fichier|pixeldrain|filecrypt|mediafire|rapidgator|nitroflare|turbobit|katfile|hexload|filekeeper|vikingfile|akirabox|mega\.nz/i;
+                    const HOST = /(^|\.)(megadb|gofile|datanodes|1fichier|pixeldrain|filecrypt|mediafire|rapidgator|nitroflare|turbobit|katfile|hexload|filekeeper|vikingfile|akirabox|buzzheavier|fuckingfast|mega)\.(io|com|net|nz|cc|co|to)$/i;
                     const links = [], seen = new Set();
                     const scope = doc.querySelector('.entry-content, .post-content, .article-content, article, main') || doc;
-                    scope.querySelectorAll('a[href]').forEach(a => {
-                        let href = dlAbs(a.getAttribute('href') || '', base);
-                        if (!href || href.startsWith('magnet:') || !HOST.test(href) || seen.has(href)) return;
+                    scope.querySelectorAll('a, button, [data-url], [data-href], [data-link], [data-download], [onclick]').forEach(a => {
+                        const href = dlElementHostUrl(a, base, HOST);
+                        if (!href || seen.has(href)) return;
                         seen.add(href);
                         links.push({ label: dlHostLabel(href), type: 'web', url: href });
                     });
@@ -12880,6 +12940,18 @@
             return Array.isArray(globalSettings.dlPixeldrainProxies) ? globalSettings.dlPixeldrainProxies : DL_DEFAULT_PD_PROXIES.slice();
         };
 
+        function browserCapturePayload(s) {
+            s = s || {};
+            return {
+                enabled: !!s.captureBrowserDownloads,
+                defaults: {
+                    installDir: s.installDir || '', maxSpeed: Number(s.maxSpeed) || 0,
+                    autoExtract: s.autoExtract !== false, autoInstall: s.autoInstall !== false,
+                    skipRedist: s.skipRedist !== false, autoAdd: s.autoAdd !== false
+                }
+            };
+        }
+
         let dlAdBlockSynced = false;
         function loadDlEnabledFromSettings() {
             const s = (window.sailDownloadBridge && window.sailDownloadBridge.getSettings()) || {};
@@ -12890,9 +12962,6 @@
             if (s.enabledSources) {
                 Object.keys(dlEnabled).forEach(k => { if (typeof s.enabledSources[k] === 'boolean') dlEnabled[k] = s.enabledSources[k]; });
             }
-            // DODI / Online-Fix only available when explicitly enabled in settings
-            if (!s.enableDodi) dlEnabled.dodi = false;
-            if (!s.enableOnlineFix) dlEnabled.onlinefix = false;
             // SteamRIP is locked unless a debrid service is connected & validated
             if (!window.debridConnected || !window.debridConnected()) dlEnabled.steamrip = false;
             // sync ad-block + debrid + pixeldrain-proxy preferences with main once at load
@@ -12902,6 +12971,7 @@
                 try { window.pushDebridConfigToMain && window.pushDebridConfigToMain(); } catch (e) {}
                 try { ipcRenderer.send('set-pixeldrain-proxies', window.getPixeldrainProxies()); } catch (e) {}
                 try { ipcRenderer.send('set-debrid-cache-enabled', s.debridCache !== false); } catch (e) {}
+                try { ipcRenderer.send('set-browser-download-capture', browserCapturePayload(s)); } catch (e) {}
             }
         }
 
@@ -12909,10 +12979,6 @@
             loadDlEnabledFromSettings();
             const wrap = document.getElementById('downloadSourceToggles');
             if (!wrap) return;
-            const settings0 = (window.sailDownloadBridge && window.sailDownloadBridge.getSettings()) || {};
-            const dodiEnabledInSettings = !!settings0.enableDodi;
-            const onlineFixEnabledInSettings = !!settings0.enableOnlineFix;
-            const optInVisible = (id) => (id === 'dodi' ? dodiEnabledInSettings : id === 'onlinefix' ? onlineFixEnabledInSettings : true);
             // A debrid-gated source (SteamRIP) is locked until a service is connected.
             const isLocked = (id) => !!(DL_SOURCES[id].requiresDebrid && !(window.debridConnected && window.debridConnected()));
             const styleChip = (chip, id) => {
@@ -12933,7 +12999,6 @@
                 // already built — just sync opt-in visibility + chip states
                 wrap.querySelectorAll('.dl-chip').forEach(chip => {
                     const id = chip.dataset.id;
-                    chip.style.display = optInVisible(id) ? '' : 'none';
                     styleChip(chip, id);
                 });
                 return;
@@ -12945,7 +13010,6 @@
                 chip.dataset.id = id;
                 chip.style.cssText = 'padding:6px 14px;border-radius:99px;font-size:12px;font-weight:bold;cursor:pointer;border:1px solid ' + src.color + ';transition:opacity .15s;';
                 styleChip(chip, id);
-                if (!optInVisible(id)) chip.style.display = 'none';
                 chip.onclick = () => {
                     if (isLocked(id)) {
                         alert(src.name + ' requires a connected debrid service.\n\nConnect one in Download Settings → Debrid Services to unlock it.');
@@ -13151,6 +13215,41 @@
             });
         };
 
+        window.startRestrictedBrowserDownload = function (item, set, sourceId) {
+            const part = set && set.parts && set.parts[0];
+            if (!part || !part.url) return;
+            const settings = (window.sailDownloadBridge && window.sailDownloadBridge.getSettings()) || {};
+            const id = 'browser_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+            const opts = {
+                id, gameName: item.name, image: item.image, sourceId,
+                url: part.url, browserCapture: true,
+                installDir: settings.installDir, maxSpeed: settings.maxSpeed,
+                autoExtract: settings.autoExtract, autoInstall: settings.autoInstall,
+                skipRedist: settings.skipRedist
+            };
+            if (settings.captureBrowserDownloads) {
+                dlQueue.set(id, {
+                    id, name: item.name, image: item.image, sourceId, category: 'game',
+                    url: part.url, percent: 0, state: 'waiting-browser',
+                    label: 'Waiting for you to start the download in the browser...',
+                    resumeOpts: opts, browserCapture: true, installDir: settings.installDir
+                });
+                renderDock();
+                if (settings.autoSwitchDownloads) switchMainTab('downloads');
+            }
+            Promise.resolve(window.switchMainTab && window.switchMainTab('sources')).then(async () => {
+                const webview = document.getElementById('sourceWebview');
+                if (settings.captureBrowserDownloads && webview) {
+                    try {
+                        await ipcRenderer.invoke('prepare-browser-download', {
+                            webContentsId: webview.getWebContentsId(), opts
+                        });
+                    } catch (e) {}
+                }
+                if (window.openSourcesBrowser) window.openSourcesBrowser(part.url, false);
+            });
+        };
+
         // ---- Full game detail page (Steam-store style) -------------------
         let dlCurrent = null;
         let dlDetailToken = 0; // bumps each time a detail page opens; kills stale async writes
@@ -13242,6 +13341,14 @@
             return false;
         }
 
+        function restrictedDownloadsEnabled() {
+            const s = (window.sailDownloadBridge && window.sailDownloadBridge.getSettings()) || {};
+            return !!s.restrictedDownloads;
+        }
+        function isRestrictedHost(host) {
+            return /gofile|buzzheavier|bzzhr|datanodes|akirabox|1337x/i.test(host || '');
+        }
+
         function dlHostScore(host) {
             if (host === 'magnet') return 30;
             // ordered by how reliably our HTTP scrapers resolve each host
@@ -13265,9 +13372,9 @@
             const magnets = [], byHost = {};
             (links || []).forEach(l => {
                 if (l.type === 'page') return;
-                // BuzzHeavier is removed entirely — its Cloudflare check can't be passed even
-                // with debrid, so never offer it as a download option.
-                if (/buzzheavier|bzzhr/i.test(l.url || '')) return;
+                // BuzzHeavier is interactive and only appears when restricted downloads
+                // are enabled; it is then handed to the built-in browser.
+                if (/buzzheavier|bzzhr/i.test(l.url || '') && !restrictedDownloadsEnabled()) return;
                 if (l.type === 'magnet') { magnets.push(l); return; }
                 if (DL_SKIP_FILE_RE.test((l.label || '') + ' ' + (l.url || ''))) return;
                 const h = dlHostOf(l.url);
@@ -13295,7 +13402,7 @@
         function mirrorUrlsFor(sets, chosen) {
             if (!chosen || chosen.kind !== 'http' || chosen.parts.length !== 1) return [];
             return (sets || [])
-                .filter(s => s !== chosen && s.kind === 'http' && s.parts.length === 1 && !isCFBlockedHost(s.host))
+                .filter(s => s !== chosen && s.kind === 'http' && s.parts.length === 1 && !isCFBlockedHost(s.host) && !(restrictedDownloadsEnabled() && isRestrictedHost(s.host)))
                 .map(s => s.parts[0].url);
         }
 
@@ -13393,9 +13500,12 @@
                 const dlBtn = document.createElement('button');
                 dlBtn.className = 'dl-ddl-btn';
                 dlBtn.style.cssText = 'width:100%;padding:14px;border-radius:10px;font-size:15px;font-weight:bold;margin-bottom:12px;background:var(--accent);border:none;color:#fff;cursor:pointer;';
-                if (isCFBlockedHost(best.host)) {
+                if (restrictedDownloadsEnabled() && isRestrictedHost(best.host)) {
+                    dlBtn.innerHTML = '🌐 Open in Browser — ' + best.host;
+                    dlBtn.onclick = () => startRestrictedBrowserDownload(item, best, id);
+                } else if (isCFBlockedHost(best.host)) {
                     dlBtn.innerHTML = '🌐 Browse — ' + best.host + ' (Cloudflare check required)';
-                    dlBtn.onclick = () => openDownloadInAppBrowser(item.url);
+                    dlBtn.onclick = () => openDownloadInAppBrowser(best.parts[0].url || item.url);
                 } else {
                     const tag = best.kind === 'magnet' ? '' : ' — ' + best.host + (best.parts.length > 1 ? ' (' + best.parts.length + ' parts)' : '');
                     dlBtn.innerHTML = (best.kind === 'magnet' ? '🧲 ' : '⬇️ ') + 'Download (1-Click)' + tag;
@@ -13434,9 +13544,12 @@
             const b = document.createElement('button');
             b.className = 'outline';
             b.style.cssText = 'padding:6px 10px;font-size:11px;border-radius:6px;white-space:nowrap;';
-            if (isCFBlockedHost(set.host)) {
+            if (restrictedDownloadsEnabled() && isRestrictedHost(set.host)) {
+                b.textContent = '🌐 Browser';
+                b.onclick = () => startRestrictedBrowserDownload(item, set, sourceId);
+            } else if (isCFBlockedHost(set.host)) {
                 b.textContent = '🌐 Browse';
-                b.onclick = () => openDownloadInAppBrowser(item.url);
+                b.onclick = () => openDownloadInAppBrowser(set.parts[0].url || item.url);
             } else {
                 b.textContent = set.parts.length > 1 ? '⬇️ Download all' : '⬇️ Download';
                 b.onclick = () => startGameDownloadSet(item, set, sourceId, mirrorUrlsFor(sets, set));
@@ -13530,6 +13643,7 @@
         }
         function fmtState(d) {
             if (d.state === 'queued') return '🕓 Queued — waiting for a free slot…';
+            if (d.state === 'waiting-browser') return '🌐 ' + (d.label || 'Waiting for you to start the download in the browser…');
             if (d.state === 'resolving') {
                 const sub = d.subLabel ? `<div style="font-size:10px;opacity:0.55;margin-top:3px;">${d.subLabel}</div>` : '';
                 return `${cachedBadge(d)}<span class="dl-spinner" style="width:12px;height:12px;border-width:2px;margin-right:7px;"></span>${d.label || 'Finding a direct download link…'}${sub}`;
@@ -13562,6 +13676,12 @@
         };
         window.resumeDownload = function (id) {
             const d = dlQueue.get(id); if (!d || !d.resumeOpts) return;
+            if (d.browserCapture) {
+                ipcRenderer.invoke('resume-browser-download', id).then(ok => {
+                    if (ok) { d.state = 'downloading'; d.label = 'Resuming browser download…'; renderDock(); }
+                });
+                return;
+            }
             d.state = 'resolving'; d.label = initialResolveLabel(); d.error = '';
             renderDock();
             ipcRenderer.invoke('download-game', d.resumeOpts);
@@ -13677,7 +13797,9 @@
                 const barColor = d.state === 'error' ? '#ef4444' : (d.state === 'done' ? '#10b981' : 'var(--accent)');
                 let actions = '';
                 const dockBtn = 'padding:4px 10px;font-size:11px;border-radius:6px;';
-                if (d.state === 'downloading' || d.state === 'resolving' || d.state === 'queued') {
+                if (d.state === 'waiting-browser') {
+                    actions = `<button class="outline" data-cancel="${d.id}" style="${dockBtn}">Cancel</button>`;
+                } else if (d.state === 'downloading' || d.state === 'resolving' || d.state === 'queued') {
                     actions = `<button class="outline" data-pause="${d.id}" style="${dockBtn}">⏸ Pause</button><button class="outline" data-cancel="${d.id}" style="${dockBtn}">Cancel</button>`;
                 } else if (d.state === 'processing' || d.state === 'installing') {
                     actions = `<button class="outline" data-cancel="${d.id}" style="${dockBtn}">Cancel</button>`;
@@ -13788,7 +13910,9 @@
                 const barColor = d.state === 'error' ? '#ef4444' : (d.state === 'done' ? '#10b981' : 'var(--accent)');
                 let actions = '';
                 const pBtn = 'padding:6px 14px;font-size:12px;border-radius:8px;';
-                if (d.state === 'downloading' || d.state === 'resolving' || d.state === 'queued') {
+                if (d.state === 'waiting-browser') {
+                    actions = `<button class="outline" data-pcancel="${d.id}" style="${pBtn}">Cancel</button>`;
+                } else if (d.state === 'downloading' || d.state === 'resolving' || d.state === 'queued') {
                     actions = `<button class="outline" data-ppause="${d.id}" style="${pBtn}">⏸ Pause</button><button class="outline" data-pcancel="${d.id}" style="${pBtn}">Cancel</button>`;
                 } else if (d.state === 'processing' || d.state === 'installing') {
                     actions = `<button class="outline" data-pcancel="${d.id}" style="${pBtn}">Cancel</button>`;
@@ -13941,6 +14065,25 @@
         };
 
         ipcRenderer.on('download-engine-status', (e, p) => { /* surfaced per-download below */ });
+        ipcRenderer.on('browser-download-started', (e, p) => {
+            let d = dlQueue.get(p.id);
+            if (!d) {
+                d = {
+                    id: p.id, name: p.gameName || p.fileName || 'Browser download',
+                    image: p.image || '', sourceId: p.sourceId || 'browser', category: 'game',
+                    url: p.url || '', installDir: p.installDir || '', browserCapture: true,
+                    resumeOpts: p.opts || null, percent: 0, state: 'downloading'
+                };
+                dlQueue.set(p.id, d);
+            }
+            d.browserCapture = true;
+            d.state = 'downloading';
+            d.label = 'Downloading from built-in browser…';
+            d.fileName = p.fileName || d.fileName;
+            renderDock();
+            const settings = (window.sailDownloadBridge && window.sailDownloadBridge.getSettings()) || {};
+            if (settings.autoSwitchDownloads) switchMainTab('downloads');
+        });
         ipcRenderer.on('download-progress', (e, p) => {
             const d = dlQueue.get(p.id); if (!d) return;
             const prevState = dlPrevState.get(p.id);
@@ -14170,20 +14313,21 @@
             document.getElementById('dlAutoInstallToggle').checked = s.autoInstall !== false;
             document.getElementById('dlSkipRedistToggle').checked = s.skipRedist !== false;
             document.getElementById('dlAdBlockToggle').checked = s.adBlock !== false;
-            document.getElementById('dlEnableDodiToggle').checked = !!s.enableDodi;
-            document.getElementById('dlEnableOnlineFixToggle').checked = !!s.enableOnlineFix;
+            document.getElementById('dlRestrictedDownloadsToggle').checked = !!s.restrictedDownloads;
+            document.getElementById('dlCaptureBrowserDownloadsToggle').checked = !!s.captureBrowserDownloads;
             document.getElementById('dlMaxConcurrentInput').value = s.maxConcurrent || 3;
             document.getElementById('dlAutoSwitchToggle').checked = !!s.autoSwitchDownloads;
             document.getElementById('dlNotifyCompleteToggle').checked = !!s.notifyOnComplete;
             document.getElementById('dlDebridCacheToggle').checked = s.debridCache !== false;
-            // Instant-apply: flipping the DODI / Online-Fix gate takes effect immediately
-            // (no need to scroll down to "Save"), and the source chip reappears at once.
-            wireDownloadGate('dlEnableDodiToggle', 'dlEnableDodi', 'dodi');
-            wireDownloadGate('dlEnableOnlineFixToggle', 'dlEnableOnlineFix', 'onlinefix');
             // Auto-switch + completion-notification toggles also apply instantly, so they work
             // even if the user flips them and closes the modal without pressing "Save".
             wireInstantToggle('dlAutoSwitchToggle', 'dlAutoSwitchDownloads');
             wireInstantToggle('dlNotifyCompleteToggle', 'dlNotifyComplete');
+            wireInstantToggle('dlRestrictedDownloadsToggle', 'dlRestrictedDownloads');
+            wireInstantToggle('dlCaptureBrowserDownloadsToggle', 'dlCaptureBrowserDownloads', () => {
+                const now = (window.sailDownloadBridge && window.sailDownloadBridge.getSettings()) || {};
+                try { ipcRenderer.send('set-browser-download-capture', browserCapturePayload(now)); } catch (e) {}
+            });
             // Caching toggle also pushes its new state to the main-process resolver at once.
             wireInstantToggle('dlDebridCacheToggle', 'dlDebridCache', () => {
                 try { ipcRenderer.send('set-debrid-cache-enabled', document.getElementById('dlDebridCacheToggle').checked); } catch (e) {}
@@ -14192,6 +14336,7 @@
             renderDebridServices();
             const pxBox = document.getElementById('dlPixeldrainProxies');
             if (pxBox) pxBox.value = window.getPixeldrainProxies().join('\n');
+            refreshDownloadCacheSize();
             window.openModal('downloadSettingsModal');
         };
 
@@ -14209,22 +14354,6 @@
             });
         }
 
-        // Attach an idempotent change handler that persists a source gate the moment it's toggled.
-        function wireDownloadGate(toggleId, gateKey, sourceId) {
-            const el = document.getElementById(toggleId);
-            if (!el || el.dataset.gateWired) return;
-            el.dataset.gateWired = '1';
-            el.addEventListener('change', () => {
-                const on = el.checked;
-                if (window.sailDownloadBridge && window.sailDownloadBridge.setDownloadGate) {
-                    window.sailDownloadBridge.setDownloadGate(gateKey, on);
-                }
-                dlEnabled[sourceId] = on;
-                if (window.sailDownloadBridge) window.sailDownloadBridge.saveEnabledSources(Object.assign({}, dlEnabled));
-                try { window.renderDownloadSourceChips(); } catch (e) {}
-            });
-        }
-
         window.browseDownloadDir = async function () {
             const p = await ipcRenderer.invoke('pick-download-folder');
             if (p) document.getElementById('dlInstallDirInput').value = p;
@@ -14239,14 +14368,15 @@
                 autoInstall: document.getElementById('dlAutoInstallToggle').checked,
                 skipRedist: document.getElementById('dlSkipRedistToggle').checked,
                 adBlock: document.getElementById('dlAdBlockToggle').checked,
-                enableDodi: document.getElementById('dlEnableDodiToggle').checked,
-                enableOnlineFix: document.getElementById('dlEnableOnlineFixToggle').checked,
+                restrictedDownloads: document.getElementById('dlRestrictedDownloadsToggle').checked,
+                captureBrowserDownloads: document.getElementById('dlCaptureBrowserDownloadsToggle').checked,
                 maxConcurrent: Number(document.getElementById('dlMaxConcurrentInput').value) || 3,
                 autoSwitchDownloads: document.getElementById('dlAutoSwitchToggle').checked,
                 notifyOnComplete: document.getElementById('dlNotifyCompleteToggle').checked,
                 debridCache: document.getElementById('dlDebridCacheToggle').checked
             };
             try { ipcRenderer.send('set-debrid-cache-enabled', s.debridCache); } catch (e) {}
+            try { ipcRenderer.send('set-browser-download-capture', browserCapturePayload(s)); } catch (e) {}
             if (window.sailDownloadBridge) window.sailDownloadBridge.saveSettings(s);
             ipcRenderer.invoke('set-adblock', s.adBlock);
             // PixelDrain proxy pool: persist + push to the download resolver
@@ -14255,15 +14385,28 @@
             globalSettings.dlPixeldrainProxies = proxies;
             saveToMemory();
             try { ipcRenderer.send('set-pixeldrain-proxies', proxies); } catch (e) {}
-            dlEnabled.dodi = s.enableDodi;
-            dlEnabled.onlinefix = s.enableOnlineFix;
-            // refresh opt-in chip visibility (dodi + online-fix)
-            const dodiChip = document.querySelector('.dl-chip[data-id="dodi"]');
-            if (dodiChip) dodiChip.style.display = s.enableDodi ? '' : 'none';
-            const ofChip = document.querySelector('.dl-chip[data-id="onlinefix"]');
-            if (ofChip) ofChip.style.display = s.enableOnlineFix ? '' : 'none';
             window.closeModal('downloadSettingsModal');
         };
+
+        function formatCacheBytes(bytes) {
+            bytes = Number(bytes) || 0;
+            const units = ['B', 'KB', 'MB', 'GB'];
+            let i = 0;
+            while (bytes >= 1024 && i < units.length - 1) { bytes /= 1024; i++; }
+            return (i === 0 ? Math.round(bytes) : bytes.toFixed(bytes >= 100 ? 0 : bytes >= 10 ? 1 : 2)) + ' ' + units[i];
+        }
+
+        async function refreshDownloadCacheSize() {
+            const el = document.getElementById('dlCacheSizeIndicator');
+            if (!el) return;
+            el.textContent = 'Calculating storage…';
+            try {
+                const r = await ipcRenderer.invoke('get-download-cache-size');
+                el.textContent = 'Cache storage: ' + formatCacheBytes(r && r.bytes);
+            } catch (e) {
+                el.textContent = 'Cache storage unavailable';
+            }
+        }
 
         // Clear Cache button — wipes resolved-link + in-app browser cache via main.
         window.clearDownloadCache = async function () {
@@ -14273,6 +14416,7 @@
             try {
                 const r = await ipcRenderer.invoke('clear-cache');
                 if (btn) btn.innerHTML = (r && r.success) ? '✅ Cache cleared' : '⚠️ Couldn\'t clear';
+                await refreshDownloadCacheSize();
             } catch (e) {
                 if (btn) btn.innerHTML = '⚠️ Couldn\'t clear';
             }

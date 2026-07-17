@@ -295,6 +295,12 @@ function createWindow() {
     win.loadFile('index.html');
 
     win.webContents.session.on('will-download', (event, item, webContents) => {
+        const webContentsId = webContents && webContents.id;
+        if (browserDownloadCapture.enabled && webContentsId && browserDownloadWebContents.has(webContentsId)) {
+            const prepared = pendingBrowserDownloads.get(webContentsId) || null;
+            captureBrowserDownload(win.webContents, item, webContentsId, prepared);
+            return;
+        }
         item.pause();
         const filename = item.getFilename();
         dialog.showSaveDialog(win, {
@@ -1322,6 +1328,9 @@ const ARIA2_DL_URL = 'https://github.com/aria2/aria2/releases/download/release-1
 const DL_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 let aria2BinPath = null;
 const activeDownloads = new Map(); // id -> { proc, dir, meta }
+let browserDownloadCapture = { enabled: false, defaults: {} };
+const browserDownloadWebContents = new Set();
+const pendingBrowserDownloads = new Map();
 
 const AD_BLOCK_HOSTS = [
     'a-ads.com', 'ad.a-ads.com', 'aads.com', 'hilltopads.net', 'hilltopads.com', 'clickadu.com',
@@ -2091,10 +2100,11 @@ const INTERCEPT_CLICK_JS = `(function(){
 // the resulting file download URL (+ cookies) without actually saving it here.
 function interceptDownload(url, timeoutMs = 55000) {
     return new Promise((resolve) => {
-        let done = false, win = null, clicker = null;
+        let done = false, win = null, clicker = null, sess = null, downloadHandler = null;
         const finish = (val) => {
             if (done) return; done = true;
             clearTimeout(timer); if (clicker) clearInterval(clicker);
+            try { if (sess && downloadHandler) sess.removeListener('will-download', downloadHandler); } catch (e) {}
             try { if (win && !win.isDestroyed()) win.destroy(); } catch (e) {}
             resolve(val);
         };
@@ -2104,13 +2114,14 @@ function interceptDownload(url, timeoutMs = 55000) {
             // from the in-app browser carry over; no throttling so challenges run
             win = new BrowserWindow({ show: false, width: 1200, height: 800, webPreferences: { sandbox: true, backgroundThrottling: false } });
         } catch (e) { return finish(null); }
-        const sess = win.webContents.session;
+        sess = win.webContents.session;
         applyAdBlock(sess);
         win.webContents.setWindowOpenHandler(() => ({ action: 'deny' })); // block ad popups
         // never let the page bounce the main frame onto an ad/redirect
         win.webContents.on('will-navigate', (e, navUrl) => { if (isAdHost(navUrl)) { try { e.preventDefault(); } catch (err) {} } });
         win.webContents.on('will-redirect', (e, navUrl) => { if (isAdHost(navUrl)) { try { e.preventDefault(); } catch (err) {} } });
-        sess.on('will-download', (e, item) => {
+        downloadHandler = (e, item, downloadWebContents) => {
+            if (downloadWebContents !== win.webContents) return;
             const fileUrl = item.getURL();
             let fname = '';
             try { fname = item.getFilename() || ''; } catch (err) {}
@@ -2121,7 +2132,8 @@ function interceptDownload(url, timeoutMs = 55000) {
                 try { item.cancel(); } catch (err) {}
                 finish({ url: fileUrl, name: fname, headers: cookieHeader ? { Cookie: cookieHeader } : null });
             }).catch(() => { try { item.cancel(); } catch (err) {} finish({ url: fileUrl, name: fname, headers: null }); });
-        });
+        };
+        sess.on('will-download', downloadHandler);
         // retry clicking as the page/SPA settles (some hosts render the button late)
         const tryClick = () => { if (done || !win || win.isDestroyed()) return; win.webContents.executeJavaScript(INTERCEPT_CLICK_JS, true).catch(() => {}); };
         win.webContents.on('did-finish-load', () => setTimeout(tryClick, 1500));
@@ -2749,7 +2761,7 @@ async function postProcessDownload(dir, opts) {
     // them through the repack auto-installer (which would run a non-installer .exe and fail, so
     // the game would never get added to the library). This is what makes a finished SteamRIP
     // download land in the library with its exe + Steam art, exactly like a FitGirl install.
-    const preInstalled = /^steamrip$/i.test(opts.sourceId || '');
+    const preInstalled = /^(steamrip|steamgg)$/i.test(opts.sourceId || '');
     if (preInstalled) {
         // Already extracted above → result.exePath is the findGameExe pick. If that came back
         // empty (an oddly-named launcher), fall back to the best non-installer/redist exe so we
@@ -2867,6 +2879,147 @@ function runAria2Download(aria2, file, dir, opts, ctl, onProgress) {
         });
     });
 }
+
+function browserBytes(n) {
+    n = Number(n) || 0;
+    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    let i = 0;
+    while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+    return (i === 0 ? Math.round(n) : n.toFixed(n >= 100 ? 0 : n >= 10 ? 1 : 2)) + units[i];
+}
+
+function browserGameName(fileName) {
+    let s = String(fileName || 'Browser download').replace(/\.(zip|rar|7z|iso|torrent)$/i, '');
+    s = s.replace(/[-_. ]*(steamrip|steamgg)(\.com|\.net)?/ig, '').replace(/[-_. ]+$/g, '').trim();
+    return s || 'Browser download';
+}
+
+function unusedDownloadPath(dir, fileName) {
+    const ext = path.extname(fileName);
+    const stem = path.basename(fileName, ext);
+    let dest = path.join(dir, fileName), n = 2;
+    while (fs.existsSync(dest)) dest = path.join(dir, stem + ' (' + n++ + ')' + ext);
+    return dest;
+}
+
+async function finishCapturedGameDownload(wc, id, dir, opts, ctl) {
+    wc.send('download-progress', { id, state: 'processing', label: 'Extracting & preparing game...' });
+    try {
+        const res = await postProcessDownload(dir, opts);
+        if (res.needsInstall && res.exePath && opts.autoInstall !== false) {
+            const installTarget = path.join(dir, '_game');
+            let polling = true;
+            (async function pollSize() {
+                while (polling) {
+                    let gb = 0; try { gb = dirSizeBytes(installTarget, 0) / (1024 * 1024 * 1024); } catch (e) {}
+                    wc.send('download-progress', { id, state: 'installing', percent: 100, label: gb > 0.01 ? 'Installing game... ' + gb.toFixed(2) + ' GB written' : 'Installing game... preparing files' });
+                    await new Promise(r => setTimeout(r, 2500));
+                }
+            })();
+            try {
+                await runSilentInstall(res.exePath, installTarget, ctl, opts.skipRedist !== false);
+                polling = false;
+                await waitForDirSettle(installTarget, ctl);
+                let exe = findGameExe(installTarget, opts.gameName);
+                for (let t = 0; !exe && t < 3; t++) { await new Promise(r => setTimeout(r, 3000)); exe = findGameExe(installTarget, opts.gameName); }
+                if (exe) {
+                    cleanRepackSource(dir, installTarget);
+                    res.exePath = exe; res.folder = installTarget; res.needsInstall = false; res.installed = true;
+                } else {
+                    res.installFailed = true; res.exePath = '';
+                }
+            } catch (e) {
+                polling = false;
+                if (ctl.cancelled || /cancelled/i.test(e.message)) throw e;
+                res.installFailed = true; res.exePath = ''; res.installError = e.message;
+            }
+        }
+        if (!res.usable) {
+            wc.send('download-error', { id, url: opts.url, needsBrowser: false, error: 'Browser download finished but no usable game files were found.' });
+            return;
+        }
+        if (res.installFailed) res.warning = 'Downloaded, but auto-install did not complete' + (res.installError ? ' (' + res.installError + ')' : '') + '. Open the folder and run setup.exe manually.';
+        if (res.exePath && !fs.existsSync(res.exePath)) res.exePath = '';
+        if (!res.exePath && !res.installFailed) res.exePath = findGameExe((res.folder && fs.existsSync(res.folder)) ? res.folder : dir, opts.gameName) || findGameExe(dir, opts.gameName) || '';
+        wc.send('download-complete', Object.assign({ id }, res));
+    } catch (e) {
+        if (ctl.cancelled || /cancelled/i.test(e.message)) return;
+        wc.send('download-complete', { id, gameName: opts.gameName, folder: dir, exePath: '', cover: '', usable: true, warning: 'Saved, but extraction failed: ' + e.message });
+    }
+}
+
+function captureBrowserDownload(wc, item, webContentsId, prepared) {
+    const defaults = Object.assign({}, browserDownloadCapture.defaults || {});
+    const preparedOpts = prepared && prepared.opts ? prepared.opts : {};
+    const fileName = safeOutName(item.getFilename() || 'download') || 'download';
+    const id = preparedOpts.id || ('browser_' + Date.now() + '_' + Math.floor(Math.random() * 1000));
+    const opts = Object.assign(defaults, preparedOpts, {
+        id,
+        gameName: preparedOpts.gameName || browserGameName(fileName),
+        sourceId: preparedOpts.sourceId || 'browser',
+        url: (() => { try { return item.getURL(); } catch (e) { return preparedOpts.url || ''; } })()
+    });
+    pendingBrowserDownloads.delete(webContentsId);
+    const dir = path.join(getDownloadsRoot(opts.installDir), sanitizeName(opts.gameName));
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const savePath = unusedDownloadPath(dir, fileName);
+    const ctl = { proc: null, item, dir, cancelled: false, paused: false, browserCapture: true };
+    activeDownloads.set(id, ctl);
+    item.setSavePath(savePath);
+    if (opts.image && /^https?:/i.test(opts.image)) {
+        let ext = '.jpg'; try { ext = path.extname(new URL(opts.image).pathname) || '.jpg'; } catch (e) {}
+        dlHttpToFile(opts.image, path.join(dir, '_cover' + ext)).catch(() => {});
+    }
+    wc.send('browser-download-started', { id, gameName: opts.gameName, fileName, image: opts.image || '', sourceId: opts.sourceId, url: opts.url, installDir: opts.installDir || '', opts });
+    let lastBytes = 0, lastAt = Date.now();
+    item.on('updated', () => {
+        if (ctl.cancelled) return;
+        const now = Date.now();
+        const received = item.getReceivedBytes();
+        const total = item.getTotalBytes();
+        const seconds = Math.max(0.1, (now - lastAt) / 1000);
+        const speedBytes = Math.max(0, received - lastBytes) / seconds;
+        const percent = total > 0 ? Math.min(100, Math.round(received / total * 100)) : 0;
+        const eta = total > received && speedBytes > 0 ? Math.ceil((total - received) / speedBytes) : 0;
+        wc.send('download-progress', {
+            id, state: ctl.paused ? 'paused' : 'downloading', percent,
+            downloaded: browserBytes(received), total: total > 0 ? browserBytes(total) : '',
+            speed: browserBytes(speedBytes), eta: eta ? (eta < 60 ? eta + 's' : Math.ceil(eta / 60) + 'm') : ''
+        });
+        lastBytes = received; lastAt = now;
+    });
+    item.once('done', async (event, state) => {
+        activeDownloads.delete(id);
+        if (ctl.cancelled || state === 'cancelled') return;
+        if (state !== 'completed') {
+            wc.send('download-error', { id, url: opts.url, needsBrowser: true, error: 'Browser download was interrupted (' + state + ').' });
+            return;
+        }
+        await finishCapturedGameDownload(wc, id, dir, opts, ctl);
+    });
+}
+
+ipcMain.on('set-browser-download-capture', (e, config) => {
+    config = config || {};
+    browserDownloadCapture = { enabled: !!config.enabled, defaults: config.defaults || {} };
+});
+ipcMain.handle('register-browser-webview', (e, webContentsId) => {
+    if (Number.isFinite(Number(webContentsId))) browserDownloadWebContents.add(Number(webContentsId));
+    return true;
+});
+ipcMain.handle('prepare-browser-download', (e, payload) => {
+    payload = payload || {};
+    const id = Number(payload.webContentsId);
+    if (!Number.isFinite(id)) return false;
+    browserDownloadWebContents.add(id);
+    pendingBrowserDownloads.set(id, { opts: payload.opts || {} });
+    return true;
+});
+ipcMain.handle('resume-browser-download', (e, id) => {
+    const d = activeDownloads.get(id);
+    if (!d || !d.item) return false;
+    try { d.paused = false; d.item.resume(); return true; } catch (err) { return false; }
+});
 
 ipcMain.handle('download-game', async (e, opts) => {
     const wc = e.sender;
@@ -3071,6 +3224,15 @@ ipcMain.handle('download-game', async (e, opts) => {
                         + (res.installError ? ' (' + res.installError + ')' : '')
                         + '. Open the folder and run setup.exe manually.';
                 }
+                // Never persist a guessed path that no longer exists. Some pre-installed
+                // archives (notably SteamGG) add a provider suffix to their root folder,
+                // e.g. "Discounty - SteamGG.NET". Re-scan the final on-disk tree here so
+                // the library receives the real path instead of a stale/predicted one.
+                if (res.exePath && !fs.existsSync(res.exePath)) res.exePath = '';
+                if (!res.exePath && !res.installFailed) {
+                    const finalRoot = (res.folder && fs.existsSync(res.folder)) ? res.folder : dir;
+                    res.exePath = findGameExe(finalRoot, opts.gameName) || (finalRoot !== dir ? findGameExe(dir, opts.gameName) : '') || '';
+                }
                 wc.send('download-complete', Object.assign({ id }, res));
             }
         } catch (perr) {
@@ -3107,7 +3269,15 @@ function downloadDirFor(gameName, installDir) {
 ipcMain.handle('cancel-download', (e, id, info) => {
     info = info || {};
     const d = activeDownloads.get(id);
-    if (d) { d.cancelled = true; try { d.proc && d.proc.kill(); } catch (err) {} activeDownloads.delete(id); }
+    if (d) {
+        d.cancelled = true;
+        try { d.proc && d.proc.kill(); } catch (err) {}
+        try { d.item && d.item.cancel(); } catch (err) {}
+        activeDownloads.delete(id);
+    }
+    for (const [webContentsId, pending] of pendingBrowserDownloads) {
+        if (pending && pending.opts && pending.opts.id === id) pendingBrowserDownloads.delete(webContentsId);
+    }
     if (info.deleteFolder) {
         const dir = (d && d.dir) || (info.gameName ? downloadDirFor(info.gameName, info.installDir) : null);
         // Give aria2 a moment to release its file handles (Windows locks the .aria2 file)
@@ -3121,6 +3291,7 @@ ipcMain.handle('cancel-download', (e, id, info) => {
 // continue from where it stopped. Removed from activeDownloads; files stay on disk.
 ipcMain.handle('pause-download', (e, id) => {
     const d = activeDownloads.get(id);
+    if (d && d.item) { d.paused = true; try { d.item.pause(); return true; } catch (err) { return false; } }
     if (d) { d.paused = true; try { d.proc && d.proc.kill(); } catch (err) {} activeDownloads.delete(id); return true; }
     return false;
 });
@@ -3128,6 +3299,13 @@ ipcMain.handle('pause-download', (e, id) => {
 // Clear cached data (Download settings → Clear Cache). Wipes the in-memory resolved
 // debrid-link cache and the in-app browser's HTTP cache, so stale/expired links and pages
 // are re-fetched fresh. Does NOT touch the user's settings, library, or downloaded games.
+ipcMain.handle('get-download-cache-size', async () => {
+    let bytes = 0;
+    try { bytes += await session.defaultSession.getCacheSize(); } catch (e) {}
+    try { bytes += Buffer.byteLength(JSON.stringify([...debridCache.entries()]), 'utf8'); } catch (e) {}
+    return { bytes };
+});
+
 ipcMain.handle('clear-cache', async () => {
     const cleared = [];
     try { const n = debridCache.size; debridCache.clear(); cleared.push('resolved links (' + n + ')'); } catch (e) {}
@@ -3278,7 +3456,10 @@ function resolveOnlineFixHosters(gameUrl, timeoutMs = 55000) {
             wc.on('will-navigate', (e, u) => { if (OF_KNOWN_HOST.test(u)) { capture(u); try { e.preventDefault(); } catch (er) {} } else if (isAdHost(u)) { try { e.preventDefault(); } catch (er) {} } });
             wc.on('will-redirect', (e, u) => { if (OF_KNOWN_HOST.test(u)) { capture(u); try { e.preventDefault(); } catch (er) {} } else if (isAdHost(u)) { try { e.preventDefault(); } catch (er) {} } });
             try {
-                ses.on('will-download', (e, item) => { const u = item.getURL(); capture(u, (() => { try { return item.getFilename(); } catch (er) { return ''; } })()); try { item.cancel(); } catch (er) {} });
+                ses.on('will-download', (e, item, downloadWebContents) => {
+                    if (downloadWebContents !== wc) return;
+                    const u = item.getURL(); capture(u, (() => { try { return item.getFilename(); } catch (er) { return ''; } })()); try { item.cancel(); } catch (er) {}
+                });
             } catch (er) {}
         };
 
