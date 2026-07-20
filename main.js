@@ -17,6 +17,8 @@ try {
 }
 const DiscordRPC = require('discord-rpc');
 const cloudSync = require('./cloudSync');
+const { registerMaintenanceIpc } = require('./maintenance/ipc');
+const { scanSaveCandidates } = require('./maintenance/saveScanner');
 const args = process.argv;
 let autoLaunchGameId = null;
 const launchArg = args.find(a => a.startsWith('--launch-game-id='));
@@ -26,6 +28,7 @@ const startHidden = args.includes('--hidden');
 let activeBackupProcess = null;
 let backingUpZipPath = null;
 let tray = null;
+let maintenanceService = null;
 let isQuitting = false;
 let exitSynced = false;
 
@@ -82,7 +85,10 @@ function findBestExe(folderPath, gameName = "") {
         for (const file of files) {
             const full = path.join(dir, file);
             let stat;
-            try { stat = fs.statSync(full); } catch(e) { continue; }
+            try { stat = fs.lstatSync(full); } catch(e) { continue; }
+            // Maintenance and executable discovery must never traverse links/junctions outside
+            // the installation that the user selected.
+            if (stat.isSymbolicLink()) continue;
             
             if (stat.isDirectory()) {
                 const lowerDir = file.toLowerCase();
@@ -1273,7 +1279,7 @@ ipcMain.handle('hub-download-file', async (e, { fileUrl, type }) => {
 });
 
 // --- Game Download Sources: fetch raw HTML with a browser-like User-Agent ---
-// Used by the "Download" tab scrapers (SteamRIP / FitGirl / Online-Fix / DODI).
+// Used by the "Download" tab scrapers (SteamRIP / FitGirl / SteamGG).
 // Routed through the main process so we can set a desktop UA, follow redirects,
 // and sidestep renderer CORS / Cloudflare fetch fingerprinting.
 function fetchSourceHtml(url, redirects = 0) {
@@ -1349,7 +1355,7 @@ const AD_BLOCK_HOSTS = [
 ];
 let adBlockEnabled = true;
 // hosts that are legitimate download targets — never treat these as ads
-const DL_HOST_ALLOW = /(gofile|pixeldrain|datanodes|fuckingfast|1fichier|mediafire|mega\.nz|megadb|qiwi|multiup|bowfile|hexload|vikingfile|rootz|akirabox|filekeeper|filecrypt|online-fix|steamrip|fitgirl|dodi|rutor\.info)/i;
+const DL_HOST_ALLOW = /(gofile|pixeldrain|datanodes|fuckingfast|1fichier|mediafire|mega\.nz|megadb|qiwi|multiup|bowfile|hexload|vikingfile|rootz|akirabox|filekeeper|filecrypt|steamrip|fitgirl|rutor\.info)/i;
 function isAdHost(url) {
     try {
         const h = new URL(url).hostname.toLowerCase();
@@ -1372,7 +1378,7 @@ ipcMain.handle('set-adblock', (e, enabled) => { adBlockEnabled = !!enabled; retu
 
 // Render a page in a hidden Chromium window so Cloudflare / DDoS-Guard JS
 // challenges are solved automatically, and so login cookies from the in-app
-// browser (same default session) carry over (e.g. Online-Fix). Returns the
+// browser (same default session) carry over. Returns the
 // fully-rendered HTML.
 function renderPageHtml(url, { timeout = 45000 } = {}) {
     return new Promise((resolve) => {
@@ -2157,6 +2163,7 @@ function findGameExe(dir, gameName) {
         try { entries = fs.readdirSync(d, { withFileTypes: true }); } catch (e) { return; }
         for (const ent of entries) {
             const full = path.join(d, ent.name);
+            if (ent.isSymbolicLink()) continue;
             if (ent.isDirectory()) { walk(full, depth + 1); continue; }
             if (!ent.name.toLowerCase().endsWith('.exe')) continue;
             // ignore repack helper exes tucked in an MD5/checksum folder
@@ -2318,13 +2325,13 @@ function dirSizeBytes(d, depth) {
     return total;
 }
 
-// Run a FitGirl / DODI (InnoSetup) installer unattended into targetDir. These repacks
+// Run a FitGirl (InnoSetup) installer unattended into targetDir. These repacks
 // support InnoSetup's silent switches; /VERYSILENT skips the custom UI, /DIR sets the
 // destination. The installer may still raise a single UAC prompt if it needs admin.
 function runSilentInstall(installerPath, targetDir, ctl, skipExtras) {
     return new Promise((resolve, reject) => {
         try { if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true }); } catch (e) {}
-        // FitGirl/DODI installers require admin to install — a plain spawn (non-elevated)
+        // FitGirl installers require admin to install — a plain spawn (non-elevated)
         // exits instantly without installing anything. Launch ELEVATED via Start-Process
         // -Verb RunAs (one UAC prompt), wait for it, and capture the real exit code.
         //
@@ -2332,7 +2339,7 @@ function runSilentInstall(installerPath, targetDir, ctl, skipExtras) {
         // redists, desktop shortcuts, "visit site" URL). Hard-wired [Run] steps can't be
         // overridden — those are baked into the repack.
         //
-        // Audio: FitGirl/DODI installers play background music even under /VERYSILENT.
+        // Audio: FitGirl installers play background music even under /VERYSILENT.
         // Rather than muting the WHOLE system, we mute ONLY the installer's own audio
         // session(s) — its process plus any children — via the per-app ISimpleAudioVolume
         // COM API, polling because the session appears a moment after launch. Nothing global
@@ -2585,7 +2592,7 @@ function runSilentInstall(installerPath, targetDir, ctl, skipExtras) {
     });
 }
 
-// FitGirl/DODI installers are InnoSetup bootstrappers: the setup.exe we launch often
+// FitGirl installers are InnoSetup bootstrappers: the setup.exe we launch often
 // extracts a second installer to %TEMP%, hands off, and EXITS within a second — so the
 // process we waited on is gone long before the game has finished being written. Polling
 // the process tree alone declares "done" too early, we find no game exe, and the whole
@@ -2720,7 +2727,7 @@ async function postProcessDownload(dir, opts) {
         if (result.extracted) result.exePath = findGameExe(extractTo, opts.gameName) || findGameExe(dir, opts.gameName) || '';
         // CRITICAL: the file list above was captured BEFORE extraction, so it only knew about
         // the archives (now deleted). A repack can ship setup.exe + fg-*.bin INSIDE that archive
-        // (FitGirl/DODI sometimes wrap the installer in a .rar). Re-walk the extracted folder and
+        // (FitGirl sometimes wraps the installer in a .rar). Re-walk the extracted folder and
         // append its files so the installer detection below can see them — otherwise needsInstall
         // is never set and the auto-installer never runs.
         if (result.extracted) {
@@ -2773,7 +2780,7 @@ async function postProcessDownload(dir, opts) {
         }
         // never set needsInstall for a pre-installed source
     }
-    // FitGirl/DODI repacks ship as setup.exe + .bin parts → always treat as an install,
+    // FitGirl repacks ship as setup.exe + .bin parts → always treat as an install,
     // overriding any stray tiny helper .exe (e.g. QuickSFV) that findGameExe may have grabbed.
     else if (setupExe && hasBin) { result.exePath = setupExe.full; result.needsInstall = true; }
     else if (!result.exePath && installer) { result.exePath = installer.full; result.needsInstall = true; }
@@ -2788,8 +2795,7 @@ async function postProcessDownload(dir, opts) {
     return result;
 }
 
-// Files we never want to download (online-fix bundles a generic steam-fix that
-// the user handles separately). Matches on filename or URL.
+// Generic repair bundles are not game payloads. Matches on filename or URL.
 const DL_SKIP_FILE = /fix[_\s.-]*repair[_\s.-]*steam[_\s.-]*(v\d+[_\s.-]*)?generic|_repair_steam_|repair[_\s.-]*steam[_\s.-]*generic/i;
 
 function safeOutName(name) {
@@ -3156,7 +3162,7 @@ ipcMain.handle('download-game', async (e, opts) => {
         try {
             const res = await postProcessDownload(dir, opts);
 
-            // Auto-install: FitGirl / DODI repacks come as setup.exe + .bin parts. If the
+            // Auto-install: FitGirl repacks come as setup.exe + .bin parts. If the
             // user has auto-install on, run the installer unattended into a clean folder,
             // then delete the repack source so only the playable game remains.
             if (res.needsInstall && res.exePath && opts.autoInstall !== false) {
@@ -3321,210 +3327,18 @@ ipcMain.handle('clear-cache', async () => {
 // Called AFTER the user first plays & exits a downloaded game (saves don't exist at
 // install time). `playedSince` (ms epoch, optional) prefers folders touched during/after
 // the just-finished session. Returns the best-matching folder path, or null.
-ipcMain.handle('scan-game-saves', async (e, gameName, playedSince) => {
+ipcMain.handle('scan-game-saves', async (e, gameName, playedSince, scanOptions = {}) => {
     try {
-        const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-        const target = norm(gameName);
-        if (!target || target.length < 3) return null;
-        const home = app.getPath('home');
-        const localLow = process.env.LOCALAPPDATA ? path.join(path.dirname(process.env.LOCALAPPDATA), 'LocalLow') : '';
-        const roots = [
-            path.join(home, 'Saved Games'),
-            path.join(home, 'Documents', 'My Games'),
-            path.join(home, 'Documents'),
-            process.env.APPDATA || '',
-            process.env.LOCALAPPDATA || '',
-            localLow
-        ].filter(Boolean);
-        const candidates = [];
-        for (const root of roots) {
-            let ents; try { ents = fs.readdirSync(root, { withFileTypes: true }); } catch (er) { continue; }
-            for (const en of ents) {
-                if (!en.isDirectory()) continue;
-                const n = norm(en.name);
-                if (n.length < 3) continue;
-                const exact = n === target;
-                const partial = !exact && (n.includes(target) || target.includes(n)) && Math.min(n.length, target.length) >= 4;
-                if (!exact && !partial) continue;
-                const full = path.join(root, en.name);
-                let mtime = 0; try { mtime = fs.statSync(full).mtimeMs; } catch (er) {}
-                // skip folders that clearly weren't touched by this play session
-                if (playedSince && mtime && mtime < (playedSince - 5 * 60 * 1000)) continue;
-                candidates.push({ full, mtime, score: exact ? 3 : 2 });
-            }
-        }
+        const candidates = await scanSaveCandidates({ gameName, installRoot: scanOptions.installRoot, includeInstallRoot: scanOptions.includeInstallRoot !== false, customRoots: scanOptions.customRoots || [] });
         if (!candidates.length) return null;
-        candidates.sort((a, b) => (b.score - a.score) || (b.mtime - a.mtime));
-        return candidates[0].full;
+        const recent = playedSince ? candidates.filter(item => new Date(item.modifiedAt).getTime() >= playedSince - 5 * 60 * 1000) : candidates;
+        return (recent[0] || candidates[0]).path;
     } catch (er) { return null; }
 });
 
 ipcMain.handle('pick-download-folder', async () => {
     const r = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] });
     return r.canceled ? null : r.filePaths[0];
-});
-
-// In-page JS that scrapes every real file-host download link from whatever page
-// it runs in (the Online-Fix "Hosters" popup/iframe, or the game page as a
-// fallback). Reads href + onclick + data-* so JS-driven buttons are caught too.
-const OF_EXTRACT_JS = `(function(){
-    var KNOWN=/gofile\\.io|pixeldrain\\.com|datanodes|vikingfile|rootz|1fichier|mega(\\.nz|db)|mediafire|fuckingfast|hexload|qiwi|multiup|bowfile|akirabox|\\.rar|\\.zip|\\.7z|part\\d+/i;
-    var SKIPHOST=/online-fix\\.me\\/?($|\\/(index|user|rules|faq|page|tags|stats|news|addnews|favorites|dle|engine))/i;
-    var seen={}, out=[];
-    function add(href, ctx){
-        if(!href||!/^https?:/i.test(href)) return;
-        if(SKIPHOST.test(href)) return;
-        if(!KNOWN.test(href)) return;
-        if(seen[href]) return; seen[href]=1;
-        var name=(ctx||'').replace(/download|скачать|загрузить/ig,'').replace(/\\s+/g,' ').trim().slice(0,140);
-        var host=''; try{host=new URL(href).hostname.replace(/^www\\./,'');}catch(e){}
-        out.push({name:name||host, url:href, host:host});
-    }
-    var els=[].slice.call(document.querySelectorAll('a[href],[onclick],[data-url],[data-href],[data-link],[data-download]'));
-    els.forEach(function(a){
-        var href=(/^https?:/i.test(a.href||'')?a.href:'') || a.getAttribute('data-url') || a.getAttribute('data-href') || a.getAttribute('data-link') || a.getAttribute('data-download') || '';
-        if(!/^https?:/i.test(href)){ var oc=a.getAttribute('onclick')||''; var m=oc.match(/https?:\\/\\/[^'\"\\s)]+/); if(m) href=m[0]; }
-        var row=(a.closest&&a.closest('tr,li,.row,div'))||a;
-        add(href, (row.textContent||a.textContent||''));
-    });
-    return out;
-})();`;
-
-// Open an Online-Fix game page (carrying the in-app browser's login session),
-// click the "Hosters" / download trigger, capture the popup window it spawns,
-// and scrape the per-file host links from it. Falls back to scraping the game
-// page itself if no popup appears. Returns { files:[{name,url,host}], loggedIn }.
-const OF_KNOWN_HOST = /gofile\.io|pixeldrain\.com|datanodes|vikingfile|rootz|1fichier|mega(\.nz|db)|mediafire|fuckingfast|hexload|qiwi|multiup|bowfile|akirabox/i;
-
-// Clicks tabs + DOWNLOAD buttons inside the hosters popup so each host's link is
-// triggered (we capture the resulting navigation instead of following it).
-const OF_POPUP_CLICK_JS = `(function(){
-    var n=0;
-    var els=[].slice.call(document.querySelectorAll('a,button,li,span,div,[role="tab"],[onclick]'));
-    els.forEach(function(el){
-        if(el.__ofc) return;
-        var t=((el.textContent||'')+' '+(el.value||'')).trim().toLowerCase();
-        var href=(el.href||'').toLowerCase();
-        var isHostLink=/gofile|pixeldrain|datanodes|vikingfile|rootz|1fichier|mediafire|fuckingfast|hexload|multiup|bowfile|mega/.test(href);
-        var isDl=/^(download|скачать|загрузить|download now)$/.test(t)||isHostLink;
-        var isTab=/^(pixeldrain|gofile|rootz|vikingfile|datanodes|mega|mega\\.nz|mediafire|1fichier|fuckingfast|hexload)$/.test(t);
-        if((isDl||isTab) && el.offsetParent!==null){ el.__ofc=1; try{el.click();}catch(e){} n++; }
-    });
-    return n;
-})();`;
-
-// Open an Online-Fix game page (carrying the in-app browser's login session), open
-// the "Hosters" popup, and collect every file-host link. Host links are captured by
-// intercepting navigations/popups/downloads (and prevented, so we can keep clicking
-// the rest) rather than relying on static hrefs being present. Returns
-// { files:[{name,url,host}], loggedIn }.
-function resolveOnlineFixHosters(gameUrl, timeoutMs = 55000) {
-    return new Promise((resolve) => {
-        let done = false, win = null, popup = null, poll = null, timer = null;
-        let loggedIn = null;
-        const collected = new Map(); // url -> name
-        let lastCount = 0, stableTicks = 0;
-
-        const capture = (url, name) => {
-            if (!url || !/^https?:/i.test(url)) return;
-            if (isAdHost(url) || /online-fix\.me/i.test(url)) return;
-            if (!OF_KNOWN_HOST.test(url)) return;
-            if (!collected.has(url)) collected.set(url, name || '');
-        };
-        const result = () => {
-            const files = [...collected.entries()].map(([url, name]) => {
-                let host = ''; try { host = new URL(url).hostname.replace(/^www\./, ''); } catch (e) {}
-                return { url, name: name || host, host };
-            });
-            return { files, loggedIn: loggedIn === null ? (files.length ? true : null) : loggedIn };
-        };
-        const finish = (val) => {
-            if (done) return; done = true;
-            clearTimeout(timer); if (poll) clearInterval(poll);
-            try { if (popup && !popup.isDestroyed()) popup.destroy(); } catch (e) {}
-            try { if (win && !win.isDestroyed()) win.destroy(); } catch (e) {}
-            resolve(val || result());
-        };
-        timer = setTimeout(() => finish(), timeoutMs);
-        try {
-            win = new BrowserWindow({ show: false, width: 1280, height: 900, webPreferences: { sandbox: true, backgroundThrottling: false } });
-        } catch (e) { return resolve({ files: [], loggedIn: null, error: e.message }); }
-        try { applyAdBlock(win.webContents.session); } catch (e) {}
-
-        // wire navigation/download/popup capture onto a webContents
-        const wire = (wc, ses) => {
-            wc.on('will-navigate', (e, u) => { if (OF_KNOWN_HOST.test(u)) { capture(u); try { e.preventDefault(); } catch (er) {} } else if (isAdHost(u)) { try { e.preventDefault(); } catch (er) {} } });
-            wc.on('will-redirect', (e, u) => { if (OF_KNOWN_HOST.test(u)) { capture(u); try { e.preventDefault(); } catch (er) {} } else if (isAdHost(u)) { try { e.preventDefault(); } catch (er) {} } });
-            try {
-                ses.on('will-download', (e, item, downloadWebContents) => {
-                    if (downloadWebContents !== wc) return;
-                    const u = item.getURL(); capture(u, (() => { try { return item.getFilename(); } catch (er) { return ''; } })()); try { item.cancel(); } catch (er) {}
-                });
-            } catch (er) {}
-        };
-
-        // Game window: allow the hosters popup (hidden), capture any host links it
-        // tries to open directly.
-        win.webContents.setWindowOpenHandler(({ url }) => {
-            if (url && OF_KNOWN_HOST.test(url)) { capture(url); return { action: 'deny' }; }
-            if (url && isAdHost(url)) return { action: 'deny' };
-            return { action: 'allow', overrideBrowserWindowOptions: { show: false } };
-        });
-        wire(win.webContents, win.webContents.session);
-        win.webContents.on('did-create-window', (child) => {
-            popup = child;
-            try { applyAdBlock(child.webContents.session); } catch (e) {}
-            child.webContents.setWindowOpenHandler(({ url }) => { if (url) capture(url); return { action: 'deny' }; });
-            wire(child.webContents, child.webContents.session);
-        });
-
-        const scan = async (wc) => {
-            if (!wc) return;
-            const run = async (ctx) => { try { const f = await ctx.executeJavaScript(OF_EXTRACT_JS, true); (f || []).forEach(x => capture(x.url, x.name)); } catch (e) {} };
-            await run(wc);
-            try { const frames = wc.mainFrame ? wc.mainFrame.frames : []; for (const fr of frames) await run(fr); } catch (e) {}
-        };
-
-        const tick = async () => {
-            if (done || !win || win.isDestroyed()) return;
-            // game page: detect login + click the hosters trigger
-            try {
-                const info = await win.webContents.executeJavaScript(`(function(){
-                    var loggedIn = !!document.querySelector('a[href*="logout"], a[href*="do=logout"]') || /\\bвыход\\b|do=logout/i.test(document.body.innerHTML);
-                    var clicked=0, nodes=[].slice.call(document.querySelectorAll('a,button,div,span,input'));
-                    nodes.forEach(function(el){
-                        if(el.__ofClicked) return;
-                        var t=((el.textContent||'')+' '+(el.value||'')+' '+(el.title||'')).trim().toLowerCase();
-                        var href=(el.href||'').toLowerCase();
-                        var isTrg = /^(скачать|download|hosters?|загрузить|скачать игру|download game)$/.test(t) || /hoster|uploads\\.online-fix|premium\\.online-fix/.test(href) || (/скачать|download/.test(t) && t.length<24);
-                        if(isTrg && el.offsetParent!==null){ el.__ofClicked=1; try{el.click();}catch(e){} clicked++; }
-                    });
-                    return { loggedIn: loggedIn, clicked: clicked };
-                })();`, true);
-                if (info && info.loggedIn) loggedIn = true;
-            } catch (e) {}
-            // hosters popup: click every tab + DOWNLOAD button so each host link fires
-            if (popup && !popup.isDestroyed()) {
-                try { await popup.webContents.executeJavaScript(OF_POPUP_CLICK_JS, true); } catch (e) {}
-                await scan(popup.webContents);
-            }
-            await scan(win.webContents);
-
-            // settle: once we have links and a couple ticks add nothing new, return
-            if (collected.size && collected.size === lastCount) { if (++stableTicks >= 2) return finish(); }
-            else stableTicks = 0;
-            lastCount = collected.size;
-        };
-
-        win.webContents.on('did-finish-load', () => setTimeout(tick, 1200));
-        poll = setInterval(tick, 2500);
-        win.loadURL(gameUrl, { userAgent: DL_UA }).catch(() => finish({ files: [], loggedIn, error: 'load failed' }));
-    });
-}
-
-ipcMain.handle('resolve-onlinefix', async (e, url) => {
-    try { return await resolveOnlineFixHosters(url); }
-    catch (err) { return { files: [], loggedIn: null, error: err.message }; }
 });
 
 const gotTheLock = app.requestSingleInstanceLock();
@@ -3694,6 +3508,7 @@ else {
 
     app.whenReady().then(() => {
         try { applyAdBlock(session.defaultSession); } catch (e) {}
+        maintenanceService = registerMaintenanceIpc({ app, ipcMain, BrowserWindow, dialog, shell, findExecutable: findBestExe });
         createWindow();
         tray = new Tray(path.join(__dirname, 'icon.ico'));
         const contextMenu = Menu.buildFromTemplate([

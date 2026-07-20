@@ -1,0 +1,166 @@
+#maintenanceView {
+    display: none;
+    box-sizing: border-box;
+    flex-direction: column;
+    width: 100%;
+    gap: 18px;
+    padding-bottom: 40px;
+}
+
+.maintenance-header,
+.maintenance-toolbar,
+.maintenance-summary-grid,
+.maintenance-game-head,
+.maintenance-actions,
+.maintenance-job-row,
+.maintenance-setting-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.maintenance-header { justify-content: space-between; flex-wrap: wrap; }
+.maintenance-header h1 { margin: 0; font-size: 28px; }
+.maintenance-header p { margin: 5px 0 0; opacity: .65; font-size: 13px; }
+.maintenance-toolbar { flex-wrap: wrap; }
+
+.maintenance-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    align-items: stretch;
+}
+
+.maintenance-summary-card,
+.maintenance-panel,
+.maintenance-game-card,
+#gpMaintenancePanel {
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    box-sizing: border-box;
+}
+
+.maintenance-summary-card { padding: 16px; min-height: 92px; }
+.maintenance-summary-value { display: block; font-size: 25px; font-weight: 800; margin-bottom: 4px; }
+.maintenance-summary-label { font-size: 12px; opacity: .65; }
+.maintenance-panel { padding: 18px; }
+.maintenance-panel-title { margin: 0 0 12px; font-size: 17px; }
+.maintenance-game-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 12px; }
+.maintenance-game-card { padding: 14px; min-width: 0; }
+.maintenance-game-cover { width: 76px; height: 43px; object-fit: cover; border-radius: 7px; background: var(--bg-color); flex: none; }
+.maintenance-game-main { min-width: 0; flex: 1; }
+.maintenance-game-name { font-size: 15px; font-weight: 750; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.maintenance-game-meta { font-size: 11px; opacity: .62; margin-top: 4px; line-height: 1.45; }
+.maintenance-actions { flex-wrap: wrap; margin-top: 12px; }
+.maintenance-actions button { padding: 7px 11px; font-size: 12px; }
+
+.maintenance-health {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    border: 1px solid var(--border-color);
+    border-radius: 999px;
+    padding: 4px 9px;
+    font-size: 11px;
+    font-weight: 700;
+    white-space: nowrap;
+}
+.maintenance-health[data-health="healthy"] { border-color: color-mix(in srgb, #22c55e 55%, var(--border-color)); }
+.maintenance-health[data-health="information"] { border-color: color-mix(in srgb, var(--accent) 45%, var(--border-color)); }
+.maintenance-health[data-health="warning"] { border-color: color-mix(in srgb, #f59e0b 60%, var(--border-color)); }
+.maintenance-health[data-health="error"],
+.maintenance-health[data-health="critical"] { border-color: color-mix(in srgb, #ef4444 65%, var(--border-color)); }
+
+.maintenance-progress { height: 6px; background: var(--bg-color); border: 1px solid var(--border-color); border-radius: 999px; overflow: hidden; margin-top: 8px; }
+.maintenance-progress > span { display: block; height: 100%; width: 0; background: var(--accent); transition: width .15s ease; }
+.maintenance-job-row { padding: 9px 0; border-bottom: 1px solid var(--border-color); align-items: flex-start; }
+.maintenance-job-row:last-child { border-bottom: none; }
+.maintenance-job-body { flex: 1; min-width: 0; }
+.maintenance-job-title { font-size: 13px; font-weight: 700; }
+.maintenance-job-detail { font-size: 11px; opacity: .6; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+#gpMaintenancePanel { margin-top: 22px; padding: 20px; }
+.maintenance-detail-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; margin: 12px 0; }
+.maintenance-detail-cell { padding: 11px; border: 1px solid var(--border-color); border-radius: 9px; min-width: 0; }
+.maintenance-detail-label { display: block; font-size: 10px; opacity: .55; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 5px; }
+.maintenance-path { font-family: Consolas, monospace; font-size: 11px; overflow-wrap: anywhere; }
+.maintenance-issue { padding: 10px 0; border-bottom: 1px solid var(--border-color); display: flex; gap: 10px; align-items: flex-start; }
+.maintenance-issue:last-child { border-bottom: none; }
+.maintenance-issue-message { font-size: 12px; line-height: 1.45; }
+.maintenance-issue-code { font-family: Consolas, monospace; font-size: 10px; opacity: .55; }
+.maintenance-timeline-item { padding: 11px; border-left: 2px solid var(--accent); margin: 8px 0; background: color-mix(in srgb, var(--card-bg) 70%, transparent); }
+
+.maintenance-setting-row { justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--border-color); }
+.maintenance-setting-row > label:first-child { font-size: 13px; line-height: 1.4; }
+.maintenance-setting-row input[type="number"],
+.maintenance-setting-row select { width: 150px; }
+.maintenance-setting-stack { display: flex; flex-direction: column; gap: 7px; margin: 12px 0; }
+.maintenance-setting-stack textarea,
+.maintenance-setting-stack input[type="text"] { width: 100%; box-sizing: border-box; }
+.maintenance-setting-stack textarea {
+    min-height: 92px;
+    resize: vertical;
+    padding: 11px 13px;
+    border: 1px solid color-mix(in srgb, var(--border-color) 78%, var(--accent) 22%);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--card-bg) 82%, transparent);
+    color: var(--text-color);
+    caret-color: var(--accent);
+    font: 12px/1.55 Consolas, monospace;
+    outline: none;
+    box-shadow: inset 0 1px 2px rgba(0, 0, 0, .16);
+    transition: border-color .18s ease, box-shadow .18s ease, background .18s ease;
+}
+.maintenance-setting-stack textarea::placeholder { color: color-mix(in srgb, var(--text-color) 42%, transparent); }
+.maintenance-setting-stack textarea:hover { border-color: color-mix(in srgb, var(--accent) 55%, var(--border-color)); }
+.maintenance-setting-stack textarea:focus {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--card-bg) 92%, transparent);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent), inset 0 1px 2px rgba(0, 0, 0, .12);
+}
+.maintenance-detail-note { margin-top: 5px; font-size: 10px; opacity: .55; }
+.maintenance-save-modal { width: 760px; max-width: 92vw; max-height: 82vh; overflow-y: auto; }
+.maintenance-help-text { font-size: 12px; opacity: .65; line-height: 1.5; }
+.maintenance-save-candidate {
+    display: flex; flex-direction: column; align-items: flex-start; gap: 5px; width: 100%;
+    margin: 7px 0; padding: 11px 13px; text-align: left; overflow-wrap: anywhere;
+    background: color-mix(in srgb, var(--card-bg) 78%, transparent) !important;
+    border: 1px solid var(--border-color) !important; color: var(--text-color) !important;
+}
+.maintenance-save-candidate:hover { border-color: var(--accent) !important; background: color-mix(in srgb, var(--accent) 8%, var(--card-bg)) !important; }
+.maintenance-save-candidate span { font-size: 11px; opacity: .62; }
+.maintenance-empty-state { padding: 26px; text-align: center; opacity: .62; border: 1px dashed var(--border-color); border-radius: 10px; }
+.save-detection-candidates { margin: 7px 0 12px; padding: 10px; border: 1px solid var(--border-color); border-radius: 9px; background: color-mix(in srgb, var(--card-bg) 80%, transparent); }
+.save-detection-candidates > span,
+.save-detection-candidates > label { display: block; font-size: 11px; opacity: .68; margin-bottom: 7px; }
+.save-detection-candidates select { width: 100%; }
+.save-detection-loading { display: flex; align-items: center; gap: 9px; font-size: 12px; opacity: .82; }
+.save-scan-spinner { display: inline-block; width: 14px; height: 14px; flex: 0 0 14px; border: 2px solid color-mix(in srgb, var(--accent) 24%, transparent); border-top-color: var(--accent); border-radius: 50%; animation: maintenanceSaveScanSpin .72s linear infinite; vertical-align: -2px; }
+button.save-scan-loading { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-width: 96px; }
+@keyframes maintenanceSaveScanSpin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .save-scan-spinner { animation-duration: 1.4s; } }
+
+.maintenance-cleanup-list { max-height: 52vh; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+.maintenance-cleanup-item { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: start; padding: 10px; border: 1px solid var(--border-color); border-radius: 9px; }
+.maintenance-cleanup-path { font-size: 11px; font-family: Consolas, monospace; overflow-wrap: anywhere; }
+.maintenance-risk { font-size: 10px; opacity: .7; text-transform: uppercase; }
+
+body.glassmorphic-mode .maintenance-summary-card,
+body.glassmorphic-mode .maintenance-panel,
+body.glassmorphic-mode .maintenance-game-card,
+body.glassmorphic-mode #gpMaintenancePanel {
+    background: var(--glass-card-bg) !important;
+    border-color: var(--glass-border, var(--border-color)) !important;
+    backdrop-filter: blur(var(--glass-blur, 18px));
+}
+body.glassmorphic-mode .maintenance-setting-stack textarea,
+body.glassmorphic-mode .save-detection-candidates {
+    background: color-mix(in srgb, var(--text-color) 5%, transparent) !important;
+    border-color: var(--glass-border, var(--border-color)) !important;
+    backdrop-filter: blur(12px);
+}
+
+@media (max-width: 760px) {
+    .maintenance-game-list { grid-template-columns: 1fr; }
+    .maintenance-header { align-items: flex-start; }
+}

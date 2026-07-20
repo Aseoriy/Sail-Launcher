@@ -1,0 +1,181 @@
+.sail-dialog-layer {
+    position: fixed;
+    inset: 0;
+    z-index: 50000;
+    display: grid;
+    place-items: center;
+    padding: 24px;
+    color: var(--text-color, #f8fafc);
+    background: color-mix(in srgb, var(--bg-color, #071321) 42%, transparent);
+    backdrop-filter: blur(14px) saturate(125%);
+    -webkit-backdrop-filter: blur(14px) saturate(125%);
+    opacity: 0;
+    animation: sailDialogBackdropIn 180ms ease-out forwards;
+}
+
+.sail-dialog-layer.is-closing {
+    pointer-events: none;
+    animation: sailDialogBackdropOut 160ms ease-in forwards;
+}
+
+.sail-dialog-card {
+    position: relative;
+    width: min(520px, calc(100vw - 48px));
+    overflow: hidden;
+    padding: 0;
+    border: 1px solid color-mix(in srgb, var(--accent, #a855f7) 38%, var(--border-color, #334155));
+    border-radius: max(16px, var(--radius, 12px));
+    background:
+        linear-gradient(145deg, color-mix(in srgb, var(--accent, #a855f7) 10%, transparent), transparent 42%),
+        color-mix(in srgb, var(--card-bg, #111c2c) 92%, transparent);
+    box-shadow: 0 28px 80px rgba(0, 0, 0, .46), 0 0 0 1px rgba(255,255,255,.035) inset;
+    transform-origin: 50% 45%;
+    animation: sailDialogCardIn 420ms cubic-bezier(.16, 1, .3, 1) forwards;
+}
+
+.sail-dialog-layer.is-closing .sail-dialog-card {
+    animation: sailDialogCardOut 160ms cubic-bezier(.7, 0, .84, 0) forwards;
+}
+
+.sail-dialog-card::before {
+    content: '';
+    position: absolute;
+    inset: 0 0 auto;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--accent, #a855f7), transparent);
+    opacity: .9;
+}
+
+.sail-dialog-body {
+    display: grid;
+    grid-template-columns: 48px minmax(0, 1fr);
+    gap: 16px;
+    padding: 26px 26px 20px;
+}
+
+.sail-dialog-icon {
+    display: grid;
+    place-items: center;
+    width: 46px;
+    height: 46px;
+    border: 1px solid color-mix(in srgb, var(--accent, #a855f7) 46%, transparent);
+    border-radius: 15px;
+    color: var(--accent, #a855f7);
+    background: color-mix(in srgb, var(--accent, #a855f7) 14%, transparent);
+    box-shadow: 0 10px 28px color-mix(in srgb, var(--accent, #a855f7) 14%, transparent);
+    font-size: 22px;
+    font-weight: 800;
+}
+
+.sail-dialog-card[data-tone="danger"] .sail-dialog-icon {
+    color: #fb7185;
+    border-color: rgba(251, 113, 133, .42);
+    background: rgba(251, 113, 133, .12);
+}
+
+.sail-dialog-card[data-tone="success"] .sail-dialog-icon {
+    color: #4ade80;
+    border-color: rgba(74, 222, 128, .38);
+    background: rgba(74, 222, 128, .11);
+}
+
+.sail-dialog-copy { min-width: 0; }
+
+.sail-dialog-eyebrow {
+    margin: 1px 0 5px;
+    color: var(--accent, #a855f7);
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    opacity: .9;
+}
+
+.sail-dialog-title {
+    margin: 0;
+    color: var(--text-color, #f8fafc);
+    font-size: 20px;
+    line-height: 1.25;
+}
+
+.sail-dialog-message {
+    margin: 10px 0 0;
+    max-height: 42vh;
+    overflow: auto;
+    color: color-mix(in srgb, var(--text-color, #f8fafc) 78%, transparent);
+    font-size: 13px;
+    line-height: 1.58;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.sail-dialog-input {
+    width: 100%;
+    box-sizing: border-box;
+    margin-top: 15px;
+    padding: 11px 13px;
+    color: var(--text-color, #f8fafc);
+    background: color-mix(in srgb, var(--card-bg, #111c2c) 76%, #000 24%);
+    border: 1px solid color-mix(in srgb, var(--border-color, #334155) 78%, var(--accent, #a855f7));
+    border-radius: 10px;
+    outline: none;
+}
+
+.sail-dialog-input:focus {
+    border-color: var(--accent, #a855f7);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent, #a855f7) 18%, transparent);
+}
+
+.sail-dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    padding: 14px 22px 20px;
+    border-top: 1px solid color-mix(in srgb, var(--border-color, #334155) 52%, transparent);
+    background: rgba(0, 0, 0, .08);
+}
+
+.sail-dialog-actions button {
+    min-width: 92px;
+    padding: 9px 16px;
+    border-radius: 10px;
+    transition: transform 150ms ease, filter 150ms ease, box-shadow 150ms ease;
+}
+
+.sail-dialog-actions button:hover { transform: translateY(-1px); filter: brightness(1.08); }
+.sail-dialog-actions button:active { transform: translateY(0) scale(.98); }
+
+.sail-dialog-cancel {
+    color: color-mix(in srgb, var(--text-color, #f8fafc) 82%, transparent) !important;
+    border: 1px solid color-mix(in srgb, var(--border-color, #334155) 82%, var(--accent, #a855f7)) !important;
+    background: color-mix(in srgb, var(--card-bg, #111c2c) 66%, transparent) !important;
+    box-shadow: none !important;
+}
+
+.sail-dialog-primary {
+    color: #fff !important;
+    border-color: color-mix(in srgb, var(--accent, #a855f7) 74%, white 12%) !important;
+    background: linear-gradient(135deg, color-mix(in srgb, var(--accent, #a855f7) 84%, white 8%), var(--accent, #a855f7)) !important;
+    box-shadow: 0 9px 24px color-mix(in srgb, var(--accent, #a855f7) 24%, transparent);
+}
+
+.sail-dialog-card[data-tone="danger"] .sail-dialog-primary {
+    border-color: #fb7185 !important;
+    background: linear-gradient(135deg, #fb7185, #e11d48) !important;
+    box-shadow: 0 9px 24px rgba(225, 29, 72, .24);
+}
+
+@keyframes sailDialogBackdropIn { to { opacity: 1; } }
+@keyframes sailDialogBackdropOut { to { opacity: 0; } }
+@keyframes sailDialogCardIn {
+    from { opacity: 0; transform: translateY(22px) scale(.94); filter: blur(8px); }
+    62% { opacity: 1; transform: translateY(-3px) scale(1.008); filter: blur(0); }
+    to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+}
+@keyframes sailDialogCardOut { to { opacity: 0; transform: translateY(10px) scale(.965); filter: blur(4px); } }
+
+@media (prefers-reduced-motion: reduce) {
+    .sail-dialog-layer, .sail-dialog-card, .sail-dialog-layer.is-closing, .sail-dialog-layer.is-closing .sail-dialog-card {
+        animation-duration: 1ms !important;
+    }
+}
