@@ -17,6 +17,8 @@ try {
 }
 const DiscordRPC = require('discord-rpc');
 const cloudSync = require('./cloudSync');
+const { registerMaintenanceIpc } = require('./maintenance/ipc');
+const { scanSaveCandidates } = require('./maintenance/saveScanner');
 const args = process.argv;
 let autoLaunchGameId = null;
 const launchArg = args.find(a => a.startsWith('--launch-game-id='));
@@ -26,6 +28,7 @@ const startHidden = args.includes('--hidden');
 let activeBackupProcess = null;
 let backingUpZipPath = null;
 let tray = null;
+let maintenanceService = null;
 let isQuitting = false;
 let exitSynced = false;
 
@@ -82,7 +85,10 @@ function findBestExe(folderPath, gameName = "") {
         for (const file of files) {
             const full = path.join(dir, file);
             let stat;
-            try { stat = fs.statSync(full); } catch(e) { continue; }
+            try { stat = fs.lstatSync(full); } catch(e) { continue; }
+            // Maintenance and executable discovery must never traverse links/junctions outside
+            // the installation that the user selected.
+            if (stat.isSymbolicLink()) continue;
             
             if (stat.isDirectory()) {
                 const lowerDir = file.toLowerCase();
@@ -2157,6 +2163,7 @@ function findGameExe(dir, gameName) {
         try { entries = fs.readdirSync(d, { withFileTypes: true }); } catch (e) { return; }
         for (const ent of entries) {
             const full = path.join(d, ent.name);
+            if (ent.isSymbolicLink()) continue;
             if (ent.isDirectory()) { walk(full, depth + 1); continue; }
             if (!ent.name.toLowerCase().endsWith('.exe')) continue;
             // ignore repack helper exes tucked in an MD5/checksum folder
@@ -3321,41 +3328,12 @@ ipcMain.handle('clear-cache', async () => {
 // Called AFTER the user first plays & exits a downloaded game (saves don't exist at
 // install time). `playedSince` (ms epoch, optional) prefers folders touched during/after
 // the just-finished session. Returns the best-matching folder path, or null.
-ipcMain.handle('scan-game-saves', async (e, gameName, playedSince) => {
+ipcMain.handle('scan-game-saves', async (e, gameName, playedSince, scanOptions = {}) => {
     try {
-        const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-        const target = norm(gameName);
-        if (!target || target.length < 3) return null;
-        const home = app.getPath('home');
-        const localLow = process.env.LOCALAPPDATA ? path.join(path.dirname(process.env.LOCALAPPDATA), 'LocalLow') : '';
-        const roots = [
-            path.join(home, 'Saved Games'),
-            path.join(home, 'Documents', 'My Games'),
-            path.join(home, 'Documents'),
-            process.env.APPDATA || '',
-            process.env.LOCALAPPDATA || '',
-            localLow
-        ].filter(Boolean);
-        const candidates = [];
-        for (const root of roots) {
-            let ents; try { ents = fs.readdirSync(root, { withFileTypes: true }); } catch (er) { continue; }
-            for (const en of ents) {
-                if (!en.isDirectory()) continue;
-                const n = norm(en.name);
-                if (n.length < 3) continue;
-                const exact = n === target;
-                const partial = !exact && (n.includes(target) || target.includes(n)) && Math.min(n.length, target.length) >= 4;
-                if (!exact && !partial) continue;
-                const full = path.join(root, en.name);
-                let mtime = 0; try { mtime = fs.statSync(full).mtimeMs; } catch (er) {}
-                // skip folders that clearly weren't touched by this play session
-                if (playedSince && mtime && mtime < (playedSince - 5 * 60 * 1000)) continue;
-                candidates.push({ full, mtime, score: exact ? 3 : 2 });
-            }
-        }
+        const candidates = await scanSaveCandidates({ gameName, installRoot: scanOptions.installRoot, includeInstallRoot: scanOptions.includeInstallRoot !== false, customRoots: scanOptions.customRoots || [] });
         if (!candidates.length) return null;
-        candidates.sort((a, b) => (b.score - a.score) || (b.mtime - a.mtime));
-        return candidates[0].full;
+        const recent = playedSince ? candidates.filter(item => new Date(item.modifiedAt).getTime() >= playedSince - 5 * 60 * 1000) : candidates;
+        return (recent[0] || candidates[0]).path;
     } catch (er) { return null; }
 });
 
@@ -3694,6 +3672,7 @@ else {
 
     app.whenReady().then(() => {
         try { applyAdBlock(session.defaultSession); } catch (e) {}
+        maintenanceService = registerMaintenanceIpc({ app, ipcMain, BrowserWindow, dialog, shell, findExecutable: findBestExe });
         createWindow();
         tray = new Tray(path.join(__dirname, 'icon.ico'));
         const contextMenu = Menu.buildFromTemplate([

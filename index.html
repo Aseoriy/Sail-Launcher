@@ -3,6 +3,7 @@
 
 <head>
     <title>Sail Launcher</title>
+    <link rel="stylesheet" href="maintenance/maintenance.css">
     <style>
         :root {
             --bg-color: #09090b;
@@ -642,9 +643,12 @@
         #anchoredSelect.flip-up { transform-origin: bottom center; animation-name: anchoredSelectInUp; }
         @keyframes anchoredSelectIn { from { opacity: 0; transform: translateY(-7px) scale(0.96); } to { opacity: 1; transform: none; } }
         @keyframes anchoredSelectInUp { from { opacity: 0; transform: translateY(7px) scale(0.96); } to { opacity: 1; transform: none; } }
-        #anchoredSelect .as-opt { display: block; width: 100%; text-align: left; padding: 8px 12px; border: none; background: transparent; color: inherit; border-radius: 7px; cursor: pointer; font-size: 13px; white-space: nowrap; transition: background .1s; }
-        #anchoredSelect .as-opt:hover, #anchoredSelect .as-opt:focus { background: rgba(128,128,128,0.18); outline: none; }
-        #anchoredSelect .as-opt.selected { background: color-mix(in srgb, var(--accent) 20%, transparent); color: var(--text-color); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent); }
+        #anchoredSelect .as-opt { display: block; width: 100%; text-align: left; padding: 8px 12px; border: 1px solid transparent !important; background: transparent !important; color: inherit !important; border-radius: 7px; cursor: pointer; font-size: 13px; white-space: nowrap; transition: background .1s, border-color .1s; box-shadow: none !important; transform: none !important; }
+        #anchoredSelect .as-opt:hover, #anchoredSelect .as-opt:focus { background: rgba(128,128,128,0.18) !important; outline: none; }
+        #anchoredSelect .as-opt.selected { background: color-mix(in srgb, var(--accent) 20%, transparent) !important; color: var(--text-color) !important; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent) !important; }
+        body.dropdown-accent-outline #anchoredSelect .as-opt.selected { background: color-mix(in srgb, var(--card-bg) 72%, transparent) !important; color: var(--text-color) !important; box-shadow: inset 0 0 0 1.5px var(--accent), 0 0 0 1px color-mix(in srgb, var(--accent) 12%, transparent) !important; }
+        body.dropdown-accent-outline #anchoredSelect .as-opt:hover,
+        body.dropdown-accent-outline #anchoredSelect .as-opt:focus { background: color-mix(in srgb, var(--accent) 7%, transparent) !important; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 65%, transparent) !important; }
         #anchoredSelect .as-group { font-weight: 700; opacity: 0.5; padding: 9px 9px 3px; font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; }
 
         /* Inline help tips in the Theme Editor's Advanced mode (issue #2). */
@@ -2996,9 +3000,11 @@
     <style id="customThemeStyles"></style>
     <style id="customFontStyles"></style>
     <style id="shapeStyles"></style>
+    <link rel="stylesheet" href="ui/dialogs.css">
 </head>
 
 <body>
+    <script src="ui/dialogs.js"></script>
     <script>
         (function() {
             try {
@@ -3017,6 +3023,7 @@
                     if (data.fullTileImage) classes.push('full-tile-image');
                     if (data.verticalCards) classes.push('vertical-cards');
                     if (data.tileSize) classes.push('tile-size-' + data.tileSize);
+                    if (data.dropdownAccentStyle === 'outline') classes.push('dropdown-accent-outline');
 
                     document.body.className = classes.join(' ');
 
@@ -3025,6 +3032,7 @@
                         const ctId = data.theme.replace('theme-custom-', '');
                         const ct = data.customThemes.find(t => t.id === ctId);
                         if (ct) {
+                            document.body.classList.toggle('dropdown-accent-outline', (ct.dropdownAccentStyle || data.dropdownAccentStyle) === 'outline');
                             function hexToRgba(hex, alphaPercent) {
                                 hex = hex.replace('#', '');
                                 if (hex.length === 3) {
@@ -3150,6 +3158,8 @@
                     style="cursor:pointer; opacity: 0.5;">Game Downloads</h2>
                 <h2 class="sidebar-title" id="tabDownloadsMgr" onclick="switchMainTab('downloadsmgr')"
                     style="cursor:pointer; opacity: 0.5;">Download Manager</h2>
+                <h2 class="sidebar-title" id="tabMaintenance" onclick="switchMainTab('maintenance')"
+                    style="cursor:pointer; opacity: 0.5;">Maintenance</h2>
             </div>
             <div id="coreSectionsList" class="sidebar-section"></div>
 
@@ -3217,6 +3227,43 @@
                 <div id="continuePlayingCard" class="continue-card" style="display:none;" tabindex="0"></div>
 
                 <div class="game-grid" id="gameGrid"></div>
+            </div>
+
+            <div id="maintenanceView">
+                <div class="maintenance-header">
+                    <div>
+                        <h1>Maintenance Center <span id="maintenanceOverall" style="vertical-align:middle;"></span></h1>
+                        <p>Diagnose installations, repair launcher-managed data, protect modifications, and reclaim storage.</p>
+                    </div>
+                    <div class="maintenance-toolbar">
+                        <button onclick="maintenanceScanAll()">Scan All</button>
+                        <button class="outline" onclick="maintenanceCancelAll()">Cancel Scans</button>
+                        <button class="outline" onclick="maintenanceRefresh()">Refresh</button>
+                        <button class="outline" onclick="maintenanceClearActivity()">Clear Activity</button>
+                        <button class="outline" onclick="maintenanceStorageCleanup()">Storage Cleanup</button>
+                        <button class="outline" onclick="openModal('settingsModal'); switchSettingsTab('maintenance')">Maintenance Settings</button>
+                    </div>
+                </div>
+                <div class="maintenance-summary-grid" aria-label="Library health summary">
+                    <div class="maintenance-summary-card"><span class="maintenance-summary-value" id="maintStatAttention">0</span><span class="maintenance-summary-label">Games requiring attention</span></div>
+                    <div class="maintenance-summary-card"><span class="maintenance-summary-value" id="maintStatBroken">0</span><span class="maintenance-summary-label">Broken launch paths</span></div>
+                    <div class="maintenance-summary-card"><span class="maintenance-summary-value" id="maintStatManifests">0</span><span class="maintenance-summary-label">Missing/unreadable manifests</span></div>
+                    <div class="maintenance-summary-card"><span class="maintenance-summary-value" id="maintStatChanged">0</span><span class="maintenance-summary-label">Changed outside Sail</span></div>
+                    <div class="maintenance-summary-card"><span class="maintenance-summary-value" id="maintStatSaves">0</span><span class="maintenance-summary-label">Unavailable save folders</span></div>
+                    <div class="maintenance-summary-card"><span class="maintenance-summary-value" id="maintStatStorage">0 B</span><span class="maintenance-summary-label">Potentially reclaimable</span></div>
+                </div>
+                <section class="maintenance-panel" aria-labelledby="maintenanceJobsTitle">
+                    <h2 class="maintenance-panel-title" id="maintenanceJobsTitle">Maintenance jobs</h2>
+                    <div id="maintenanceJobs"></div>
+                </section>
+                <section class="maintenance-panel" aria-labelledby="maintenanceRecentTitle">
+                    <h2 class="maintenance-panel-title" id="maintenanceRecentTitle">Recent maintenance activity</h2>
+                    <div id="maintenanceRecentActivity"></div>
+                </section>
+                <section class="maintenance-panel" aria-labelledby="maintenanceGamesTitle">
+                    <h2 class="maintenance-panel-title" id="maintenanceGamesTitle">Library health</h2>
+                    <div id="maintenanceGameList" class="maintenance-game-list"></div>
+                </section>
             </div>
 
             <div id="storeView" style="display: none; height: 100%; width: 100%;">
@@ -3409,6 +3456,7 @@
                         <div id="gpSpecsContent" class="gp-expandable-content">Loading specs...</div>
                     </div>
                 </div>
+                <section id="gpMaintenancePanel" aria-live="polite"></section>
             </div>
 
             <div id="downloadsManagerView" style="display: none; box-sizing: border-box; flex-direction: column; width: 100%;">
@@ -3749,6 +3797,7 @@
                 <button id="overrideSaveBtn" class="outline" style="display: none; white-space: nowrap;" title="Override auto-detected save path">Override</button>
                 <button id="browseLocalBtn">Browse</button>
             </div>
+            <div id="saveDetectionCandidates" class="save-detection-candidates" style="display:none;"></div>
 
             <div id="quickPathsContainer" style="display:flex; gap:5px; margin-bottom:15px; flex-wrap:wrap;"></div>
 
@@ -3904,6 +3953,14 @@
                     </select>
                 </div>
 
+                <div class="input-row" style="margin-bottom:15px;">
+                    <label style="flex-grow:1; font-size:14px;">Dropdown Selection</label>
+                    <select id="tcDropdownAccentStyle" style="flex-grow:0; width: 170px;">
+                        <option value="filled">Accent fill</option>
+                        <option value="outline">Slight outline</option>
+                    </select>
+                </div>
+
                 <div style="margin-bottom:15px;">
                     <label
                         style="display:flex; justify-content:space-between; font-size:14px; margin-bottom:8px;"><span>Border
@@ -4044,6 +4101,8 @@
                     Cloud Sync</div>
                 <div class="settings-tab" tabindex="0" onclick="switchSettingsTab('library')"><span class="app-ic" data-ic="book"></span>
                     Library Management</div>
+                <div class="settings-tab" tabindex="0" onclick="switchSettingsTab('maintenance')"><span class="app-ic" data-ic="wrench"></span>
+                    Maintenance</div>
                 <div class="settings-tab" tabindex="0" onclick="switchSettingsTab('experimental')"><span class="app-ic" data-ic="flask"></span>
                     Experimental</div>
                 <div class="settings-tab" tabindex="0" onclick="switchSettingsTab('alerts')" id="tabButtonAlerts" style="display: none;"><span class="app-ic" data-ic="code"></span>
@@ -4088,6 +4147,16 @@
                         data-i18n="exportTheme">📤 Export Theme</button>
                     <button class="outline" id="importThemeBtn" style="flex-grow: 1; font-size: 12px; padding: 6px;"
                         data-i18n="importTheme">📥 Import Theme</button>
+                </div>
+
+                <div style="margin-bottom: 20px;">
+                    <label style="font-size: 12px; opacity:0.6; display:block; margin-bottom:5px;">Dropdown selection style</label>
+                    <div class="input-row">
+                        <select id="dropdownAccentStyleSelect">
+                            <option value="filled">Accent fill</option>
+                            <option value="outline">Slight accent outline</option>
+                        </select>
+                    </div>
                 </div>
 
                 <div style="margin-bottom: 20px;">
@@ -4623,7 +4692,7 @@
                     style="margin-top: 30px; border-top: 1px solid var(--border-color); padding-top: 20px; display:flex; gap:10px;">
                     <button class="outline" style="flex-grow:1;"
                         onclick="require('electron').ipcRenderer.invoke('open-url', 'https://github.com/Aseoriy/Sail-Launcher')"><img src="icon.ico" alt="" style="width:1.1em;height:1.1em;object-fit:contain;vertical-align:-0.2em;margin-right:2px;" onerror="this.style.display='none'">
-                        Sail Launcher v5.1.2</button>
+                        Sail Launcher v5.2.0</button>
                     <button id="checkUpdateBtn" style="min-width: 150px; transition: 0.3s;"
                         data-i18n="checkUpdates">Check Updates</button>
                 </div>
@@ -4692,6 +4761,16 @@
                             <option value="auto">Built-in Folder Scanner (my personal recommendation)</option>
                             <option value="ludusavi">Ludusavi Database Integration (Downloads manifest locally)</option>
                         </select>
+                        <label class="toggle-label" style="margin-top:12px;">
+                            <input type="checkbox" id="saveScanInstallRootToggle">
+                            <div class="toggle-switch"></div>
+                            <span>Search inside each game installation</span>
+                        </label>
+                        <div class="maintenance-setting-stack" style="padding-left:0;">
+                            <label for="saveScanCustomDirectories" style="font-size:12px;">Additional save-scan directories (one per line)</label>
+                            <textarea id="saveScanCustomDirectories" rows="3" placeholder="D:\Games\Save Data&#10;C:\Program Files\Publisher"></textarea>
+                            <button type="button" class="outline" id="addSaveScanDirectoryBtn" style="align-self:flex-start;">Add Directory</button>
+                        </div>
                     </div>
                 </div>
 
@@ -4918,6 +4997,25 @@
                         </div>
                     </div>
                 </div>
+            </div>
+
+            <div id="tab-maintenance" class="settings-pane">
+                <h3 style="margin-top:0;">Maintenance Center</h3>
+                <p style="font-size:12px;opacity:.62;line-height:1.5;">Lightweight checks use file existence and metadata. Deep hashing only runs when you explicitly request a deep scan.</p>
+                <div class="maintenance-setting-row"><span>Automatic lightweight health checks</span><label class="toggle-label"><input type="checkbox" id="maintenanceAutomaticToggle"><div class="toggle-switch"></div></label></div>
+                <div class="maintenance-setting-row"><span>Scan on launcher startup</span><label class="toggle-label"><input type="checkbox" id="maintenanceStartupToggle"><div class="toggle-switch"></div></label></div>
+                <div class="maintenance-setting-row"><span>Create/scan baseline after game installation</span><label class="toggle-label"><input type="checkbox" id="maintenanceAfterInstallToggle"><div class="toggle-switch"></div></label></div>
+                <div class="maintenance-setting-row"><span>Scan after mod or Workshop activity</span><label class="toggle-label"><input type="checkbox" id="maintenanceAfterModToggle"><div class="toggle-switch"></div></label></div>
+                <div class="maintenance-setting-row"><label for="maintenanceConcurrentInput">Maximum concurrent scans</label><input type="number" id="maintenanceConcurrentInput" min="1" max="8"></div>
+                <div class="maintenance-setting-row"><label for="maintenanceVerificationSelect">Default verification level</label><select id="maintenanceVerificationSelect"><option value="existence">Existence only</option><option value="metadata">Metadata</option><option value="deep">Important-file hashes</option></select></div>
+                <div class="maintenance-setting-row"><span>Hash important executables, DLLs, and configuration</span><label class="toggle-label"><input type="checkbox" id="maintenanceHashToggle"><div class="toggle-switch"></div></label></div>
+                <div class="maintenance-setting-row"><label for="maintenanceRetentionInput">Snapshot retention count per game</label><input type="number" id="maintenanceRetentionInput" min="1" max="50"></div>
+                <div class="maintenance-setting-row"><label for="maintenanceLimitInput">Snapshot storage limit (GB)</label><input type="number" id="maintenanceLimitInput" min="1" max="1000"></div>
+                <div class="maintenance-setting-row"><span>Automatically clean known-safe Sail temporary fragments</span><label class="toggle-label"><input type="checkbox" id="maintenanceAutoCleanToggle"><div class="toggle-switch"></div></label></div>
+                <div class="maintenance-setting-row"><span>Notify when a game becomes unhealthy</span><label class="toggle-label"><input type="checkbox" id="maintenanceNotifyToggle"><div class="toggle-switch"></div></label></div>
+                <div class="maintenance-setting-row"><span>Hide Information findings for every game</span><label class="toggle-label"><input type="checkbox" id="maintenanceHideInformationToggle"><div class="toggle-switch"></div></label></div>
+                <div class="maintenance-setting-stack"><label for="maintenanceSnapshotLocation" style="font-size:12px;">Snapshot location (blank uses Sail app data)</label><div class="input-row"><input type="text" id="maintenanceSnapshotLocation" readonly><button class="outline" id="maintenanceBrowseSnapshots">Browse</button></div></div>
+                <div class="maintenance-setting-stack"><label for="maintenanceIgnorePatterns" style="font-size:12px;">Ignored relative paths or wildcard patterns (one per line)</label><textarea id="maintenanceIgnorePatterns" rows="4" placeholder="Cache/*&#10;Screenshots/*"></textarea></div>
             </div>
 
             <div id="tab-alerts" class="settings-pane">
@@ -5353,7 +5451,7 @@
         if (document.readyState !== 'loading') initIconSystem();
         else document.addEventListener('DOMContentLoaded', initIconSystem);
 
-        const APP_VERSION = "v5.1.2";
+        const APP_VERSION = "v5.2.0";
         let currentTabName = 'library';
         let skipStaggerAnimation = false;
 
@@ -5489,7 +5587,7 @@
             if (isNavigating) return;
             const activeModal = document.querySelector('.modal.show');
             const state = {
-                view: document.getElementById('gamePageView').style.display === 'block' ? 'game' : 'library',
+                view: document.getElementById('gamePageView').style.display === 'block' ? 'game' : currentTabName,
                 gameIndex: viewingGameIndex,
                 modal: activeModal ? activeModal.id : null,
                 settingsTab: document.querySelector('.settings-tab.active') ? document.querySelector('.settings-tab.active').getAttribute('onclick').match(/'([^']+)'/)[1] : 'appearance',
@@ -5530,7 +5628,7 @@
             if (state.view === 'game' && state.gameIndex !== null) {
                 await openGamePage(state.gameIndex, true);
             } else {
-                await switchMainTab('library');
+                await switchMainTab(state.view || 'library');
                 viewingGameIndex = null;
             }
 
@@ -5670,7 +5768,7 @@
         }
 
         async function deletePlugin(folderName) {
-            if (!confirm(`Delete plugin "${folderName}"? This cannot be undone.`)) return;
+            if (!await sailConfirm(`Delete plugin "${folderName}"? This cannot be undone.`)) return;
             const userDataPath = await ipcRenderer.invoke('get-user-data');
             const pluginPath = path.join(userDataPath, 'plugins', folderName);
             try {
@@ -6528,6 +6626,7 @@
             if (!globalSettings.foldersPosition) globalSettings.foldersPosition = 'bottom';
             if (globalSettings.uiEditorEnabled === undefined || globalSettings.uiEditorEnabled === null) globalSettings.uiEditorEnabled = false;
             if (globalSettings.themeInfoButtons === undefined || globalSettings.themeInfoButtons === null) globalSettings.themeInfoButtons = true;
+            if (!['filled', 'outline'].includes(globalSettings.dropdownAccentStyle)) globalSettings.dropdownAccentStyle = 'filled';
             if (typeof globalSettings.uiAccent !== 'string') globalSettings.uiAccent = '';
             if (!globalSettings.uiCustom || typeof globalSettings.uiCustom !== 'object') globalSettings.uiCustom = {};
             if (typeof globalSettings.uiAppBg !== 'string') globalSettings.uiAppBg = '';
@@ -6602,6 +6701,8 @@
             document.getElementById('transparentSettingsToggle').checked = globalSettings.transparentSettings;
             document.getElementById('legacyUiToggle').checked = !globalSettings.glassmorphicUi;
             document.body.classList.toggle('glassmorphic-mode', !!globalSettings.glassmorphicUi);
+            document.body.classList.toggle('dropdown-accent-outline', globalSettings.dropdownAccentStyle === 'outline');
+            { const t = document.getElementById('dropdownAccentStyleSelect'); if (t) t.value = globalSettings.dropdownAccentStyle; }
 
             document.getElementById('disableTranslucencyToggle').checked = !!globalSettings.disableTranslucency;
             document.body.classList.toggle('disable-translucency', !!globalSettings.disableTranslucency);
@@ -6800,8 +6901,8 @@
 
             ipcRenderer.on('context-play-game', (e, idx) => launchGame(idx));
             ipcRenderer.on('context-edit-game', (e, idx) => editGame(idx));
-            ipcRenderer.on('context-delete-game', (e, idx) => {
-                if (confirm("Are you sure you want to remove this game?")) {
+            ipcRenderer.on('context-delete-game', async (e, idx) => {
+                if (await sailConfirm("Are you sure you want to remove this game?")) {
                     if (viewingGameIndex === idx) closeGamePage();
                     myGames.splice(idx, 1); saveToMemory(); renderGames();
                 }
@@ -6817,7 +6918,7 @@
                 const type = action === 'install-theme' ? 'theme' : 'plugin';
                 const fileName = decodeURIComponent(fileUrl.split('/').pop().split('?')[0]);
 
-                if (!confirm(`Install ${type} "${fileName}" from Sail Hub?`)) return;
+                if (!await sailConfirm(`Install ${type} "${fileName}" from Sail Hub?`)) return;
 
                 // Progress toast (design overhaul); settles to done/fail before each alert.
                 window.sailHubProgress && window.sailHubProgress.start(fileName, type);
@@ -6925,6 +7026,9 @@
 
             // If we just came back from an update, show the completion window.
             try { checkUpdateCompleted(); } catch (e) { console.error('Update-complete check failed:', e); }
+
+            // Initialize Maintenance only after the library/settings migrations above finish.
+            try { if (window.maintenanceInitialize) await window.maintenanceInitialize(); } catch (e) { console.error('Maintenance initialization failed:', e); }
 
             // Auto-check for updates silently on startup
             setTimeout(() => checkForUpdates(true), 3000);
@@ -7242,6 +7346,7 @@
                 saveToMemory();
                 try { renderSidebar(); } catch (e) {}
                 try { renderGames(); } catch (e) {}
+                try { if (window.maintenanceAfterInstall) window.maintenanceAfterInstall(g); } catch (e) { console.error('Post-install baseline failed to start:', e); }
             },
             // Download history persists across launcher restarts (stored in sail_library.json).
             getHistory() { return Array.isArray(globalSettings.dlHistory) ? globalSettings.dlHistory : []; },
@@ -7260,6 +7365,7 @@
                     hideStars: globalSettings.hideStars,
                     fullTileImage: globalSettings.fullTileImage,
                     tileSize: globalSettings.tileSize,
+                    dropdownAccentStyle: globalSettings.dropdownAccentStyle,
                     customThemes: globalSettings.customThemes,
                     fontFamily: globalSettings.fontFamily,
                     customFont: globalSettings.customFont
@@ -7488,8 +7594,8 @@
         };
 
         // Feature Testing — runs the REAL download pipeline with a small public sample .zip.
-        window.runDownloaderTest = function () {
-            if (!confirm('This starts a REAL download (a ~2 MB sample .zip) through the full pipeline — it will appear in your downloads and may auto-extract to your install folder. Continue?')) return;
+        window.runDownloaderTest = async function () {
+            if (!await sailConfirm('This starts a REAL download (a ~2 MB sample .zip) through the full pipeline — it will appear in your downloads and may auto-extract to your install folder. Continue?')) return;
             if (typeof startGameDownload !== 'function') { alert('Downloader is not ready yet.'); return; }
             startGameDownload(
                 { name: '🧪 Downloader Test (aria2 sample)', image: '' },
@@ -7706,6 +7812,8 @@
         function resetAddForm() {
             saveDetectionOverridden = false;
             updateSaveDetectionUI();
+            const saveCandidates = document.getElementById('saveDetectionCandidates');
+            if (saveCandidates) { saveCandidates.style.display = 'none'; saveCandidates.innerHTML = ''; }
             document.getElementById('addModal').querySelectorAll('input[type="text"], input[type="number"]').forEach(i => i.value = '');
             document.getElementById('addModal').querySelectorAll('input[type=checkbox]').forEach(i => i.checked = false);
 
@@ -8200,9 +8308,10 @@
             const libraryEl = document.getElementById('libraryView');
             const storeEl = document.getElementById('storeView');
             const workshopEl = document.getElementById('workshopView');
+            const maintenanceEl = document.getElementById('maintenanceView');
             const gamePageEl = document.getElementById('gamePageView');
             
-            const views = [libraryEl, storeEl, workshopEl, gamePageEl].filter(Boolean);
+            const views = [libraryEl, maintenanceEl, storeEl, workshopEl, gamePageEl].filter(Boolean);
             const activeView = views.find(v => v.style.display === 'block' || v.style.display === 'flex');
             
             if (activeView && activeView !== gamePageEl) {
@@ -8252,6 +8361,7 @@
             } else { bannerEl.src = game.iconData || ''; }
 
             updateGamePageActionBar();
+            try { if (window.renderGameMaintenancePanel) window.renderGameMaintenancePanel(game); } catch (e) { console.error('Game maintenance panel failed:', e); }
 
             if (!globalSettings.compactLayout) {
                 if (game.steamAppId) {
@@ -8473,6 +8583,7 @@
                     statusDiv.innerText = `✅ Item ${itemId} downloaded successfully!`;
                     statusDiv.innerHTML += ` <button class="outline" style="padding: 2px 8px; font-size: 11px; margin-left: 10px;" onclick="ipcRenderer.invoke('show-item-in-folder', '${result.path.replace(/\\/g, '\\\\')}')">Open Folder</button>`;
                     try { logManagerDownload({ name: (game.name || 'Workshop item') + ' — mod ' + itemId, category: 'mod', folder: result.path, image: game.steamImageUrl || game.customBannerPath || '', sourceId: 'workshop' }); } catch (e) {}
+                    try { if (window.maintenanceRecordWorkshop) window.maintenanceRecordWorkshop(game, result, itemId); } catch (e) { console.error('Workshop maintenance tracking failed:', e); }
                 } else {
                     statusDiv.innerText = `❌ Download failed: ${result.error}`;
                 }
@@ -8530,8 +8641,8 @@
                 if (success) alert("Shortcut created on your desktop!");
             };
 
-            document.getElementById('deleteFromPageBtn').onclick = () => {
-                if (confirm("Are you sure you want to remove this game?")) { closeModal('gameSettingsModal'); myGames.splice(viewingGameIndex, 1); saveToMemory(); closeGamePage(); }
+            document.getElementById('deleteFromPageBtn').onclick = async () => {
+                if (await sailConfirm("Are you sure you want to remove this game?")) { closeModal('gameSettingsModal'); myGames.splice(viewingGameIndex, 1); saveToMemory(); closeGamePage(); }
             };
 
             const backups = game.exePath ? await ipcRenderer.invoke('check-backup', game.exePath, game.name) : [];
@@ -8590,7 +8701,7 @@
             };
 
             document.getElementById('restoreBackupBtn').onclick = async () => {
-                if (confirm("This will overwrite your current game folder with the backup. Continue?")) {
+                if (await sailConfirm("This will overwrite your current game folder with the backup. Continue?")) {
                     const rBtn = document.getElementById('restoreBackupBtn');
                     rBtn.innerText = "⏳ Restoring..."; rBtn.disabled = true;
                     const selectedBackup = document.getElementById('backupSelect').value;
@@ -8605,7 +8716,7 @@
             };
 
             document.getElementById('deleteBackupBtn').onclick = async () => {
-                if (confirm("Delete the selected backup zip?")) {
+                if (await sailConfirm("Delete the selected backup zip?")) {
                     const selectedBackup = document.getElementById('backupSelect').value;
                     const res = await ipcRenderer.invoke('delete-backup', game.exePath, game.name, selectedBackup);
                     if (res) {
@@ -8653,7 +8764,7 @@
                 document.getElementById('restoreSaveVersionBtn').onclick = async () => {
                     const selected = saveVersionSelect.value;
                     if (!selected) return;
-                    if (confirm("This will overwrite your current local save files with this version. Continue?")) {
+                    if (await sailConfirm("This will overwrite your current local save files with this version. Continue?")) {
                         const btn = document.getElementById('restoreSaveVersionBtn');
                         btn.innerText = "⏳ Restoring..."; btn.disabled = true;
                         const ok = await ipcRenderer.invoke('restore-save-version', '', game.name, game.localSave, selected);
@@ -8676,7 +8787,7 @@
         async function switchMainTab(tab) {
             viewingGameIndex = null;
             
-            const tabIndices = { 'library': 0, 'store': 1, 'workshop': 2, 'downloads': 3, 'downloadsmgr': 4, 'sources': 5 };
+            const tabIndices = { 'library': 0, 'maintenance': 1, 'store': 2, 'workshop': 3, 'downloads': 4, 'downloadsmgr': 5, 'sources': 6 };
             const fromIdx = tabIndices[currentTabName] || 0;
             const toIdx = tabIndices[tab] || 0;
             
@@ -8702,13 +8813,15 @@
             const downloadsEl = document.getElementById('downloadsView');
             const downloadsMgrEl = document.getElementById('downloadsManagerView');
             const sourcesEl = document.getElementById('sourcesView');
+            const maintenanceEl = document.getElementById('maintenanceView');
             const gamePageEl = document.getElementById('gamePageView');
 
-            const views = [libraryEl, storeEl, workshopEl, downloadsEl, downloadsMgrEl, sourcesEl, gamePageEl].filter(Boolean);
+            const views = [libraryEl, maintenanceEl, storeEl, workshopEl, downloadsEl, downloadsMgrEl, sourcesEl, gamePageEl].filter(Boolean);
             const activeView = views.find(v => v.style.display === 'block' || v.style.display === 'flex');
 
             let targetView = null;
             if (tab === 'library') targetView = libraryEl;
+            else if (tab === 'maintenance') targetView = maintenanceEl;
             else if (tab === 'store') targetView = storeEl;
             else if (tab === 'workshop') targetView = workshopEl;
             else if (tab === 'downloads') targetView = downloadsEl;
@@ -8721,8 +8834,9 @@
             const tabDownloads = document.getElementById('tabDownloads');
             const tabSources = document.getElementById('tabSources');
             const tabDownloadsMgr = document.getElementById('tabDownloadsMgr');
+            const tabMaintenance = document.getElementById('tabMaintenance');
             // Sync opacity + the active-tab pill (moves between nav items).
-            const tabMap = { library: tabLib, store: tabStore, workshop: tabWorkshop, downloads: tabDownloads, downloadsmgr: tabDownloadsMgr, sources: tabSources };
+            const tabMap = { library: tabLib, maintenance: tabMaintenance, store: tabStore, workshop: tabWorkshop, downloads: tabDownloads, downloadsmgr: tabDownloadsMgr, sources: tabSources };
             Object.entries(tabMap).forEach(([key, el]) => {
                 if (!el) return;
                 const active = key === tab;
@@ -8739,7 +8853,7 @@
                             v.classList.remove('fade-out');
                         });
                         if (targetView) {
-                            targetView.style.display = (targetView.id === 'workshopView' || targetView.id === 'sourcesView' || targetView.id === 'downloadsView' || targetView.id === 'downloadsManagerView') ? 'flex' : 'block';
+                            targetView.style.display = (targetView.id === 'maintenanceView' || targetView.id === 'workshopView' || targetView.id === 'sourcesView' || targetView.id === 'downloadsView' || targetView.id === 'downloadsManagerView') ? 'flex' : 'block';
                         }
                         resolve();
                     }, 80);
@@ -8752,7 +8866,7 @@
                     }
                 });
                 if (targetView) {
-                    targetView.style.display = (targetView.id === 'workshopView' || targetView.id === 'sourcesView' || targetView.id === 'downloadsView' || targetView.id === 'downloadsManagerView') ? 'flex' : 'block';
+                    targetView.style.display = (targetView.id === 'maintenanceView' || targetView.id === 'workshopView' || targetView.id === 'sourcesView' || targetView.id === 'downloadsView' || targetView.id === 'downloadsManagerView') ? 'flex' : 'block';
                     targetView.classList.remove('fade-out');
                 }
             }
@@ -8760,6 +8874,7 @@
             if (tab === 'library') {
                 renderSidebar(); renderGames(); pushNavState();
             }
+            if (tab === 'maintenance' && window.renderMaintenanceCenter) window.renderMaintenanceCenter();
             if (tab === 'workshop') {
                 populateWorkshopGames();
                 const select = document.getElementById('workshopGameSelect');
@@ -9041,7 +9156,7 @@
         };
 
         window.unlinkCloudAccount = async function(provider) {
-            if (confirm(`Are you sure you want to unlink your ${provider} account?`)) {
+            if (await sailConfirm(`Are you sure you want to unlink your ${provider} account?`)) {
                 await ipcRenderer.invoke('cloud-unlink-account', provider);
                 updateCloudSyncUI();
             }
@@ -9378,8 +9493,8 @@
             document.getElementById('cancelEditSourceBtn').style.display = 'none';
         };
 
-        window.deleteUserSource = function(idx) {
-            if (confirm("Are you sure you want to delete this web source?")) {
+        window.deleteUserSource = async function(idx) {
+            if (await sailConfirm("Are you sure you want to delete this web source?")) {
                 globalSettings.sources.splice(idx, 1);
                 saveToMemory();
                 renderSources();
@@ -9478,7 +9593,7 @@
                             document.getElementById('cloudSyncOverlay').style.display = 'none';
                         }
                         
-                        const ok = confirm(`A newer cloud save version (${latestCloudVersion.date}) was found on ${linkedProvider.toUpperCase()}.\nLocal save was last modified: ${localTime ? new Date(localTime).toLocaleString() : 'Never'}.\n\nWould you like to restore the cloud save before launching the game?`);
+                        const ok = await sailConfirm(`A newer cloud save version (${latestCloudVersion.date}) was found on ${linkedProvider.toUpperCase()}.\nLocal save was last modified: ${localTime ? new Date(localTime).toLocaleString() : 'Never'}.\n\nWould you like to restore the cloud save before launching the game?`);
                         
                         if (ok) {
                             if (globalSettings.cloudSyncBlocking) {
@@ -9699,7 +9814,12 @@
             const g = myGames[idx];
             if (!g || !g.saveScanPending) return;
             try {
-                const found = await ipcRenderer.invoke('scan-game-saves', g.name, sessionStartedAt || 0);
+                const maintenanceSettings = globalSettings.maintenance || {};
+                const found = await ipcRenderer.invoke('scan-game-saves', g.name, sessionStartedAt || 0, {
+                    installRoot: g.installFolder || (g.exePath ? path.dirname(g.exePath) : ''),
+                    includeInstallRoot: maintenanceSettings.saveScanIncludeInstallRoot !== false,
+                    customRoots: [...(maintenanceSettings.saveScanCustomDirectories || []), ...(g.saveScanDirectories || [])]
+                });
                 if (found && !g.localSave) g.localSave = found;
             } catch (e) { /* best-effort */ }
             g.saveScanPending = false;
@@ -10039,9 +10159,9 @@
             if (el) el.innerText = `${selectedGameIndices.size} games selected`;
         }
 
-        window.deleteSelectedGames = function () {
+        window.deleteSelectedGames = async function () {
             if (selectedGameIndices.size === 0) return;
-            if (confirm(`Are you sure you want to remove ${selectedGameIndices.size} games?`)) {
+            if (await sailConfirm(`Are you sure you want to remove ${selectedGameIndices.size} games?`)) {
                 const sortedIndices = Array.from(selectedGameIndices).sort((a, b) => b - a);
                 sortedIndices.forEach(idx => {
                     if (viewingGameIndex === idx) closeGamePage();
@@ -10163,15 +10283,15 @@
             if (openPath) {
                 try {
                     const data = fs.readJsonSync(openPath);
-                    if (data.myGames) { fs.copySync(openPath, dataPath); alert("Import successful! The app will now reload."); location.reload(); } else { alert("Invalid save file format!"); }
+                    if (data.myGames) { fs.copySync(openPath, dataPath); await sailAlert("Import successful! The app will now reload."); location.reload(); } else { alert("Invalid save file format!"); }
                 } catch (e) { alert("Import Error: " + e.message); }
             }
         });
 
-        document.getElementById('resetDataBtn').addEventListener('click', () => {
-            if (confirm("WARNING: This will delete ALL launcher data, games, folders, and custom themes! This cannot be undone. Continue?")) {
+        document.getElementById('resetDataBtn').addEventListener('click', async () => {
+            if (await sailConfirm("WARNING: This will delete ALL launcher data, games, folders, and custom themes! This cannot be undone. Continue?")) {
                 myGames = []; customSections = []; globalSettings = { theme: 'theme-midnight', defaultDriveFolder: '', sidebarCollapsed: false, customThemes: [], customFont: '', fontFamily: 'Segoe UI', language: 'english', compactLayout: false, exitWhenClosed: false, disableDiscordRpc: false, enableDevTools: false, autoStart: false, hideStars: false, legacySettings: false, quickPaths: [], transparentSettings: false, enableMultiSync: false, glassmorphicUi: true, autoSettingsSync: true, enableSourcesPage: false, enableDiscoverPage: true, buttonLocations: { sailHub: 'hidden', systemSpecs: 'hidden' }, sources: [{ name: 'FitGirl Repacks', url: 'https://fitgirl-repacks.site' }] };
-                saveToMemory(); alert("Launcher reset to factory defaults."); location.reload();
+                saveToMemory(); await sailAlert("Launcher reset to factory defaults."); location.reload();
             }
         });
 
@@ -10271,7 +10391,9 @@
                     highPriority: editingIndex === -1 ? false : !!myGames[editingIndex].highPriority,
                     preLaunchScript: editingIndex === -1 ? "" : myGames[editingIndex].preLaunchScript || "",
                     postLaunchScript: editingIndex === -1 ? "" : myGames[editingIndex].postLaunchScript || "",
-                    iconData: editingIndex === -1 ? null : myGames[editingIndex].iconData || null
+                    iconData: editingIndex === -1 ? null : myGames[editingIndex].iconData || null,
+                    maintenanceHideInformationIssues: editingIndex === -1 ? false : !!myGames[editingIndex].maintenanceHideInformationIssues,
+                    saveScanDirectories: editingIndex === -1 ? [] : (myGames[editingIndex].saveScanDirectories || [])
                 };
 
                 if (isRom) {
@@ -10320,6 +10442,8 @@
             }
             document.getElementById('shortcutIconPath').value = game.shortcutIcon || "";
             document.getElementById('localSave').value = game.localSave || "";
+            const saveCandidates = document.getElementById('saveDetectionCandidates');
+            if (saveCandidates) { saveCandidates.style.display = 'none'; saveCandidates.innerHTML = ''; }
             document.getElementById('driveSave').value = game.driveSave || "";
             document.getElementById('playDetectionPath').value = game.playDetectionPath || "";
             document.querySelectorAll('.game-tag-cb').forEach(cb => cb.checked = game.tags && game.tags.includes(cb.value));
@@ -11136,8 +11260,8 @@
             { const pn = tb.querySelector('#uiePageNext'); if (pn) pn.onclick = () => uieCyclePage(1); }
             const acc = tb.querySelector('#uieAccent'); if (acc) acc.oninput = () => { globalSettings.uiAccent = acc.value; applyUiAccent(); uieSaveSoon(); };
             const ab = tb.querySelector('#uieAppBgBtn'); if (ab) ab.onclick = () => uieOpenAppBg();
-            const ra = tb.querySelector('#uieResetAll'); if (ra) ra.onclick = () => {
-                if (!confirm('Reset ALL custom UI tweaks — every moved/resized/recoloured element, gradients, app background and accent?')) return;
+            const ra = tb.querySelector('#uieResetAll'); if (ra) ra.onclick = async () => {
+                if (!await sailConfirm('Reset ALL custom UI tweaks — every moved/resized/recoloured element, gradients, app background and accent?')) return;
                 globalSettings.uiCustom = {}; globalSettings.uiAppBg = ''; globalSettings.uiAccent = ''; globalSettings.uiAppBgStore = null;
                 saveToMemory(); applyUiCustom(); applyUiAccent();
                 uieSel = null; uieSelEl = null;
@@ -11581,6 +11705,7 @@
             let targetCard = root.getPropertyValue('--card-bg').trim() || '#18181b'; let targetBorder = root.getPropertyValue('--border-color').trim() || '#27272a';
             let targetAccent = root.getPropertyValue('--accent').trim() || '#a855f7'; let targetRadius = 8;
             let targetTileWidth = 230; let targetTileHeight = 130; let targetAnim = 'none';
+            let targetDropdownAccentStyle = globalSettings.dropdownAccentStyle || 'filled';
             let targetGlassCardColor = '#ffffff'; let targetGlassCardOpacity = 5;
             let targetGlassBorderColor = '#ffffff'; let targetGlassBorderOpacity = 8;
             let targetGlassBlur = 24;
@@ -11592,6 +11717,7 @@
                     editingThemeId = ct.id; document.getElementById('tcName').value = ct.name;
                     targetBg = ct.bg; targetText = ct.text; targetCard = ct.card; targetBorder = ct.border; targetAccent = ct.accent; targetRadius = ct.radius || 8;
                     targetTileWidth = ct.tileWidth || 230; targetTileHeight = ct.tileHeight || 130; targetAnim = ct.animation || 'none';
+                    targetDropdownAccentStyle = ct.dropdownAccentStyle || targetDropdownAccentStyle;
                     targetGlassCardColor = ct.glassCardColor || '#ffffff';
                     targetGlassCardOpacity = ct.glassCardOpacity !== undefined ? ct.glassCardOpacity : 5;
                     targetGlassBorderColor = ct.glassBorderColor || '#ffffff';
@@ -11607,6 +11733,7 @@
             document.getElementById('tcAccent').value = targetAccent; document.getElementById('tcBg').value = targetBg; document.getElementById('tcCard').value = targetCard;
             document.getElementById('tcText').value = targetText; document.getElementById('tcBorder').value = targetBorder; document.getElementById('tcRadius').value = targetRadius;
             document.getElementById('tcTileWidth').value = targetTileWidth; document.getElementById('tcTileHeight').value = targetTileHeight; document.getElementById('tcAnimation').value = targetAnim;
+            document.getElementById('tcDropdownAccentStyle').value = targetDropdownAccentStyle;
             document.getElementById('tcRadiusLabel').innerText = targetRadius + 'px'; document.getElementById('tcTileWidthLabel').innerText = targetTileWidth + 'px'; document.getElementById('tcTileHeightLabel').innerText = targetTileHeight + 'px';
 
             document.getElementById('tcGlassCardColor').value = targetGlassCardColor;
@@ -11657,6 +11784,7 @@
             tcText: 'The colour of all normal text in the app — game titles, labels and menus. Pick something with strong contrast against your background or things get hard to read.',
             tcBorder: 'The colour of the thin lines around cards, inputs and panels. Subtle is usually best; very bright borders make the UI look busy.',
             tcAnimation: 'A slow moving pattern drawn behind everything. "None" keeps it flat and calm; the others gently animate (pulse, grid, wave, ripple, frost). Purely decorative.',
+            tcDropdownAccentStyle: 'Choose whether the selected item in dropdown menus uses a solid accent fill or a subtle accent outline.',
             tcRadius: 'How rounded the corners of cards, buttons and inputs are. 0 = sharp square corners, higher = softer/pill-like.',
             tcTileWidth: 'How wide each game tile is in the library grid. Bigger tiles = fewer per row but larger cover art.',
             tcTileHeight: 'How tall each game tile is. Taller tiles show more of the cover image.',
@@ -11730,7 +11858,8 @@
             const ct = { 
                 id: editingThemeId || Date.now().toString(), 
                 name: name, 
-                animation: document.getElementById('tcAnimation').value, 
+                animation: document.getElementById('tcAnimation').value,
+                dropdownAccentStyle: document.getElementById('tcDropdownAccentStyle').value,
                 accent: document.getElementById('tcAccent').value, 
                 bg: document.getElementById('tcBg').value, 
                 card: document.getElementById('tcCard').value, 
@@ -11763,8 +11892,8 @@
             globalSettings.theme = 'theme-custom-' + ct.id; saveToMemory(); updateThemeSelect(); applyTheme(globalSettings.theme); closeThemeCustomizer();
         };
 
-        document.getElementById('deleteThemeBtn').onclick = () => {
-            if (editingThemeId && confirm("Delete this custom theme?")) {
+        document.getElementById('deleteThemeBtn').onclick = async () => {
+            if (editingThemeId && await sailConfirm("Delete this custom theme?")) {
                 globalSettings.customThemes = globalSettings.customThemes.filter(t => t.id !== editingThemeId); globalSettings.theme = 'theme-midnight';
                 saveToMemory(); updateThemeSelect(); applyTheme(globalSettings.theme); closeThemeCustomizer();
             }
@@ -11796,9 +11925,11 @@
             if (document.body.classList.contains('disable-translucency')) classesToKeep.push('disable-translucency');
             if (document.body.classList.contains('force-translucency')) classesToKeep.push('force-translucency');
 
+            let appliedDropdownAccentStyle = globalSettings.dropdownAccentStyle || 'filled';
             if (themeId && themeId.startsWith('theme-custom-')) {
                 const ctId = themeId.replace('theme-custom-', ''); const ct = (globalSettings.customThemes || []).find(t => t.id === ctId);
                 if (ct) {
+                    appliedDropdownAccentStyle = ct.dropdownAccentStyle || appliedDropdownAccentStyle;
                     document.body.className = 'theme-custom ' + classesToKeep.join(' ');
                     const gCard = hexToRgba(ct.glassCardColor || '#ffffff', ct.glassCardOpacity !== undefined ? ct.glassCardOpacity : 5);
                     const gBorder = hexToRgba(ct.glassBorderColor || '#ffffff', ct.glassBorderOpacity !== undefined ? ct.glassBorderOpacity : 8);
@@ -11842,6 +11973,9 @@
                 document.getElementById('customThemeStyles').innerHTML = '';
                 document.body.className = (themeId || 'theme-midnight') + ' ' + classesToKeep.join(' ');
             }
+
+            document.body.classList.toggle('dropdown-accent-outline', appliedDropdownAccentStyle === 'outline');
+            { const dropdownStyleSelect = document.getElementById('dropdownAccentStyleSelect'); if (dropdownStyleSelect) dropdownStyleSelect.value = appliedDropdownAccentStyle; }
 
             setTimeout(syncThemeToIframe, 50);
         }
@@ -12200,10 +12334,20 @@
             localSaveInput.placeholder = "Detecting save location...";
 
             try {
-                const res = await ipcRenderer.invoke(channel, gameName);
-                if (res.success && res.paths && res.paths.length > 0) {
-                    localSaveInput.value = res.paths[0];
+                const legacy = await ipcRenderer.invoke(channel, gameName);
+                const gamePath = document.getElementById('gamePath').value.trim();
+                const scanGame = editingIndex >= 0 ? Object.assign({}, myGames[editingIndex], { name: gameName, exePath: gamePath || myGames[editingIndex].exePath }) : { id: `save-detect-${steamAppId}`, name: gameName, exePath: gamePath };
+                const maintenanceSettings = Object.assign({ saveScanIncludeInstallRoot: true, saveScanCustomDirectories: [] }, globalSettings.maintenance || {});
+                const job = await ipcRenderer.invoke('maintenance-scan-save-folders', { game: scanGame, settings: maintenanceSettings, input: {} });
+                const scanned = window.maintenanceWaitForJob ? await window.maintenanceWaitForJob(job.id) : [];
+                const combined = [];
+                const seen = new Set();
+                for (const candidate of [...(scanned || []), ...((legacy && legacy.paths) || []).map(p => ({ path: p, source: mode, reason: 'Suggested by the selected detection provider.', score: 40 }))]) {
+                    if (!candidate || !candidate.path || seen.has(candidate.path.toLowerCase())) continue;
+                    seen.add(candidate.path.toLowerCase()); combined.push(candidate);
                 }
+                renderSaveDetectionCandidates(combined);
+                if (combined.length) localSaveInput.value = combined[0].path;
             } catch (err) {
                 console.error("Error auto-detecting saves:", err);
             } finally {
@@ -12241,6 +12385,11 @@
         document.getElementById('customFontInput').addEventListener('change', (e) => { globalSettings.customFont = e.target.value; saveToMemory(); applyFont(globalSettings.fontFamily, e.target.value); });
         document.getElementById('fontSelect').addEventListener('change', (e) => { const val = e.target.value; globalSettings.fontFamily = val; document.getElementById('customFontWrapper').style.display = val === 'custom' ? 'flex' : 'none'; saveToMemory(); applyFont(val, globalSettings.customFont); });
         document.getElementById('tileShapeSelect').addEventListener('change', (e) => { globalSettings.tileShape = e.target.value; saveToMemory(); applyTileShape(e.target.value); });
+        document.getElementById('dropdownAccentStyleSelect').addEventListener('change', (e) => {
+            globalSettings.dropdownAccentStyle = e.target.value;
+            document.body.classList.toggle('dropdown-accent-outline', e.target.value === 'outline');
+            saveToMemory();
+        });
         document.getElementById('sortOrderSelect').addEventListener('change', (e) => { globalSettings.sortOrder = e.target.value; saveToMemory(); renderGames(); });
         document.getElementById('tileSizeSelect').addEventListener('change', (e) => {
             document.body.classList.remove('tile-size-small', 'tile-size-medium', 'tile-size-large');
@@ -12938,6 +13087,25 @@
         ];
         window.getPixeldrainProxies = function getPixeldrainProxies() {
             return Array.isArray(globalSettings.dlPixeldrainProxies) ? globalSettings.dlPixeldrainProxies : DL_DEFAULT_PD_PROXIES.slice();
+        };
+
+        window.renderSaveDetectionCandidates = function(candidates) {
+            const host = document.getElementById('saveDetectionCandidates');
+            if (!host) return;
+            if (!candidates || !candidates.length) {
+                host.style.display = 'block';
+                host.innerHTML = '<span>No matching save folders found. Add custom scan directories in Settings → System, or use Override.</span>';
+                return;
+            }
+            host.style.display = 'block'; host.innerHTML = '';
+            const label = document.createElement('label'); label.textContent = `${candidates.length} candidate folder(s) found — choose the correct one`;
+            const select = document.createElement('select'); select.className = 'settings-select';
+            for (const candidate of candidates) {
+                const option = document.createElement('option'); option.value = candidate.path; option.textContent = candidate.path; option.title = candidate.reason || '';
+                select.appendChild(option);
+            }
+            select.addEventListener('change', () => { document.getElementById('localSave').value = select.value; });
+            host.append(label, select);
         };
 
         function browserCapturePayload(s) {
@@ -15295,6 +15463,7 @@
         </div>
     </div>
 
+    <script src="maintenance/renderer.js"></script>
 </body>
 
 </html>
