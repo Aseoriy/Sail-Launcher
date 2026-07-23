@@ -1,5 +1,5 @@
 const { app, BrowserWindow, ipcMain, dialog, shell, screen, Tray, Menu, session } = require('electron');
-const { exec, spawn } = require('child_process');
+const { exec, execFile, spawn } = require('child_process');
 const os = require('os');
 const path = require('path');
 const fs = require('fs');
@@ -355,7 +355,7 @@ function createWindow() {
     });
 }
 
-// NEW: Restart App Hook
+// Restart App Hook
 ipcMain.on('restart-app', () => {
     app.relaunch();
     app.exit(0);
@@ -500,8 +500,8 @@ ipcMain.on('show-game-context', (e, index) => {
 
 ipcMain.handle('get-running-exes', () => {
     return new Promise(resolve => {
-        // Use tasklist with CSV format and no headers
-        exec('tasklist /FO CSV /NH', (err, stdout) => {
+        // Avoid an extra cmd.exe process for this frequent, read-only query.
+        execFile('tasklist.exe', ['/FO', 'CSV', '/NH'], { windowsHide: true, timeout: 8000, maxBuffer: 4 * 1024 * 1024 }, (err, stdout) => {
             if (err) return resolve([]);
             const exes = stdout.split('\n').map(line => {
                 // Regex to match CSV parts properly even if they contain commas
@@ -884,11 +884,6 @@ ipcMain.on('move-to-display-fullscreen', (e, displayId) => {
     win.setFullScreen(!win.isFullScreen());
 });
 
-ipcMain.on('restart-app', () => {
-    app.relaunch();
-    app.quit();
-});
-
 ipcMain.handle('dialog-select-folder', async (e, defaultPath) => {
     const options = { properties: ['openDirectory'] };
     if (defaultPath) options.defaultPath = defaultPath;
@@ -1253,29 +1248,80 @@ function handleProtocolUrl(url) {
     } catch (err) { console.log('Protocol parse error:', err); }
 }
 
-// IPC handler to download a file from a URL to the user's themes/plugins folder
-ipcMain.handle('hub-download-file', async (e, { fileUrl, type }) => {
-    const userDataPath = app.getPath('userData');
-    const targetDir = path.join(userDataPath, type === 'theme' ? 'themes' : 'plugins');
-    if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
+// Download a Sail Hub item without exposing partial files or allowing an encoded
+// filename to escape the per-user themes/plugins directory.
+function downloadHubFile(fileUrl, targetDir, redirects = 0) {
+    if (redirects > 6) return Promise.reject(new Error('Too many redirects'));
 
-    const fileName = decodeURIComponent(fileUrl.split('/').pop().split('?')[0]);
-    const filePath = path.join(targetDir, fileName);
+    let parsed;
+    try { parsed = new URL(fileUrl); } catch (_) { return Promise.reject(new Error('Invalid download URL')); }
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+        return Promise.reject(new Error('Only HTTP and HTTPS downloads are supported'));
+    }
+
+    let fileName;
+    try { fileName = decodeURIComponent(path.posix.basename(parsed.pathname)); }
+    catch (_) { return Promise.reject(new Error('Invalid download filename')); }
+    if (!fileName || fileName === '.' || fileName === '..' || path.basename(fileName) !== fileName) {
+        return Promise.reject(new Error('Invalid download filename'));
+    }
 
     return new Promise((resolve, reject) => {
-        const client = fileUrl.startsWith('https') ? https : http;
-        const file = fs.createWriteStream(filePath);
-        client.get(fileUrl, (response) => {
-            // Follow redirects
+        const client = parsed.protocol === 'https:' ? https : http;
+        const request = client.get(parsed, (response) => {
             if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
-                file.close();
-                fs.unlinkSync(filePath);
-                return resolve(ipcMain.handle('hub-download-file', e, { fileUrl: response.headers.location, type }));
+                response.resume();
+                let redirectUrl;
+                try { redirectUrl = new URL(response.headers.location, parsed).href; }
+                catch (_) { reject(new Error('Invalid redirect URL')); return; }
+                downloadHubFile(redirectUrl, targetDir, redirects + 1).then(resolve, reject);
+                return;
             }
+            if (response.statusCode !== 200) {
+                response.resume();
+                reject(new Error(`Download failed with HTTP ${response.statusCode || 'error'}`));
+                return;
+            }
+
+            fs.mkdirSync(targetDir, { recursive: true });
+            const filePath = path.join(targetDir, fileName);
+            const partialPath = `${filePath}.${process.pid}.${Date.now()}.part`;
+            const file = fs.createWriteStream(partialPath);
+            let settled = false;
+            const fail = (error) => {
+                if (settled) return;
+                settled = true;
+                try { file.destroy(); } catch (_) {}
+                fs.rm(partialPath, { force: true }, () => reject(error instanceof Error ? error : new Error(String(error))));
+            };
+
+            response.on('error', fail);
+            file.on('error', fail);
+            file.on('finish', () => {
+                file.close((error) => {
+                    if (error) return fail(error);
+                    try {
+                        fs.rmSync(filePath, { force: true });
+                        fs.renameSync(partialPath, filePath);
+                        settled = true;
+                        resolve({ success: true, path: filePath, fileName });
+                    } catch (moveError) {
+                        fail(moveError);
+                    }
+                });
+            });
             response.pipe(file);
-            file.on('finish', () => { file.close(); resolve({ success: true, path: filePath, fileName }); });
-        }).on('error', (err) => { fs.unlink(filePath, () => { }); reject(err.message); });
+        });
+        request.setTimeout(30000, () => request.destroy(new Error('Download timed out')));
+        request.on('error', reject);
     });
+}
+
+// IPC handler to download a file from a URL to the user's themes/plugins folder.
+ipcMain.handle('hub-download-file', async (e, { fileUrl, type }) => {
+    if (type !== 'theme' && type !== 'plugin') throw new Error('Invalid Sail Hub item type');
+    const targetDir = path.join(app.getPath('userData'), type === 'theme' ? 'themes' : 'plugins');
+    return downloadHubFile(fileUrl, targetDir);
 });
 
 // --- Game Download Sources: fetch raw HTML with a browser-like User-Agent ---

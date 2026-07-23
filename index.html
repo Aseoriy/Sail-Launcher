@@ -649,16 +649,13 @@
         body.dropdown-accent-outline #anchoredSelect .as-opt.selected { background: color-mix(in srgb, var(--card-bg) 72%, transparent) !important; color: var(--text-color) !important; box-shadow: inset 0 0 0 1.5px var(--accent), 0 0 0 1px color-mix(in srgb, var(--accent) 12%, transparent) !important; }
         body.dropdown-accent-outline #anchoredSelect .as-opt:hover,
         body.dropdown-accent-outline #anchoredSelect .as-opt:focus { background: color-mix(in srgb, var(--accent) 7%, transparent) !important; box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 65%, transparent) !important; }
-        /* The same theme preference also controls ordinary accent-lit buttons and
-           active navigation items, so outline themes stay visually consistent. */
-        body.dropdown-accent-outline button:not(.titlebar-btn):not(.danger-outline):not(.gp-play-btn):not(.gp-stop-btn):not(.tile-stop-btn):not(.action-btn):not(.fav-btn):not(.friend-fav-btn):not(.sail-dialog-primary):not(.sail-dialog-cancel) {
-            background: color-mix(in srgb, var(--card-bg) 72%, transparent) !important;
-            border-color: color-mix(in srgb, var(--accent) 78%, transparent) !important;
-            color: var(--text-color) !important;
-            box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 44%, transparent), 0 0 0 1px color-mix(in srgb, var(--accent) 10%, transparent) !important;
-        }
-        body.dropdown-accent-outline button:not(.titlebar-btn):not(.danger-outline):not(.gp-play-btn):not(.gp-stop-btn):not(.tile-stop-btn):not(.action-btn):not(.fav-btn):not(.friend-fav-btn):not(.sail-dialog-primary):not(.sail-dialog-cancel):hover,
-        body.dropdown-accent-outline button:not(.titlebar-btn):not(.danger-outline):not(.gp-play-btn):not(.gp-stop-btn):not(.tile-stop-btn):not(.action-btn):not(.fav-btn):not(.friend-fav-btn):not(.sail-dialog-primary):not(.sail-dialog-cancel):focus-visible {
+        /* Outline mode never changes a button's resting surface. It only changes
+           explicit interaction/selection states, so transparent controls stay
+           identical to the filled mode until the user interacts with them. */
+        body.dropdown-accent-outline button:not(.titlebar-btn):not(.danger-outline):not(.gp-play-btn):not(.gp-stop-btn):not(.tile-stop-btn):not(.action-btn):not(.fav-btn):not(.friend-fav-btn):not(.sail-dialog-primary):not(.sail-dialog-cancel):not(.settings-tab):hover,
+        body.dropdown-accent-outline button:not(.titlebar-btn):not(.danger-outline):not(.gp-play-btn):not(.gp-stop-btn):not(.tile-stop-btn):not(.action-btn):not(.fav-btn):not(.friend-fav-btn):not(.sail-dialog-primary):not(.sail-dialog-cancel):not(.settings-tab):focus-visible,
+        body.dropdown-accent-outline button:not(.titlebar-btn):not(.danger-outline):not(.gp-play-btn):not(.gp-stop-btn):not(.tile-stop-btn):not(.action-btn):not(.fav-btn):not(.friend-fav-btn):not(.sail-dialog-primary):not(.sail-dialog-cancel):not(.settings-tab):active,
+        body.dropdown-accent-outline button[aria-pressed="true"] {
             background: color-mix(in srgb, var(--accent) 9%, var(--card-bg)) !important;
             border-color: var(--accent) !important;
             color: var(--text-color) !important;
@@ -2363,8 +2360,8 @@
             pointer-events: none;
             width: 600px;
             height: 600px;
-            will-change: transform;
             transform: translate3d(0, 0, 0);
+            contain: strict;
         }
         body.glassmorphic-mode .glass-blob {
             display: block;
@@ -2373,7 +2370,7 @@
             top: -120px;
             right: -120px;
             background: radial-gradient(circle, color-mix(in srgb, var(--accent) 25%, transparent) 0%, color-mix(in srgb, var(--accent) 8%, transparent) 40%, transparent 70%) !important;
-            animation: driftBlob1 28s infinite alternate ease-in-out;
+            transform: translate3d(45px, 25px, 0) scale(1.05);
         }
         body.glassmorphic-mode .glass-blob-2 {
             bottom: -180px;
@@ -2381,7 +2378,7 @@
             background: radial-gradient(circle, color-mix(in srgb, var(--accent) 20%, transparent) 0%, color-mix(in srgb, var(--accent) 5%, transparent) 45%, transparent 70%) !important;
             width: 650px;
             height: 650px;
-            animation: driftBlob2 35s infinite alternate ease-in-out;
+            transform: translate3d(-35px, -45px, 0) scale(1.08);
         }
         body.glassmorphic-mode .glass-blob-3 {
             top: 30%;
@@ -2389,7 +2386,7 @@
             background: radial-gradient(circle, color-mix(in srgb, var(--accent) 15%, transparent) 0%, color-mix(in srgb, var(--accent) 3%, transparent) 50%, transparent 70%) !important;
             width: 500px;
             height: 500px;
-            animation: driftBlob3 32s infinite alternate ease-in-out;
+            transform: translate3d(35px, -30px, 0) scale(0.95);
         }
 
         @keyframes driftBlob1 {
@@ -2457,7 +2454,6 @@
             animation: iosCardSlideIn 0.8s cubic-bezier(0.16, 1, 0.3, 1) both;
             backdrop-filter: none !important;
             -webkit-backdrop-filter: none !important;
-            will-change: transform, box-shadow;
             transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.5s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.5s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.5s cubic-bezier(0.16, 1, 0.3, 1) !important;
         }
 
@@ -2802,10 +2798,6 @@
         /* Smooth collapsing sidebar for glassmorphism */
         body.glassmorphic-mode .sidebar {
             transition: width 0.4s cubic-bezier(0.16, 1, 0.3, 1), background 0.3s, border-color 0.3s, box-shadow 0.3s !important;
-        }
-
-        body.glassmorphic-mode .sidebar * {
-            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
         }
 
         body.glassmorphic-mode .sidebar.collapsed .folder-name,
@@ -3168,23 +3160,40 @@
     <div class="app-container">
 
         <div class="sidebar" id="mainSidebar">
-            <div style="display:flex; justify-content:flex-start; padding: 4px 12px 0;">
-                <button class="sidebar-toggle-btn" onclick="toggleSidebar()"><span class="app-ic" data-ic="menu" role="img"></span></button>
+            <div class="sidebar-topbar">
+                <div class="sidebar-brand" aria-hidden="true">
+                    <span class="sidebar-brand-copy"><strong>Navigate</strong><small>Sail Launcher</small></span>
+                </div>
+                <button class="sidebar-toggle-btn" onclick="toggleSidebar()" aria-label="Collapse navigation" title="Collapse navigation"><span class="app-ic" data-ic="menu" role="img"></span></button>
             </div>
-            <div class="sidebar-header" id="sidebarNavHeader" style="justify-content: flex-start; gap: 12px; flex-wrap: wrap;">
-                <h2 class="sidebar-title active-tab" id="tabLibrary" onclick="switchMainTab('library')"
-                    style="cursor:pointer; opacity:1;" data-i18n="library">Library</h2>
-                <h2 class="sidebar-title" id="tabStore" onclick="switchMainTab('store')"
-                    style="cursor:pointer; opacity: 0.5; display: none;">Mods</h2>
-                <h2 class="sidebar-title" id="tabWorkshop" onclick="switchMainTab('workshop')"
-                    style="cursor:pointer; opacity: 0.5;">Workshop</h2>
-                <h2 class="sidebar-title" id="tabDownloads" onclick="switchMainTab('downloads')"
-                    style="cursor:pointer; opacity: 0.5;">Game Downloads</h2>
-                <h2 class="sidebar-title" id="tabDownloadsMgr" onclick="switchMainTab('downloadsmgr')"
-                    style="cursor:pointer; opacity: 0.5;">Download Manager</h2>
-                <h2 class="sidebar-title" id="tabMaintenance" onclick="switchMainTab('maintenance')"
-                    style="cursor:pointer; opacity: 0.5;">Maintenance</h2>
-            </div>
+            <nav class="sidebar-page-nav" id="sidebarNavHeader" aria-label="Launcher pages">
+                <div class="sidebar-kicker">Pages</div>
+                <button class="sidebar-page-link active-tab" id="tabLibrary" onclick="switchMainTab('library')" style="opacity:1;" title="Library">
+                    <span class="sidebar-page-icon"><span class="app-ic" data-ic="book"></span></span>
+                    <span class="sidebar-page-label" data-i18n="library">Library</span>
+                </button>
+                <button class="sidebar-page-link" id="tabStore" onclick="switchMainTab('store')" style="opacity:0.5; display:none;" title="Mods">
+                    <span class="sidebar-page-icon"><span class="app-ic" data-ic="puzzle"></span></span>
+                    <span class="sidebar-page-label">Mods</span>
+                </button>
+                <button class="sidebar-page-link" id="tabWorkshop" onclick="switchMainTab('workshop')" style="opacity:0.5;" title="Workshop">
+                    <span class="sidebar-page-icon"><span class="app-ic" data-ic="wrench"></span></span>
+                    <span class="sidebar-page-label">Workshop</span>
+                </button>
+                <button class="sidebar-page-link" id="tabDownloads" onclick="switchMainTab('downloads')" style="opacity:0.5;" title="Game Downloads">
+                    <span class="sidebar-page-icon"><span class="app-ic" data-ic="download"></span></span>
+                    <span class="sidebar-page-label">Game Downloads</span>
+                </button>
+                <button class="sidebar-page-link" id="tabDownloadsMgr" onclick="switchMainTab('downloadsmgr')" style="opacity:0.5;" title="Downloads">
+                    <span class="sidebar-page-icon"><span class="app-ic" data-ic="inbox"></span></span>
+                    <span class="sidebar-page-label">Downloads</span>
+                </button>
+                <button class="sidebar-page-link" id="tabMaintenance" onclick="switchMainTab('maintenance')" style="opacity:0.5;" title="Maintenance">
+                    <span class="sidebar-page-icon"><span class="app-ic" data-ic="settings"></span></span>
+                    <span class="sidebar-page-label">Maintenance</span>
+                </button>
+            </nav>
+            <div class="sidebar-kicker sidebar-library-kicker">Library</div>
             <div id="coreSectionsList" class="sidebar-section"></div>
 
             <div class="sidebar-header" id="sidebarFoldersHeader" style="margin-top: 10px;">
@@ -3357,7 +3366,7 @@
                     <div class="header" style="margin-bottom: 25px; flex-shrink: 0; display: flex; flex-direction: row; align-items: center; justify-content: space-between; gap: 15px;">
                         <div style="display: flex; flex-direction: column; align-items: flex-start;">
                             <h1 style="margin: 0; font-size: 28px;">🛒 Game Downloads</h1>
-                            <p style="font-size: 13px; opacity: 0.6; margin: 5px 0 0 0;">Search multiple repack &amp; download sources at once, then download in one click. Active downloads appear in the <b>Download Manager</b> tab.</p>
+                            <p style="font-size: 13px; opacity: 0.6; margin: 5px 0 0 0;">Search multiple repack &amp; download sources at once, then download in one click. Active downloads appear in the <b>Downloads</b> tab.</p>
                         </div>
                         <button class="outline" onclick="openDownloadSettings()" style="padding: 10px 16px; border-radius: 8px; flex-shrink: 0;">⚙️ Download Settings</button>
                     </div>
@@ -3371,7 +3380,7 @@
                             <span style="font-size: 11px; opacity: 0.5; font-weight: bold; text-transform: uppercase; margin-right: 4px;">Sources:</span>
                             <!-- source chips injected here -->
                         </div>
-                        <div id="steamripLockHint" style="display:none;font-size:11px;opacity:0.7;line-height:1.5;color:#f59e0b;">🔒 <b>SteamRIP</b> requires a connected debrid service. <a href="#" onclick="openDownloadSettings();return false;" style="color:var(--accent-color);text-decoration:underline;">Connect one in Download Settings</a> to unlock it.</div>
+                        <div id="steamripLockHint" style="display:none;font-size:11px;opacity:0.7;line-height:1.5;color:#f59e0b;">🔒 <b>SteamRIP</b> requires a connected debrid service. <a href="#" onclick="openDownloadSettings();return false;" style="color:var(--accent);text-decoration:underline;">Connect one in Download Settings</a> to unlock it.</div>
                     </div>
 
                     <div style="background: var(--card-bg); border-radius: 12px; border: 1px solid var(--border-color); padding: 24px; box-sizing: border-box; width: 100%; min-height: 300px; flex-grow: 1; display: flex; flex-direction: column;">
@@ -3486,7 +3495,7 @@
             <div id="downloadsManagerView" style="display: none; box-sizing: border-box; flex-direction: column; width: 100%;">
                 <div class="header" style="margin-bottom: 25px; flex-shrink: 0; display: flex; flex-direction: row; align-items: center; justify-content: space-between; gap: 15px;">
                     <div style="display: flex; flex-direction: column; align-items: flex-start;">
-                        <h1 style="margin: 0; font-size: 28px;">⬇️ Download Manager</h1>
+                        <h1 style="margin: 0; font-size: 28px;">⬇️ Downloads</h1>
                         <p style="font-size: 13px; opacity: 0.6; margin: 5px 0 0 0;">Active, queued and completed downloads. Start new ones from the <b>Game Downloads</b> tab.</p>
                     </div>
                     <div style="display:flex;align-items:center;gap:10px;flex-shrink:0;">
@@ -3800,7 +3809,7 @@
                 <input type="text" id="gogId" placeholder="GOG Game ID" style="display:none;">
                 <button id="steamSearchBtn" class="help-btn" onclick="toggleSteamSearch()" title="Search Steam Games" style="display:none;">🔍</button>
                 <div id="steamSearchDropdown"
-                    style="display:none; position:absolute; top: 100%; right: 0; width: 300px; background: var(--modal-bg); border: 1px solid var(--border-color); border-radius: 8px; z-index: 100; box-shadow: 0 4px 12px rgba(0,0,0,0.5); padding: 10px; flex-direction: column; gap: 10px;">
+                    style="display:none; position:absolute; top: 100%; right: 0; width: 300px; background: var(--modal-bg, var(--card-bg)); border: 1px solid var(--border-color); border-radius: 8px; z-index: 100; box-shadow: 0 4px 12px rgba(0,0,0,0.5); padding: 10px; flex-direction: column; gap: 10px;">
                     <div style="display: flex; gap: 5px;">
                         <input type="text" id="steamSearchInput" placeholder="Search game name..."
                             style="flex-grow: 1; min-width: 0;" oninput="onSteamSearchInput()">
@@ -4073,7 +4082,7 @@
     </div>
 
     <div id="sourcesConfirmModal" class="modal">
-        <div class="modal-content" style="width: 420px; text-align: center; padding: 30px; border-radius: 16px; border: 1px solid var(--border-color); background: var(--modal-bg);">
+        <div class="modal-content" style="width: 420px; text-align: center; padding: 30px; border-radius: 16px; border: 1px solid var(--border-color); background: var(--modal-bg, var(--card-bg));">
             <button class="close-x" onclick="closeModal('sourcesConfirmModal')">✕</button>
             <div style="font-size: 40px; margin-bottom: 15px;">🔗</div>
             <h2 style="margin-top: 0; font-size: 20px; color: var(--accent);" id="sourcesConfirmTitle">Redirect Confirmation</h2>
@@ -4087,7 +4096,7 @@
     </div>
 
     <div id="devPasswordModal" class="modal" style="z-index: 10100;">
-        <div class="modal-content" style="width: 380px; text-align: center; padding: 25px; border-radius: 16px; border: 1px solid var(--border-color); background: var(--modal-bg);">
+        <div class="modal-content" style="width: 380px; text-align: center; padding: 25px; border-radius: 16px; border: 1px solid var(--border-color); background: var(--modal-bg, var(--card-bg));">
             <button class="close-x" onclick="closeDevPasswordModal(false)">✕</button>
             <div style="font-size: 40px; margin-bottom: 10px;">🔑</div>
             <h2 style="margin-top: 0; font-size: 18px; color: var(--accent);">Developer Access</h2>
@@ -4120,7 +4129,7 @@
                 <div class="settings-tab" tabindex="0" onclick="switchSettingsTab('social')" data-i18n="social">💬
                     Social</div>
                 <div class="settings-tab" tabindex="0" onclick="switchSettingsTab('data')" data-i18n="dataBackup">💾
-                    Data & Backup</div>
+                    Data &amp; Backup</div>
                 <div class="settings-tab" tabindex="0" onclick="switchSettingsTab('cloud')"><span class="app-ic" data-ic="cloud"></span>
                     Cloud Sync</div>
                 <div class="settings-tab" tabindex="0" onclick="switchSettingsTab('library')"><span class="app-ic" data-ic="book"></span>
@@ -4274,7 +4283,7 @@
                     <label class="toggle-label">
                         <input type="checkbox" id="fullTileImageToggle">
                         <div class="toggle-switch"></div>
-                        Make entire tile the game cover (Full Photo)
+                        Use the game cover as the full tile background
                     </label>
                 </div>
 
@@ -4282,7 +4291,7 @@
                     <label class="toggle-label">
                         <input type="checkbox" id="verticalCardsToggle">
                         <div class="toggle-switch"></div>
-                        Vertical (Poster) Game Cards
+                        Use vertical poster game cards
                     </label>
                     <p style="font-size: 11px; color: rgba(255,255,255,0.5); text-align: left; margin-top: 5px;">
                         Off = wide landscape cards that show the full cover photo. On = tall 3:4 poster tiles like a console store.</p>
@@ -4324,7 +4333,7 @@
                     <label class="toggle-label">
                         <input type="checkbox" id="autoStartToggle">
                         <div class="toggle-switch"></div>
-                        <span data-i18n="autoStart">Start Sail Launcher on PC Boot</span>
+                        <span data-i18n="autoStart">Start Sail Launcher with Windows</span>
                     </label>
                 </div>
 
@@ -4366,7 +4375,7 @@
                     <label class="toggle-label">
                         <input type="checkbox" id="exitWhenClosedToggle">
                         <div class="toggle-switch"></div>
-                        <span data-i18n="exitWhenClosed">Exit When Closed (Off = Minimize to Tray)</span>
+                        <span data-i18n="exitWhenClosed">Exit Sail Launcher when the window closes (Off = minimize to tray)</span>
                     </label>
                 </div>
 
@@ -4394,7 +4403,7 @@
                     <label class="toggle-label">
                         <input type="checkbox" id="legacyUiToggle">
                         <div class="toggle-switch"></div>
-                        <span>Use Legacy UI (Disable glassmorphic design)</span>
+                        <span>Use legacy interface (disables glass effects)</span>
                     </label>
                     <p style="font-size: 11px; color: rgba(255,255,255,0.5); text-align: left; margin-top: 5px;">
                         Turns off the modern translucent glass panels, fixed background blobs, and spring animations, reverting back to the flat legacy interface design.</p>
@@ -4413,7 +4422,7 @@
 
                 <div style="margin-bottom: 20px;">
                     <label style="font-size: 12px; opacity:0.6; display:block; margin-bottom:5px;"
-                        data-i18n="systemLang">System Language</label>
+                        data-i18n="systemLang">Launcher Language</label>
                     <select id="languageSelect" style="width: 100%;">
                         <option value="english">English</option>
                         <option value="spanish">Español</option>
@@ -4437,7 +4446,7 @@
                 <div style="display: flex; gap: 10px; flex-direction: column;">
                     <div>
                         <button class="outline" id="importSteamBtn"
-                            style="width: 100%; border-color: var(--primary-color); color: var(--text-color);">
+                            style="width: 100%; border-color: var(--accent); color: var(--text-color);">
                             <span style="font-size: 16px; margin-right: 8px;">🎮</span> Auto-Import Steam Games
                         </button>
                         <p style="font-size: 11px; color: rgba(255,255,255,0.5); text-align: center; margin-top: 5px;">
@@ -4445,7 +4454,7 @@
                     </div>
                     <div>
                         <button class="outline" id="importEpicBtn"
-                            style="width: 100%; border-color: var(--primary-color); color: var(--text-color);">
+                            style="width: 100%; border-color: var(--accent); color: var(--text-color);">
                             <span style="font-size: 16px; margin-right: 8px;">🕹️</span> Auto-Import Epic Games
                         </button>
                         <p style="font-size: 11px; color: rgba(255,255,255,0.5); text-align: center; margin-top: 5px;">
@@ -4453,7 +4462,7 @@
                     </div>
                     <div>
                         <button class="outline" id="importGogBtn"
-                            style="width: 100%; border-color: var(--primary-color); color: var(--text-color);">
+                            style="width: 100%; border-color: var(--accent); color: var(--text-color);">
                             <span style="font-size: 16px; margin-right: 8px;">🚀</span> Auto-Import GOG Games
                         </button>
                         <p style="font-size: 11px; color: rgba(255,255,255,0.5); text-align: center; margin-top: 5px;">
@@ -4595,7 +4604,7 @@
                     <label class="toggle-label" tabindex="0" style="margin-bottom:14px;">
                         <input type="checkbox" id="showDownloadManagerPageToggle" checked>
                         <div class="toggle-switch"></div>
-                        <span>Show 'Download Manager' page in sidebar</span>
+                        <span>Show 'Downloads' page in sidebar</span>
                     </label>
                     <label class="toggle-label" tabindex="0" style="margin-bottom:14px;">
                         <input type="checkbox" id="showWorkshopPageToggle" checked>
@@ -4714,9 +4723,9 @@
 
                 <div
                     style="margin-top: 30px; border-top: 1px solid var(--border-color); padding-top: 20px; display:flex; gap:10px;">
-                    <button class="outline" style="flex-grow:1;"
+                    <button class="outline" id="aboutVersionBtn" style="flex-grow:1;"
                         onclick="require('electron').ipcRenderer.invoke('open-url', 'https://github.com/Aseoriy/Sail-Launcher')"><img src="icon.ico" alt="" style="width:1.1em;height:1.1em;object-fit:contain;vertical-align:-0.2em;margin-right:2px;" onerror="this.style.display='none'">
-                        Sail Launcher v5.2.0</button>
+                        <span id="aboutVersionLabel">Sail Launcher</span></button>
                     <button id="checkUpdateBtn" style="min-width: 150px; transition: 0.3s;"
                         data-i18n="checkUpdates">Check Updates</button>
                 </div>
@@ -4952,20 +4961,20 @@
                         </div>
 
                         <div id="customKeysPanel" style="display: none; flex-direction: column; gap: 10px; background: rgba(0,0,0,0.15); padding: 12px; border-radius: 8px; border: 1px dashed var(--border-color);">
-                            <div style="font-size: 11px; opacity: 0.8; line-height: 1.4; color: var(--accent-color); padding-bottom: 8px; border-bottom: 1px dashed rgba(255,255,255,0.05); margin-bottom: 4px;">
+                            <div style="font-size: 11px; opacity: 0.8; line-height: 1.4; color: var(--accent); padding-bottom: 8px; border-bottom: 1px dashed rgba(255,255,255,0.05); margin-bottom: 4px;">
                                 ℹ️ <b>OAuth Callback URI to register:</b><br>
                                 <code style="background: rgba(0,0,0,0.4); padding: 2px 6px; border-radius: 4px; font-family: monospace; display: inline-block; margin-top: 4px; border: 1px solid rgba(255,255,255,0.1);">http://localhost:53232/callback</code>
                             </div>
 
                             <div style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); border-radius: 8px; padding: 10px; margin-bottom: 5px;">
-                                <h5 style="margin: 0 0 8px 0; font-size: 11px; color: var(--accent-color); display: flex; align-items: center; gap: 6px;">
+                                <h5 style="margin: 0 0 8px 0; font-size: 11px; color: var(--accent); display: flex; align-items: center; gap: 6px;">
                                     📖 Setup Instructions
                                 </h5>
                                 
                                 <details style="margin-bottom: 6px; font-size: 10.5px;">
                                     <summary style="cursor: pointer; font-weight: bold; opacity: 0.8; outline: none; margin-bottom: 4px; user-select: none;">Google Drive Setup Guide</summary>
                                     <ol style="margin: 4px 0; padding-left: 18px; opacity: 0.7; line-height: 1.4; display: flex; flex-direction: column; gap: 3px;">
-                                        <li>Go to the <a href="#" onclick="require('electron').ipcRenderer.invoke('open-url', 'https://console.cloud.google.com/')" style="color: var(--accent-color); text-decoration: underline;">Google Cloud Console</a>.</li>
+                                        <li>Go to the <a href="#" onclick="require('electron').ipcRenderer.invoke('open-url', 'https://console.cloud.google.com/')" style="color: var(--accent); text-decoration: underline;">Google Cloud Console</a>.</li>
                                         <li>Create a project, search for <b>Google Drive API</b>, and click <b>Enable</b>.</li>
                                         <li>Go to <b>OAuth consent screen</b>, select <b>External</b>, and configure it. Add the scope: <code style="background: rgba(0,0,0,0.2); padding: 1px 3px;">.../auth/drive.file</code>.</li>
                                         <li>Under <b>Credentials</b>, click <b>+ Create Credentials</b> -> <b>OAuth client ID</b>.</li>
@@ -4979,7 +4988,7 @@
                                 <details style="margin-bottom: 6px; font-size: 10.5px;">
                                     <summary style="cursor: pointer; font-weight: bold; opacity: 0.8; outline: none; margin-bottom: 4px; user-select: none;">Microsoft OneDrive Setup Guide</summary>
                                     <ol style="margin: 4px 0; padding-left: 18px; opacity: 0.7; line-height: 1.4; display: flex; flex-direction: column; gap: 3px;">
-                                        <li>Go to the <a href="#" onclick="require('electron').ipcRenderer.invoke('open-url', 'https://portal.azure.com/')" style="color: var(--accent-color); text-decoration: underline;">Azure Portal</a> (under App registrations).</li>
+                                        <li>Go to the <a href="#" onclick="require('electron').ipcRenderer.invoke('open-url', 'https://portal.azure.com/')" style="color: var(--accent); text-decoration: underline;">Azure Portal</a> (under App registrations).</li>
                                         <li>Click <b>New registration</b>. Set Supported account types to <b>Accounts in any organizational directory and personal Microsoft accounts</b>.</li>
                                         <li>Under Redirect URI, select <b>Web</b> and enter: <code style="background: rgba(0,0,0,0.2); padding: 1px 3px;">http://localhost:53232/callback</code>.</li>
                                         <li>Click Register, copy the <b>Application (client) ID</b> from the Overview page, and paste it below.</li>
@@ -4989,7 +4998,7 @@
                                 <details style="font-size: 10.5px;">
                                     <summary style="cursor: pointer; font-weight: bold; opacity: 0.8; outline: none; margin-bottom: 4px; user-select: none;">Dropbox Setup Guide</summary>
                                     <ol style="margin: 4px 0; padding-left: 18px; opacity: 0.7; line-height: 1.4; display: flex; flex-direction: column; gap: 3px;">
-                                        <li>Go to the <a href="#" onclick="require('electron').ipcRenderer.invoke('open-url', 'https://www.dropbox.com/developers/apps')" style="color: var(--accent-color); text-decoration: underline;">Dropbox App Console</a>.</li>
+                                        <li>Go to the <a href="#" onclick="require('electron').ipcRenderer.invoke('open-url', 'https://www.dropbox.com/developers/apps')" style="color: var(--accent); text-decoration: underline;">Dropbox App Console</a>.</li>
                                         <li>Click <b>Create app</b>. Select <b>Scoped access</b> and <b>Full Dropbox</b> access.</li>
                                         <li>Under the <b>Settings</b> tab, set OAuth 2 Redirect URIs to: <code style="background: rgba(0,0,0,0.2); padding: 1px 3px;">http://localhost:53232/callback</code>.</li>
                                         <li>Under the <b>Permissions</b> tab, enable: <code style="background: rgba(0,0,0,0.2); padding: 1px 3px;">files.content.write</code>, <code style="background: rgba(0,0,0,0.2); padding: 1px 3px;">files.content.read</code>, and <code style="background: rgba(0,0,0,0.2); padding: 1px 3px;">files.metadata.read</code>, then click Submit.</li>
@@ -5056,7 +5065,17 @@
                     .ftest-card p { margin: 0; font-size: 11px; opacity: 0.6; line-height: 1.45; flex-grow: 1; }
                     .ftest-card button { padding: 9px 12px; border-radius: 8px; font-size: 12.5px; font-weight: 600; cursor: pointer; border: 1px solid var(--accent); background: transparent; color: var(--accent); transition: 0.2s; }
                     .ftest-card button:hover { background: var(--accent); color: #fff; }
-                    @media (max-width: 720px) { .ftest-grid { grid-template-columns: 1fr; } }
+                    .alert-admin-auth { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr) auto; gap: 8px; align-items: end; }
+                    .alert-admin-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+                    .alert-admin-field label { font-size: 11px; font-weight: 700; opacity: .72; }
+                    .alert-auth-status { padding: 9px 11px; border-radius: 8px; border: 1px solid var(--border-color); font-size: 11px; opacity: .78; }
+                    .alert-auth-status.authorized { border-color: color-mix(in srgb, #22c55e 58%, transparent); color: #86efac; }
+                    .alert-auth-status.error { border-color: color-mix(in srgb, #ef4444 58%, transparent); color: #fca5a5; }
+                    .version-target-entry { display: flex; gap: 8px; align-items: center; }
+                    .version-target-chips { display: flex; flex-wrap: wrap; gap: 6px; min-height: 24px; }
+                    .version-target-chip { display: inline-flex; align-items: center; gap: 6px; padding: 5px 8px; border-radius: 999px; border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); background: color-mix(in srgb, var(--accent) 12%, transparent); font-size: 11px; }
+                    .version-target-chip button { border: 0; padding: 0; background: transparent; color: inherit; box-shadow: none; }
+                    @media (max-width: 720px) { .ftest-grid { grid-template-columns: 1fr; } .alert-admin-auth { grid-template-columns: 1fr; } }
                 </style>
 
                 <div class="dev-subtabs">
@@ -5066,19 +5085,43 @@
 
                 <div id="dev-sub-alerts" class="dev-subpane active">
                 <h3 style="margin-top: 0;"><span class="app-ic" data-ic="megaphone"></span> Alerts Manager</h3>
-                <p style="font-size: 13px; opacity: 0.7; margin-bottom: 20px;">Publish notifications or hotfix alerts directly to all Sail Launcher users.</p>
+                <p style="font-size: 13px; opacity: 0.7; margin-bottom: 20px;">Publish notifications to every launcher or to exact v5.2.1+ release tags.</p>
 
                 <div style="border: 1px solid var(--border-color); border-radius: 8px; padding: 15px; display: flex; flex-direction: column; gap: 12px; background: rgba(255, 255, 255, 0.02);">
-                    <div style="display: flex; flex-direction: column; gap: 4px;">
-                        <label style="font-size: 12px; font-weight: bold; opacity: 0.8;">Supabase Service Role Key (Admin Secret)</label>
-                        <input type="password" id="adminServiceRoleKeyInput" placeholder="Paste your service_role API key from Supabase here..." style="padding: 10px; background: var(--bg-color); border: 1px solid var(--border-color); color: var(--text-color); border-radius: 8px; width: 100%; box-sizing: border-box;">
-                        <p style="font-size: 11px; opacity: 0.5; margin: 3px 0 0 0;">This key is stored locally in your app settings and is never shared or committed to Github. It is required to bypass Row Level Security and publish alerts.</p>
+                    <div class="alert-admin-auth">
+                        <div class="alert-admin-field">
+                            <label for="alertAdminEmail">Sail Hub admin email</label>
+                            <input type="email" id="alertAdminEmail" autocomplete="username" placeholder="you@example.com">
+                        </div>
+                        <div class="alert-admin-field">
+                            <label for="alertAdminPassword">Password</label>
+                            <input type="password" id="alertAdminPassword" autocomplete="current-password" placeholder="Not stored">
+                        </div>
+                        <button type="button" id="alertAdminSignInBtn" class="outline" onclick="signInAlertAdmin()">Sign in</button>
                     </div>
+                    <div class="alert-auth-status" id="alertAdminStatus" role="status">Not signed in. Authentication is kept in memory for this launcher session only.</div>
+                    <button type="button" id="alertAdminSignOutBtn" class="outline" onclick="signOutAlertAdmin()" style="display:none; align-self:flex-start;">Sign out</button>
                     
                     <div style="border-top: 1px solid rgba(255, 255, 255, 0.1); padding-top: 12px; margin-top: 8px; display: flex; flex-direction: column; gap: 12px;">
                         <div style="display: flex; flex-direction: column; gap: 4px;">
                             <label style="font-size: 12px; font-weight: bold; opacity: 0.8;">Alert Message</label>
                             <textarea id="adminAlertMessage" placeholder="E.g., Hotfix 4.2.6 has been released to fix a cloud sync bug. Please update!" rows="3" style="padding: 10px; background: var(--bg-color); border: 1px solid var(--border-color); color: var(--text-color); border-radius: 8px; width: 100%; box-sizing: border-box; font-family: inherit; resize: vertical;"></textarea>
+                        </div>
+
+                        <div style="display: flex; flex-direction: column; gap: 6px;">
+                            <label style="font-size: 12px; font-weight: bold; opacity: 0.8;">Audience</label>
+                            <select id="adminAlertAudience" onchange="updateAlertAudienceUi()">
+                                <option value="all">All versions (includes legacy launchers)</option>
+                                <option value="specific">Specific v5.2.1+ versions</option>
+                            </select>
+                            <div id="adminAlertTargetsWrap" style="display:none;">
+                                <div class="version-target-entry">
+                                    <input type="text" id="adminAlertTargetInput" placeholder="5.2.1-beta-1" aria-describedby="adminAlertTargetHelp">
+                                    <button type="button" class="outline" onclick="addAlertVersionTargets()">Add</button>
+                                </div>
+                                <div class="version-target-chips" id="adminAlertTargetChips" aria-live="polite"></div>
+                                <p id="adminAlertTargetHelp" style="font-size:11px;opacity:.55;margin:6px 0 0;">Press Enter or comma to add exact tags. Builds older than v5.2.1 can only receive All versions alerts.</p>
+                            </div>
                         </div>
                         
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
@@ -5120,9 +5163,9 @@
                     <p style="font-size: 13px; opacity: 0.7; margin-bottom: 16px;">Trigger launcher features on demand to verify they work. <strong style="color:#f59e0b;">These run for real</strong> — windows open, live data is fetched, and the downloader actually downloads a small sample file.</p>
                     <div class="ftest-grid">
                         <div class="ftest-card">
-                            <h4><span class="app-ic" data-ic="rocket"></span> Update check</h4>
-                            <p>Runs the real update check against GitHub and shows the update window if one is available (or "up to date").</p>
-                            <button onclick="checkForUpdates(false, this)">Run update check</button>
+                            <h4><span class="app-ic" data-ic="rocket"></span> Reinstall latest release</h4>
+                            <p>Fetches the latest release for the selected channel and runs the real installer, even when that version is already installed.</p>
+                            <button onclick="checkForUpdates(false, this, { forceInstall: true })">Reinstall latest</button>
                         </div>
                         <div class="ftest-card">
                             <h4><span class="app-ic" data-ic="party"></span> "Update complete" window</h4>
@@ -5382,7 +5425,10 @@
         function paintIcons(root) {
             const scope = root && root.querySelectorAll ? root : document;
             const mode = _iconMode();
-            scope.querySelectorAll('.app-ic').forEach(el => {
+            const icons = [];
+            if (scope.nodeType === 1 && scope.matches('.app-ic')) icons.push(scope);
+            icons.push(...scope.querySelectorAll('.app-ic'));
+            icons.forEach(el => {
                 if (el.getAttribute('data-mode') === mode) return;
                 const name = el.getAttribute('data-ic');
                 if (!name) return;
@@ -5454,19 +5500,27 @@
         window.iconizeElement = iconizeElement;
         // Given a raw stored emoji (e.g. a custom folder's chosen icon), return a themed icon span
         // if that emoji maps to a registered icon, otherwise the emoji itself unchanged.
-        window.iconOrEmoji = function (emo) { const n = EMOJI_TO_ICON[emo]; return n ? window.ic(n) : (emo || ''); };
+        window.iconOrEmoji = function (emo) { const n = EMOJI_TO_ICON[emo]; return n ? window.ic(n) : escapeHtml(emo || ''); };
         // Paint on load, then keep painting nodes that dynamic views inject. The observer is
         // paused around our own writes so paintIcons' innerHTML edits don't re-trigger it.
         let _iconObserver = null, _iconRaf = null;
+        const _iconPendingRoots = new Set();
         function initIconSystem() {
             paintIcons(document);
             if (_iconObserver) return;
-            _iconObserver = new MutationObserver(() => {
+            _iconObserver = new MutationObserver(records => {
+                records.forEach(record => record.addedNodes.forEach(node => {
+                    if (node.nodeType !== 1) return;
+                    if (node.matches('.app-ic') || node.querySelector('.app-ic')) _iconPendingRoots.add(node);
+                }));
+                if (_iconPendingRoots.size === 0) return;
                 if (_iconRaf) return;
                 _iconRaf = requestAnimationFrame(() => {
                     _iconRaf = null;
+                    const roots = [..._iconPendingRoots];
+                    _iconPendingRoots.clear();
                     _iconObserver.disconnect();
-                    paintIcons(document);
+                    roots.forEach(root => { if (root.isConnected) paintIcons(root); });
                     _iconObserver.observe(document.body, { childList: true, subtree: true });
                 });
             });
@@ -5475,7 +5529,18 @@
         if (document.readyState !== 'loading') initIconSystem();
         else document.addEventListener('DOMContentLoaded', initIconSystem);
 
-        const APP_VERSION = "v5.2.0";
+        const LauncherLogic = require('./ui/launcherLogic');
+        const PACKAGE_VERSION = require('./package.json').version;
+        const APP_VERSION = `v${PACKAGE_VERSION}`;
+        const { createClient: createSupabaseClient } = require('@supabase/supabase-js');
+        const SAIL_SUPABASE_URL = 'https://vglpzpffejwgttlqrums.supabase.co';
+        const SAIL_SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_BaNykIu4jFs-B1hVAd2Y1A_71t1BK2e';
+        const alertSupabase = createSupabaseClient(SAIL_SUPABASE_URL, SAIL_SUPABASE_PUBLISHABLE_KEY, {
+            auth: { persistSession: false, autoRefreshToken: true, detectSessionInUrl: false }
+        });
+        let alertAdminAuthorized = false;
+        let alertVersionTargets = [];
+        { const label = document.getElementById('aboutVersionLabel'); if (label) label.textContent = `Sail Launcher ${APP_VERSION}`; }
         let currentTabName = 'library';
         let skipStaggerAnimation = false;
 
@@ -5570,6 +5635,12 @@
             return (seconds / 3600).toFixed(1) + ' hrs';
         }
 
+        function escapeHtml(value) {
+            return String(value == null ? '' : value).replace(/[&<>"']/g, character => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+            })[character]);
+        }
+
         const dict = {
             english: { library: "Library", folders: "Folders", allGames: "All Games", favs: "Favorites", new: "+ New", sysSpecs: "💻 System Specs", settings: "⚙️ Settings", addGame: "+ Add Game", search: "🔍 Search games...", showAll: "Show All", steamOnly: "Steam Only", customOnly: "Custom Only", ready: "Ready to Play", play: "▶ Play", stop: "🛑 Force Stop", sync: "☁️ Sync Saves", manage: "⚙️ Manage Game", about: "About This Game", reqs: "System Requirements", backLib: "⬅️ Back to Library", myLibrary: "My Library", appearance: "🎨 Appearance", system: "⚙️ System", advanced: "🛠️ Advanced", dataBackup: "💾 Data & Backup", appTheme: "App Theme", edit: "✏️ Edit", exportTheme: "📤 Export Theme", importTheme: "📥 Import Theme", appFont: "App Font", importCustomFont: "Import Custom Font...", autoStart: "Start Sail Launcher on PC Boot", exitWhenClosed: "Exit When Closed (Off = Minimize to Tray)", disableDiscordRpc: "Disable Discord RPC", compactPage: "Compact Game Page (Moves details to Info button)", systemLang: "System Language", autoCloudSyncFolder: "Auto-Cloud Sync Folder", launcherData: "Launcher Data", export: "📤 Export", import: "📥 Import", wipe: "🧨 Wipe", checkUpdates: "Check Updates", isSteam: "Is this game on Steam?", gameName: "Game Name", customCover: "Custom Cover Image (Optional)", steamAppId: "Steam App ID", gamePath: "Game .exe, .bat, or .lnk Path", shortcutIcon: "Shortcut Icon (.ico, .exe) (Optional)", localSave: "Local Save Folder (Optional)", driveSave: "Drive Save Folder (Overrides Default)", saveGame: "Save Game", tileShape: "Game Tile Shape", tileSize: "Game Tile Size", recentlyPlayed: "Recently Played", unplayed: "Never Played", bigPicture: "📺 Big Picture", extra: "✨ Extra", showSurpriseMe: "Show 'Surprise Me' Button", showDynamicFolders: "Show Dynamic Folders (Recently Played / Never Played)", showFavoritesFolder: "Show Favorites Folder in Sidebar", recentDays: "Recently Played Timeframe", stats: "📊 Stats", selectMode: "🎯 Select Mode", selectAll: "Select All", deselectAll: "Deselect All", deleteSelected: "🗑️ Delete Selected", cancel: "Cancel", gamesSelected: "games selected" },
             spanish: { library: "Biblioteca", folders: "Carpetas", allGames: "Todos los juegos", favs: "Favoritos", new: "+ Nuevo", sysSpecs: "💻 Especificaciones", settings: "⚙️ Ajustes", addGame: "+ Añadir juego", search: "🔍 Buscar...", showAll: "Mostrar todo", steamOnly: "Solo Steam", customOnly: "Personalizados", ready: "Listo para jugar", play: "▶ Jugar", stop: "🛑 Detener", sync: "☁️ Sincronizar", manage: "⚙️ Gestionar", about: "Acerca del juego", reqs: "Requisitos", backLib: "⬅️ Volver", myLibrary: "Mi Biblioteca", appearance: "🎨 Apariencia", system: "⚙️ Sistema", advanced: "🛠️ Avanzado", dataBackup: "💾 Datos y Copia", appTheme: "Tema de la aplicación", edit: "✏️ Editar", exportTheme: "📤 Exportar Tema", importTheme: "📥 Importar Tema", appFont: "Fuente", importCustomFont: "Importar fuente...", autoStart: "Iniciar con Windows", exitWhenClosed: "Salir al cerrar (Desactivado = Minimizar)", disableDiscordRpc: "Desactivar Discord RPC", compactPage: "Página de juego compacta", systemLang: "Idioma del sistema", autoCloudSyncFolder: "Carpeta de sincronización", launcherData: "Datos del Launcher", export: "📤 Exportar", import: "📥 Importar", wipe: "🧨 Borrar todo", checkUpdates: "Buscar actualizaciones", isSteam: "¿Es de Steam?", gameName: "Nombre del juego", customCover: "Carátula (Opcional)", steamAppId: "App ID de Steam", gamePath: "Ruta del juego (.exe, .bat, .lnk)", shortcutIcon: "Icono de acceso directo (Opcional)", localSave: "Carpeta de guardado local", driveSave: "Carpeta de nube", saveGame: "Guardar Juego", tileShape: "Forma del icono", tileSize: "Tamaño del icono", recentlyPlayed: "Jugado recientemente", unplayed: "Nunca jugado", bigPicture: "📺 Pantalla Completa", extra: "✨ Extra", showSurpriseMe: "Mostrar botón 'Sorpréndeme'", showDynamicFolders: "Mostrar carpetas dinámicas", showFavoritesFolder: "Mostrar carpeta Favoritos", recentDays: "Período de Recientemente Jugado", stats: "📊 Estadísticas" },
@@ -5579,6 +5650,19 @@
             koreana: { library: "라이브러리", folders: "폴더", allGames: "모든 게임", 즐겨찾기: "즐겨찾기", new: "+ 새로 만들기", sysSpecs: "💻 시스템 사양", settings: "⚙️ 설정", addGame: "+ 게임 추가", search: "🔍 검색...", showAll: "모두 보기", steamOnly: "Steam 전용", customOnly: "사용자 지정", ready: "플레이 준비 완료", play: "▶ 플레이", stop: "🛑 강제 종료", sync: "☁️ 동기화", manage: "⚙️ 관리", about: "게임 정보", reqs: "시스템 요구 사항", backLib: "⬅️ 뒤로", myLibrary: "내 라이브러리", appearance: "🎨 모양", system: "⚙️ 시스템", advanced: "🛠️ 고급", dataBackup: "💾 데이터", appTheme: "앱 테마", edit: "✏️ 편집", exportTheme: "📤 테마 내보내기", importTheme: "📥 테마 가져오기", appFont: "앱 글꼴", importCustomFont: "사용자 지정 글꼴...", autoStart: "PC 부팅 시 시작", exitWhenClosed: "닫을 때 종료", disableDiscordRpc: "Discord RPC 비활성화", compactPage: "컴팩트 게임 페이지", systemLang: "시스템 언어", autoCloudSyncFolder: "클라우드 동기화 폴더", launcherData: "런처 데이터", export: "📤 내보내기", import: "📥 가져오기", wipe: "🧨 초기화", checkUpdates: "업데이트 확인", isSteam: "Steam 게임입니까?", gameName: "게임 이름", customCover: "사용자 지정 표지 (선택)", steamAppId: "Steam App ID", gamePath: "게임 경로 (.exe, .bat, .lnk)", shortcutIcon: "바로 가기 아이콘 (선택)", localSave: "로컬 저장 폴더", driveSave: "클라우드 저장 폴더", saveGame: "게임 저장", tileShape: "타일 모양", tileSize: "타일 크기", recentlyPlayed: "최근 플레이", unplayed: "플레이하지 않음", bigPicture: "📺 빅 픽처 모드", extra: "✨ 추가 설정", showSurpriseMe: "'서프라이즈' 버튼 표시", showDynamicFolders: "동적 폴더 표시", showFavoritesFolder: "즐겨찾기 폴더 표시", recentDays: "최근 플레이 기준", stats: "📊 통계" },
             schinese: { library: "库", folders: "文件夹", allGames: "所有游戏", favs: "收藏", new: "+ 新建", sysSpecs: "💻 系统配置", settings: "⚙️ 设置", addGame: "+ 添加游戏", search: "🔍 搜索...", showAll: "显示全部", steamOnly: "仅Steam", customOnly: "仅自定义", ready: "准备就绪", play: "▶ 开始游戏", stop: "🛑 强制停止", sync: "☁️ 同步存档", manage: "⚙️ 管理游戏", about: "关于游戏", reqs: "系统需求", backLib: "⬅️ 返回库", myLibrary: "我的库", appearance: "🎨 外观", system: "⚙️ 系统", advanced: "🛠️ 高级", dataBackup: "💾 数据与备份", appTheme: "应用主题", edit: "✏️ 编辑", exportTheme: "📤 导出主题", importTheme: "📥 导入主题", appFont: "应用字体", importCustomFont: "导入自定义字体...", autoStart: "开机自动启动", exitWhenClosed: "关闭时退出", disableDiscordRpc: "禁用 Discord RPC", compactPage: "紧凑游戏页面", systemLang: "系统语言", autoCloudSyncFolder: "自动云同步文件夹", launcherData: "启动器数据", export: "📤 导出", import: "📥 导入", wipe: "🧨 清除数据", checkUpdates: "检查更新", isSteam: "这是Steam游戏吗？", gameName: "游戏名称", customCover: "自定义封面 (可选)", steamAppId: "Steam App ID", gamePath: "游戏路径 (.exe, .bat, .lnk)", shortcutIcon: "快捷方式图标 (可选)", localSave: "本地存档文件夹", driveSave: "云端存档文件夹", saveGame: "保存游戏", tileShape: "游戏磁贴形状", tileSize: "游戏磁贴大小", recentlyPlayed: "最近游玩", unplayed: "从未游玩", bigPicture: "📺 大屏幕模式", extra: "✨ 额外", showSurpriseMe: "显示“随机游戏”按钮", showDynamicFolders: "显示动态文件夹", showFavoritesFolder: "显示收藏文件夹", recentDays: "最近游玩时间范围", stats: "📊 统计" }
         };
+
+        // These labels describe launcher behavior rather than Windows system settings.
+        Object.assign(dict.english, {
+            autoStart: 'Start Sail Launcher with Windows',
+            exitWhenClosed: 'Exit Sail Launcher when the window closes (Off = minimize to tray)',
+            systemLang: 'Launcher Language'
+        });
+        Object.assign(dict.spanish, { systemLang: 'Idioma del lanzador' });
+        Object.assign(dict.french, { systemLang: 'Langue du lanceur' });
+        Object.assign(dict.german, { systemLang: 'Launcher-Sprache' });
+        Object.assign(dict.japanese, { systemLang: 'ランチャーの言語' });
+        Object.assign(dict.koreana, { systemLang: '런처 언어' });
+        Object.assign(dict.schinese, { systemLang: '启动器语言' });
 
         function applyTranslations() {
             const lang = globalSettings.language || 'english';
@@ -6064,7 +6148,7 @@
             }
         }
 
-        async function checkForUpdates(silent = false, triggerBtn = null) {
+        async function legacyCheckForUpdates(silent = false, triggerBtn = null) {
             // Feedback goes to whichever button triggered the check — the settings
             // "Check Updates" button by default, or the Feature Testing card button
             // when run from there (so a manual run always shows a visible result).
@@ -6169,6 +6253,91 @@
             }
         }
 
+        async function fetchLatestLauncherRelease() {
+            return new Promise((resolve, reject) => {
+                const https = require('https');
+                const apiPath = globalSettings.betaUpdates ? '/repos/Aseoriy/Sail-Launcher/releases' : '/repos/Aseoriy/Sail-Launcher/releases/latest';
+                https.get({ hostname: 'api.github.com', path: apiPath, headers: { 'User-Agent': 'Sail-Launcher' } }, (res) => {
+                    let data = '';
+                    res.on('data', chunk => data += chunk);
+                    res.on('end', () => {
+                        if (res.statusCode < 200 || res.statusCode >= 300) return reject(new Error(`GitHub returned HTTP ${res.statusCode}`));
+                        try {
+                            const parsed = JSON.parse(data);
+                            const release = globalSettings.betaUpdates && Array.isArray(parsed)
+                                ? parsed.find(item => item && !item.draft) || {}
+                                : parsed || {};
+                            if (!release.tag_name) throw new Error('No published launcher release was found.');
+                            resolve(release);
+                        } catch (error) { reject(error); }
+                    });
+                }).on('error', reject);
+            });
+        }
+
+        function launcherUpdateInfo(response, forceInstall = false) {
+            const assets = Array.isArray(response.assets) ? response.assets : [];
+            const exeAsset = assets.find(asset => /\.exe$/i.test(asset.name || '') && !/blockmap/i.test(asset.name || ''));
+            return {
+                currentTag: PACKAGE_VERSION,
+                latestTag: LauncherLogic.normalizeLauncherVersion(response.tag_name),
+                body: response.body || '',
+                htmlUrl: response.html_url || 'https://github.com/Aseoriy/Sail-Launcher/releases/latest',
+                assetUrl: exeAsset ? exeAsset.browser_download_url : null,
+                forceInstall
+            };
+        }
+
+        async function checkForUpdates(silent = false, triggerBtn = null, options = {}) {
+            const button = triggerBtn || document.getElementById('checkUpdateBtn');
+            const originalLabel = button ? button.innerText : 'Check Updates';
+            const forceInstall = !!options.forceInstall;
+            if (!silent && button) {
+                button.disabled = true;
+                button.innerText = forceInstall ? '⏳ Finding release…' : '⏳ Checking…';
+            }
+            try {
+                const response = await fetchLatestLauncherRelease();
+                const info = launcherUpdateInfo(response, forceInstall);
+                const decision = LauncherLogic.updateDecision(info.latestTag, info.currentTag, forceInstall);
+                const comparison = decision.comparison;
+                if (forceInstall) {
+                    if (comparison < 0) {
+                        const confirmed = await sailConfirm(`The latest published release is v${info.latestTag}, older than this development build (v${info.currentTag}). Installing it will downgrade Sail Launcher. Continue?`);
+                        if (!confirmed) return;
+                        info.isDowngrade = true;
+                    }
+                    if (button) button.innerText = comparison === 0 ? '♻️ Ready to Reinstall' : '⬇️ Ready to Install';
+                    openUpdateModal(info);
+                    return;
+                }
+                if (comparison > 0) {
+                    if (!silent && button) {
+                        button.innerText = '🚀 Update Available!';
+                        button.style.background = 'var(--accent)';
+                        button.style.color = '#fff';
+                    }
+                    if (!(silent && isUpdateSnoozed())) openUpdateModal(info);
+                } else if (!silent && button) {
+                    button.innerText = '✅ Up to Date!';
+                    setTimeout(() => {
+                        button.innerText = originalLabel;
+                        button.disabled = false;
+                        button.style.background = '';
+                        button.style.color = '';
+                    }, 3000);
+                }
+            } catch (error) {
+                console.error('Update check failed:', error);
+                if (!silent && button) {
+                    button.innerText = '❌ Check Failed';
+                    setTimeout(() => { button.innerText = originalLabel; button.disabled = false; }, 3000);
+                }
+            } finally {
+                if (!silent && button) button.disabled = false;
+            }
+        }
+
         document.getElementById('checkUpdateBtn').addEventListener('click', () => checkForUpdates(false));
 
         // ===================== Auto-updater UI & flow =====================
@@ -6217,11 +6386,15 @@
             return html;
         }
 
-        let _pendingUpdate = null; // { currentTag, latestTag, body, htmlUrl, assetUrl }
+        let _pendingUpdate = null; // { currentTag, latestTag, body, htmlUrl, assetUrl, forceInstall, isDowngrade }
 
         function openUpdateModal(info) {
             _pendingUpdate = info;
             const modal = document.getElementById('updateModal');
+            const title = document.getElementById('updModalTitle');
+            title.textContent = info.forceInstall
+                ? (info.isDowngrade ? '⬇️ Install Older Release' : '♻️ Reinstall Latest Release')
+                : '🚀 Update Available';
             document.getElementById('updVerCurrent').textContent = 'v' + info.currentTag;
             document.getElementById('updVerLatest').textContent = 'v' + info.latestTag;
             document.getElementById('updNotes').innerHTML = renderMarkdown(info.body);
@@ -6230,9 +6403,13 @@
             document.getElementById('updProgressWrap').style.display = 'none';
             document.getElementById('updProgressBar').style.width = '0%';
             document.getElementById('updMuteMenu').style.display = 'none';
+            const muteWrap = modal.querySelector('.upd-mute-wrap');
+            if (muteWrap) muteWrap.style.display = info.forceInstall ? 'none' : '';
             const btn = document.getElementById('updNowBtn');
             btn.disabled = false;
-            btn.textContent = '⬇️ Update Now';
+            btn.textContent = info.forceInstall
+                ? (info.isDowngrade ? `⬇️ Install v${info.latestTag}` : `♻️ Reinstall v${info.latestTag}`)
+                : '⬇️ Update Now';
             modal.classList.add('show');
         }
 
@@ -6441,8 +6618,8 @@
             const tabButton = document.getElementById('tabButtonAlerts');
             if (tabButton) {
                 const isDevMode = !!globalSettings.developerModeActive;
-                tabButton.style.display = isDevMode ? 'block' : 'none';
-                
+                tabButton.style.display = isDevMode ? '' : 'none';
+
                 const alertsPane = document.getElementById('tab-alerts');
                 if (!isDevMode && alertsPane && alertsPane.classList.contains('active')) {
                     switchSettingsTab('appearance', true);
@@ -6451,125 +6628,211 @@
         }
 
         async function checkRemoteAlerts() {
+            const container = document.getElementById('launcherAlertContainer');
+            if (!container) return;
             try {
-                const res = await fetch('https://vglpzpffejwgttlqrums.supabase.co/rest/v1/alerts?active=eq.true&order=created_at.desc&limit=1', {
-                    headers: {
-                        'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZnbHB6cGZmZWp3Z3R0bHFydW1zIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzczMTUwNDUsImV4cCI6MjA5Mjg5MTA0NX0.2g1thhc4pbrRP8LbYPpOsTACj2VNMzldXbrIArBdVqE',
-                        'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZnbHB6cGZmZWp3Z3R0bHFydW1zIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzczMTUwNDUsImV4cCI6MjA5Mjg5MTA0NX0.2g1thhc4pbrRP8LbYPpOsTACj2VNMzldXbrIArBdVqE'
-                    }
-                });
-                const data = await res.json();
-                const container = document.getElementById('launcherAlertContainer');
-                if (!container) return;
-
-                if (Array.isArray(data) && data.length > 0) {
-                    const alert = data[0];
-                    const dismissedList = globalSettings.dismissedAlerts || [];
-                    if (dismissedList.includes(alert.id.toString())) {
-                        container.innerHTML = '';
-                        return;
-                    }
-
-                    let icon = 'ℹ️';
-                    if (alert.type === 'warning') icon = '⚠️';
-                    else if (alert.type === 'critical') icon = '🚨';
-
-                    let actionHtml = '';
-                    if (alert.action_url && alert.action_text) {
-                        actionHtml = `<button class="alert-action-btn" onclick="require('electron').ipcRenderer.invoke('open-url', '${alert.action_url}')">${alert.action_text}</button>`;
-                    }
-
-                    container.innerHTML = `
-                        <div class="launcher-alert-banner ${alert.type || 'info'}" id="alert-banner-${alert.id}">
-                            <div class="launcher-alert-content">
-                                <span class="alert-icon">${icon}</span>
-                                <span>${alert.message}</span>
-                            </div>
-                            <div style="display: flex; align-items: center; gap: 10px;">
-                                ${actionHtml}
-                                <button class="alert-close-btn" onclick="dismissAlert('${alert.id}')" title="Dismiss Alert">✕</button>
-                            </div>
-                        </div>
-                    `;
-                } else {
-                    container.innerHTML = '';
+                const globalRequest = alertSupabase.from('alerts').select('id,created_at,message,type,action_text,action_url,active').eq('active', true).order('created_at', { ascending: false }).limit(1);
+                const versionRequest = alertSupabase.from('version_alerts').select('id,created_at,message,type,action_text,action_url,active,target_versions').eq('active', true).contains('target_versions', [PACKAGE_VERSION]).order('created_at', { ascending: false }).limit(1);
+                const [globalResult, versionResult] = await Promise.allSettled([globalRequest, versionRequest]);
+                const globalRows = globalResult.status === 'fulfilled' && !globalResult.value.error ? globalResult.value.data : [];
+                const versionRows = versionResult.status === 'fulfilled' && !versionResult.value.error
+                    ? versionResult.value.data.filter(row => LauncherLogic.targetsLauncherVersion(row.target_versions, PACKAGE_VERSION))
+                    : [];
+                if (globalResult.status === 'rejected' && versionResult.status === 'rejected') throw globalResult.reason;
+                const announcement = LauncherLogic.selectLatestAnnouncement(globalRows, versionRows);
+                if (!announcement || LauncherLogic.isAnnouncementDismissed(globalSettings.dismissedAlerts, announcement._source, announcement.id)) {
+                    container.replaceChildren();
+                    return;
                 }
+                renderRemoteAlert(container, announcement);
             } catch (err) {
                 console.error('Failed to fetch remote alerts:', err);
             }
         }
 
-        window.dismissAlert = function(alertId) {
-            const banner = document.getElementById(`alert-banner-${alertId}`);
+        function renderRemoteAlert(container, announcement) {
+            const type = ['info', 'warning', 'critical'].includes(announcement.type) ? announcement.type : 'info';
+            const iconText = type === 'critical' ? '🚨' : type === 'warning' ? '⚠️' : 'ℹ️';
+            const banner = document.createElement('div');
+            banner.className = `launcher-alert-banner ${type}`;
+            banner.id = `alert-banner-${announcement._source}-${announcement.id}`;
+            const content = document.createElement('div');
+            content.className = 'launcher-alert-content';
+            const icon = document.createElement('span');
+            icon.className = 'alert-icon';
+            icon.textContent = iconText;
+            const message = document.createElement('span');
+            message.textContent = String(announcement.message || '');
+            content.append(icon, message);
+            const actions = document.createElement('div');
+            actions.style.cssText = 'display:flex;align-items:center;gap:10px;';
+            const safeUrl = LauncherLogic.safeHttpUrl(announcement.action_url);
+            if (safeUrl && announcement.action_text) {
+                const action = document.createElement('button');
+                action.className = 'alert-action-btn';
+                action.textContent = String(announcement.action_text);
+                action.addEventListener('click', () => ipcRenderer.invoke('open-url', safeUrl));
+                actions.appendChild(action);
+            }
+            const close = document.createElement('button');
+            close.className = 'alert-close-btn';
+            close.title = 'Dismiss Alert';
+            close.setAttribute('aria-label', 'Dismiss alert');
+            close.textContent = '✕';
+            close.addEventListener('click', () => dismissAlert(announcement._source, announcement.id));
+            actions.appendChild(close);
+            banner.append(content, actions);
+            container.replaceChildren(banner);
+        }
+
+        window.dismissAlert = function(source, alertId) {
+            const banner = document.getElementById(`alert-banner-${source}-${alertId}`);
             if (banner) {
                 banner.classList.add('closing');
                 setTimeout(() => {
                     const container = document.getElementById('launcherAlertContainer');
-                    if (container) container.innerHTML = '';
+                    if (container) container.replaceChildren();
                 }, 300);
             }
             if (!globalSettings.dismissedAlerts) globalSettings.dismissedAlerts = [];
-            if (!globalSettings.dismissedAlerts.includes(alertId.toString())) {
-                globalSettings.dismissedAlerts.push(alertId.toString());
+            const key = LauncherLogic.announcementKey(source, alertId);
+            if (!globalSettings.dismissedAlerts.includes(key)) {
+                globalSettings.dismissedAlerts.push(key);
                 saveToMemory();
             }
         }
 
+        function setAlertAdminStatus(message, state = '') {
+            const status = document.getElementById('alertAdminStatus');
+            if (!status) return;
+            status.textContent = message;
+            status.classList.toggle('authorized', state === 'authorized');
+            status.classList.toggle('error', state === 'error');
+            const signOut = document.getElementById('alertAdminSignOutBtn');
+            if (signOut) signOut.style.display = alertAdminAuthorized ? '' : 'none';
+        }
+
+        window.signInAlertAdmin = async function () {
+            const email = document.getElementById('alertAdminEmail').value.trim();
+            const password = document.getElementById('alertAdminPassword').value;
+            const button = document.getElementById('alertAdminSignInBtn');
+            if (!email || !password) return sailAlert('Enter the Sail Hub admin email and password.');
+            button.disabled = true;
+            button.textContent = 'Signing in…';
+            setAlertAdminStatus('Authenticating…');
+            try {
+                const { data, error } = await alertSupabase.auth.signInWithPassword({ email, password });
+                if (error) throw error;
+                const isAdmin = data.user && data.user.app_metadata && data.user.app_metadata.alert_admin === true;
+                if (!isAdmin) {
+                    await alertSupabase.auth.signOut();
+                    throw new Error('This Sail Hub account is not authorized to publish launcher alerts.');
+                }
+                alertAdminAuthorized = true;
+                document.getElementById('alertAdminPassword').value = '';
+                setAlertAdminStatus(`Authorized as ${data.user.email}. Session will not be stored.`, 'authorized');
+            } catch (error) {
+                alertAdminAuthorized = false;
+                setAlertAdminStatus(error.message || 'Sign-in failed.', 'error');
+            } finally {
+                button.disabled = false;
+                button.textContent = 'Sign in';
+            }
+        };
+
+        window.signOutAlertAdmin = async function () {
+            try { await alertSupabase.auth.signOut(); } catch (_) {}
+            alertAdminAuthorized = false;
+            document.getElementById('alertAdminPassword').value = '';
+            setAlertAdminStatus('Signed out. Authentication is kept in memory for this launcher session only.');
+        };
+
+        window.updateAlertAudienceUi = function () {
+            const specific = document.getElementById('adminAlertAudience').value === 'specific';
+            document.getElementById('adminAlertTargetsWrap').style.display = specific ? 'block' : 'none';
+        };
+
+        function renderAlertVersionTargets() {
+            const container = document.getElementById('adminAlertTargetChips');
+            if (!container) return;
+            container.replaceChildren();
+            alertVersionTargets.forEach(version => {
+                const chip = document.createElement('span');
+                chip.className = 'version-target-chip';
+                const label = document.createElement('span');
+                label.textContent = `v${version}`;
+                const remove = document.createElement('button');
+                remove.type = 'button';
+                remove.setAttribute('aria-label', `Remove v${version}`);
+                remove.textContent = '✕';
+                remove.addEventListener('click', () => {
+                    alertVersionTargets = alertVersionTargets.filter(item => item !== version);
+                    renderAlertVersionTargets();
+                });
+                chip.append(label, remove);
+                container.appendChild(chip);
+            });
+        }
+
+        window.addAlertVersionTargets = async function () {
+            const input = document.getElementById('adminAlertTargetInput');
+            const parsed = LauncherLogic.parseVersionTargets(input.value);
+            if (parsed.invalid.length) return sailAlert(`Invalid version tag: ${parsed.invalid.join(', ')}`);
+            if (parsed.unsupported.length) return sailAlert(`Exact targeting is unavailable before v${LauncherLogic.TARGETING_MIN_VERSION}: ${parsed.unsupported.join(', ')}`);
+            const duplicates = [...parsed.duplicates, ...parsed.versions.filter(version => alertVersionTargets.includes(version))];
+            if (duplicates.length) return sailAlert(`Duplicate target version: ${Array.from(new Set(duplicates)).join(', ')}`);
+            if (!parsed.versions.length) return sailAlert('Enter at least one target version.');
+            alertVersionTargets = [...alertVersionTargets, ...parsed.versions];
+            input.value = '';
+            renderAlertVersionTargets();
+        };
+
         window.publishAlertFromAdmin = async function() {
-            const key = globalSettings.supabaseServiceRoleKey;
-            if (!key) {
-                alert("❌ Please enter your Supabase Service Role Key first.");
-                return;
-            }
+            if (!alertAdminAuthorized) return sailAlert('Sign in with an authorized Sail Hub admin account first.');
             const message = document.getElementById('adminAlertMessage').value.trim();
-            if (!message) {
-                alert("❌ Please enter an alert message.");
-                return;
-            }
+            if (!message) return sailAlert('Enter an alert message.');
             const type = document.getElementById('adminAlertType').value;
             const active = document.getElementById('adminAlertActive').value === 'true';
             const actionText = document.getElementById('adminAlertActionText').value.trim() || null;
-            const actionUrl = document.getElementById('adminAlertActionUrl').value.trim() || null;
-
+            const actionUrlInput = document.getElementById('adminAlertActionUrl').value.trim();
+            const actionUrl = LauncherLogic.safeHttpUrl(actionUrlInput);
+            if ((actionText && !actionUrl) || (!actionText && actionUrlInput)) return sailAlert('Action text and a valid HTTP/HTTPS action URL must be provided together.');
+            const audience = document.getElementById('adminAlertAudience').value;
+            if (audience === 'specific' && !alertVersionTargets.length) return sailAlert('Add at least one target version.');
             const btn = document.getElementById('publishAlertBtn');
             btn.disabled = true;
-            btn.innerText = "Publishing...";
-
+            btn.innerText = 'Publishing…';
             try {
-                const res = await fetch('https://vglpzpffejwgttlqrums.supabase.co/rest/v1/alerts', {
-                    method: 'POST',
-                    headers: {
-                        'apikey': key,
-                        'Authorization': `Bearer ${key}`,
-                        'Content-Type': 'application/json',
-                        'Prefer': 'return=representation'
-                    },
-                    body: JSON.stringify({
-                        message,
-                        type,
-                        active,
-                        action_text: actionText,
-                        action_url: actionUrl
-                    })
-                });
-
-                if (res.ok) {
-                    alert("✅ Alert published successfully!");
-                    document.getElementById('adminAlertMessage').value = '';
-                    document.getElementById('adminAlertActionText').value = '';
-                    document.getElementById('adminAlertActionUrl').value = '';
-                    checkRemoteAlerts();
-                } else {
-                    const error = await res.json();
-                    alert(`❌ Failed to publish: ${error.message || res.statusText}`);
-                }
+                const payload = { message, type, active, action_text: actionText, action_url: actionUrl };
+                if (audience === 'specific') payload.target_versions = alertVersionTargets.slice();
+                const table = audience === 'specific' ? 'version_alerts' : 'alerts';
+                const { error } = await alertSupabase.from(table).insert(payload);
+                if (error) throw error;
+                await sailAlert('Alert published successfully.');
+                document.getElementById('adminAlertMessage').value = '';
+                document.getElementById('adminAlertActionText').value = '';
+                document.getElementById('adminAlertActionUrl').value = '';
+                alertVersionTargets = [];
+                renderAlertVersionTargets();
+                checkRemoteAlerts();
             } catch (err) {
-                console.error("Error publishing alert:", err);
-                alert(`❌ Network error: ${err.message}`);
+                console.error('Error publishing alert:', err);
+                await sailAlert(`Failed to publish: ${err.message || 'Unknown error'}`);
             } finally {
                 btn.disabled = false;
-                btn.innerText = "📢 Publish Alert";
+                btn.innerText = '📢 Publish Alert';
             }
+        }
+
+        function purgeLegacyAlertCredentials() {
+            let removed = false;
+            ['supabaseServiceRoleKey', 'supabaseServiceKey', 'alertServiceRoleKey'].forEach(key => {
+                if (Object.prototype.hasOwnProperty.call(globalSettings, key)) {
+                    delete globalSettings[key];
+                    removed = true;
+                }
+            });
+            return removed;
         }
 
         async function initApp() {
@@ -6586,7 +6849,7 @@
             } catch (e) { }
 
             if (!globalSettings.dismissedAlerts) globalSettings.dismissedAlerts = [];
-            if (globalSettings.supabaseServiceRoleKey === undefined) globalSettings.supabaseServiceRoleKey = '';
+            if (purgeLegacyAlertCredentials()) saveToMemory();
             if (globalSettings.favoritesFirst === undefined) globalSettings.favoritesFirst = true;
             if (globalSettings.developerModeActive === undefined) globalSettings.developerModeActive = false;
             // Launcher sounds are muted by default (the Big Picture boot chime was intrusive);
@@ -6596,6 +6859,9 @@
 
             // Sync configuration file from cloud if there is a newer version
             await syncConfigFromCloudIfNeeded();
+            // A legacy secret can also arrive from an older cloud configuration.
+            // Purge it again and upload the sanitized settings snapshot.
+            if (purgeLegacyAlertCredentials()) saveToMemory();
 
             let modified = false;
             myGames.forEach((g, i) => {
@@ -6817,6 +7083,7 @@
             document.getElementById('statsBtn').style.display = globalSettings.showStats !== false ? 'inline-block' : 'none';
 
             if (globalSettings.sidebarCollapsed) document.getElementById('mainSidebar').classList.add('collapsed');
+            syncSidebarToggleAccessibility();
 
             ipcRenderer.invoke('set-autostart', globalSettings.autoStart);
             ipcRenderer.send('set-rpc-setting', globalSettings.disableDiscordRpc);
@@ -6826,12 +7093,15 @@
             renderQuickPathsManager();
             renderSidebar(); renderGames(); pushNavState();
 
-            // Alerts Manager Key listener and initial load
-            document.getElementById('adminServiceRoleKeyInput').value = globalSettings.supabaseServiceRoleKey || '';
-            document.getElementById('adminServiceRoleKeyInput').addEventListener('input', (e) => {
-                globalSettings.supabaseServiceRoleKey = e.target.value.trim();
-                saveToMemory();
+            // Alerts Manager authentication is intentionally session-only.
+            const targetInput = document.getElementById('adminAlertTargetInput');
+            if (targetInput) targetInput.addEventListener('keydown', (event) => {
+                if (event.key === 'Enter' || event.key === ',') {
+                    event.preventDefault();
+                    addAlertVersionTargets();
+                }
             });
+            updateAlertAudienceUi();
 
             // Check for active announcements/alerts
             checkRemoteAlerts();
@@ -6928,7 +7198,7 @@
             ipcRenderer.on('context-delete-game', async (e, idx) => {
                 if (await sailConfirm("Are you sure you want to remove this game?")) {
                     if (viewingGameIndex === idx) closeGamePage();
-                    myGames.splice(idx, 1); saveToMemory(); renderGames();
+                    myGames.splice(idx, 1); saveToMemory(); renderSidebar(); renderGames();
                 }
             });
 
@@ -7408,8 +7678,17 @@
                         });
                     }
                 }
-                syncConfigToCloud();
+                queueConfigSync();
             } catch (e) { }
+        }
+
+        let configSyncDebounceTimer = null;
+        function queueConfigSync() {
+            clearTimeout(configSyncDebounceTimer);
+            configSyncDebounceTimer = setTimeout(() => {
+                configSyncDebounceTimer = null;
+                syncConfigToCloud();
+            }, 1500);
         }
 
         let isConfigSyncing = false;
@@ -7937,7 +8216,7 @@
                 if (items.length > 0) {
                     resContainer.innerHTML = items.map(item => `
                         <div class="steam-search-result" style="display: flex; align-items: center; gap: 10px; padding: 5px; cursor: pointer; border-radius: 4px;" onclick="window.selectSteamSearchResult('${item.appid}', '${item.name.replace(/\\/g, '\\\\').replace(/'/g, "\\'")}')">
-                            <img src="${item.logo}" style="width: 80px; height: 30px; object-fit: cover; border-radius: 2px;" onerror="this.src='${item.icon}'">
+                            <img src="${item.logo}" loading="lazy" decoding="async" style="width: 80px; height: 30px; object-fit: cover; border-radius: 2px;" onerror="this.src='${item.icon}'">
                             <span style="font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-grow: 1;">${item.name}</span>
                         </div>
                     `).join('');
@@ -7951,9 +8230,19 @@
 
         document.getElementById('gamePath').addEventListener('input', (e) => { document.getElementById('quickPathGameBtn').style.display = e.target.value ? 'inline-block' : 'none'; });
 
+        function syncSidebarToggleAccessibility() {
+            const sidebar = document.getElementById('mainSidebar');
+            const button = sidebar && sidebar.querySelector('.sidebar-toggle-btn');
+            if (!sidebar || !button) return;
+            const label = sidebar.classList.contains('collapsed') ? 'Expand navigation' : 'Collapse navigation';
+            button.setAttribute('aria-label', label);
+            button.title = label;
+        }
+
         window.toggleSidebar = function () {
             const sb = document.getElementById('mainSidebar'); sb.classList.toggle('collapsed');
             globalSettings.sidebarCollapsed = sb.classList.contains('collapsed');
+            syncSidebarToggleAccessibility();
             applyUiResizing(); // update resizer visibility
             saveToMemory();
         }
@@ -8196,7 +8485,7 @@
                 else if (s === 'online') dotType = 'online';
                 el.innerHTML = `
                 <div class="friend-av-wrap">
-                    <img src="${f.avatar}" class="friend-avatar" onerror="this.src='https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_1280.png'">
+                    <img src="${f.avatar}" loading="lazy" decoding="async" class="friend-avatar" onerror="this.src='https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_1280.png'">
                     <span class="friend-dot ${dotType}" title="${f.status}"></span>
                 </div>
                 <div class="friend-info">
@@ -8533,7 +8822,7 @@
                 
                 card.innerHTML = `
                     <div style="width: 100%; height: 160px; overflow: hidden; background: #000; position: relative;">
-                        <img src="${imgUrl}" style="width: 100%; height: 100%; object-fit: cover;" alt="${item.title}">
+                        <img src="${imgUrl}" loading="lazy" decoding="async" style="width: 100%; height: 100%; object-fit: cover;" alt="${item.title}">
                     </div>
                     <div style="padding: 15px; display: flex; flex-direction: column; flex-grow: 1; justify-content: space-between; gap: 10px;">
                         <div>
@@ -8664,7 +8953,7 @@
             };
 
             document.getElementById('deleteFromPageBtn').onclick = async () => {
-                if (await sailConfirm("Are you sure you want to remove this game?")) { closeModal('gameSettingsModal'); myGames.splice(viewingGameIndex, 1); saveToMemory(); closeGamePage(); }
+                if (await sailConfirm("Are you sure you want to remove this game?")) { closeModal('gameSettingsModal'); myGames.splice(viewingGameIndex, 1); saveToMemory(); renderSidebar(); closeGamePage(); }
             };
 
             const backups = game.exePath ? await ipcRenderer.invoke('check-backup', game.exePath, game.name) : [];
@@ -9362,7 +9651,7 @@
         window.updateWorkshopTabVisibility = function() {
             const tabWorkshop = document.getElementById('tabWorkshop');
             if (tabWorkshop) {
-                tabWorkshop.style.display = globalSettings.showWorkshopPage !== false ? 'block' : 'none';
+                tabWorkshop.style.display = globalSettings.showWorkshopPage !== false ? '' : 'none';
             }
             if (globalSettings.showWorkshopPage === false && currentTabName === 'workshop') {
                 switchMainTab('library');
@@ -9372,7 +9661,7 @@
         window.updateSourcesTabVisibility = function() {
             const tabSources = document.getElementById('tabSources');
             if (tabSources) {
-                tabSources.style.display = globalSettings.enableSourcesPage ? 'block' : 'none';
+                tabSources.style.display = globalSettings.enableSourcesPage ? '' : 'none';
             }
             if (!globalSettings.enableSourcesPage && currentTabName === 'sources') {
                 switchMainTab('library');
@@ -9382,7 +9671,7 @@
         window.updateDiscoverTabVisibility = function() {
             const tabStore = document.getElementById('tabStore');
             if (tabStore) {
-                tabStore.style.display = globalSettings.enableDiscoverPage ? 'block' : 'none';
+                tabStore.style.display = globalSettings.enableDiscoverPage ? '' : 'none';
             }
             if (!globalSettings.enableDiscoverPage && currentTabName === 'store') {
                 switchMainTab('library');
@@ -9760,9 +10049,27 @@
             if (idx !== -1) openGamePage(idx);
         });
 
-        setInterval(async () => {
-            if (!myGames || myGames.length === 0) return;
-            const exes = await ipcRenderer.invoke('get-running-exes');
+        let gameProcessPollTimer = null;
+        function scheduleGameProcessPoll(delay) {
+            clearTimeout(gameProcessPollTimer);
+            const hiddenDelay = Object.keys(sessionStartTimes).length > 0 ? 10000 : 30000;
+            gameProcessPollTimer = setTimeout(pollRunningGames, delay !== undefined ? delay : (document.hidden ? hiddenDelay : 10000));
+        }
+
+        async function pollRunningGames() {
+            if (!myGames || !myGames.some(game => game && game.exePath)) {
+                scheduleGameProcessPoll();
+                return;
+            }
+
+            let exes;
+            try {
+                exes = await ipcRenderer.invoke('get-running-exes');
+            } catch (error) {
+                console.error('Unable to check running games:', error);
+                scheduleGameProcessPoll();
+                return;
+            }
 
             myGames.forEach((g, idx) => {
                 // FIX 1: Removed '|| g.steamAppId' so Steam games aren't skipped!
@@ -9815,7 +10122,11 @@
                     executeSaveSync(idx, viewingGameIndex === idx ? 'gpStatusText' : `status-${idx}`);
                 }
             });
-        }, 5000);
+            scheduleGameProcessPoll();
+        }
+
+        document.addEventListener('visibilitychange', () => scheduleGameProcessPoll(document.hidden ? undefined : 250));
+        scheduleGameProcessPoll(2000);
 
         // After a downloaded game's first play session, ask the backend to find its save
         // folder and store it on the game. Clears saveScanPending either way so we only try
@@ -9861,13 +10172,14 @@
         window.dragLeaveFolder = function (event, el) { el.classList.remove('drag-over'); };
         window.dropToFolder = function (event, sectionId, el) {
             event.preventDefault(); el.classList.remove('drag-over');
-            const index = event.dataTransfer.getData('text/plain');
-            if (index !== '') {
-                if (sectionId === 'FAVORITES') myGames[index].isFavorite = true;
-                else if (sectionId === 'ALL') myGames[index].sectionId = '';
-                else myGames[index].sectionId = sectionId;
-                saveToMemory(); renderSidebar(); renderGames();
-            }
+            const index = Number.parseInt(event.dataTransfer.getData('text/plain'), 10);
+            const game = myGames[index];
+            if (!game) return;
+            if (sectionId === 'FAVORITES') game.isFavorite = true;
+            else if (sectionId === 'ALL') game.tags = [];
+            else if (!Array.isArray(game.tags)) game.tags = [sectionId];
+            else if (!game.tags.includes(sectionId)) game.tags.push(sectionId);
+            saveToMemory(); renderSidebar(); renderGames();
         };
 
         window.toggleFavorite = function (index, starBtn) {
@@ -9899,12 +10211,14 @@
                     (myGames[index].isFavorite ? 'iosStarPop 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) both' : 'iosStarUnpop 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) both') : 
                     (myGames[index].isFavorite ? 'starPop 0.4s ease' : 'starUnpop 0.4s ease');
                 
-                // Re-sort the library grid after a short 150ms delay, preserving scroll and focus
-                setTimeout(() => {
-                    skipStaggerAnimation = true;
-                    renderGames();
-                    skipStaggerAnimation = false;
-                }, 150);
+                // Rebuild only when Favorites First can actually change the card order.
+                if (globalSettings.favoritesFirst !== false) {
+                    setTimeout(() => {
+                        skipStaggerAnimation = true;
+                        renderGames();
+                        skipStaggerAnimation = false;
+                    }, 150);
+                }
             }
         };
 
@@ -10034,15 +10348,17 @@
 
                 let imageHtml = '';
                 if (game.customBannerPath) {
-                    imageHtml = `<img src="file://${game.customBannerPath.replace(/\\/g, '/')}" class="card-banner">`;
+                    imageHtml = `<img src="${escapeHtml(`file://${game.customBannerPath.replace(/\\/g, '/')}`)}" loading="lazy" decoding="async" class="card-banner">`;
                 } else if (game.steamAppId) {
-                    imageHtml = `<img src="${game.steamHeroUrl || `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${game.steamAppId}/library_hero.jpg`}" class="card-banner" onerror="handleCardImageError(this, '${game.steamAppId}', '${game.steamImageUrl || `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${game.steamAppId}/header.jpg`}')">`;
+                    const heroUrl = game.steamHeroUrl || `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${game.steamAppId}/library_hero.jpg`;
+                    const fallbackUrl = game.steamImageUrl || `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${game.steamAppId}/header.jpg`;
+                    imageHtml = `<img src="${escapeHtml(heroUrl)}" loading="lazy" decoding="async" class="card-banner" data-steam-app-id="${escapeHtml(game.steamAppId)}" data-fallback-url="${escapeHtml(fallbackUrl)}">`;
                 } else if (game.iconData) {
                     imageHtml = `
                     <div style="position:absolute; top:0; left:0; width:100%; height:100%; overflow:hidden; z-index:0;">
-                        <div style="background-image: url('${game.iconData}'); background-size: cover; background-position: center; filter: blur(20px) brightness(0.4); width:120%; height:120%; margin:-10%;"></div>
+                        <div style="background-image: url('${escapeHtml(game.iconData)}'); background-size: cover; background-position: center; filter: blur(20px) brightness(0.4); width:120%; height:120%; margin:-10%;"></div>
                     </div>
-                    <img src="${game.iconData}" class="card-icon" style="position:relative; z-index:1; filter: drop-shadow(0 4px 6px rgba(0,0,0,0.5));">`;
+                    <img src="${escapeHtml(game.iconData)}" loading="lazy" decoding="async" class="card-icon" style="position:relative; z-index:1; filter: drop-shadow(0 4px 6px rgba(0,0,0,0.5));">`;
                 } else { imageHtml = `<div class="no-image">No Image</div>`; }
 
                 let timeStr = game.playtime > 0 ? ` • ${formatPlaytime(game.playtime)}` : '';
@@ -10053,10 +10369,19 @@
             <div class="fav-btn ${game.isFavorite ? 'active' : ''}">★</div>
             ${imageHtml}
             <div class="card-text-area">
-                <h2 class="card-title">${game.name}</h2>
+                <h2 class="card-title">${escapeHtml(game.name)}</h2>
                 <div class="status-text" id="status-${masterIndex}">${activeGameIndex === masterIndex ? '<span style="color:var(--accent); font-weight:bold;">Running...</span>' : readyStr}</div>
             </div>
           `;
+
+                const steamBanner = card.querySelector('.card-banner[data-steam-app-id]');
+                if (steamBanner) {
+                    steamBanner.addEventListener('error', () => handleCardImageError(
+                        steamBanner,
+                        steamBanner.dataset.steamAppId,
+                        steamBanner.dataset.fallbackUrl
+                    ));
+                }
 
                 card.addEventListener('keydown', (e) => { if (e.key === 'Enter') card.click(); });
 
@@ -10124,9 +10449,9 @@
             el.innerHTML = `
                 <div class="continue-card-body">
                     <span class="continue-kicker">${running ? '● Now playing' : 'Continue playing'}</span>
-                    <h2 class="continue-title">${g.name || ''}</h2>
+                    <h2 class="continue-title">${escapeHtml(g.name || '')}</h2>
                     <div class="continue-meta">${hrs ? '🕒 ' + hrs : ''}${hrs && lastStr ? ' &nbsp;•&nbsp; ' : ''}${lastStr ? 'Last played ' + lastStr : ''}</div>
-                    <span class="continue-cta">${running ? '🎮 Resume' : '▶ Play'} ${g.name || ''}</span>
+                    <span class="continue-cta">${running ? '🎮 Resume' : '▶ Play'} ${escapeHtml(g.name || '')}</span>
                 </div>`;
             el.onclick = () => openGamePage(bestIdx);
             el.onkeydown = (e) => { if (e.key === 'Enter') openGamePage(bestIdx); };
@@ -10179,6 +10504,7 @@
                 });
                 saveToMemory();
                 toggleSelectMode(false);
+                renderSidebar();
                 renderGames();
             }
         };
@@ -10199,13 +10525,13 @@
                     let iconHtml = `<span class="sidebar-sub-icon" style="display:inline-block; text-align:center; font-size:12px;">🎮</span>`;
                     if (g.steamAppId) {
                         let imgUrl = g.steamImageUrl || `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${g.steamAppId}/header.jpg`;
-                        iconHtml = `<img src="${imgUrl}" class="sidebar-sub-icon" style="object-fit:cover;">`;
+                        iconHtml = `<img src="${escapeHtml(imgUrl)}" loading="lazy" decoding="async" class="sidebar-sub-icon" style="object-fit:cover;">`;
                     } else if (g.customBannerPath) {
-                        iconHtml = `<img src="file://${g.customBannerPath.replace(/\\/g, '/')}" class="sidebar-sub-icon" style="object-fit:cover;">`;
+                        iconHtml = `<img src="${escapeHtml(`file://${g.customBannerPath.replace(/\\/g, '/')}`)}" loading="lazy" decoding="async" class="sidebar-sub-icon" style="object-fit:cover;">`;
                     } else if (g.iconData) {
-                        iconHtml = `<img src="${g.iconData}" class="sidebar-sub-icon" style="object-fit:cover;">`;
+                        iconHtml = `<img src="${escapeHtml(g.iconData)}" loading="lazy" decoding="async" class="sidebar-sub-icon" style="object-fit:cover;">`;
                     }
-                    html += `<div class="sidebar-sub-item ${viewingGameIndex === i ? 'active' : ''}" onclick="openGamePage(${i})">${iconHtml} <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex-grow: 1;" title="${g.name.replace(/"/g, '&quot;')}">${g.name}</span></div>`;
+                    html += `<div class="sidebar-sub-item ${viewingGameIndex === i ? 'active' : ''}" onclick="openGamePage(${i})">${iconHtml} <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex-grow: 1;" title="${escapeHtml(g.name)}">${escapeHtml(g.name)}</span></div>`;
                 }
             });
             if (count === 0) html = `<div class="sidebar-sub-item" style="opacity:0.4; cursor:default;">No games</div>`;
@@ -10260,16 +10586,19 @@
                 const item = document.createElement('div');
                 item.setAttribute('tabindex', '0');
                 item.className = `section-item ${currentFilterSectionId === section.name ? 'active' : ''} ${expandedSidebarFolders[section.name] ? 'expanded' : ''}`;
-                item.setAttribute('ondragover', 'dragOverFolder(event, this)');
-                item.setAttribute('ondragleave', 'dragLeaveFolder(event, this)');
-                item.setAttribute('ondrop', `dropToFolder(event, '${section.name}', this)`);
+                item.addEventListener('dragover', event => dragOverFolder(event, item));
+                item.addEventListener('dragleave', event => dragLeaveFolder(event, item));
+                item.addEventListener('drop', event => dropToFolder(event, section.name, item));
                 item.onclick = () => filterBySection(section.name);
 
-                const iconHtml = section.customIcon ? `<img src="file://${section.customIcon.replace(/\\/g, '/')}" class="folder-custom-icon">` : `<span class="folder-icon">${section.icon ? iconOrEmoji(section.icon) : ic('folder')}</span>`;
+                const iconHtml = section.customIcon ? `<img src="${escapeHtml(`file://${section.customIcon.replace(/\\/g, '/')}`)}" loading="lazy" decoding="async" class="folder-custom-icon">` : `<span class="folder-icon">${section.icon ? iconOrEmoji(section.icon) : ic('folder')}</span>`;
 
-                item.innerHTML = `${iconHtml} <span class="folder-name" style="flex-grow:1">${section.name}</span>
-              <div class="folder-actions"><button class="action-btn edit" onclick="editSection('${section.name}', event)">✏️</button><button class="action-btn del" onclick="deleteSection('${section.name}', event)">✕</button></div>
-              <span class="folder-caret" onclick="toggleFolderExpansion(event, '${section.name.replace(/'/g, "\\'")}')">▶</span>`;
+                item.innerHTML = `${iconHtml} <span class="folder-name" style="flex-grow:1">${escapeHtml(section.name)}</span>
+              <div class="folder-actions"><button class="action-btn edit" type="button">✏️</button><button class="action-btn del" type="button">✕</button></div>
+              <span class="folder-caret">▶</span>`;
+                item.querySelector('.action-btn.edit').addEventListener('click', event => editSection(section.name, event));
+                item.querySelector('.action-btn.del').addEventListener('click', event => deleteSection(section.name, event));
+                item.querySelector('.folder-caret').addEventListener('click', event => toggleFolderExpansion(event, section.name));
 
                 const content = document.createElement('div');
                 content.className = `sidebar-folder-content ${expandedSidebarFolders[section.name] ? 'expanded' : ''}`;
@@ -10280,7 +10609,16 @@
                 secsList.appendChild(wrapper);
             });
             const container = document.getElementById('gameTagsContainer'); container.innerHTML = '';
-            customSections.forEach(sec => { container.innerHTML += `<label style="display:flex; align-items:center; gap:8px; cursor:pointer;"><input type="checkbox" value="${sec.name}" class="game-tag-cb"> ${sec.name}</label>`; });
+            customSections.forEach(section => {
+                const label = document.createElement('label');
+                label.style.cssText = 'display:flex; align-items:center; gap:8px; cursor:pointer;';
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.value = section.name;
+                checkbox.className = 'game-tag-cb';
+                label.append(checkbox, document.createTextNode(` ${section.name}`));
+                container.appendChild(label);
+            });
         }
 
         document.getElementById('exportDataBtn').addEventListener('click', async () => {
@@ -11619,7 +11957,7 @@
         }
 
         document.getElementById('saveEditSectionBtn').addEventListener('click', () => {
-            const newName = document.getElementById('editSectionName').value;
+            const newName = document.getElementById('editSectionName').value.trim();
             const newIcon = document.getElementById('editSectionIcon').value;
             const customImg = document.getElementById('editCustomFolderIconPath').value;
             const oldName = editingSectionName;
@@ -11634,10 +11972,21 @@
             } else if (customSections.some(s => s.name === newName)) { alert("A folder with that name already exists!"); }
         });
 
-        window.deleteSection = function (sectionId, event) { event.stopPropagation(); customSections = customSections.filter(s => s.name !== sectionId); myGames.forEach(g => { if (g.tags) g.tags = g.tags.filter(t => t !== sectionId); }); saveToMemory(); renderSidebar(); renderGames(); }
+        window.deleteSection = async function (sectionId, event) {
+            event.stopPropagation();
+            if (!await sailConfirm(`Delete the "${sectionId}" folder? Games will remain in your library.`)) return;
+            customSections = customSections.filter(section => section.name !== sectionId);
+            myGames.forEach(game => { if (game.tags) game.tags = game.tags.filter(tag => tag !== sectionId); });
+            delete expandedSidebarFolders[sectionId];
+            if (currentFilterSectionId === sectionId) {
+                currentFilterSectionId = 'ALL';
+                document.getElementById('topTitle').innerText = dict[globalSettings.language || 'english'].allGames || 'All Games';
+            }
+            saveToMemory(); renderSidebar(); renderGames();
+        }
 
         document.getElementById('saveSectionBtn').addEventListener('click', () => {
-            const name = document.getElementById('newSectionName').value;
+            const name = document.getElementById('newSectionName').value.trim();
             const icon = document.getElementById('newSectionIcon').value;
             const customImg = document.getElementById('customFolderIconPath').value;
             if (name && !customSections.some(s => s.name === name)) {
@@ -12783,7 +13132,6 @@
             opacity: 0;
             animation: dlFadeUp 0.45s cubic-bezier(0.22, 1, 0.36, 1) forwards;
             transition: transform 0.28s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.28s ease, border-color 0.28s ease;
-            will-change: transform;
         }
         #downloadResults .dl-card:hover {
             transform: translateY(-6px);
@@ -14534,7 +14882,7 @@
             background: radial-gradient(circle, color-mix(in srgb, var(--accent2) 16%, transparent) 0%, color-mix(in srgb, var(--accent2) 4%, transparent) 50%, transparent 72%) !important;
             opacity: 0.6;
             mix-blend-mode: screen;
-            animation: driftBlob4 30s infinite alternate ease-in-out;
+            transform: translate3d(-25px, -35px, 0) scale(1.04);
         }
         @keyframes driftBlob4 {
             0% { transform: translate3d(0, 0, 0) scale(1); }
@@ -14553,6 +14901,8 @@
             padding: 0;
             text-align: left;
             aspect-ratio: 460 / 215;
+            content-visibility: auto;
+            contain-intrinsic-size: auto 230px;
             min-height: 0;
             border-radius: 16px;
             overflow: hidden;
@@ -14699,23 +15049,239 @@
         .game-card.selected .sl-play-orb { display: none !important; }
 
         /* ============================================================
-           SIDEBAR — glassy nav with pill tabs + accent active states
+           MAIN SIDEBAR — structured page rail + library collections
            ============================================================ */
-        .sidebar h2.sidebar-title {
-            padding: 6px 12px;
-            border-radius: 999px;
-            transition: 0.18s;
+        #mainSidebar.sidebar {
+            padding: 12px 12px 22px;
+            background:
+                linear-gradient(180deg, color-mix(in srgb, var(--card-bg) 54%, transparent), color-mix(in srgb, var(--bg-color) 35%, transparent)),
+                rgba(0, 0, 0, 0.16);
+            border-right-color: color-mix(in srgb, var(--text-color) 10%, transparent);
         }
-        .sidebar h2.sidebar-title.active-tab {
-            background: color-mix(in srgb, var(--accent) 18%, transparent);
-            box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 32%, transparent);
+        .sidebar-topbar {
+            min-height: 46px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            margin-bottom: 10px;
+            padding: 0 4px;
         }
-        .section-item.active {
-            background: color-mix(in srgb, var(--accent) 16%, transparent);
+        .sidebar-brand {
+            min-width: 0;
+            display: flex;
+            align-items: center;
+            gap: 9px;
+        }
+        .sidebar-brand-copy {
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            line-height: 1.05;
+        }
+        .sidebar-brand-copy strong {
+            font-size: 13px;
+            letter-spacing: .01em;
+        }
+        .sidebar-brand-copy small {
+            margin-top: 4px;
+            font-size: 9px;
+            letter-spacing: .08em;
+            text-transform: uppercase;
+            opacity: .42;
+        }
+        #mainSidebar .sidebar-toggle-btn {
+            width: 34px;
+            height: 34px;
+            flex: 0 0 34px;
+            display: grid;
+            place-items: center;
+            padding: 0;
+            border: 1px solid color-mix(in srgb, var(--text-color) 10%, transparent);
+            border-radius: 10px;
+            background: color-mix(in srgb, var(--text-color) 4%, transparent);
             color: var(--text-color);
-            box-shadow: inset 3px 0 0 var(--accent);
+            opacity: .72;
         }
-        .section-item.active .folder-icon { color: var(--accent); }
+        #mainSidebar .sidebar-toggle-btn:hover,
+        #mainSidebar .sidebar-toggle-btn:focus-visible {
+            opacity: 1;
+            border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+            color: var(--accent);
+            transform: none;
+            outline: none;
+        }
+        .sidebar-page-nav {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            padding: 9px;
+            border: 1px solid color-mix(in srgb, var(--text-color) 8%, transparent);
+            border-radius: 14px;
+            background: color-mix(in srgb, var(--bg-color) 24%, transparent);
+            box-shadow: 0 14px 34px -28px rgba(0, 0, 0, .9);
+            overflow: hidden;
+        }
+        .sidebar-kicker {
+            padding: 2px 7px 5px;
+            font-size: 9px;
+            font-weight: 800;
+            letter-spacing: .12em;
+            text-transform: uppercase;
+            color: var(--text-color);
+            opacity: .4;
+        }
+        .sidebar-library-kicker {
+            margin-top: 18px;
+            padding-left: 10px;
+        }
+        #mainSidebar .sidebar-page-link {
+            position: relative;
+            width: 100%;
+            min-height: 42px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 6px 9px;
+            border: 1px solid transparent !important;
+            border-radius: 10px !important;
+            background: transparent !important;
+            box-shadow: none !important;
+            color: var(--text-color) !important;
+            backdrop-filter: none !important;
+            -webkit-backdrop-filter: none !important;
+            font: inherit;
+            font-size: 12.5px;
+            font-weight: 650;
+            text-align: left;
+            cursor: pointer;
+            transition: opacity .18s, background .18s, border-color .18s, transform .18s;
+        }
+        #mainSidebar .sidebar-page-link:hover,
+        #mainSidebar .sidebar-page-link:focus-visible {
+            opacity: 1 !important;
+            background: color-mix(in srgb, var(--text-color) 6%, transparent) !important;
+            border-color: color-mix(in srgb, var(--text-color) 8%, transparent) !important;
+            box-shadow: none !important;
+            transform: translateX(2px) !important;
+            outline: none;
+        }
+        .sidebar-page-icon {
+            width: 28px;
+            height: 28px;
+            flex: 0 0 28px;
+            display: grid;
+            place-items: center;
+            border-radius: 8px;
+            color: color-mix(in srgb, var(--text-color) 72%, transparent);
+            background: color-mix(in srgb, var(--text-color) 5%, transparent);
+            transition: color .18s, background .18s, box-shadow .18s;
+        }
+        .sidebar-page-icon .app-ic { width: 15px; height: 15px; }
+        #mainSidebar .sidebar-page-link.active-tab {
+            opacity: 1 !important;
+            border-color: color-mix(in srgb, var(--accent) 30%, transparent) !important;
+            background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 17%, transparent), color-mix(in srgb, var(--accent) 7%, transparent)) !important;
+            box-shadow: inset 3px 0 0 var(--accent) !important;
+            transform: none !important;
+            outline: none !important;
+            overflow: hidden;
+        }
+        #mainSidebar .sidebar-page-link.active-tab .sidebar-page-icon {
+            color: var(--accent);
+            background: color-mix(in srgb, var(--accent) 14%, transparent);
+            box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 26%, transparent);
+        }
+        #mainSidebar .sidebar-page-label {
+            min-width: 0;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        #mainSidebar #coreSectionsList,
+        #mainSidebar #customSectionsList { margin-bottom: 0; }
+        #mainSidebar .section-item {
+            min-height: 40px;
+            box-sizing: border-box;
+            margin-bottom: 4px;
+            border: 1px solid transparent;
+            border-radius: 10px;
+        }
+        #mainSidebar .section-item:hover {
+            border-color: color-mix(in srgb, var(--text-color) 8%, transparent);
+            background: color-mix(in srgb, var(--text-color) 5%, transparent);
+        }
+        #mainSidebar .section-item.active {
+            background: color-mix(in srgb, var(--accent) 13%, transparent);
+            color: var(--text-color);
+            border-color: color-mix(in srgb, var(--accent) 25%, transparent);
+            box-shadow: inset 3px 0 0 var(--accent) !important;
+        }
+        #mainSidebar .section-item.active .folder-icon { color: var(--accent); }
+        #mainSidebar #sidebarFoldersHeader {
+            margin: 18px 2px 10px !important;
+            padding: 0 7px 9px;
+            border-bottom-color: color-mix(in srgb, var(--text-color) 9%, transparent);
+        }
+        #mainSidebar #sidebarFoldersHeader h2 {
+            padding: 0;
+            font-size: 10px;
+            font-weight: 800;
+            letter-spacing: .1em;
+            text-transform: uppercase;
+            color: var(--text-color);
+            opacity: .48;
+        }
+        #mainSidebar #sidebarFoldersHeader .action-btn {
+            border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent) !important;
+            border-radius: 999px;
+            color: var(--accent) !important;
+            background: color-mix(in srgb, var(--accent) 6%, transparent) !important;
+            box-shadow: none !important;
+            backdrop-filter: none !important;
+            -webkit-backdrop-filter: none !important;
+        }
+        #mainSidebar #sidebarFoldersHeader .action-btn:hover,
+        #mainSidebar #sidebarFoldersHeader .action-btn:focus-visible {
+            background: color-mix(in srgb, var(--accent) 12%, transparent) !important;
+            border-color: color-mix(in srgb, var(--accent) 45%, transparent) !important;
+            box-shadow: none !important;
+            transform: none !important;
+            outline: none;
+        }
+        body.dropdown-accent-outline #mainSidebar .sidebar-page-link.active-tab {
+            background: color-mix(in srgb, var(--card-bg) 28%, transparent) !important;
+            border-color: var(--accent) !important;
+            box-shadow: inset 3px 0 0 var(--accent), inset 0 0 0 1px color-mix(in srgb, var(--accent) 24%, transparent) !important;
+            transform: none !important;
+        }
+        #mainSidebar.sidebar.collapsed {
+            padding: 12px 9px 20px;
+        }
+        #mainSidebar.sidebar.collapsed .sidebar-topbar { justify-content: center; padding: 0; }
+        #mainSidebar.sidebar.collapsed .sidebar-brand,
+        #mainSidebar.sidebar.collapsed .sidebar-kicker,
+        #mainSidebar.sidebar.collapsed .sidebar-page-label,
+        #mainSidebar.sidebar.collapsed #sidebarFoldersHeader { display: none !important; }
+        #mainSidebar.sidebar.collapsed .sidebar-page-nav {
+            padding: 6px;
+            gap: 5px;
+            border-radius: 12px;
+        }
+        #mainSidebar.sidebar.collapsed .sidebar-page-link {
+            min-height: 40px;
+            justify-content: center;
+            padding: 5px !important;
+            transform: none;
+        }
+        #mainSidebar.sidebar.collapsed .sidebar-page-icon { margin: 0; }
+        #mainSidebar.sidebar.collapsed #coreSectionsList { margin-top: 14px; }
+        body.layout-sidebar-right #mainSidebar {
+            border-right-color: transparent;
+            border-left: 1px solid color-mix(in srgb, var(--text-color) 10%, transparent);
+        }
+        body.layout-folders-top #mainSidebar .sidebar-library-kicker { order: 3; }
+        body.layout-folders-top #mainSidebar #coreSectionsList { order: 4; }
 
         /* ============================================================
            TOOLBAR — pill search + segmented controls
@@ -15105,8 +15671,14 @@
                         0 0 22px color-mix(in srgb, var(--accent2) 45%, transparent);
         }
 
+        body.window-inactive::before,
+        body.window-inactive .glass-blob {
+            animation-play-state: paused !important;
+        }
+
         @media (prefers-reduced-motion: reduce) {
-            body.glassmorphic-mode .glass-blob-4 { animation: none; }
+            body::before,
+            body.glassmorphic-mode .glass-blob { animation: none !important; }
             #gameGrid:not(.list-view) .game-card:hover {
                 transform: translateY(-8px) scale(1.03) !important;
             }
@@ -15138,6 +15710,19 @@
 
             const grid = function () { return document.getElementById('gameGrid'); };
 
+            function syncWindowActivity() {
+                document.body.classList.toggle('window-inactive', document.hidden || !document.hasFocus());
+            }
+            document.addEventListener('visibilitychange', syncWindowActivity);
+            window.addEventListener('focus', syncWindowActivity);
+            window.addEventListener('blur', syncWindowActivity);
+            syncWindowActivity();
+
+            let tiltFrame = null;
+            let pendingTilt = null;
+            let measuredCard = null;
+            let measuredRect = null;
+
             document.addEventListener('mousemove', function (e) {
                 if (!glassOn()) return;
                 const g = grid();
@@ -15148,15 +15733,27 @@
                 if (card.classList.contains('squish') || card.classList.contains('selected')) return;
 
                 ensureOrb(card);
-                const r = card.getBoundingClientRect();
-                const px = (e.clientX - r.left) / r.width;   // 0..1
-                const py = (e.clientY - r.top) / r.height;    // 0..1
-                const ry = (px - 0.5) * 2 * MAX_TILT;         // rotateY: left/right
-                const rx = (0.5 - py) * 2 * MAX_TILT;         // rotateX: up/down
-                card.style.setProperty('--card-ry', ry.toFixed(2) + 'deg');
-                card.style.setProperty('--card-rx', rx.toFixed(2) + 'deg');
-                card.style.setProperty('--card-mx', (px * 100).toFixed(1) + '%');
-                card.style.setProperty('--card-my', (py * 100).toFixed(1) + '%');
+                pendingTilt = { card, clientX: e.clientX, clientY: e.clientY };
+                if (tiltFrame) return;
+                tiltFrame = requestAnimationFrame(() => {
+                    tiltFrame = null;
+                    const pending = pendingTilt;
+                    pendingTilt = null;
+                    if (!pending || !pending.card.isConnected) return;
+                    if (measuredCard !== pending.card || !measuredRect) {
+                        measuredCard = pending.card;
+                        measuredRect = pending.card.getBoundingClientRect();
+                    }
+                    const r = measuredRect;
+                    const px = Math.max(0, Math.min(1, (pending.clientX - r.left) / r.width));
+                    const py = Math.max(0, Math.min(1, (pending.clientY - r.top) / r.height));
+                    const ry = (px - 0.5) * 2 * MAX_TILT;
+                    const rx = (0.5 - py) * 2 * MAX_TILT;
+                    pending.card.style.setProperty('--card-ry', ry.toFixed(2) + 'deg');
+                    pending.card.style.setProperty('--card-rx', rx.toFixed(2) + 'deg');
+                    pending.card.style.setProperty('--card-mx', (px * 100).toFixed(1) + '%');
+                    pending.card.style.setProperty('--card-my', (py * 100).toFixed(1) + '%');
+                });
             }, { passive: true });
 
             function resetCard(card) {
@@ -15171,8 +15768,12 @@
                 if (!card) return;
                 const to = e.relatedTarget;
                 if (to && card.contains(to)) return; // still inside the same card
+                if (measuredCard === card) { measuredCard = null; measuredRect = null; }
                 resetCard(card);
             }, { passive: true });
+
+            window.addEventListener('resize', () => { measuredRect = null; }, { passive: true });
+            document.addEventListener('scroll', () => { measuredRect = null; }, { passive: true, capture: true });
 
             // Safety: clear tilt on press so drag-reorder isn't fighting an inline transform
             document.addEventListener('mousedown', function (e) {
@@ -15278,7 +15879,7 @@
             <button class="close-x" onclick="closeUpdateModal()">✕</button>
             <div class="upd-header">
                 <div>
-                    <p class="upd-title">🚀 Update Available</p>
+                    <p class="upd-title" id="updModalTitle">🚀 Update Available</p>
                 </div>
                 <div class="upd-vers">
                     <span class="upd-vpill" id="updVerCurrent">v?</span>

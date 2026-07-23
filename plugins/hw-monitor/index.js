@@ -3,7 +3,7 @@
 
 module.exports = function(SailAPI) {
     const os = require('os');
-    const { execSync } = require('child_process');
+    const { execFile } = require('child_process');
 
     const widget = document.createElement('div');
     widget.id = 'hw-monitor-widget';
@@ -27,7 +27,7 @@ module.exports = function(SailAPI) {
                 height: 26px;
                 margin-left: 12px;
             }
-            #hw-monitor-widget:hover { border-color: var(--accent-color, rgba(168,85,247,0.4)); }
+            #hw-monitor-widget:hover { border-color: var(--accent, rgba(168,85,247,0.4)); }
             .hw-m { display: flex; align-items: center; gap: 3px; font-variant-numeric: tabular-nums; }
             .hw-m .hw-l { opacity: 0.5; font-weight: 600; font-size: 9px; }
             .hw-m .hw-v { font-weight: 700; min-width: 26px; text-align: right; }
@@ -74,13 +74,29 @@ module.exports = function(SailAPI) {
 
     function getRam() { return ((os.totalmem() - os.freemem()) / os.totalmem()) * 100; }
 
-    function getGpu() {
-        try {
-            return parseFloat(execSync('nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader,nounits', { timeout: 2000, windowsHide: true }).toString().trim()) || 0;
-        } catch(e) { return -1; }
+    let gpuQueryInFlight = false;
+    function updateGpu(gpuEl) {
+        if (!gpuEl || gpuQueryInFlight) return;
+        gpuQueryInFlight = true;
+        execFile('nvidia-smi.exe', ['--query-gpu=utilization.gpu', '--format=csv,noheader,nounits'], {
+            timeout: 2000,
+            windowsHide: true,
+            maxBuffer: 64 * 1024
+        }, (error, stdout) => {
+            gpuQueryInFlight = false;
+            if (!gpuEl.isConnected) return;
+            const gpu = error ? -1 : Number.parseFloat(String(stdout).trim());
+            if (Number.isFinite(gpu) && gpu >= 0) {
+                gpuEl.textContent = Math.round(gpu) + '%';
+                colorize(gpuEl, gpu);
+            } else {
+                gpuEl.textContent = 'N/A';
+            }
+        });
     }
 
     function update() {
+        if (document.hidden) return;
         const cpuEl = document.getElementById('hwCpu');
         const ramEl = document.getElementById('hwRam');
         const gpuEl = document.getElementById('hwGpu');
@@ -91,14 +107,11 @@ module.exports = function(SailAPI) {
         const ram = getRam();
         if (ramEl) { ramEl.textContent = Math.round(ram) + '%'; colorize(ramEl, ram); }
 
-        const gpu = getGpu();
-        if (gpuEl) {
-            if (gpu >= 0) { gpuEl.textContent = Math.round(gpu) + '%'; colorize(gpuEl, gpu); }
-            else gpuEl.textContent = 'N/A';
-        }
+        updateGpu(gpuEl);
     }
 
     update();
-    setInterval(update, 2000);
+    setInterval(update, 5000);
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) update(); });
     console.log('[Plugin] Hardware Monitor loaded');
 };
