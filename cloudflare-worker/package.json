@@ -1,0 +1,16 @@
+{
+  "name": "sail-cloud-storage-worker",
+  "private": true,
+  "version": "5.3.0",
+  "type": "module",
+  "scripts": {
+    "check": "node --check src/index.js && node --test test/*.test.js",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "aws4fetch": "1.0.20"
+  },
+  "devDependencies": {
+    "wrangler": "4.114.0"
+  }
+}

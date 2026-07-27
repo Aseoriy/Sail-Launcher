@@ -1,0 +1,45 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "sail-cloud-storage",
+  "main": "src/index.js",
+  "compatibility_date": "2026-07-27",
+  "workers_dev": false,
+  "triggers": {
+    "crons": [
+      "17 * * * *"
+    ]
+  },
+  "routes": [
+    {
+      "pattern": "storage-api.sailhub.fyi",
+      "custom_domain": true
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "ACCOUNT_BUCKET",
+      "bucket_name": "sail-account-sync"
+    },
+    {
+      "binding": "HUB_BUCKET",
+      "bucket_name": "sailhub-assets"
+    }
+  ],
+  "vars": {
+    "SUPABASE_URL": "https://vglpzpffejwgttlqrums.supabase.co",
+    "SUPABASE_PUBLISHABLE_KEY": "sb_publishable_BaNykIu4jFs-B1hVAd2Y1A_71t1BK2e",
+    "R2_ACCOUNT_ID": "4591c5866e0cb624a721a136f423115b",
+    "ACCOUNT_BUCKET_NAME": "sail-account-sync",
+    "HUB_BUCKET_NAME": "sailhub-assets",
+    "HUB_PUBLIC_ORIGIN": "https://assets.sailhub.fyi",
+    "ALLOWED_ORIGINS": "https://sailhub.fyi,https://www.sailhub.fyi,https://sail-launcher.sailhub.fyi"
+  },
+  "secrets": {
+    "required": [
+      "SUPABASE_SERVICE_ROLE_KEY",
+      "R2_ACCESS_KEY_ID",
+      "R2_SECRET_ACCESS_KEY",
+      "INTERNAL_PURGE_SECRET"
+    ]
+  }
+}

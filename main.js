@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, screen, Tray, Menu, session } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, screen, Tray, Menu, session, safeStorage } = require('electron');
 const { exec, execFile, spawn } = require('child_process');
 const os = require('os');
 const path = require('path');
@@ -19,6 +19,7 @@ const DiscordRPC = require('discord-rpc');
 const cloudSync = require('./cloudSync');
 const { registerMaintenanceIpc } = require('./maintenance/ipc');
 const { scanSaveCandidates } = require('./maintenance/saveScanner');
+const { registerAccountIpc } = require('./accounts/ipc');
 const args = process.argv;
 let autoLaunchGameId = null;
 const launchArg = args.find(a => a.startsWith('--launch-game-id='));
@@ -29,6 +30,7 @@ let activeBackupProcess = null;
 let backingUpZipPath = null;
 let tray = null;
 let maintenanceService = null;
+let accountServices = null;
 let isQuitting = false;
 let exitSynced = false;
 
@@ -45,6 +47,7 @@ ipcMain.on('toggle-installer-mute', (e, state) => {
 
 // --- DISCORD RPC ENGINE (WITH RETRY SYSTEM) ---
 const clientId = '1486922616701849700';
+const SAIL_WEBSITE_URL = 'https://sail-launcher.sailhub.fyi';
 let rpc = null;
 let rpcEnabled = true;
 let rpcRetryInterval = null;
@@ -58,10 +61,12 @@ function setActivity(gameName) {
         const activity = gameName ? {
             details: 'Playing',
             state: gameName,
+            buttons: [{ label: 'Sail Launcher', url: SAIL_WEBSITE_URL }],
             instance: false,
         } : {
             details: 'Browsing Library',
             state: 'Looking for something to play',
+            buttons: [{ label: 'Sail Launcher', url: SAIL_WEBSITE_URL }],
             instance: false,
         };
         
@@ -195,8 +200,12 @@ function createWindow() {
     const win = new BrowserWindow({
         width: state.width, height: state.height, x: state.x, y: state.y, frame: false, titleBarStyle: 'hidden', transparent: true,
         icon: path.join(__dirname, 'icon.ico'),
-        show: !startHidden,
+        show: false,
         webPreferences: { nodeIntegration: true, contextIsolation: false, webSecurity: false, webviewTag: true }
+    });
+
+    win.once('ready-to-show', () => {
+        if (!startHidden && !win.isDestroyed()) win.show();
     });
 
     const saveBounds = () => {
@@ -708,6 +717,19 @@ ipcMain.handle('open-save-versions-folder', (e, driveFolder, gameName) => {
 
 // --- CLOUD SYNC IPC HANDLERS ---
 ipcMain.handle('cloud-link-account', async (e, { provider, customCreds }) => {
+    if (!customCreds && accountServices && ['google', 'dropbox'].includes(provider)) {
+        try {
+            const account = await accountServices.accountService.state();
+            if (account.signedIn) {
+                const pending = await accountServices.accountService.startCloudOAuth(provider);
+                await shell.openExternal(pending.url);
+                return { success: true, pending: true, email: account.user.email };
+            }
+        } catch (error) {
+            return { success: false, error: error.message };
+        }
+    }
+
     let authUrl = '';
     if (provider === 'google') authUrl = cloudSync.googleDrive.getAuthUrl(customCreds);
     else if (provider === 'onedrive') authUrl = cloudSync.oneDrive.getAuthUrl(customCreds);
@@ -767,6 +789,12 @@ ipcMain.handle('cloud-mediafire-login', async (e, { email, password, appId, apiK
 
 ipcMain.handle('cloud-unlink-account', async (e, provider) => {
     cloudSync.deleteTokens(provider);
+    if (accountServices && ['google', 'dropbox'].includes(provider)) {
+        try {
+            const account = await accountServices.accountService.state();
+            if (account.signedIn) await accountServices.accountService.disconnectPortableCloud(provider);
+        } catch (_) {}
+    }
     return true;
 });
 
@@ -780,14 +808,44 @@ ipcMain.handle('cloud-get-status', async () => {
                 email: tokens[provider].email || ''
             };
         }
+        if (accountServices) {
+            try {
+                const account = await accountServices.accountService.state();
+                if (account.signedIn) {
+                    const remote = await accountServices.accountService.listRemoteControlPlane();
+                    for (const connection of remote.connections || []) {
+                        status[connection.provider] = {
+                            linked: connection.status === 'connected',
+                            portable: true,
+                            email: connection.provider_account_label || status[connection.provider] && status[connection.provider].email || ''
+                        };
+                    }
+                }
+            } catch (_) {}
+        }
         return status;
     } catch(e) {
         return {};
     }
 });
 
+async function hydratePortableCloudToken(provider, customCreds) {
+    if (customCreds || !accountServices || !['google', 'dropbox'].includes(provider)) return;
+    const account = await accountServices.accountService.state();
+    if (!account.signedIn) return;
+    const token = await accountServices.accountService.portableCloudAccess(provider);
+    if (!token || !token.access_token) return;
+    const remote = await accountServices.accountService.listRemoteControlPlane();
+    const connection = (remote.connections || []).find(item => item.provider === provider);
+    cloudSync.saveTokens(provider, {
+        access_token: token.access_token,
+        email: connection && connection.provider_account_label || `${provider} account`
+    });
+}
+
 ipcMain.handle('cloud-upload-save', async (e, { provider, gameName, localZipPath, maxVersions, customCreds, subFolder }) => {
     try {
+        await hydratePortableCloudToken(provider, customCreds);
         if (provider === 'google') await cloudSync.googleDrive.uploadFile(customCreds, gameName, localZipPath, maxVersions, subFolder);
         else if (provider === 'onedrive') await cloudSync.oneDrive.uploadFile(customCreds, gameName, localZipPath, maxVersions, subFolder);
         else if (provider === 'dropbox') await cloudSync.dropbox.uploadFile(customCreds, gameName, localZipPath, maxVersions, subFolder);
@@ -801,6 +859,7 @@ ipcMain.handle('cloud-upload-save', async (e, { provider, gameName, localZipPath
 
 ipcMain.handle('cloud-list-versions', async (e, { provider, gameName, customCreds, subFolder }) => {
     try {
+        await hydratePortableCloudToken(provider, customCreds);
         let versions = [];
         if (provider === 'google') versions = await cloudSync.googleDrive.listFiles(customCreds, gameName, subFolder);
         else if (provider === 'onedrive') versions = await cloudSync.oneDrive.listFiles(customCreds, gameName, subFolder);
@@ -814,6 +873,7 @@ ipcMain.handle('cloud-list-versions', async (e, { provider, gameName, customCred
 
 ipcMain.handle('cloud-download-save', async (e, { provider, fileId, localZipPath, customCreds }) => {
     try {
+        await hydratePortableCloudToken(provider, customCreds);
         if (provider === 'google') await cloudSync.googleDrive.downloadFile(customCreds, fileId, localZipPath);
         else if (provider === 'onedrive') await cloudSync.oneDrive.downloadFile(customCreds, fileId, localZipPath);
         else if (provider === 'dropbox') await cloudSync.dropbox.downloadFile(customCreds, fileId, localZipPath);
@@ -826,25 +886,28 @@ ipcMain.handle('cloud-download-save', async (e, { provider, fileId, localZipPath
 });
 
 ipcMain.handle('cloud-zip-folder', async (e, { localSavePath, zipPath }) => {
-    return new Promise((resolve) => {
-        try {
-            const child = spawn('powershell.exe', ['-NoProfile', '-Command',
-                `Compress-Archive -Path "${localSavePath}\\*" -DestinationPath "${zipPath}" -Force`
-            ]);
-            child.on('close', (code) => resolve(code === 0));
-        } catch(e) { resolve(false); }
-    });
+    try {
+        if (!localSavePath || !zipPath || !fs.existsSync(localSavePath)) return false;
+        fs.mkdirSync(path.dirname(zipPath), { recursive: true });
+        if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath);
+        await _7z.cmd(['a', '-tzip', '-mx=5', zipPath, path.join(localSavePath, '*')]);
+        return fs.existsSync(zipPath);
+    } catch (error) {
+        console.error('Cloud archive creation failed:', error);
+        return false;
+    }
 });
 
 ipcMain.handle('cloud-extract-zip', async (e, { zipPath, localSavePath }) => {
-    return new Promise((resolve) => {
-        try {
-            const child = spawn('powershell.exe', ['-NoProfile', '-Command',
-                `Expand-Archive -Path "${zipPath}" -DestinationPath "${localSavePath}" -Force`
-            ]);
-            child.on('close', (code) => resolve(code === 0));
-        } catch(e) { resolve(false); }
-    });
+    try {
+        if (!zipPath || !localSavePath || !fs.existsSync(zipPath)) return false;
+        fs.mkdirSync(localSavePath, { recursive: true });
+        await _7z.unpack(zipPath, localSavePath);
+        return true;
+    } catch (error) {
+        console.error('Cloud archive extraction failed:', error);
+        return false;
+    }
 });
 
 ipcMain.on('window-min', (e) => BrowserWindow.fromWebContents(e.sender)?.minimize());
@@ -1235,6 +1298,20 @@ function handleProtocolUrl(url) {
         // url looks like: sail-launcher://install-theme?url=https%3A%2F%2F...
         const parsed = new URL(url);
         const action = parsed.hostname; // e.g. "install-theme" or "install-plugin"
+        if (action === 'cloud-callback') {
+            const win = BrowserWindow.getAllWindows()[0];
+            if (win) {
+                if (win.isMinimized()) win.restore();
+                win.show();
+                win.focus();
+                win.webContents.send('account-cloud-callback', {
+                    success: parsed.searchParams.get('success') === '1',
+                    provider: parsed.searchParams.get('provider') || '',
+                    error: parsed.searchParams.get('error') || ''
+                });
+            }
+            return;
+        }
         const fileUrl = parsed.searchParams.get('url');
         if (fileUrl && (action === 'install-theme' || action === 'install-plugin')) {
             const win = BrowserWindow.getAllWindows()[0];
@@ -3554,6 +3631,7 @@ else {
 
     app.whenReady().then(() => {
         try { applyAdBlock(session.defaultSession); } catch (e) {}
+        accountServices = registerAccountIpc({ app, ipcMain, safeStorage });
         maintenanceService = registerMaintenanceIpc({ app, ipcMain, BrowserWindow, dialog, shell, findExecutable: findBestExe });
         createWindow();
         tray = new Tray(path.join(__dirname, 'icon.ico'));

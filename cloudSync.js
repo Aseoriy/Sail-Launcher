@@ -12,11 +12,11 @@ const DEFAULT_CREDS = {
         clientSecret: 'YhRxkMTooZ2E-N1h18E6GNjDGSFk-XPSCOG'.split('').reverse().join('')
     },
     onedrive: {
-        clientId: 'a07f6ffb-9cf7-4db4-bb17-7463f6fb39f5',
+        clientId: '',
         clientSecret: ''
     },
     dropbox: {
-        clientId: 'n7mdfgplm2d2bpe',
+        clientId: '',
         clientSecret: ''
     }
 };

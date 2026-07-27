@@ -22,6 +22,17 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script defer src="/sail-cloud-assets.js"></script>
+    <script defer src="/password-toggle.js"></script>
+    <script>
+        (() => {
+            const embedded = new URLSearchParams(window.location.search).get('launcher') === '1';
+            if (embedded) sessionStorage.setItem('sailLauncherEmbedded', '1');
+            if (embedded || sessionStorage.getItem('sailLauncherEmbedded') === '1') {
+                document.documentElement.classList.add('sail-launcher-embedded');
+            }
+        })();
+    </script>
     
     <style>
         :root {
@@ -74,6 +85,7 @@
         .nav-links a { color: var(--muted); text-decoration: none; font-size: 0.95rem; font-weight: 500; transition: 0.2s; }
         .nav-links a:hover { color: var(--text); }
         .nav-links a.active { color: var(--text); border-bottom: 2px solid var(--accent); padding-bottom: 2px; }
+        html.sail-launcher-embedded .launcher-public-nav { display: none; }
         
         .nav-right { display: flex; align-items: center; gap: 14px; }
 
@@ -243,9 +255,9 @@
     
     <div class="nav-links">
         <a href="/">Home</a>
-        <a href="/features">Features</a>
-        <a href="/plugins" class="active">Themes & Plugins</a>
-        <a href="https://github.com/Aseoriy/Sail-Launcher" target="_blank">GitHub</a>
+        <a class="launcher-public-nav" href="/features">Features</a>
+        <a class="launcher-public-nav active" href="/plugins">Themes & Plugins</a>
+        <a class="launcher-public-nav" href="https://github.com/Aseoriy/Sail-Launcher" target="_blank">GitHub</a>
     </div>
 
     <div class="nav-right">
@@ -259,6 +271,7 @@
                 <div class="avatar" id="userAvatar">?</div>
                 <span id="userName">User</span>
             </div>
+            <a href="/manage-account" class="btn btn-sm">Manage Account</a>
             <button class="btn btn-accent btn-sm" onclick="showModal('uploadModal')">📤 Upload</button>
             <button class="btn btn-sm btn-danger" onclick="logOut()">Log Out</button>
         </div>
@@ -357,7 +370,7 @@
         </div>
         <div class="field">
             <label>Password</label>
-            <input type="password" id="signupPassword" placeholder="At least 6 characters">
+            <input type="password" id="signupPassword" placeholder="At least 8 characters">
         </div>
         <div id="signupError" class="error-text" style="display:none;"></div>
         <div id="signupSuccess" class="success-text" style="display:none;"></div>
@@ -483,6 +496,7 @@ const SUPABASE_URL = 'https://vglpzpffejwgttlqrums.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZnbHB6cGZmZWp3Z3R0bHFydW1zIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzczMTUwNDUsImV4cCI6MjA5Mjg5MTA0NX0.2g1thhc4pbrRP8LbYPpOsTACj2VNMzldXbrIArBdVqE';
 
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+window.sailSupabase = sb;
 
 // ============================================================
 // STATE
@@ -491,6 +505,7 @@ let currentUser = null;
 let currentProfile = null;
 let currentFilter = 'all';
 let allItems = [];
+let legacyAssetMigrationAttempted = false;
 
 // ============================================================
 // MODAL HELPERS
@@ -516,7 +531,7 @@ async function signUp() {
     const password = document.getElementById('signupPassword').value;
 
     if (!username || !email || !password) return showError('signupError', 'All fields are required.');
-    if (password.length < 6) return showError('signupError', 'Password must be at least 6 characters.');
+    if (password.length < 8) return showError('signupError', 'Password must be at least 8 characters.');
 
     const { data, error } = await sb.auth.signUp({
         email,
@@ -533,23 +548,18 @@ async function logIn() {
     const password = document.getElementById('loginPassword').value;
     if (!identifier || !password) return showError('loginError', 'Both fields are required.');
 
-    let email = identifier;
-
-    if (!identifier.includes('@')) {
-        const { data: profile, error: lookupError } = await sb
-            .from('profiles')
-            .select('email')
-            .ilike('username', identifier)
-            .single();
-
-        if (lookupError || !profile || !profile.email) {
-            return showError('loginError', 'No account found with that username.');
-        }
-        email = profile.email;
+    if (identifier.includes('@')) {
+        const { error } = await sb.auth.signInWithPassword({ email: identifier, password });
+        if (error) return showError('loginError', error.message);
+    } else {
+        const { data, error } = await sb.functions.invoke('account-login', { body: { identifier, password } });
+        if (error || !data || !data.session) return showError('loginError', 'Invalid email, username, or password.');
+        const { error: sessionError } = await sb.auth.setSession({
+            access_token: data.session.access_token,
+            refresh_token: data.session.refresh_token
+        });
+        if (sessionError) return showError('loginError', sessionError.message);
     }
-
-    const { error } = await sb.auth.signInWithPassword({ email, password });
-    if (error) return showError('loginError', error.message);
 
     hideModal('loginModal');
     await refreshAuth();
@@ -610,7 +620,11 @@ function updateAuthUI() {
         userArea.style.gap = '10px';
         userArea.style.alignItems = 'center';
         document.getElementById('userName').textContent = currentProfile.username;
-        document.getElementById('userAvatar').textContent = currentProfile.username.charAt(0).toUpperCase();
+        const avatar = document.getElementById('userAvatar');
+        avatar.textContent = currentProfile.avatar_url ? '' : currentProfile.username.charAt(0).toUpperCase();
+        avatar.style.backgroundImage = currentProfile.avatar_url ? `url("${currentProfile.avatar_url}")` : '';
+        avatar.style.backgroundSize = 'cover';
+        avatar.style.backgroundPosition = 'center';
     } else {
         authBtns.style.display = 'flex';
         authBtns.style.gap = '8px';
@@ -639,28 +653,19 @@ async function uploadItem() {
     btn.textContent = 'Uploading...';
 
     try {
-        const ts = Date.now();
-
-        // Upload main file
-        const filePath = `${currentUser.id}/${ts}_${mainFile.name}`;
-        const { error: fileErr } = await sb.storage.from('files').upload(filePath, mainFile);
-        if (fileErr) throw new Error('File upload failed: ' + fileErr.message);
-        const file_url = sb.storage.from('files').getPublicUrl(filePath).data.publicUrl;
-
-        // Upload preview (optional)
-        let preview_url = null;
-        if (previewFile) {
-            const prevPath = `${currentUser.id}/${ts}_${previewFile.name}`;
-            const { error: prevErr } = await sb.storage.from('previews').upload(prevPath, previewFile);
-            if (prevErr) throw new Error('Preview upload failed: ' + prevErr.message);
-            preview_url = sb.storage.from('previews').getPublicUrl(prevPath).data.publicUrl;
-        }
+        const itemId = crypto.randomUUID();
+        const stagedFile = await SailHubAssets.stage(mainFile, itemId, 'package');
+        const stagedPreview = previewFile ? await SailHubAssets.stage(previewFile, itemId, 'preview') : null;
+        const file_url = stagedFile.public_url;
+        const preview_url = stagedPreview ? stagedPreview.public_url : null;
 
         // Insert database row (includes version and instructions columns)
         const { error: dbErr } = await sb.from('items').insert({
-            author_id: currentUser.id, name, description: desc, type, file_url, preview_url, version, instructions
+            id: itemId, author_id: currentUser.id, name, description: desc, type, file_url, preview_url, version, instructions
         });
         if (dbErr) throw new Error('Database insert failed: ' + dbErr.message);
+        await SailHubAssets.complete(stagedFile);
+        if (stagedPreview) await SailHubAssets.complete(stagedPreview);
 
         showSuccess('uploadSuccess', 'Published successfully! 🎉');
         // Clear form
@@ -692,6 +697,28 @@ async function fetchItems() {
         .order('created_at', { ascending: false });
 
     if (!error && data) {
+        if (currentUser && !legacyAssetMigrationAttempted) {
+            legacyAssetMigrationAttempted = true;
+            const ownedLegacyItems = data.filter(item =>
+                item.author_id === currentUser.id
+                && [item.file_url, item.preview_url].some(url =>
+                    typeof url === 'string'
+                    && /supabase\.co\/storage\/v1\/object\/public\/(?:files|previews)\//i.test(url)
+                )
+            );
+            if (ownedLegacyItems.length) {
+                let migrated = false;
+                for (const item of ownedLegacyItems) {
+                    try {
+                        await SailHubAssets.migrateLegacy(item.id);
+                        migrated = true;
+                    } catch (migrationError) {
+                        console.error(`Could not migrate Sail Hub assets for ${item.id}:`, migrationError);
+                    }
+                }
+                if (migrated) return fetchItems();
+            }
+        }
         allItems = data;
         renderItems();
     }
@@ -772,6 +799,10 @@ window.openEditModal = function(id) {
 window.deleteItem = async function(id) {
     if (!confirm('Are you sure you want to delete this item? This cannot be undone.')) return;
     try {
+        await Promise.allSettled([
+            SailHubAssets.remove(id, 'package'),
+            SailHubAssets.remove(id, 'preview')
+        ]);
         const { error } = await sb.from('items').delete().eq('id', id);
         if (error) throw error;
         alert('Item deleted successfully!');
@@ -800,22 +831,16 @@ window.submitEdit = async function() {
         const item = allItems.find(i => i.id === id);
         let preview_url = item.preview_url;
         let file_url = item.file_url;
-        const ts = Date.now();
-
+        let stagedPreview = null;
+        let stagedFile = null;
         if (previewFile) {
-            const prevPath = `${currentUser.id}/${ts}_edit_${previewFile.name}`;
-            const { error: upErr } = await sb.storage.from('previews').upload(prevPath, previewFile);
-            if (upErr) throw upErr;
-            const { data: pubData } = sb.storage.from('previews').getPublicUrl(prevPath);
-            preview_url = pubData.publicUrl;
+            stagedPreview = await SailHubAssets.stage(previewFile, id, 'preview');
+            preview_url = stagedPreview.public_url;
         }
 
         if (mainFile) {
-            const filePath = `${currentUser.id}/${ts}_edit_${mainFile.name}`;
-            const { error: upErr } = await sb.storage.from('files').upload(filePath, mainFile);
-            if (upErr) throw upErr;
-            const { data: pubData } = sb.storage.from('files').getPublicUrl(filePath);
-            file_url = pubData.publicUrl;
+            stagedFile = await SailHubAssets.stage(mainFile, id, 'package');
+            file_url = stagedFile.public_url;
         }
 
         const { error } = await sb.from('items').update({
@@ -823,6 +848,8 @@ window.submitEdit = async function() {
         }).eq('id', id);
 
         if (error) throw error;
+        if (stagedPreview) await SailHubAssets.complete(stagedPreview);
+        if (stagedFile) await SailHubAssets.complete(stagedFile);
 
         showSuccess('editSuccess', 'Item updated successfully!');
         setTimeout(() => {

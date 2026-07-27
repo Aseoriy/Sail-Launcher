@@ -38,15 +38,60 @@ test('removed download providers are absent from the source registry and IPC sur
     assert.doesNotMatch(main, /ipcMain\.handle\(['"]resolve-onlinefix['"]/i);
 });
 
-test('accent highlight preference covers buttons and save scans expose progress', () => {
+test('accent outline affects interactive states without overriding resting buttons', () => {
     const root = path.join(__dirname, '..');
     const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
     const maintenance = fs.readFileSync(path.join(root, 'maintenance', 'renderer.js'), 'utf8');
     const maintenanceCss = fs.readFileSync(path.join(root, 'maintenance', 'maintenance.css'), 'utf8');
-    assert.match(index, /body\.dropdown-accent-outline button/);
+    assert.match(index, /body\.dropdown-accent-outline button:not\([^\n]+:hover/);
+    assert.match(index, /body\.dropdown-accent-outline button:not\([^\n]+:focus-visible/);
+    const outlineComment = index.indexOf('Outline mode never changes a button');
+    const outlineRule = index.slice(outlineComment, index.indexOf('{', outlineComment));
+    const selectors = outlineRule.match(/body\.dropdown-accent-outline button[^,\n]+/g) || [];
+    assert.ok(selectors.length >= 4);
+    selectors.forEach(selector => assert.match(selector, /:(hover|focus-visible|active)|\[aria-pressed="true"\]/));
     assert.match(index, /Button &amp; dropdown highlight style/);
     assert.match(index, /browseBtn\.classList\.add\('save-scan-loading'\)/);
     assert.match(maintenance, /data-save-rescan=/);
     assert.match(maintenance, /Scanning Save Folders/);
     assert.match(maintenanceCss, /@keyframes maintenanceSaveScanSpin/);
+});
+
+test('switching themes cannot retain previous canvas-editor appearance overrides', () => {
+    const root = path.join(__dirname, '..');
+    const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+    assert.match(index, /globalSettings\.uiCustom = ct\.uiCustom \? _clone\(ct\.uiCustom\) : \{\};/);
+    assert.match(index, /globalSettings\.uiAppBg = ct\.uiAppBg !== undefined \? ct\.uiAppBg : '';/);
+    assert.match(index, /globalSettings\.uiAppBgStore = ct\.uiAppBgStore \? _clone\(ct\.uiAppBgStore\) : null;/);
+    assert.match(index, /globalSettings\.uiAccent = ct\.uiAccent !== undefined \? ct\.uiAccent : '';/);
+    assert.match(index, /document\.body\.className = \(themeId \|\| 'theme-midnight'\)[\s\S]{0,500}globalSettings\.uiCustom = \{\};[\s\S]{0,200}globalSettings\.uiAppBg = '';[\s\S]{0,200}globalSettings\.uiAppBgStore = null;[\s\S]{0,200}globalSettings\.uiAccent = '';[\s\S]{0,200}applyUiCustom\(\);[\s\S]{0,100}applyUiAccent\(\);/);
+    assert.match(index, /function uieSyncCurrentThemeOverrides\(\)[\s\S]{0,1500}ct\.uiCustom = clone\(globalSettings\.uiCustom\)[\s\S]{0,1000}ct\.uiAccent = globalSettings\.uiAccent/);
+    assert.match(index, /uieSyncCurrentThemeOverrides\(\); saveToMemory\(\);/);
+    assert.match(index, /body\.glassmorphic-mode\.disable-translucency \{ background: ' \+ appBg \+ ' !important;/);
+});
+
+test('v5.3.0 sidebar, announcements, and forced reinstall wiring are present', () => {
+    const root = path.join(__dirname, '..');
+    const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+    const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+    assert.equal(packageJson.version, '5.3.0');
+    assert.equal(packageJson.dependencies['@supabase/supabase-js'], '2.109.0');
+    assert.match(index, /grid-template-columns:\s*280px 1fr/);
+    assert.match(index, /<div class="settings-tabs">/);
+    assert.doesNotMatch(index, /settingsCategoryTrigger|settingsCategoryMenu|settings-pane-card/);
+    assert.match(index, /class="sidebar-page-nav"/);
+    assert.match(index, /class="sidebar-page-link active-tab" id="tabLibrary"/);
+    assert.match(index, /MAIN SIDEBAR — structured page rail/);
+    assert.match(index, /sidebar\.collapsed \.sidebar-page-label/);
+    assert.match(index, /Reinstall latest release/);
+    assert.match(index, /forceInstall:\s*true/);
+    assert.match(index, /require\('\.\/package\.json'\)\.version/);
+    assert.match(index, /account-alert-admin-state/);
+    assert.match(index, /account-publish-alert/);
+    assert.match(index, /Use your signed-in Sail Hub account/);
+    assert.doesNotMatch(index, /alertAdminPassword|signInAlertAdmin|alertSupabase\.auth\.signInWithPassword/);
+    assert.match(index, /persistSession:\s*false/);
+    assert.doesNotMatch(index, /id="adminServiceRoleKeyInput"/);
+    assert.doesNotMatch(index, /service_role/i);
+    assert.match(index, /message\.textContent = String\(announcement\.message/);
 });

@@ -6,6 +6,7 @@
     <title>Authenticating - Sail Hub</title>
     <link rel="icon" type="image/png" href="icon.png">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script defer src="/password-toggle.js"></script>
     <style>
         :root {
             --bg: #09090b;
@@ -140,7 +141,7 @@
             
             <div class="field">
                 <label>New Password</label>
-                <input type="password" id="newPassword" placeholder="At least 6 characters" autofocus>
+                <input type="password" id="newPassword" placeholder="At least 8 characters" autofocus>
             </div>
             
             <div id="resetError" class="error-text"></div>
@@ -190,6 +191,42 @@
         window.location.href = '/';
     }
 
+    function hasFreshOtpMethod(session) {
+        try {
+            const payload = JSON.parse(atob(session.access_token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+            const now = Math.floor(Date.now() / 1000);
+            return Array.isArray(payload.amr) && payload.amr.some(entry =>
+                String(entry.method || '').toLowerCase() === 'otp' &&
+                Number(entry.timestamp || 0) > 0 &&
+                now - Number(entry.timestamp) <= 15 * 60
+            );
+        } catch (_) {
+            return false;
+        }
+    }
+
+    function finishAccountVerification(session) {
+        try {
+            const pending = JSON.parse(localStorage.getItem('sailAccountVerification') || 'null');
+            if (!pending || pending.mode !== 'code' || !pending.intent || !hasFreshOtpMethod(session) ||
+                Date.now() - Number(pending.requestedAt || 0) > 20 * 60 * 1000) {
+                return false;
+            }
+            localStorage.setItem('sailAccountVerification', JSON.stringify({
+                intent: pending.intent,
+                requestedAt: pending.requestedAt,
+                verifiedAt: Date.now(),
+                userId: session.user && session.user.id,
+                method: 'otp'
+            }));
+            window.location.href = `/manage-account?verified=1&intent=${encodeURIComponent(pending.intent)}`;
+            return true;
+        } catch (_) {
+            localStorage.removeItem('sailAccountVerification');
+            return false;
+        }
+    }
+
     // Check for explicit error redirect first
     if (errorCode || errorDescription) {
         document.getElementById('errorMessage').textContent = errorDescription || 'An error occurred during verification.';
@@ -198,8 +235,10 @@
         // Setup listener for auth state change callback
         sb.auth.onAuthStateChange(async (event, session) => {
             if (event === 'PASSWORD_RECOVERY') {
+                if (finishAccountVerification(session)) return;
                 showSection('resetPasswordSection');
             } else if (event === 'SIGNED_IN') {
+                if (finishAccountVerification(session)) return;
                 // If it's a signup verification success
                 if (type === 'signup') {
                     document.getElementById('successTitle').textContent = 'Email Verified!';
@@ -239,8 +278,8 @@
         errEl.style.display = 'none';
         succEl.style.display = 'none';
 
-        if (!password || password.length < 6) {
-            errEl.textContent = 'Password must be at least 6 characters.';
+        if (!password || password.length < 8) {
+            errEl.textContent = 'Password must be at least 8 characters.';
             errEl.style.display = 'block';
             return;
         }

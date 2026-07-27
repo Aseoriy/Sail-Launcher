@@ -19,9 +19,35 @@
     gap: 10px;
 }
 
-.maintenance-header { justify-content: space-between; flex-wrap: wrap; }
-.maintenance-header h1 { margin: 0; font-size: 28px; }
-.maintenance-header p { margin: 5px 0 0; opacity: .65; font-size: 13px; }
+.maintenance-header {
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    padding: 24px;
+    border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--border-color));
+    border-radius: 18px;
+    background:
+        radial-gradient(circle at 12% 20%, color-mix(in srgb, var(--accent) 24%, transparent), transparent 38%),
+        linear-gradient(135deg, color-mix(in srgb, var(--card-bg) 94%, transparent), color-mix(in srgb, var(--accent) 8%, var(--card-bg)));
+    box-shadow: 0 22px 60px -38px color-mix(in srgb, var(--accent) 72%, transparent);
+}
+.maintenance-header::before {
+    content: "";
+    position: absolute;
+    z-index: -1;
+    width: 220px;
+    height: 220px;
+    right: 14%;
+    top: -160px;
+    border: 34px solid color-mix(in srgb, var(--accent) 13%, transparent);
+    border-radius: 50%;
+    filter: blur(1px);
+    animation: maintenanceOrbit 12s ease-in-out infinite alternate;
+}
+.maintenance-header h1 { margin: 0; font-size: 30px; letter-spacing: -.025em; }
+.maintenance-header p { margin: 7px 0 0; opacity: .68; font-size: 13px; max-width: 620px; line-height: 1.5; }
 .maintenance-toolbar { flex-wrap: wrap; }
 
 .maintenance-summary-grid {
@@ -40,13 +66,39 @@
     box-sizing: border-box;
 }
 
-.maintenance-summary-card { padding: 16px; min-height: 92px; }
+.maintenance-summary-card {
+    position: relative;
+    overflow: hidden;
+    padding: 17px;
+    min-height: 96px;
+    transition: transform .24s ease, border-color .24s ease, background .24s ease;
+    animation: maintenanceCardIn .38s both;
+}
+.maintenance-summary-card::after {
+    content: "";
+    position: absolute;
+    inset: auto -25% -55% 34%;
+    height: 74px;
+    background: radial-gradient(ellipse, color-mix(in srgb, var(--accent) 20%, transparent), transparent 70%);
+    pointer-events: none;
+}
+.maintenance-summary-card:hover {
+    transform: translateY(-3px);
+    border-color: color-mix(in srgb, var(--accent) 48%, var(--border-color));
+    background: color-mix(in srgb, var(--accent) 6%, var(--card-bg));
+}
+.maintenance-summary-card:nth-child(2) { animation-delay: 45ms; }
+.maintenance-summary-card:nth-child(3) { animation-delay: 90ms; }
+.maintenance-summary-card:nth-child(4) { animation-delay: 135ms; }
+.maintenance-summary-card:nth-child(5) { animation-delay: 180ms; }
+.maintenance-summary-card:nth-child(6) { animation-delay: 225ms; }
 .maintenance-summary-value { display: block; font-size: 25px; font-weight: 800; margin-bottom: 4px; }
 .maintenance-summary-label { font-size: 12px; opacity: .65; }
 .maintenance-panel { padding: 18px; }
 .maintenance-panel-title { margin: 0 0 12px; font-size: 17px; }
 .maintenance-game-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 12px; }
-.maintenance-game-card { padding: 14px; min-width: 0; }
+.maintenance-game-card { padding: 14px; min-width: 0; transition: transform .22s ease, border-color .22s ease, box-shadow .22s ease; }
+.maintenance-game-card:hover { transform: translateY(-2px); border-color: color-mix(in srgb, var(--accent) 42%, var(--border-color)); box-shadow: 0 16px 38px -30px var(--accent); }
 .maintenance-game-cover { width: 76px; height: 43px; object-fit: cover; border-radius: 7px; background: var(--bg-color); flex: none; }
 .maintenance-game-main { min-width: 0; flex: 1; }
 .maintenance-game-name { font-size: 15px; font-weight: 750; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -138,6 +190,16 @@
 .save-scan-spinner { display: inline-block; width: 14px; height: 14px; flex: 0 0 14px; border: 2px solid color-mix(in srgb, var(--accent) 24%, transparent); border-top-color: var(--accent); border-radius: 50%; animation: maintenanceSaveScanSpin .72s linear infinite; vertical-align: -2px; }
 button.save-scan-loading { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-width: 96px; }
 @keyframes maintenanceSaveScanSpin { to { transform: rotate(360deg); } }
+@keyframes maintenanceOrbit {
+    from { transform: translate3d(0, 0, 0) rotate(-8deg) scale(.9); opacity: .48; }
+    to { transform: translate3d(55px, 62px, 0) rotate(22deg) scale(1.15); opacity: .86; }
+}
+@keyframes maintenanceCardIn {
+    from { opacity: 0; transform: translateY(10px) scale(.985); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+body.less-animations .maintenance-header::before,
+body.less-animations .maintenance-summary-card { animation: none !important; }
 @media (prefers-reduced-motion: reduce) { .save-scan-spinner { animation-duration: 1.4s; } }
 
 .maintenance-cleanup-list { max-height: 52vh; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }

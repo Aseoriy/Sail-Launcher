@@ -124,19 +124,19 @@
 <div class="container">
     <div class="content-card">
         <h1>Privacy Policy</h1>
-        <div class="last-updated">Last Updated: June 7, 2026</div>
+        <div class="last-updated">Last Updated: July 27, 2026</div>
 
         <p>At Sail Hub, we value your privacy and are committed to protecting your personal data. This Privacy Policy describes how we collect, use, and share information when you use the Sail Hub website (the "Site") and the Sail Launcher desktop application (the "App").</p>
 
-        <h2>1. Google OAuth & Google Drive Integration</h2>
-        <p>The Sail Launcher App offers an optional feature that allows you to link your Google account via Google OAuth to backup, sync, and restore your game save files directly to your personal Google Drive.</p>
+        <h2>1. Optional Cloud Storage Integrations</h2>
+        <p>The Sail Launcher App can connect to Google Drive or Dropbox to back up, sync, and restore launcher settings, game libraries, game saves, and user-selected game configuration paths. OneDrive and Mediafire connections use separately supplied credentials.</p>
         
         <div class="highlight-box">
-            <h3>Google Drive Data Disclosures</h3>
+            <h3>Google Drive and Dropbox Data Disclosures</h3>
             <ul>
-                <li><strong>Scope of Access:</strong> We request access to your Google Drive (specifically limited to files created or opened by the App, or files you select for backup). This permission is used solely to save, retrieve, and sync your game save files.</li>
-                <li><strong>Local Credential Storage:</strong> Your Google OAuth tokens, access credentials, and profile information are stored exclusively locally on your own device. They are never sent to, processed by, or stored on our servers (Sail Hub / Supabase).</li>
-                <li><strong>No Content Sharing or Sale:</strong> We do not collect, view, monitor, share, or sell any files in your Google Drive. All data transfers occur directly between the Sail Launcher App on your machine and the Google Drive APIs.</li>
+                <li><strong>Scope of Access:</strong> Sail requests only the provider permissions needed to create, read, update, and remove Sail-managed sync files. It does not request access for advertising or data resale.</li>
+                <li><strong>Portable Connections:</strong> When you link Google Drive or Dropbox while signed in to Sail, the provider refresh token is encrypted in Supabase Vault so the connection can follow your Sail account to another PC. The launcher receives short-lived access tokens when it performs a sync. If you use a custom provider app, its credentials and tokens remain local to that PC.</li>
+                <li><strong>User-Controlled Content:</strong> Sail transfers only launcher data, game saves, or configuration paths that you enable. Linked providers can be disconnected from the launcher, and Sail does not sell cloud file contents.</li>
             </ul>
         </div>
 
@@ -144,6 +144,7 @@
         <p>When you interact with our website, we may collect the following information:</p>
         <ul>
             <li><strong>Account Information:</strong> When you sign up for a Sail Hub account to upload themes or plugins, we collect your email address, username, and password hash. This authentication and database storage is securely managed via Supabase.</li>
+            <li><strong>Launcher Sync Information:</strong> If you enable account sync, Supabase stores profile names, item metadata, sync policies, quotas, and connected-provider labels. Private launcher profiles, libraries, presets, portable settings, themes, and game configurations are stored in Cloudflare R2. Full game-save archives are stored there only if you explicitly enable Sail Cloud as a game-save destination. Device paths and custom provider secrets are excluded from portable snapshots.</li>
             <li><strong>User-Generated Content:</strong> If you upload themes or plugins to Sail Hub, we store the uploaded files, preview images, name, and description. These uploads are publicly displayed on the website.</li>
             <li><strong>Usage Statistics:</strong> We automatically track public statistics, such as download counts and installation counts, to rank popular items. We do not track individual user download histories.</li>
         </ul>
@@ -161,8 +162,8 @@
         <p>We do not sell, trade, or rent your personal information to others. We share data only in the following contexts:</p>
         <ul>
             <li><strong>Publicly Available Content:</strong> Any username, theme, plugin, preview image, and description you publish will be visible to all visitors of the website.</li>
-            <li><strong>Service Providers:</strong> We use Supabase as our backend database and authentication provider. Your account details are securely stored on Supabase in accordance with their privacy practices.</li>
-            <li><strong>Google APIs:</strong> If you choose to link Google Drive in the App, the App communicates directly with Google services to manage your save files.</li>
+            <li><strong>Service Providers:</strong> We use Supabase for authentication, account data, public avatars, and storage metadata. We use Cloudflare Workers and R2 for private Sail Cloud files and public Sail Hub theme/plugin packages and previews.</li>
+            <li><strong>Cloud Storage APIs:</strong> If you link a cloud provider, Sail communicates with that provider to manage the sync files you enabled. Supabase Edge Functions broker portable Google Drive and Dropbox authorization.</li>
         </ul>
 
         <h2>5. Cookies and Local Storage</h2>

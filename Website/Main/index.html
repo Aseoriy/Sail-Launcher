@@ -22,6 +22,16 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script defer src="/password-toggle.js"></script>
+    <script>
+        (() => {
+            const embedded = new URLSearchParams(window.location.search).get('launcher') === '1';
+            if (embedded) sessionStorage.setItem('sailLauncherEmbedded', '1');
+            if (embedded || sessionStorage.getItem('sailLauncherEmbedded') === '1') {
+                document.documentElement.classList.add('sail-launcher-embedded');
+            }
+        })();
+    </script>
     
     <style>
         :root {
@@ -74,6 +84,7 @@
         .nav-links { display: flex; gap: 24px; align-items: center; }
         .nav-links a { color: var(--muted); text-decoration: none; font-size: 0.95rem; font-weight: 500; transition: 0.2s; }
         .nav-links a:hover { color: var(--text); }
+        html.sail-launcher-embedded .launcher-public-nav { display: none; }
         
         .nav-right { display: flex; align-items: center; gap: 14px; }
 
@@ -248,9 +259,9 @@
     
     <div class="nav-links">
         <a href="#" class="active">Home</a>
-        <a href="/features">Features</a>
-        <a href="/plugins">Themes & Plugins</a>
-        <a href="https://github.com/Aseoriy/Sail-Launcher" target="_blank">GitHub</a>
+        <a class="launcher-public-nav" href="/features">Features</a>
+        <a class="launcher-public-nav" href="/plugins">Themes & Plugins</a>
+        <a class="launcher-public-nav" href="https://github.com/Aseoriy/Sail-Launcher" target="_blank">GitHub</a>
     </div>
 
     <div class="nav-right">
@@ -264,6 +275,7 @@
                 <div class="avatar" id="userAvatar">?</div>
                 <span id="userName">User</span>
             </div>
+            <a href="/manage-account" class="btn btn-sm">Manage Account</a>
             <a href="/plugins" class="btn btn-accent btn-sm">📤 Upload</a>
             <button class="btn btn-sm btn-danger" onclick="logOut()">Log Out</button>
         </div>
@@ -462,7 +474,7 @@
         </div>
         <div class="field">
             <label>Password</label>
-            <input type="password" id="signupPassword" placeholder="At least 6 characters">
+            <input type="password" id="signupPassword" placeholder="At least 8 characters">
         </div>
         <div id="signupError" class="error-text" style="display:none;"></div>
         <div id="signupSuccess" class="success-text" style="display:none;"></div>
@@ -505,7 +517,7 @@ async function signUp() {
     const password = document.getElementById('signupPassword').value;
 
     if (!username || !email || !password) return showError('signupError', 'All fields are required.');
-    if (password.length < 6) return showError('signupError', 'Password must be at least 6 characters.');
+    if (password.length < 8) return showError('signupError', 'Password must be at least 8 characters.');
 
     const { data, error } = await sb.auth.signUp({
         email,
@@ -522,23 +534,18 @@ async function logIn() {
     const password = document.getElementById('loginPassword').value;
     if (!identifier || !password) return showError('loginError', 'Both fields are required.');
 
-    let email = identifier;
-
-    if (!identifier.includes('@')) {
-        const { data: profile, error: lookupError } = await sb
-            .from('profiles')
-            .select('email')
-            .ilike('username', identifier)
-            .single();
-
-        if (lookupError || !profile || !profile.email) {
-            return showError('loginError', 'No account found with that username.');
-        }
-        email = profile.email;
+    if (identifier.includes('@')) {
+        const { error } = await sb.auth.signInWithPassword({ email: identifier, password });
+        if (error) return showError('loginError', error.message);
+    } else {
+        const { data, error } = await sb.functions.invoke('account-login', { body: { identifier, password } });
+        if (error || !data || !data.session) return showError('loginError', 'Invalid email, username, or password.');
+        const { error: sessionError } = await sb.auth.setSession({
+            access_token: data.session.access_token,
+            refresh_token: data.session.refresh_token
+        });
+        if (sessionError) return showError('loginError', sessionError.message);
     }
-
-    const { error } = await sb.auth.signInWithPassword({ email, password });
-    if (error) return showError('loginError', error.message);
 
     hideModal('loginModal');
     await refreshAuth();
@@ -599,7 +606,11 @@ function updateAuthUI() {
         userArea.style.gap = '10px';
         userArea.style.alignItems = 'center';
         document.getElementById('userName').textContent = currentProfile.username;
-        document.getElementById('userAvatar').textContent = currentProfile.username.charAt(0).toUpperCase();
+        const avatar = document.getElementById('userAvatar');
+        avatar.textContent = currentProfile.avatar_url ? '' : currentProfile.username.charAt(0).toUpperCase();
+        avatar.style.backgroundImage = currentProfile.avatar_url ? `url("${currentProfile.avatar_url}")` : '';
+        avatar.style.backgroundSize = 'cover';
+        avatar.style.backgroundPosition = 'center';
     } else {
         authBtns.style.display = 'flex';
         authBtns.style.gap = '8px';

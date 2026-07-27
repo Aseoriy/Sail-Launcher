@@ -1,0 +1,20 @@
+project_id = "vglpzpffejwgttlqrums"
+
+[auth.email.template.magic_link]
+subject = "{{ .Token }} is your Sail verification code"
+content_path = "./supabase/templates/sail_verification.html"
+
+[functions.account-login]
+verify_jwt = false
+
+[functions.cloud-oauth-start]
+verify_jwt = true
+
+[functions.cloud-oauth-callback]
+verify_jwt = false
+
+[functions.cloud-access-token]
+verify_jwt = true
+
+[functions.cloud-disconnect]
+verify_jwt = true
