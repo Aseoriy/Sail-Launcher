@@ -9,7 +9,12 @@ const vm = require('node:vm');
 const root = path.join(__dirname, '..');
 const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 const main = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
-const hardwareMonitor = fs.readFileSync(path.join(root, 'plugins', 'hw-monitor', 'index.js'), 'utf8');
+const hardwareMonitorPath = [
+    path.join(root, 'plugins', 'HW-Monitor', 'hw-monitor', 'index.js'),
+    path.join(root, 'plugins', 'hw-monitor', 'index.js')
+].find(fs.existsSync);
+assert.ok(hardwareMonitorPath, 'hardware monitor plugin source is missing');
+const hardwareMonitor = fs.readFileSync(hardwareMonitorPath, 'utf8');
 
 test('all inline renderer scripts compile', () => {
     const scripts = [...index.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi)];
@@ -32,6 +37,40 @@ test('cloud archive IPC uses directory creation supported by node fs', () => {
     assert.doesNotMatch(main, /fs\.ensureDirSync/);
     assert.match(main, /fs\.mkdirSync\(path\.dirname\(zipPath\), \{ recursive: true \}\)/);
     assert.match(main, /fs\.mkdirSync\(localSavePath, \{ recursive: true \}\)/);
+});
+
+test('plugin archive IPC delegates to the safe shared extractor', () => {
+    const handlerStart = main.indexOf("ipcMain.handle('extract-zip'");
+    const handlerEnd = main.indexOf("ipcMain.handle('extract-rar'", handlerStart);
+    assert.ok(handlerStart >= 0);
+    assert.ok(handlerEnd > handlerStart);
+    const handler = main.slice(handlerStart, handlerEnd);
+    assert.match(handler, /await extractArchive\(zipPath, destPath\)/);
+    assert.doesNotMatch(handler, /child_process|exec\(|powershell\s+-Command|Expand-Archive/);
+
+    const fallbackStart = main.indexOf('function extractArchive(');
+    const fallbackEnd = main.indexOf('// Read the leading bytes', fallbackStart);
+    assert.ok(fallbackStart >= 0);
+    assert.ok(fallbackEnd > fallbackStart);
+    const extractor = main.slice(fallbackStart, fallbackEnd);
+    assert.match(extractor, /replace\(\/\'\/g, "\'\'"\)/);
+    assert.match(extractor, /spawn\('powershell', \['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', cmd\]/);
+});
+
+test('aria2 downloads keep HTTPS certificate validation enabled', () => {
+    assert.match(main, /--check-certificate=true/);
+    assert.doesNotMatch(main, /--check-certificate=false/);
+});
+
+test('legacy OAuth connections bind callbacks to a one-time state value', () => {
+    const cloudSync = fs.readFileSync(path.join(root, 'cloudSync.js'), 'utf8');
+    assert.match(main, /crypto\.randomBytes\(32\)\.toString\('hex'\)/);
+    assert.match(main, /cloudSync\.appendOauthState\(authUrl, oauthState\)/);
+    assert.match(main, /cloudSync\.startOauthServer\(oauthState\)/);
+    assert.match(cloudSync, /const callbackStateBuffer = Buffer\.from\(callbackState \|\| ''\)/);
+    assert.match(cloudSync, /crypto\.timingSafeEqual\(callbackStateBuffer, expectedStateBuffer\)/);
+    assert.match(cloudSync, /if \(callbackConsumed\)/);
+    assert.match(cloudSync, /activeOauthServer\.listen\(REDIRECT_PORT, 'localhost'\)/);
 });
 
 test('uploaded-file loading is bounded and explains when a full restart is required', () => {

@@ -730,14 +730,16 @@ ipcMain.handle('cloud-link-account', async (e, { provider, customCreds }) => {
         }
     }
 
+    const oauthState = crypto.randomBytes(32).toString('hex');
     let authUrl = '';
     if (provider === 'google') authUrl = cloudSync.googleDrive.getAuthUrl(customCreds);
     else if (provider === 'onedrive') authUrl = cloudSync.oneDrive.getAuthUrl(customCreds);
     else if (provider === 'dropbox') authUrl = cloudSync.dropbox.getAuthUrl(customCreds);
     else return { success: false, error: 'Unknown provider' };
+    authUrl = cloudSync.appendOauthState(authUrl, oauthState);
 
     // Start local server
-    const serverPromise = cloudSync.startOauthServer();
+    const serverPromise = cloudSync.startOauthServer(oauthState);
     
     // Open auth window
     const parentWin = BrowserWindow.fromWebContents(e.sender);
@@ -974,10 +976,8 @@ ipcMain.handle('save-file-dialog', async (e, opts) => {
     return r.canceled ? null : r.filePath;
 });
 ipcMain.handle('extract-zip', async (e, { zipPath, destPath }) => {
-    return new Promise((resolve, reject) => {
-        const cmd = `powershell -Command "Expand-Archive -Path '${zipPath}' -DestinationPath '${destPath}' -Force"`;
-        exec(cmd, { windowsHide: true }, (err) => { if (err) reject(err); else resolve(true); });
-    });
+    await extractArchive(zipPath, destPath);
+    return true;
 });
 
 ipcMain.handle('extract-rar', async (e, { rarPath, destPath }) => {
@@ -2954,7 +2954,7 @@ function runAria2Download(aria2, file, dir, opts, ctl, onProgress) {
         const args = [
             file.url, '--dir=' + dir, '--summary-interval=1', '--console-log-level=warn',
             '--allow-overwrite=true', '--auto-file-renaming=false', '--continue=true',
-            '--max-connection-per-server=' + conns, '--split=' + conns, '--min-split-size=1M', '--check-certificate=false',
+            '--max-connection-per-server=' + conns, '--split=' + conns, '--min-split-size=1M', '--check-certificate=true',
             '--max-tries=3', '--retry-wait=3', '--connect-timeout=30', '--timeout=60',
             '--user-agent=' + DL_UA
         ];

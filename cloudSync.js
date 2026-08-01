@@ -118,16 +118,47 @@ function deleteTokens(provider) {
 
 // Utility: Local OAuth Callback HTTP Server
 let activeOauthServer = null;
-function startOauthServer() {
+function appendOauthState(authUrl, state) {
+    if (typeof state !== 'string' || state.length < 16) {
+        throw new Error('OAuth state is required.');
+    }
+    const url = new URL(authUrl);
+    url.searchParams.set('state', state);
+    return url.toString();
+}
+
+function startOauthServer(expectedState) {
     return new Promise((resolve, reject) => {
+        if (typeof expectedState !== 'string' || expectedState.length < 16) {
+            reject(new Error('OAuth state is required.'));
+            return;
+        }
         if (activeOauthServer) {
             try { activeOauthServer.close(); } catch(e) {}
         }
+        const expectedStateBuffer = Buffer.from(expectedState);
+        let callbackConsumed = false;
         activeOauthServer = http.createServer((req, res) => {
             const url = new URL(req.url, `http://localhost:${REDIRECT_PORT}`);
             if (url.pathname === '/callback') {
                 const code = url.searchParams.get('code');
                 const error = url.searchParams.get('error');
+                const callbackState = url.searchParams.get('state');
+                const callbackStateBuffer = Buffer.from(callbackState || '');
+                const stateMatches = callbackStateBuffer.length === expectedStateBuffer.length
+                    && crypto.timingSafeEqual(callbackStateBuffer, expectedStateBuffer);
+
+                if (!stateMatches) {
+                    res.writeHead(400, { 'Content-Type': 'text/plain; charset=utf-8' });
+                    res.end('OAuth state validation failed. You can close this tab and return to Sail Launcher.');
+                    return;
+                }
+                if (callbackConsumed) {
+                    res.writeHead(409, { 'Content-Type': 'text/plain; charset=utf-8' });
+                    res.end('This OAuth callback has already been used.');
+                    return;
+                }
+                callbackConsumed = true;
                 
                 res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
                 if (code) {
@@ -171,7 +202,7 @@ function startOauthServer() {
         activeOauthServer.on('error', (err) => {
             reject(err);
         });
-        activeOauthServer.listen(REDIRECT_PORT);
+        activeOauthServer.listen(REDIRECT_PORT, 'localhost');
     });
 }
 
@@ -867,6 +898,7 @@ const mediaFire = {
 // EXPORTS
 module.exports = {
     startOauthServer,
+    appendOauthState,
     loadAllTokens,
     saveTokens,
     deleteTokens,
