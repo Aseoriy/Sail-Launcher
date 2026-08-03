@@ -5,7 +5,7 @@ const fs = require('fs-extra');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
-const { AccountService } = require('../accounts/accountService');
+const { AccountService, SafeStorageAdapter } = require('../accounts/accountService');
 const { registerAccountIpc } = require('../accounts/ipc');
 const { ProfileStore } = require('../accounts/profileStore');
 const {
@@ -94,6 +94,52 @@ test('portable account snapshots exclude device paths and secrets', () => {
     assert.equal(result.globalSettings.localLauncherAvatar, undefined);
     assert.equal(result.globalSettings.accountSyncEnabled, undefined);
     assert.equal(result.globalSettings.theme, 'theme-midnight');
+});
+
+test('account session storage retries after secure storage becomes available', async t => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sail-session-storage-'));
+    t.after(() => fs.removeSync(root));
+    const filePath = path.join(root, 'sail_account_session.json');
+    let encryptionAvailable = false;
+    const safeStorage = {
+        isEncryptionAvailable: () => encryptionAvailable,
+        encryptString: value => Buffer.from(String(value), 'utf8'),
+        decryptString: value => Buffer.from(value).toString('utf8')
+    };
+
+    const writer = new SafeStorageAdapter(filePath, safeStorage);
+    encryptionAvailable = true;
+    await writer.setItem('supabase.auth.token', 'test-session');
+
+    const reader = new SafeStorageAdapter(filePath, safeStorage);
+    encryptionAvailable = false;
+    assert.equal(await reader.getItem('supabase.auth.token'), null);
+    encryptionAvailable = true;
+    assert.equal(await reader.getItem('supabase.auth.token'), 'test-session');
+});
+
+test('username sign-in surfaces the Edge Function response message', async () => {
+    const service = Object.create(AccountService.prototype);
+    service.client = {
+        functions: {
+            invoke: async () => ({
+                data: null,
+                error: {
+                    message: 'Edge Function returned a non-2xx status code',
+                    context: {
+                        clone: () => ({
+                            json: async () => ({ error: 'Invalid email, username, or password.' })
+                        })
+                    }
+                }
+            })
+        }
+    };
+
+    await assert.rejects(
+        () => service.signIn('Aseoriy', 'not-the-password'),
+        /Invalid email, username, or password\./
+    );
 });
 
 test('password changes require an issued challenge and a server-verified 8-digit email code', async () => {

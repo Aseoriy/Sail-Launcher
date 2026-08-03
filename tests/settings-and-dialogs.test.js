@@ -70,11 +70,11 @@ test('switching themes cannot retain previous canvas-editor appearance overrides
     assert.match(index, /body\.glassmorphic-mode\.disable-translucency \{ background: ' \+ appBg \+ ' !important;/);
 });
 
-test('v5.3.1 sidebar, announcements, and forced reinstall wiring are present', () => {
+test('v5.3.2 sidebar, announcements, and forced reinstall wiring are present', () => {
     const root = path.join(__dirname, '..');
     const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
     const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
-    assert.equal(packageJson.version, '5.3.1');
+    assert.equal(packageJson.version, '5.3.2');
     assert.equal(packageJson.dependencies['@supabase/supabase-js'], '2.109.0');
     assert.match(index, /grid-template-columns:\s*280px 1fr/);
     assert.match(index, /<div class="settings-tabs">/);
@@ -94,4 +94,26 @@ test('v5.3.1 sidebar, announcements, and forced reinstall wiring are present', (
     assert.doesNotMatch(index, /id="adminServiceRoleKeyInput"/);
     assert.doesNotMatch(index, /service_role/i);
     assert.match(index, /message\.textContent = String\(announcement\.message/);
+});
+
+test('library polish keeps sorting and filtering on the existing library state', () => {
+    const root = path.join(__dirname, '..');
+    const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+    const sortValues = ['alphabetical', 'alphabetical-desc', 'newest', 'oldest', 'playtime', 'playtime-asc', 'recent'];
+    const filterValues = ['ALL', 'FAVORITES', 'RECENT', 'UNPLAYED', 'STEAM', 'CUSTOM'];
+
+    assert.match(index, /id="librarySortOrder"/);
+    assert.match(index, /id="libraryResultCount"/);
+    assert.match(index, /id="libraryEmptyState"/);
+    sortValues.forEach(value => assert.match(index, new RegExp(`value="${value}"`)));
+    filterValues.forEach(value => assert.match(index, new RegExp(`value="${value}"`)));
+    assert.match(index, /function setLibrarySortOrder\(value\)/);
+    assert.match(index, /globalSettings\.sortOrder = LIBRARY_SORT_ORDER_VALUES/);
+    assert.match(index, /function setLibraryToolbarFilter\(filterValue\)/);
+    assert.match(index, /filterBySection\(sectionId, value\)/);
+    assert.match(index, /Showing \$\{visibleCount\} of \$\{totalCount\}/);
+    assert.match(index, /Your library is empty/);
+    assert.match(index, /No games match your search and filters/);
+    assert.match(index, /clearLibrarySearchBtn/);
+    assert.match(index, /resetLibraryFiltersBtn/);
 });

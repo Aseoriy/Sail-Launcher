@@ -7,6 +7,20 @@ const { SailCloudClient } = require('./sailCloud');
 const SAIL_SUPABASE_URL = 'https://vglpzpffejwgttlqrums.supabase.co';
 const SAIL_SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_BaNykIu4jFs-B1hVAd2Y1A_71t1BK2e';
 
+async function functionErrorMessage(error, fallback) {
+    const response = error && error.context;
+    if (response && typeof response.clone === 'function') {
+        try {
+            const payload = await response.clone().json();
+            const message = payload && (payload.error || payload.message);
+            if (typeof message === 'string' && message.trim()) return message.trim();
+        } catch (_) {}
+    }
+    return error && typeof error.message === 'string' && error.message.trim()
+        ? error.message
+        : fallback;
+}
+
 class SafeStorageAdapter {
     constructor(filePath, safeStorage) {
         this.filePath = filePath;
@@ -16,8 +30,12 @@ class SafeStorageAdapter {
 
     load() {
         if (this.cache) return this.cache;
+        // Do not cache an empty result while secure storage is temporarily
+        // unavailable. Electron can report this during startup, and caching
+        // the empty result would hide an existing session for the rest of the
+        // process.
+        if (!this.safeStorage.isEncryptionAvailable()) return {};
         this.cache = {};
-        if (!this.safeStorage.isEncryptionAvailable()) return this.cache;
         if (!fs.existsSync(this.filePath)) return this.cache;
         try {
             const payload = fs.readJsonSync(this.filePath);
@@ -47,12 +65,16 @@ class SafeStorageAdapter {
     }
 
     async setItem(key, value) {
-        this.load()[key] = String(value);
+        const cache = this.load();
+        cache[key] = String(value);
+        this.cache = cache;
         this.persist();
     }
 
     async removeItem(key) {
-        delete this.load()[key];
+        const cache = this.load();
+        delete cache[key];
+        this.cache = cache;
         this.persist();
     }
 }
@@ -113,10 +135,23 @@ class AccountService {
         if (value.includes('@')) {
             ({ data, error } = await this.client.auth.signInWithPassword({ email: value, password }));
         } else {
-            const result = await this.client.functions.invoke('account-login', {
-                body: { identifier: value, password }
-            });
-            if (result.error) throw result.error;
+            let result;
+            try {
+                result = await this.client.functions.invoke('account-login', {
+                    body: { identifier: value, password }
+                });
+            } catch (invokeError) {
+                throw new Error(await functionErrorMessage(
+                    invokeError,
+                    'Unable to sign in right now.'
+                ));
+            }
+            if (result.error) {
+                throw new Error(await functionErrorMessage(
+                    result.error,
+                    'Unable to sign in right now.'
+                ));
+            }
             if (!result.data || !result.data.session) throw new Error('Invalid email, username, or password.');
             ({ data, error } = await this.client.auth.setSession({
                 access_token: result.data.session.access_token,

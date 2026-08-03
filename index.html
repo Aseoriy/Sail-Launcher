@@ -3976,11 +3976,30 @@
                 <div class="toolbar">
                     <input type="text" id="searchInput" class="search-bar" placeholder="🔍 Search games..."
                         data-i18n-ph="search">
-                    <select id="sortFilter">
-                        <option value="ALL" data-i18n="showAll">Show All</option>
-                        <option value="STEAM" data-i18n="steamOnly">Steam Only</option>
-                        <option value="CUSTOM" data-i18n="customOnly">Custom Only</option>
-                    </select>
+                    <label class="library-toolbar-control" for="librarySortOrder">
+                        <span class="library-toolbar-control-label">Sort</span>
+                        <select id="librarySortOrder" class="library-toolbar-select" aria-label="Sort library">
+                            <option value="alphabetical">Alphabetical A–Z</option>
+                            <option value="alphabetical-desc">Alphabetical Z–A</option>
+                            <option value="newest">Newly Added</option>
+                            <option value="oldest">Oldest Added</option>
+                            <option value="playtime">Most Playtime</option>
+                            <option value="playtime-asc">Least Playtime</option>
+                            <option value="recent">Recently Played</option>
+                        </select>
+                    </label>
+                    <label class="library-toolbar-control" for="sortFilter">
+                        <span class="library-toolbar-control-label">Filter</span>
+                        <select id="sortFilter" class="library-toolbar-select" aria-label="Filter library">
+                            <option value="ALL">All Games</option>
+                            <option value="FAVORITES">Favorites</option>
+                            <option value="RECENT">Recently Played</option>
+                            <option value="UNPLAYED">Never Played</option>
+                            <option value="STEAM">Steam Games</option>
+                            <option value="CUSTOM">Custom Games</option>
+                        </select>
+                    </label>
+                    <span id="libraryResultCount" class="library-result-count" role="status" aria-live="polite">Showing 0 of 0 games</span>
                     <button class="outline" id="viewToggleBtn" onclick="toggleViewMode()"
                         style="padding: 0 12px; margin-left: 5px; font-size: 16px;"
                         title="Toggle List/Grid View">☷</button>
@@ -3998,6 +4017,16 @@
                 <div id="continuePlayingCard" class="continue-card" style="display:none;" tabindex="0"></div>
 
                 <div class="game-grid" id="gameGrid"></div>
+                <div id="libraryEmptyState" class="library-empty-state" role="status" aria-live="polite" hidden>
+                    <span class="library-empty-icon" aria-hidden="true"><span class="app-ic" data-ic="search"></span></span>
+                    <h2 id="libraryEmptyTitle">No games found</h2>
+                    <p id="libraryEmptyMessage"></p>
+                    <div class="library-empty-actions">
+                        <button class="outline" id="clearLibrarySearchBtn" type="button" hidden>Clear Search</button>
+                        <button class="outline" id="resetLibraryFiltersBtn" type="button" hidden>Reset Filters</button>
+                        <button class="outline" id="addFirstGameBtn" type="button" hidden>Add Game</button>
+                    </div>
+                </div>
             </div>
 
             <div id="maintenanceView">
@@ -6771,11 +6800,31 @@
         let activeGameIndex = null;
         let viewingGameIndex = null;
         let currentFilterSectionId = 'ALL';
+        const LIBRARY_SORT_ORDER_VALUES = new Set([
+            'alphabetical', 'alphabetical-desc', 'newest', 'oldest', 'playtime', 'playtime-asc', 'recent'
+        ]);
+        const LIBRARY_TOOLBAR_FILTER_VALUES = new Set([
+            'ALL', 'FAVORITES', 'RECENT', 'UNPLAYED', 'STEAM', 'CUSTOM'
+        ]);
         let expandedSidebarFolders = {};
         let sessionStartTimes = {};
         let currentWorkshopPage = 1;
         let isSearchingWorkshop = false;
         let hasMoreWorkshopItems = true;
+
+        function getLibrarySortOrder() {
+            return LIBRARY_SORT_ORDER_VALUES.has(globalSettings.sortOrder) ? globalSettings.sortOrder : 'alphabetical';
+        }
+
+        function setLibrarySortOrder(value) {
+            globalSettings.sortOrder = LIBRARY_SORT_ORDER_VALUES.has(value) ? value : 'alphabetical';
+            const toolbarSort = document.getElementById('librarySortOrder');
+            const settingsSort = document.getElementById('sortOrderSelect');
+            if (toolbarSort) toolbarSort.value = globalSettings.sortOrder;
+            if (settingsSort) settingsSort.value = globalSettings.sortOrder;
+            saveToMemory();
+            renderGames();
+        }
 
         function formatPlaytime(seconds) {
             if (!seconds) return '0 s';
@@ -9911,7 +9960,8 @@
             document.getElementById('defaultDriveFolderInput').value = globalSettings.defaultDriveFolder || '';
             document.getElementById('fontSelect').value = globalSettings.fontFamily;
             document.getElementById('tileShapeSelect').value = globalSettings.tileShape;
-            document.getElementById('sortOrderSelect').value = globalSettings.sortOrder || 'default';
+            document.getElementById('sortOrderSelect').value = getLibrarySortOrder();
+            document.getElementById('librarySortOrder').value = getLibrarySortOrder();
             document.getElementById('tileSizeSelect').value = globalSettings.tileSize;
             document.getElementById('customFontInput').value = globalSettings.customFont || '';
             document.getElementById('customFontWrapper').style.display = globalSettings.fontFamily === 'custom' ? 'flex' : 'none';
@@ -13383,10 +13433,63 @@
             saveToMemory();
         };
 
+        function renderLibraryResultState(visibleCount, searchQuery, filterMode) {
+            const totalCount = myGames.length;
+            const resultCount = document.getElementById('libraryResultCount');
+            const emptyState = document.getElementById('libraryEmptyState');
+            const emptyTitle = document.getElementById('libraryEmptyTitle');
+            const emptyMessage = document.getElementById('libraryEmptyMessage');
+            const clearSearchButton = document.getElementById('clearLibrarySearchBtn');
+            const resetFiltersButton = document.getElementById('resetLibraryFiltersBtn');
+            const addFirstGameButton = document.getElementById('addFirstGameBtn');
+            const hasSearch = String(searchQuery || '').trim().length > 0;
+            const hasFilter = currentFilterSectionId !== 'ALL' || filterMode === 'STEAM' || filterMode === 'CUSTOM';
+
+            if (resultCount) {
+                const gameLabel = totalCount === 1 ? 'game' : 'games';
+                resultCount.textContent = `Showing ${visibleCount} of ${totalCount} ${gameLabel}`;
+            }
+            if (!emptyState) return;
+
+            const showEmptyState = visibleCount === 0;
+            emptyState.hidden = !showEmptyState;
+            if (!showEmptyState) return;
+
+            if (totalCount === 0) {
+                if (emptyTitle) emptyTitle.textContent = 'Your library is empty';
+                if (emptyMessage) emptyMessage.textContent = 'Add a game to start building your library.';
+            } else if (hasSearch && hasFilter) {
+                if (emptyTitle) emptyTitle.textContent = 'No games match your search and filters';
+                if (emptyMessage) emptyMessage.textContent = 'Try a different search, clear the search, or reset the current filters.';
+            } else if (hasSearch) {
+                if (emptyTitle) emptyTitle.textContent = 'No games match your search';
+                if (emptyMessage) emptyMessage.textContent = 'Try a different search or clear the search to see your full library.';
+            } else {
+                if (emptyTitle) emptyTitle.textContent = 'No games match this filter';
+                if (emptyMessage) emptyMessage.textContent = 'Try a different filter or reset the current filters.';
+            }
+
+            if (clearSearchButton) clearSearchButton.hidden = !hasSearch;
+            if (resetFiltersButton) resetFiltersButton.hidden = !hasFilter;
+            if (addFirstGameButton) addFirstGameButton.hidden = totalCount !== 0;
+        }
+
+        window.clearLibrarySearch = function () {
+            const input = document.getElementById('searchInput');
+            if (!input) return;
+            input.value = '';
+            renderGames();
+            input.focus();
+        };
+
+        window.resetLibraryFilters = function () {
+            setLibraryToolbarFilter('ALL');
+        };
+
         function renderGames() {
             const gameGrid = document.getElementById('gameGrid'); gameGrid.innerHTML = '';
             const searchQuery = document.getElementById('searchInput').value.toLowerCase();
-            const sortMode = document.getElementById('sortFilter').value;
+            const filterMode = document.getElementById('sortFilter').value;
             const d = dict[globalSettings.language || 'english'];
 
             let filtered = [];
@@ -13400,8 +13503,8 @@
             }
             else if (currentFilterSectionId !== 'ALL') filtered = filtered.filter(item => item.game.tags && item.game.tags.includes(currentFilterSectionId));
             if (searchQuery) filtered = filtered.filter(item => item.game.name.toLowerCase().includes(searchQuery));
-            if (sortMode === 'STEAM') filtered = filtered.filter(item => item.game.steamAppId);
-            else if (sortMode === 'CUSTOM') filtered = filtered.filter(item => !item.game.steamAppId);
+            if (filterMode === 'STEAM') filtered = filtered.filter(item => item.game.steamAppId);
+            else if (filterMode === 'CUSTOM') filtered = filtered.filter(item => !item.game.steamAppId);
 
             // Advanced sorting (with Favorites First toggle support)
             const favoritesFirst = globalSettings.favoritesFirst !== false;
@@ -13459,6 +13562,8 @@
                     }
                 }
             });
+
+            renderLibraryResultState(filtered.length, searchQuery, filterMode);
 
             filtered.forEach((item, i) => {
                 const game = item.game; const masterIndex = item.originalIndex;
@@ -13580,7 +13685,8 @@
             // User can hide the banner entirely (Settings → Interface).
             if (globalSettings.showContinuePlaying === false) { el.style.display = 'none'; return; }
             const searchQuery = (document.getElementById('searchInput') || {}).value || '';
-            const onHome = (currentFilterSectionId === 'ALL') && !searchQuery && !selectModeActive;
+            const filterMode = (document.getElementById('sortFilter') || {}).value || 'ALL';
+            const onHome = (currentFilterSectionId === 'ALL') && filterMode === 'ALL' && !searchQuery && !selectModeActive;
             // most recently played game across the whole library
             let bestIdx = -1, bestTime = 0;
             for (let i = 0; i < myGames.length; i++) {
@@ -15092,7 +15198,11 @@
         document.getElementById('bigPictureMonitorSelect').addEventListener('change', (e) => { globalSettings.bigPictureMonitor = e.target.value; saveToMemory(); });
 
         document.getElementById('searchInput').addEventListener('input', renderGames);
-        document.getElementById('sortFilter').addEventListener('change', renderGames);
+        document.getElementById('librarySortOrder').addEventListener('change', (e) => setLibrarySortOrder(e.target.value));
+        document.getElementById('sortFilter').addEventListener('change', (e) => setLibraryToolbarFilter(e.target.value));
+        document.getElementById('clearLibrarySearchBtn').addEventListener('click', window.clearLibrarySearch);
+        document.getElementById('resetLibraryFiltersBtn').addEventListener('click', window.resetLibraryFilters);
+        document.getElementById('addFirstGameBtn').addEventListener('click', () => document.getElementById('addGameBtn').click());
 
         document.getElementById('mainScroller').addEventListener('scroll', () => {
             const scroller = document.getElementById('mainScroller');
@@ -15105,8 +15215,26 @@
             }
         });
 
-        function filterBySection(sectionId) {
+        function setLibraryToolbarFilter(filterValue) {
+            const value = LIBRARY_TOOLBAR_FILTER_VALUES.has(filterValue) ? filterValue : 'ALL';
+            const sectionId = ['FAVORITES', 'RECENT', 'UNPLAYED'].includes(value) ? value : 'ALL';
+            filterBySection(sectionId, value);
+        }
+
+        function filterBySection(sectionId, toolbarFilterValue = null) {
             currentFilterSectionId = sectionId;
+            const filterControl = document.getElementById('sortFilter');
+            if (filterControl) {
+                if (toolbarFilterValue && LIBRARY_TOOLBAR_FILTER_VALUES.has(toolbarFilterValue)) {
+                    filterControl.value = toolbarFilterValue;
+                } else if (sectionId === 'ALL') {
+                    filterControl.value = 'ALL';
+                } else if (['FAVORITES', 'RECENT', 'UNPLAYED'].includes(sectionId)) {
+                    filterControl.value = sectionId;
+                } else {
+                    filterControl.value = 'ALL';
+                }
+            }
             if (document.getElementById('gamePageView').style.display === 'block') closeGamePage(); else { renderSidebar(); renderGames(); }
             document.getElementById('topTitle').innerText = sectionId === 'ALL' ? (dict[globalSettings.language || 'english'].allGames || 'All Games') : sectionId === 'FAVORITES' ? (dict[globalSettings.language || 'english'].favs || 'Favorites') : sectionId;
             pushNavState();
@@ -15956,7 +16084,7 @@
             document.body.classList.toggle('dropdown-accent-outline', e.target.value === 'outline');
             saveToMemory();
         });
-        document.getElementById('sortOrderSelect').addEventListener('change', (e) => { globalSettings.sortOrder = e.target.value; saveToMemory(); renderGames(); });
+        document.getElementById('sortOrderSelect').addEventListener('change', (e) => setLibrarySortOrder(e.target.value));
         document.getElementById('tileSizeSelect').addEventListener('change', (e) => {
             document.body.classList.remove('tile-size-small', 'tile-size-medium', 'tile-size-large');
             globalSettings.tileSize = e.target.value;
@@ -18479,12 +18607,99 @@
             border-radius: 999px !important;
             padding: 10px 18px !important;
         }
+        .toolbar { flex-wrap: wrap; }
+        .library-toolbar-control {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            flex: 0 1 auto;
+            min-width: 0;
+        }
+        .library-toolbar-control-label {
+            font-size: 11px;
+            font-weight: 700;
+            opacity: 0.58;
+        }
+        .library-toolbar-select {
+            width: auto;
+            min-width: 0;
+            flex: 0 1 auto;
+            padding: 8px 12px !important;
+            font-size: 12px;
+        }
+        #librarySortOrder { min-width: 148px; }
+        #sortFilter { min-width: 126px; }
+        .library-result-count {
+            margin-left: auto;
+            color: var(--text-color);
+            font-size: 11px;
+            opacity: 0.62;
+            white-space: nowrap;
+        }
+        .library-empty-state {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            min-height: 190px;
+            margin-top: 24px;
+            padding: 34px 24px;
+            box-sizing: border-box;
+            text-align: center;
+            border: 1px dashed var(--border-color);
+            border-radius: 16px;
+            background: color-mix(in srgb, var(--card-bg) 38%, transparent);
+        }
+        .library-empty-state[hidden] { display: none; }
+        .library-empty-icon {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 42px;
+            height: 42px;
+            border-radius: 50%;
+            color: var(--accent);
+            background: color-mix(in srgb, var(--accent) 12%, transparent);
+        }
+        .library-empty-icon .app-ic { width: 22px; height: 22px; }
+        .library-empty-state h2 { margin: 0; font-size: 18px; }
+        .library-empty-state p {
+            max-width: 440px;
+            margin: 0;
+            font-size: 13px;
+            line-height: 1.5;
+            opacity: 0.68;
+        }
+        .library-empty-actions {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 5px;
+        }
+        .library-empty-actions button {
+            padding: 7px 12px;
+            font-size: 12px;
+        }
+        body.glassmorphic-mode .library-empty-state {
+            background: var(--glass-card-bg, color-mix(in srgb, var(--card-bg) 38%, transparent));
+            border-color: var(--glass-border, var(--border-color));
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+        }
         #sortFilter {
             border-radius: 999px !important;
             padding: 9px 16px !important;
         }
+        #librarySortOrder { border-radius: 999px !important; }
         #viewToggleBtn {
             border-radius: 999px !important;
+        }
+
+        @media (max-width: 760px) {
+            .library-result-count { margin-left: 0; }
         }
 
         /* ============================================================
