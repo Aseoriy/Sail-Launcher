@@ -34,7 +34,7 @@ class SafeStorageAdapter {
         // unavailable. Electron can report this during startup, and caching
         // the empty result would hide an existing session for the rest of the
         // process.
-        if (!this.safeStorage.isEncryptionAvailable()) return {};
+        if (!this.isEncryptionAvailable()) return {};
         this.cache = {};
         if (!fs.existsSync(this.filePath)) return this.cache;
         try {
@@ -50,7 +50,7 @@ class SafeStorageAdapter {
     }
 
     persist() {
-        if (!this.safeStorage.isEncryptionAvailable()) return;
+        if (!this.isEncryptionAvailable()) return;
         fs.ensureDirSync(path.dirname(this.filePath));
         const output = {};
         for (const [key, value] of Object.entries(this.cache || {})) {
@@ -58,6 +58,24 @@ class SafeStorageAdapter {
             output[key] = encrypted.toString('base64');
         }
         fs.writeJsonSync(this.filePath, output, { spaces: 2 });
+    }
+
+    isEncryptionAvailable() {
+        try {
+            return !!this.safeStorage.isEncryptionAvailable();
+        } catch (_) {
+            return false;
+        }
+    }
+
+    async waitForEncryption(timeoutMs = 2500) {
+        const deadline = Date.now() + Math.max(0, Number(timeoutMs) || 0);
+        do {
+            if (this.isEncryptionAvailable()) return true;
+            if (Date.now() >= deadline) return false;
+            await new Promise(resolve => setTimeout(resolve, 50));
+        } while (Date.now() < deadline);
+        return this.isEncryptionAvailable();
     }
 
     async getItem(key) {
@@ -104,12 +122,28 @@ class AccountService {
     }
 
     async accessToken() {
-        const { data: { session } } = await this.client.auth.getSession();
+        const session = await this.session();
         return session && session.access_token || null;
     }
 
+    async session() {
+        let session;
+        let retryAfterStorageReady = false;
+        try {
+            const result = await this.client.auth.getSession();
+            session = result && result.data && result.data.session;
+        } catch (error) {
+            if (!this.storage || !await this.storage.waitForEncryption()) throw error;
+            retryAfterStorageReady = true;
+        }
+        if (!retryAfterStorageReady && (session || !this.storage || this.storage.isEncryptionAvailable())) return session || null;
+        if (!await this.storage.waitForEncryption()) return null;
+        const result = await this.client.auth.getSession();
+        return result && result.data && result.data.session || null;
+    }
+
     async state() {
-        const { data: { session } } = await this.client.auth.getSession();
+        const session = await this.session();
         if (!session || !session.user) return { signedIn: false, user: null, profile: null };
         const { data: profile } = await this.client
             .from('profiles')
@@ -130,6 +164,7 @@ class AccountService {
     async signIn(identifier, password) {
         const value = String(identifier || '').trim();
         if (!value || !password) throw new Error('Email or username and password are required.');
+        if (this.storage && !this.storage.isEncryptionAvailable()) await this.storage.waitForEncryption();
         let data;
         let error;
         if (value.includes('@')) {

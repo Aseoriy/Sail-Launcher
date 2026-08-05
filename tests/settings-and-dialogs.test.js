@@ -18,6 +18,7 @@ test('maintenance settings normalization preserves object identity and toggle ch
 test('launcher confirmations use the themed asynchronous dialog', () => {
     const root = path.join(__dirname, '..');
     const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+    const dialogs = fs.readFileSync(path.join(root, 'ui', 'dialogs.js'), 'utf8');
     const maintenance = fs.readFileSync(path.join(root, 'maintenance', 'renderer.js'), 'utf8');
     const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
     assert.match(index, /ui\/dialogs\.css/);
@@ -25,6 +26,14 @@ test('launcher confirmations use the themed asynchronous dialog', () => {
     assert.doesNotMatch(index, /\bconfirm\s*\(/);
     assert.doesNotMatch(maintenance, /\bconfirm\s*\(/);
     assert.match(index, /sailConfirm\s*\(/);
+    assert.match(index, /pendingCloudOAuthDialogKey/);
+    assert.match(index, /dismissSailAlert\(dialogKey\)/);
+    assert.match(index, /cloudProviderDisplayName/);
+    assert.match(index, /Connection successful/);
+    assert.match(index, /Connection failed/);
+    assert.match(index, /safeSyncErrorMessage\(result && result\.error/);
+    assert.match(dialogs, /options\.dialogKey/);
+    assert.match(dialogs, /window\.dismissSailAlert/);
     assert.ok(packageJson.build.files.includes('ui/**/*'));
 });
 
@@ -70,11 +79,11 @@ test('switching themes cannot retain previous canvas-editor appearance overrides
     assert.match(index, /body\.glassmorphic-mode\.disable-translucency \{ background: ' \+ appBg \+ ' !important;/);
 });
 
-test('v5.3.2 sidebar, announcements, and forced reinstall wiring are present', () => {
+test('v5.3.3 sidebar, announcements, and forced reinstall wiring are present', () => {
     const root = path.join(__dirname, '..');
     const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
     const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
-    assert.equal(packageJson.version, '5.3.2');
+    assert.equal(packageJson.version, '5.3.3');
     assert.equal(packageJson.dependencies['@supabase/supabase-js'], '2.109.0');
     assert.match(index, /grid-template-columns:\s*280px 1fr/);
     assert.match(index, /<div class="settings-tabs">/);

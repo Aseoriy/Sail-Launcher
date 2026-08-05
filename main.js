@@ -294,7 +294,7 @@ function createWindow() {
     };
     const sailhubHeaderUrls = ['https://sailhub.fyi/*', 'https://*.sailhub.fyi/*'];
     win.webContents.session.webRequest.onBeforeSendHeaders({ urls: sailhubHeaderUrls }, patchSailhubHeaders);
-    session.fromPartition('sailhub-mods').webRequest.onBeforeSendHeaders({ urls: sailhubHeaderUrls }, patchSailhubHeaders);
+    session.fromPartition('persist:sailhub-mods').webRequest.onBeforeSendHeaders({ urls: sailhubHeaderUrls }, patchSailhubHeaders);
 
 
     win.webContents.session.webRequest.onBeforeRequest({ urls: ['*://*/*'] }, (details, callback) => {
@@ -892,7 +892,12 @@ ipcMain.handle('cloud-zip-folder', async (e, { localSavePath, zipPath }) => {
         if (!localSavePath || !zipPath || !fs.existsSync(localSavePath)) return false;
         fs.mkdirSync(path.dirname(zipPath), { recursive: true });
         if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath);
-        await _7z.cmd(['a', '-tzip', '-mx=5', zipPath, path.join(localSavePath, '*')]);
+        await new Promise((resolve, reject) => {
+            _7z.cmd(
+                ['a', '-tzip', '-mx=5', zipPath, path.join(localSavePath, '*')],
+                (error) => error ? reject(error) : resolve()
+            );
+        });
         return fs.existsSync(zipPath);
     } catch (error) {
         console.error('Cloud archive creation failed:', error);

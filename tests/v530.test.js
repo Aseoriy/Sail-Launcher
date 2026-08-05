@@ -83,7 +83,9 @@ test('portable account snapshots exclude device paths and secrets', () => {
             discordToken: 'secret',
             customCloudKeysData: { dropbox: { clientSecret: 'secret' } },
             localLauncherAvatar: 'C:\\avatar.png',
-            accountSyncEnabled: false
+            accountSyncEnabled: false,
+            syncConfidence: { state: 'failed', lastSuccessfulAt: Date.now() },
+            syncStatus: { error: 'local-only status' }
         }
     });
     assert.equal(result.myGames[0].exePath, undefined);
@@ -93,6 +95,8 @@ test('portable account snapshots exclude device paths and secrets', () => {
     assert.equal(result.globalSettings.customCloudKeysData, undefined);
     assert.equal(result.globalSettings.localLauncherAvatar, undefined);
     assert.equal(result.globalSettings.accountSyncEnabled, undefined);
+    assert.equal(result.globalSettings.syncConfidence, undefined);
+    assert.equal(result.globalSettings.syncStatus, undefined);
     assert.equal(result.globalSettings.theme, 'theme-midnight');
 });
 
@@ -116,6 +120,11 @@ test('account session storage retries after secure storage becomes available', a
     assert.equal(await reader.getItem('supabase.auth.token'), null);
     encryptionAvailable = true;
     assert.equal(await reader.getItem('supabase.auth.token'), 'test-session');
+
+    encryptionAvailable = false;
+    const waiting = reader.waitForEncryption(300);
+    setTimeout(() => { encryptionAvailable = true; }, 75);
+    assert.equal(await waiting, true);
 });
 
 test('username sign-in surfaces the Edge Function response message', async () => {

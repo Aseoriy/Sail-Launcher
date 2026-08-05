@@ -3260,6 +3260,46 @@
         .account-actions { display: flex; flex-wrap: wrap; gap: 8px; }
         .account-actions button { min-height: 38px; padding: 8px 13px; }
         .account-primary-action { flex: 1 1 170px; }
+        .account-sync-toggle {
+            transition: background .2s ease, border-color .2s ease, color .2s ease, box-shadow .2s ease, transform .2s ease;
+        }
+        .account-sync-toggle.is-paused {
+            color: #fbbf24;
+            border-color: rgba(251,191,36,.5);
+            background: rgba(251,191,36,.08);
+            animation: accountSyncPausedPulse 2.1s ease-in-out infinite;
+        }
+        @keyframes accountSyncPausedPulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(251,191,36,0); transform: translateY(0); }
+            50% { box-shadow: 0 0 0 4px rgba(251,191,36,.14); transform: translateY(-1px); }
+        }
+        .account-cloud-replace-options { display: flex; flex-direction: column; gap: 8px; }
+        .account-cloud-replace-option {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 11px;
+            border: 1px solid color-mix(in srgb, var(--border-color) 82%, transparent);
+            border-radius: 10px;
+            background: color-mix(in srgb, var(--bg-color) 42%, transparent);
+            cursor: pointer;
+            transition: background .2s ease, border-color .2s ease, transform .2s ease;
+        }
+        .account-cloud-replace-option:hover {
+            border-color: color-mix(in srgb, var(--accent) 55%, var(--border-color));
+            background: color-mix(in srgb, var(--accent) 8%, var(--bg-color));
+            transform: translateY(-1px);
+        }
+        .account-cloud-replace-option-copy { min-width: 0; flex: 1; }
+        .account-cloud-replace-option-copy strong { display: block; font-size: 12px; }
+        .account-cloud-replace-option-copy span { display: block; margin-top: 3px; font-size: 10px; line-height: 1.35; opacity: .62; }
+        .account-cloud-replace-option-switch { display: flex; align-items: center; flex: 0 0 auto; }
+        .account-cloud-replace-option input:focus-visible + .toggle-switch {
+            outline: 2px solid var(--accent);
+            outline-offset: 3px;
+        }
+        .account-cloud-replace-actions { margin-top: 1px; }
+        .account-cloud-replace-actions button { width: 100%; }
         .account-identity {
             display: flex;
             align-items: center;
@@ -3642,6 +3682,28 @@
         .account-global-status { margin-bottom: 14px; }
         .account-status.error { color: #fca5a5; border-color: rgba(239,68,68,.4); background: rgba(239,68,68,.08); }
         .account-status.success { color: #a7f3d0; border-color: rgba(16,185,129,.35); background: rgba(16,185,129,.08); }
+        .sync-confidence-summary {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            padding: 11px 12px;
+            border: 1px solid color-mix(in srgb, var(--border-color) 80%, var(--accent));
+            border-radius: 10px;
+            background: color-mix(in srgb, var(--bg-color) 72%, transparent);
+        }
+        .sync-confidence-summary-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+        .sync-confidence-times { display: flex; flex-wrap: wrap; gap: 5px 14px; margin-top: 4px; font-size: 10px; opacity: .62; }
+        .sync-confidence-state { font-size: 10px; font-weight: 700; white-space: nowrap; }
+        .sync-confidence-state.syncing { color: var(--accent); }
+        .sync-confidence-state.success { color: #34d399; }
+        .sync-confidence-state.failed, .sync-confidence-state.unavailable { color: #fca5a5; }
+        .sync-confidence-state.paused { color: #fbbf24; }
+        .sync-confidence-categories { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+        .sync-confidence-category { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 2px 8px; padding: 7px 8px; border-radius: 8px; background: color-mix(in srgb, var(--card-bg) 65%, transparent); }
+        .sync-confidence-category strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+        .sync-confidence-category small { grid-column: 1 / -1; font-size: 9px; opacity: .55; }
+        .sync-confidence-error { color: #fca5a5; font-size: 10px; line-height: 1.4; }
+        @media (max-width: 720px) { .sync-confidence-summary-header, .sync-confidence-categories { display: flex; flex-direction: column; } }
         .account-auth-switch { display: flex; gap: 6px; margin-bottom: 12px; }
         .account-auth-switch button { flex: 1; }
         .profile-lock-note { font-size: 10px; opacity: .55; line-height: 1.4; }
@@ -3683,6 +3745,10 @@
         .account-danger-zone {
             border-color: color-mix(in srgb, #ef4444 35%, var(--border-color));
             background: color-mix(in srgb, #ef4444 5%, var(--card-bg));
+        }
+        body.less-animations .account-sync-toggle.is-paused { animation: none; }
+        @media (prefers-reduced-motion: reduce) {
+            .account-sync-toggle.is-paused { animation: none; }
         }
         .motion-setting { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 16px; padding: 12px 0; border-bottom: 1px solid var(--border-color); }
         .motion-speed-row { display: flex; align-items: center; gap: 10px; min-width: 240px; }
@@ -4067,7 +4133,7 @@
             </div>
 
             <div id="storeView" style="display: none; height: 100%; width: 100%;">
-                <webview id="storeIframe" src="about:blank" partition="sailhub-mods"
+                <webview id="storeIframe" src="about:blank" partition="persist:sailhub-mods"
                     style="width: 100%; height: 100%; border: none; border-radius: 12px; background: var(--bg-color);"></webview>
             </div>
 
@@ -4269,6 +4335,11 @@
                         <span id="dlDebridBadge" style="display:none;align-items:center;gap:6px;padding:6px 12px;border-radius:99px;font-size:12px;font-weight:bold;background:rgba(34,197,94,0.15);color:#22c55e;border:1px solid rgba(34,197,94,0.4);"></span>
                         <button class="outline" onclick="openDownloadSettings()" style="padding: 10px 16px; border-radius: 8px;">⚙️ Download Settings</button>
                     </div>
+                </div>
+                <div id="dlManagerToolbar" style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:12px;flex-shrink:0;">
+                    <input id="downloadManagerSearch" type="search" placeholder="Search downloads…" aria-label="Search downloads" oninput="setDownloadManagerSearch(this.value)" style="flex:1 1 220px;min-width:180px;padding:9px 12px;background:var(--bg-color);border:1px solid var(--border-color);color:var(--text-color);border-radius:8px;">
+                    <button class="outline" id="dlRetryFailedButton" onclick="retryFailedDownloads()" style="padding:9px 13px;border-radius:8px;">Retry Failed</button>
+                    <button class="outline" id="dlClearCompletedButton" onclick="clearCompletedDownloads()" style="padding:9px 13px;border-radius:8px;">Clear Completed</button>
                 </div>
                 <div id="dlFilterBar" style="display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 18px; flex-shrink: 0;"></div>
                 <div id="downloadsPageBody" style="display: flex; flex-direction: column; gap: 14px; width: 100%;"></div>
@@ -4968,7 +5039,36 @@
                                     <button class="account-primary-action" onclick="uploadLocalAccountData()">Sync This PC</button>
                                     <button class="outline" onclick="mergeRemoteAccountData()" title="Imports launcher profiles, libraries, presets, settings, themes, and game configurations — not game saves.">Import Cloud Profiles</button>
                                     <button class="outline" id="accountImportGameSavesButton" onclick="openSailCloudGameSaveImport()" style="display:none;">Import Game Saves</button>
-                                    <button class="outline" onclick="keepAccountDataLocal()">Pause on This PC</button>
+                                    <button class="outline account-sync-toggle" id="accountSyncToggleButton" type="button" onclick="toggleAccountSyncOnThisPc()" aria-pressed="false">Pause on This PC</button>
+                                </div>
+                            </article>
+
+                            <article class="account-card account-stack">
+                                <div class="account-card-title">
+                                    <div>
+                                        <h3>Replace Sail Cloud with this PC</h3>
+                                        <p>Upload the selected local data as the current Sail Cloud copy. Your local files stay unchanged; device paths and credentials are never uploaded.</p>
+                                    </div>
+                                </div>
+                                <div class="account-cloud-replace-options" role="group" aria-label="Sail Cloud data to replace">
+                                    <label class="account-cloud-replace-option">
+                                        <span class="account-cloud-replace-option-copy"><strong>Launcher files</strong><span>Profiles, libraries, settings, themes, and game configurations.</span></span>
+                                        <span class="account-cloud-replace-option-switch">
+                                            <input id="accountReplaceLauncherFiles" type="checkbox" checked>
+                                            <span class="toggle-switch" aria-hidden="true"></span>
+                                        </span>
+                                    </label>
+                                    <label class="account-cloud-replace-option">
+                                        <span class="account-cloud-replace-option-copy"><strong>Game saves</strong><span>Linked local save folders for games enabled for Sail Cloud saves.</span></span>
+                                        <span class="account-cloud-replace-option-switch">
+                                            <input id="accountReplaceGameSaves" type="checkbox">
+                                            <span class="toggle-switch" aria-hidden="true"></span>
+                                        </span>
+                                    </label>
+                                </div>
+                                <div id="accountCloudReplaceStatus" class="account-status" style="display:none;" aria-live="polite"></div>
+                                <div class="account-actions account-cloud-replace-actions">
+                                    <button class="account-primary-action" id="accountCloudReplaceButton" type="button" onclick="replaceSailCloudWithLocal()">Replace Selected Cloud Data</button>
                                 </div>
                             </article>
 
@@ -5981,7 +6081,24 @@
                     <div class="account-card account-stack" id="syncV2Panel">
                         <div class="account-row" style="justify-content:space-between;">
                             <div><strong style="font-size:13px;">Sync V2 schedules &amp; destinations</strong><p style="margin:3px 0 0;">Choose when Sail uploads launcher data and which connected providers receive each category.</p></div>
-                            <button class="outline" onclick="runManualLauncherSync()">Sync now</button>
+                            <button class="outline" id="syncNowButton" onclick="runManualLauncherSync()">Sync now</button>
+                        </div>
+                        <div id="syncConfidenceSummary" class="sync-confidence-summary" aria-live="polite">
+                            <div class="sync-confidence-summary-header">
+                                <div>
+                                    <strong>Sync confidence</strong>
+                                    <div class="sync-confidence-times">
+                                        <span id="syncConfidenceLastSuccess">Last successful sync: Never</span>
+                                        <span id="syncConfidenceLastFailure">Last failed sync: None recorded</span>
+                                    </div>
+                                </div>
+                                <div style="display:flex;align-items:center;gap:8px;">
+                                    <span id="syncConfidenceOverall" class="sync-confidence-state idle">Not run yet</span>
+                                    <button class="outline" id="retrySyncButton" onclick="retrySync()">Retry Sync</button>
+                                </div>
+                            </div>
+                            <div id="syncConfidenceError" class="sync-confidence-error" style="display:none;"></div>
+                            <div id="syncConfidenceCategories" class="sync-confidence-categories"></div>
                         </div>
                         <div class="account-row" style="flex-wrap:wrap;">
                             <label style="font-size:11px;min-width:150px;">Config changes
@@ -6682,7 +6799,15 @@
         else document.addEventListener('DOMContentLoaded', initIconSystem);
 
         const LauncherLogic = require('./ui/launcherLogic');
-        const { portableSnapshot: makePortableSnapshot } = require('./sync/syncV2');
+        const DownloadManagerLogic = require('./ui/downloadManagerLogic');
+        const {
+            portableSnapshot: makePortableSnapshot,
+            normalizeSyncConfidence,
+            recordSyncConfidence,
+            safeSyncErrorMessage,
+            syncConfidenceStateForError,
+            SYNC_CONFIDENCE_CATEGORIES
+        } = require('./sync/syncV2');
         const PACKAGE_VERSION = require('./package.json').version;
         const APP_VERSION = `v${PACKAGE_VERSION}`;
         const { createClient: createSupabaseClient } = require('@supabase/supabase-js');
@@ -6790,8 +6915,13 @@
         let launcherProfileState = null;
         let accountUiState = { signedIn: false, user: null, profile: null };
         let remoteControlPlane = { profiles: [], libraries: [], presets: [], policies: [], connections: [], storage: null };
+        const SYNC_CONFIDENCE_STORAGE_KEY = 'sailSyncConfidenceV2';
+        let syncConfidence = loadSyncConfidence();
         let profileCaptureTimer = null;
         let accountControlPlaneTimer = null;
+        let accountControlPlaneInFlight = null;
+        let sailCloudReplaceInFlight = null;
+        let accountStateRefreshInFlight = null;
         let accountVerificationCountdown = null;
         let gameConfigEntriesDraft = [];
 
@@ -8062,6 +8192,137 @@
             target.classList.remove('success');
         }
 
+        function loadSyncConfidence() {
+            try {
+                const stored = localStorage.getItem(SYNC_CONFIDENCE_STORAGE_KEY);
+                return normalizeSyncConfidence(stored ? JSON.parse(stored) : {});
+            } catch (_) {
+                return normalizeSyncConfidence({});
+            }
+        }
+
+        function persistSyncConfidence() {
+            try { localStorage.setItem(SYNC_CONFIDENCE_STORAGE_KEY, JSON.stringify(syncConfidence)); } catch (_) {}
+        }
+
+        function formatSyncConfidenceTime(timestamp) {
+            return timestamp ? new Date(timestamp).toLocaleString() : 'Never';
+        }
+
+        const SYNC_CONFIDENCE_CATEGORY_LABELS = {
+            config: 'Launcher profiles/settings',
+            library: 'Game library',
+            saves: 'Game saves',
+            gameConfigs: 'Game configurations'
+        };
+        const SYNC_CONFIDENCE_STATE_LABELS = {
+            idle: 'Not run yet',
+            syncing: 'Syncing',
+            success: 'Successfully synced',
+            failed: 'Failed',
+            paused: 'Paused on this PC',
+            unavailable: 'Offline or temporarily unavailable'
+        };
+
+        function syncConfidenceStateLabel(state) {
+            return SYNC_CONFIDENCE_STATE_LABELS[state] || SYNC_CONFIDENCE_STATE_LABELS.idle;
+        }
+
+        function syncConfidenceStateClass(state) {
+            return ['syncing', 'success', 'failed', 'paused', 'unavailable'].includes(state) ? state : 'idle';
+        }
+
+        function setSyncConfidenceStatus(category, state, details = {}) {
+            syncConfidence = recordSyncConfidence(syncConfidence, category, state, details);
+            if (details.overall) syncConfidence = recordSyncConfidence(syncConfidence, null, state, details);
+            persistSyncConfidence();
+            renderSyncConfidence();
+        }
+
+        function setSyncConfidenceError(category, error, details = {}) {
+            setSyncConfidenceStatus(category, syncConfidenceStateForError(error), {
+                ...details,
+                error
+            });
+        }
+
+        function beginSyncConfidence(categories = []) {
+            setSyncConfidenceStatus(null, 'syncing');
+            [...new Set(categories)].forEach(category => setSyncConfidenceStatus(category, 'syncing'));
+        }
+
+        function finishSyncConfidence(state, error) {
+            if (state === 'failed' || state === 'unavailable') {
+                setSyncConfidenceStatus(null, state, { error });
+            } else {
+                setSyncConfidenceStatus(null, state);
+            }
+        }
+
+        function renderSyncConfidence() {
+            const summary = document.getElementById('syncConfidenceSummary');
+            if (!summary) return;
+            const overall = normalizeSyncConfidence(syncConfidence);
+            syncConfidence = overall;
+            const state = document.getElementById('syncConfidenceOverall');
+            if (state) {
+                state.textContent = syncConfidenceStateLabel(overall.state);
+                state.className = `sync-confidence-state ${syncConfidenceStateClass(overall.state)}`;
+            }
+            const lastSuccess = document.getElementById('syncConfidenceLastSuccess');
+            const lastFailure = document.getElementById('syncConfidenceLastFailure');
+            if (lastSuccess) lastSuccess.textContent = `Last successful sync: ${formatSyncConfidenceTime(overall.lastSuccessfulAt)}`;
+            if (lastFailure) lastFailure.textContent = overall.lastFailedAt
+                ? `Last failed sync: ${formatSyncConfidenceTime(overall.lastFailedAt)}`
+                : 'Last failed sync: None recorded';
+            const error = document.getElementById('syncConfidenceError');
+            if (error) {
+                error.textContent = overall.error || '';
+                error.style.display = overall.error && ['failed', 'unavailable'].includes(overall.state) ? 'block' : 'none';
+            }
+            const list = document.getElementById('syncConfidenceCategories');
+            if (!list) return;
+            list.replaceChildren();
+            SYNC_CONFIDENCE_CATEGORIES.forEach(category => {
+                const item = overall.categories[category];
+                const row = document.createElement('div');
+                row.className = 'sync-confidence-category';
+                const label = document.createElement('strong');
+                label.textContent = SYNC_CONFIDENCE_CATEGORY_LABELS[category] || category;
+                const stateText = document.createElement('span');
+                stateText.className = `sync-confidence-state ${syncConfidenceStateClass(item.state)}`;
+                stateText.textContent = syncConfidenceStateLabel(item.state);
+                const times = document.createElement('small');
+                times.textContent = `Success: ${formatSyncConfidenceTime(item.lastSuccessfulAt)} · Failed: ${item.lastFailedAt ? formatSyncConfidenceTime(item.lastFailedAt) : 'None'}`;
+                row.append(label, stateText, times);
+                list.appendChild(row);
+            });
+            const retry = document.getElementById('retrySyncButton');
+            if (retry) retry.disabled = !!syncManualInFlight;
+            const syncNow = document.getElementById('syncNowButton');
+            if (syncNow) syncNow.disabled = !!syncManualInFlight;
+        }
+
+        function renderAccountRemoteStatus() {
+            if (!accountUiState.signedIn) return;
+            const profileCount = (remoteControlPlane.profiles || []).length;
+            const overall = normalizeSyncConfidence(syncConfidence);
+            let message;
+            if (!accountSyncEnabledOnThisPc()) {
+                message = 'Account sync is paused on this PC. Local profiles are still available offline.';
+            } else if (overall.state === 'syncing') {
+                message = 'Syncing to Sail Cloud…';
+            } else if (overall.state === 'success') {
+                message = `Successfully synced to Sail Cloud at ${formatSyncConfidenceTime(overall.lastSuccessfulAt)}.`;
+            } else if (overall.state === 'failed' || overall.state === 'unavailable') {
+                message = `${syncConfidenceStateLabel(overall.state)}. ${overall.error || 'Try again.'}`;
+                if (overall.lastSuccessfulAt) message += ` Last successful sync: ${formatSyncConfidenceTime(overall.lastSuccessfulAt)}.`;
+            } else {
+                message = `Sail Cloud is on. ${profileCount} cloud profile(s) available.`;
+            }
+            setAccountStatus(message, ['failed', 'unavailable'].includes(overall.state));
+        }
+
         const ACCOUNT_SYNC_DEVICE_KEY = 'sailAccountSyncEnabledV2';
 
         function accountSyncEnabledOnThisPc() {
@@ -8209,9 +8470,10 @@
                 if (announce) setAccountStatus('Sail Cloud storage usage refreshed.');
                 return remoteControlPlane.storage;
             } catch (error) {
-                remoteControlPlane.storage = { unavailable: true, error: error.message };
+                const message = safeSyncErrorMessage(error);
+                remoteControlPlane.storage = { unavailable: true, error: message };
                 renderAccountUi();
-                if (announce) setAccountStatus(error.message, true);
+                if (announce) setAccountStatus(message, true);
                 return null;
             } finally {
                 if (button) {
@@ -8229,7 +8491,7 @@
                 const files = await invokeAccount('account-cloud-list-files', undefined, 10000);
                 renderSailCloudFiles(files);
             } catch (error) {
-                const detail = error && error.message ? error.message : 'Unknown account service error.';
+                const detail = safeSyncErrorMessage(error || 'Unknown account service error.');
                 const needsRestart = /No handler registered|did not respond in time/i.test(detail);
                 const message = needsRestart
                     ? 'Sail Launcher needs a full restart to load the updated Sail Cloud file service.'
@@ -8289,16 +8551,25 @@
             const display = document.getElementById('accountDisplayName');
             const email = document.getElementById('accountEmail');
             const importGameSavesButton = document.getElementById('accountImportGameSavesButton');
+            const replaceCloudButton = document.getElementById('accountCloudReplaceButton');
+            const accountSyncToggleButton = document.getElementById('accountSyncToggleButton');
             if (display) display.textContent = displayName;
             if (email) email.textContent = signedIn && accountUiState.user ? accountUiState.user.email : '';
             if (importGameSavesButton) {
                 importGameSavesButton.style.display = signedIn && sailCloudGameSavesEnabled() ? '' : 'none';
             }
+            if (replaceCloudButton) replaceCloudButton.disabled = !!sailCloudReplaceInFlight;
+            if (accountSyncToggleButton) {
+                const syncPaused = !accountSyncEnabledOnThisPc();
+                accountSyncToggleButton.textContent = syncPaused ? 'Resume Syncing' : 'Pause on This PC';
+                accountSyncToggleButton.classList.toggle('is-paused', syncPaused);
+                accountSyncToggleButton.setAttribute('aria-pressed', syncPaused ? 'true' : 'false');
+                accountSyncToggleButton.title = syncPaused
+                    ? 'Resume Sail Cloud syncing on this PC'
+                    : 'Pause Sail Cloud syncing on this PC';
+            }
             if (signedIn) {
-                const connectionText = !accountSyncEnabledOnThisPc()
-                    ? 'Account sync is paused on this PC. Local profiles are still available.'
-                    : `Sail Cloud is on. ${(remoteControlPlane.profiles || []).length} cloud profile(s) available. Game saves can use Sail Cloud or linked providers.`;
-                setAccountStatus(connectionText);
+                renderAccountRemoteStatus();
                 const storage = remoteControlPlane.storage;
                 const usage = document.getElementById('accountStorageUsage');
                 const usageBar = document.getElementById('accountStorageUsageBar');
@@ -8316,24 +8587,54 @@
             }
             renderLauncherProfileControls();
             onProfileSelectionChanged();
+            renderSyncConfidence();
         }
 
         async function refreshAccountState() {
+            if (accountStateRefreshInFlight) return accountStateRefreshInFlight;
+            const operation = (async () => {
+                let nextAccountState = null;
+                let lastError = null;
+                for (let attempt = 0; attempt < 3 && !nextAccountState; attempt += 1) {
+                    try {
+                        nextAccountState = await invokeAccount('account-get-state');
+                    } catch (error) {
+                        lastError = error;
+                        if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 250));
+                    }
+                }
+                if (nextAccountState) {
+                    accountUiState = nextAccountState;
+                    try {
+                        const localState = await invokeAccount('profiles-get-state');
+                        if (localState) launcherProfileState = localState;
+                        remoteControlPlane = accountUiState.signedIn
+                            ? await invokeAccount('account-list-remote')
+                            : { profiles: [], libraries: [], presets: [], policies: [], connections: [], storage: null };
+                    } catch (error) {
+                        const message = safeSyncErrorMessage(error);
+                        console.error('Account profile refresh failed:', message);
+                        setSyncConfidenceError(null, error);
+                        setAccountStatus(message, true);
+                    }
+                } else if (lastError) {
+                    const message = safeSyncErrorMessage(lastError);
+                    console.error('Account state refresh failed:', message);
+                    setSyncConfidenceError(null, lastError);
+                    setAccountStatus(message, true);
+                }
+                renderAccountUi();
+                try { updateCloudSyncUI(); } catch (_) {}
+                try { updateSailCloudGameSaveControl(); } catch (_) {}
+                if (accountUiState.signedIn) queueSailCloudGameSaveBackfillIfNeeded();
+                return accountUiState;
+            })();
+            accountStateRefreshInFlight = operation;
             try {
-                accountUiState = await invokeAccount('account-get-state');
-                const localState = await invokeAccount('profiles-get-state');
-                if (localState) launcherProfileState = localState;
-                remoteControlPlane = accountUiState.signedIn
-                    ? await invokeAccount('account-list-remote')
-                    : { profiles: [], libraries: [], presets: [], policies: [], connections: [], storage: null };
-            } catch (error) {
-                console.error('Account state refresh failed:', error);
-                setAccountStatus(error.message, true);
+                return await operation;
+            } finally {
+                if (accountStateRefreshInFlight === operation) accountStateRefreshInFlight = null;
             }
-            renderAccountUi();
-            try { updateCloudSyncUI(); } catch (_) {}
-            try { updateSailCloudGameSaveControl(); } catch (_) {}
-            if (accountUiState.signedIn) queueSailCloudGameSaveBackfillIfNeeded();
         }
 
         window.openAccountModal = function () {
@@ -8556,9 +8857,12 @@
             }
         };
 
-        async function syncLocalAccountControlPlane(silent = false) {
-            if (!accountUiState.signedIn || !accountSyncEnabledOnThisPc()) return null;
-            try {
+        async function syncLocalAccountControlPlane(silent = false, { force = false } = {}) {
+            if (!accountUiState.signedIn || (!force && !accountSyncEnabledOnThisPc())) return null;
+            if (accountControlPlaneInFlight) return accountControlPlaneInFlight;
+            beginSyncConfidence(['library']);
+            const operation = (async () => {
+                try {
                 if (!silent) setAccountStatus('Uploading profiles, libraries, and settings…');
                 await invokeAccount('profiles-capture-active', { myGames, customSections, globalSettings });
                 const payload = await invokeAccount('profiles-export-control-plane');
@@ -8570,15 +8874,28 @@
                     }))
                 );
                 remoteControlPlane = await invokeAccount('account-upsert-remote', payload);
+                setSyncConfidenceStatus('library', 'success');
+                finishSyncConfidence('success');
                 if (!silent) {
                     renderAccountUi();
                     setAccountStatus('Local launcher profiles are now available on your Sail account.');
                 }
                 return remoteControlPlane;
             } catch (error) {
-                if (!silent) setAccountStatus(error.message, true);
-                else console.error('Background account sync failed:', error);
+                setSyncConfidenceError('library', error);
+                finishSyncConfidence(syncConfidenceStateForError(error), error);
+                const message = safeSyncErrorMessage(error);
+                if (!silent) setAccountStatus(message, true);
+                else console.error('Background account sync failed:', message);
+                if (!silent) throw error;
                 return null;
+                }
+            })();
+            accountControlPlaneInFlight = operation;
+            try {
+                return await operation;
+            } finally {
+                if (accountControlPlaneInFlight === operation) accountControlPlaneInFlight = null;
             }
         }
 
@@ -8588,13 +8905,26 @@
             accountControlPlaneTimer = setTimeout(() => syncLocalAccountControlPlane(true), 5000);
         }
 
-        window.uploadLocalAccountData = async function () {
-            setAccountSyncEnabledOnThisPc(true);
-            const result = await syncLocalAccountControlPlane(false);
-            if (result) await refreshSailCloudStorage(false);
+        window.uploadLocalAccountData = async function (rethrow = false) {
+            try {
+                setAccountSyncEnabledOnThisPc(true);
+                const result = await syncLocalAccountControlPlane(false);
+                if (!result) throw new Error('Launcher profile sync did not complete. Check Sync Confidence and retry.');
+                await refreshSailCloudStorage(false);
+                return result;
+            } catch (error) {
+                if (rethrow) throw error;
+                setAccountStatus(safeSyncErrorMessage(error), true);
+                return null;
+            }
         };
 
         window.mergeRemoteAccountData = async function () {
+            if (syncManualInFlight) {
+                setAccountStatus('A sync is already running. Please wait for it to finish.');
+                return syncManualInFlight;
+            }
+            beginSyncConfidence(['config', 'library']);
             try {
                 setAccountStatus('Merging cloud profiles with this PC…');
                 remoteControlPlane = await invokeAccount('account-list-remote');
@@ -8610,9 +8940,16 @@
                 renderSidebar();
                 renderGames();
                 renderAccountUi();
+                setSyncConfidenceStatus('config', 'success');
+                setSyncConfidenceStatus('library', 'success');
+                finishSyncConfidence('success');
                 setAccountStatus('Cloud profiles merged. Device-specific game paths and cloud secrets stayed local.');
             } catch (error) {
-                setAccountStatus(error.message, true);
+                const message = safeSyncErrorMessage(error);
+                setSyncConfidenceError('config', error);
+                setSyncConfidenceError('library', error);
+                finishSyncConfidence(syncConfidenceStateForError(error), error);
+                setAccountStatus(message, true);
             }
         };
 
@@ -8833,7 +9170,27 @@
 
         window.keepAccountDataLocal = function () {
             setAccountSyncEnabledOnThisPc(false);
+            setSyncConfidenceStatus(null, 'paused');
+            SYNC_CONFIDENCE_CATEGORIES.forEach(category => setSyncConfidenceStatus(category, 'paused'));
+            renderAccountUi();
             setAccountStatus('Account sync is paused on this PC. Your local profiles remain available offline.');
+        };
+
+        window.resumeAccountData = async function () {
+            if (!accountUiState.signedIn) {
+                setAccountStatus('Sign in to resume Sail Cloud syncing on this PC.', true);
+                return null;
+            }
+            setAccountSyncEnabledOnThisPc(true);
+            renderAccountUi();
+            setAccountStatus('Resuming Sail Cloud syncing on this PC…');
+            return uploadLocalAccountData();
+        };
+
+        window.toggleAccountSyncOnThisPc = function () {
+            return accountSyncEnabledOnThisPc()
+                ? window.keepAccountDataLocal()
+                : window.resumeAccountData();
         };
 
         window.onProfileSelectionChanged = function () {
@@ -9073,9 +9430,27 @@
             applyMotionSettings();
         });
         document.getElementById('animationSpeedSlider').addEventListener('change', saveToMemory);
+        function cloudProviderDisplayName(provider) {
+            return ({ google: 'Google Drive', dropbox: 'Dropbox' })[provider] || 'Cloud account';
+        }
+
         ipcRenderer.on('account-cloud-callback', (_event, result) => {
-            setAccountStatus(result && result.success === false ? (result.error || 'Cloud connection failed.') : 'Cloud account connected.', result && result.success === false);
+            const dialogKey = pendingCloudOAuthDialogKey;
+            pendingCloudOAuthDialogKey = null;
+            if (dialogKey) dismissSailAlert(dialogKey);
+            const pendingProvider = dialogKey ? dialogKey.replace(/^cloud-oauth-/, '') : '';
+            const provider = result && result.provider || pendingProvider;
+            const connected = !!(result && result.success);
+            const providerLabel = cloudProviderDisplayName(provider);
+            const message = connected
+                ? `${providerLabel} connected successfully.`
+                : `${providerLabel} could not be connected. ${safeSyncErrorMessage(result && result.error || 'Cloud authorization failed.')}`;
+            setAccountStatus(message, !connected);
             refreshAccountState();
+            void sailAlert(message, {
+                title: connected ? 'Connection successful' : 'Connection failed',
+                tone: connected ? 'success' : 'danger'
+            });
         });
 
         function normalizedSyncV2() {
@@ -9115,6 +9490,7 @@
         }
 
         let syncV2IntervalHandle = null;
+        let syncManualInFlight = null;
         function scheduleSyncV2Interval() {
             clearInterval(syncV2IntervalHandle);
             const settings = normalizedSyncV2();
@@ -9388,25 +9764,32 @@
             if (localStorage.getItem(sailCloudGameSaveBackfillKey())) return;
             setTimeout(() => {
                 uploadAllLinkedGameSavesToSailCloud().catch(error => {
-                    console.error('Initial Sail Cloud game-save upload failed:', error);
-                    setSyncV2Status(`Initial game-save upload failed: ${error.message || error}`, true);
+                    const message = safeSyncErrorMessage(error);
+                    console.error('Initial Sail Cloud game-save upload failed:', message);
+                    setSyncConfidenceError('saves', error, { overall: true });
+                    setSyncV2Status(`Initial game-save upload failed: ${message}`, true);
                 });
             }, 0);
         }
 
-        async function uploadAllLinkedGameSavesToSailCloud({ force = false } = {}) {
+        async function uploadAllLinkedGameSavesToSailCloud({ force = false, replaceExisting = false } = {}) {
             if (sailCloudGameSaveBackfillInFlight) return sailCloudGameSaveBackfillInFlight;
 
             sailCloudGameSaveBackfillInFlight = (async () => {
-                const profileId = activeSailProfileId();
-                const markerKey = sailCloudGameSaveBackfillKey();
-                if (!accountUiState.signedIn || !profileId) {
-                    setSyncV2Status('Sign in and choose a launcher profile before uploading game saves.', true);
-                    return { uploaded: 0, skipped: 0, failed: [] };
-                }
-                if (!force && localStorage.getItem(markerKey)) {
-                    return { uploaded: 0, skipped: 0, failed: [], alreadyCompleted: true };
-                }
+                try {
+                    const profileId = activeSailProfileId();
+                    const markerKey = sailCloudGameSaveBackfillKey();
+                    const rememberBackfill = value => {
+                        if (!replaceExisting) localStorage.setItem(markerKey, JSON.stringify(value));
+                    };
+                    if (!accountUiState.signedIn || !profileId) {
+                        setSyncV2Status('Sign in and choose a launcher profile before uploading game saves.', true);
+                        return { uploaded: 0, skipped: 0, failed: [] };
+                    }
+                    if (!force && !replaceExisting && localStorage.getItem(markerKey)) {
+                        return { uploaded: 0, skipped: 0, failed: [], alreadyCompleted: true };
+                    }
+                    beginSyncConfidence(['saves']);
 
                 const allLinkedGames = myGames.filter(game => game && game.localSave);
                 const linkedGames = allLinkedGames.filter(game => sailCloudGameSaveEnabledFor(game));
@@ -9414,34 +9797,44 @@
                 const toggle = document.getElementById('sailCloudGameSaveToggle');
                 if (toggle) toggle.disabled = true;
                 if (!allLinkedGames.length) {
-                    localStorage.setItem(markerKey, JSON.stringify({ completedAt: Date.now(), uploaded: 0, selectedKeys }));
+                    rememberBackfill({ completedAt: Date.now(), uploaded: 0, selectedKeys });
+                    setSyncConfidenceStatus('saves', 'success');
+                    finishSyncConfidence('success');
                     setSyncV2Status('Sail Cloud game saves are on, but no games have a local save folder linked yet.');
                     return { uploaded: 0, skipped: 0, failed: [] };
                 }
                 if (!linkedGames.length) {
-                    localStorage.setItem(markerKey, JSON.stringify({ completedAt: Date.now(), uploaded: 0, selectedKeys }));
+                    rememberBackfill({ completedAt: Date.now(), uploaded: 0, selectedKeys });
+                    setSyncConfidenceStatus('saves', 'success');
+                    finishSyncConfidence('success');
                     setSyncV2Status('Sail Cloud game saves are on, but every linked game is excluded.');
                     return { uploaded: 0, skipped: 0, failed: [] };
                 }
 
                 setSyncV2Status('Checking which linked game saves are already in Sail Cloud…');
-                const cloudFiles = await invokeAccount('account-cloud-list-files', undefined, 15000);
-                const existingSaveKeys = new Set((Array.isArray(cloudFiles) ? cloudFiles : [])
-                    .filter(file => file
-                        && file.profile_id === profileId
-                        && file.artifact_type === 'game-save')
-                    .map(file => file.logical_key));
-                const pendingGames = linkedGames.filter(game => !existingSaveKeys.has(sailCloudGameSaveKey(game)));
-                const alreadyPresent = linkedGames.length - pendingGames.length;
+                let pendingGames = linkedGames;
+                let alreadyPresent = 0;
+                if (!replaceExisting) {
+                    const cloudFiles = await invokeAccount('account-cloud-list-files', undefined, 15000);
+                    const existingSaveKeys = new Set((Array.isArray(cloudFiles) ? cloudFiles : [])
+                        .filter(file => file
+                            && file.profile_id === profileId
+                            && file.artifact_type === 'game-save')
+                        .map(file => file.logical_key));
+                    pendingGames = linkedGames.filter(game => !existingSaveKeys.has(sailCloudGameSaveKey(game)));
+                    alreadyPresent = linkedGames.length - pendingGames.length;
+                }
                 if (!pendingGames.length) {
-                    localStorage.setItem(markerKey, JSON.stringify({
+                    rememberBackfill({
                         completedAt: Date.now(),
                         uploaded: 0,
                         skipped: 0,
                         alreadyPresent,
                         selectedKeys,
                         failed: []
-                    }));
+                    });
+                    setSyncConfidenceStatus('saves', 'success');
+                    finishSyncConfidence('success');
                     setSyncV2Status(`All ${alreadyPresent} linked game saves are already uploaded to Sail Cloud.`);
                     return { uploaded: 0, skipped: 0, alreadyPresent, failed: [] };
                 }
@@ -9450,8 +9843,8 @@
                 let skipped = 0;
                 let uploadedBytes = 0;
                 const failed = [];
-                const maxVersions = sailCloudGameSaveMaxVersions();
-                const tempDir = path.join(os.tmpdir(), 'SailLauncherCloudSync', 'initial-upload');
+                const maxVersions = replaceExisting ? 1 : sailCloudGameSaveMaxVersions();
+                const tempDir = path.join(os.tmpdir(), replaceExisting ? 'replace-local' : 'initial-upload');
                 fs.ensureDirSync(tempDir);
 
                 for (let index = 0; index < pendingGames.length; index += 1) {
@@ -9490,8 +9883,9 @@
                         uploaded += 1;
                         uploadedBytes += archiveBytes;
                     } catch (error) {
-                        console.error(`Initial Sail Cloud upload failed for ${label}:`, error);
-                        failed.push({ name: label, error: error.message || String(error) });
+                        const message = safeSyncErrorMessage(error);
+                        console.error(`Sail Cloud game-save upload failed for ${label}:`, message);
+                        failed.push({ name: label, error: message });
                     } finally {
                         if (archivePath) {
                             try { fs.unlinkSync(archivePath); } catch (_) {}
@@ -9499,14 +9893,14 @@
                     }
                 }
 
-                localStorage.setItem(markerKey, JSON.stringify({
+                rememberBackfill({
                     completedAt: Date.now(),
                     uploaded,
                     skipped,
                     alreadyPresent,
                     selectedKeys,
                     failed
-                }));
+                });
                 await refreshSailCloudStorage(false);
 
                 const parts = [`${uploaded} uploaded`];
@@ -9515,11 +9909,30 @@
                 if (failed.length) parts.push(`${failed.length} failed`);
                 const failedNames = failed.slice(0, 3).map(item => item.name).join(', ');
                 const sizeText = uploadedBytes ? ` (${formatStorageBytes(uploadedBytes)})` : '';
+                const statusPrefix = replaceExisting
+                    ? 'Local game-save replacement finished'
+                    : 'Initial Sail Cloud game-save upload finished';
+                if (failed.length) {
+                    setSyncConfidenceError('saves', new Error(failed[0].error || 'Game-save upload failed.'));
+                    finishSyncConfidence(syncConfidenceStateForError(new Error(failed[0].error || 'Game-save upload failed.')), failed[0].error);
+                } else {
+                    setSyncConfidenceStatus('saves', 'success');
+                    finishSyncConfidence('success');
+                }
                 setSyncV2Status(
-                    `Initial Sail Cloud game-save upload finished: ${parts.join(', ')}${sizeText}.${failedNames ? ` Failed: ${failedNames}.` : ''}`,
+                    `${statusPrefix}: ${parts.join(', ')}${sizeText}.${failedNames ? ` Failed: ${failedNames}.` : ''}`,
                     failed.length > 0
                 );
-                return { uploaded, skipped, alreadyPresent, failed, uploadedBytes };
+                    return { uploaded, skipped, alreadyPresent, failed, uploadedBytes };
+                } catch (error) {
+                    const message = safeSyncErrorMessage(error);
+                    const state = syncConfidenceStateForError(error);
+                    console.error('Sail Cloud game-save upload failed:', message);
+                    setSyncConfidenceError('saves', error);
+                    finishSyncConfidence(state, error);
+                    setSyncV2Status(`Sail Cloud game-save upload failed: ${message}`, true);
+                    return { uploaded: 0, skipped: 0, failed: [{ name: 'Sail Cloud', error: message }] };
+                }
             })();
 
             try {
@@ -9529,6 +9942,112 @@
                 updateSailCloudGameSaveControl();
             }
         }
+
+        function sailCloudReplacementBusy() {
+            return !!(syncManualInFlight
+                || configSyncInFlight
+                || accountControlPlaneInFlight
+                || sailCloudGameSaveBackfillInFlight
+                || gameConfigSyncInFlight.size);
+        }
+
+        window.replaceSailCloudWithLocal = async function () {
+            if (!accountUiState.signedIn) {
+                setAccountStatus('Sign in to replace Sail Cloud data with this PC.', true);
+                return null;
+            }
+            const launcherFiles = !!document.getElementById('accountReplaceLauncherFiles')?.checked;
+            const gameSaves = !!document.getElementById('accountReplaceGameSaves')?.checked;
+            if (!launcherFiles && !gameSaves) {
+                setAccountStatus('Select launcher files, game saves, or both before continuing.', true);
+                return null;
+            }
+            if (gameSaves && !sailCloudGameSavesEnabled()) {
+                setAccountStatus('Enable Sail Cloud game-save syncing in Cloud settings before replacing game saves.', true);
+                return null;
+            }
+            if (!activeSailProfileId()) {
+                setAccountStatus('Choose a launcher profile before replacing Sail Cloud data.', true);
+                return null;
+            }
+            if (sailCloudReplaceInFlight || sailCloudReplacementBusy()) {
+                setAccountStatus('A sync is already running. Please wait for it to finish.');
+                return sailCloudReplaceInFlight;
+            }
+
+            const selected = [
+                launcherFiles ? 'launcher files' : '',
+                gameSaves ? 'game saves' : ''
+            ].filter(Boolean).join(' and ');
+            const confirmed = await sailConfirm(
+                `Replace ${selected} in Sail Cloud with the current data from this PC?\n\n` +
+                'This uploads the selected local data, keeps this PC unchanged, and keeps only the newest uploaded copy for each selected item. Local folders that are missing or empty are skipped so they cannot erase a cloud save by accident.'
+            );
+            if (!confirmed) return null;
+
+            const operation = (async () => {
+                const failures = [];
+                let uploadedSaves = 0;
+                let uploadedGameConfigs = 0;
+                try {
+                    const categories = [];
+                    if (launcherFiles) categories.push('config', 'library', 'gameConfigs');
+                    if (gameSaves) categories.push('saves');
+                    beginSyncConfidence(categories);
+                    setAccountStatus(`Replacing selected Sail Cloud ${selected} with this PC's data…`);
+
+                    if (launcherFiles) {
+                        const profileResult = await syncLocalAccountControlPlane(true, { force: true });
+                        if (!profileResult) throw new Error('Launcher profiles and settings could not be uploaded.');
+                        const configResult = await syncConfigToCloud('replace', { replaceCloud: true });
+                        if (configResult === false) throw new Error('Launcher configuration could not be uploaded.');
+                        for (const game of myGames) {
+                            try {
+                                const result = await runGameConfigSync(game, 'upload', 'replace', { replaceExisting: true });
+                                uploadedGameConfigs += result && result.synced || 0;
+                            } catch (error) {
+                                failures.push(`${game.name || 'A game'}: ${safeSyncErrorMessage(error)}`);
+                            }
+                        }
+                    }
+
+                    if (gameSaves) {
+                        const result = await uploadAllLinkedGameSavesToSailCloud({ force: true, replaceExisting: true });
+                        uploadedSaves = result && result.uploaded || 0;
+                        (result && result.failed || []).forEach(item => {
+                            failures.push(`${item.name || 'A game save'}: ${item.error || 'upload failed'}`);
+                        });
+                    }
+
+                    if (failures.length) {
+                        const partial = new Error(`Some selected Sail Cloud data could not be replaced. ${failures.slice(0, 3).join(' ')}`);
+                        setSyncConfidenceError(null, partial);
+                        setAccountStatus(safeSyncErrorMessage(partial), true);
+                    } else {
+                        finishSyncConfidence('success');
+                        setAccountStatus(`Selected Sail Cloud data replaced from this PC. ${uploadedSaves} game save(s) and ${uploadedGameConfigs} game configuration(s) uploaded.`);
+                    }
+                    await refreshSailCloudStorage(false);
+                    const filesPanel = document.getElementById('accountCloudFilesPanel');
+                    if (filesPanel && filesPanel.style.display !== 'none') await refreshSailCloudFiles();
+                    return { launcherFiles, gameSaves, uploadedSaves, uploadedGameConfigs, failures };
+                } catch (error) {
+                    const message = safeSyncErrorMessage(error);
+                    setSyncConfidenceError(null, error);
+                    finishSyncConfidence(syncConfidenceStateForError(error), error);
+                    setAccountStatus(message, true);
+                    return { launcherFiles, gameSaves, uploadedSaves, uploadedGameConfigs, failures: [...failures, message] };
+                }
+            })();
+            sailCloudReplaceInFlight = operation;
+            renderAccountUi();
+            try {
+                return await operation;
+            } finally {
+                if (sailCloudReplaceInFlight === operation) sailCloudReplaceInFlight = null;
+                renderAccountUi();
+            }
+        };
 
         async function runSailCloudSaveRestore(game) {
             const profileId = activeSailProfileId();
@@ -9605,23 +10124,49 @@
             }
         }
 
-        window.runManualLauncherSync = async function () {
+        window.runManualLauncherSync = async function (trigger = 'manual') {
+            if (syncManualInFlight) {
+                setSyncV2Status('A sync is already running. Please wait for it to finish.');
+                return syncManualInFlight;
+            }
+            beginSyncConfidence(['config', 'library']);
             const status = document.getElementById('syncV2Status');
             if (status) {
                 status.style.display = 'block';
                 status.textContent = 'Uploading launcher configuration…';
                 status.classList.remove('error');
             }
-            try {
-                await syncConfigToCloud('manual');
-                if (accountUiState.signedIn && accountSyncEnabledOnThisPc()) await uploadLocalAccountData();
-                if (status) status.textContent = 'Launcher configuration sync completed.';
-            } catch (error) {
-                if (status) {
-                    status.textContent = error.message;
-                    status.classList.add('error');
+            if (accountUiState.signedIn) setAccountStatus('Syncing to Sail Cloud…');
+            const operation = (async () => {
+                try {
+                    const configResult = await syncConfigToCloud(trigger);
+                    if (configResult === false) throw new Error('Launcher configuration sync failed. Check Sync Confidence for details.');
+                    if (accountUiState.signedIn && accountSyncEnabledOnThisPc()) await uploadLocalAccountData(true);
+                    finishSyncConfidence('success');
+                    if (status) status.textContent = 'Launcher configuration sync completed.';
+                    if (accountUiState.signedIn) renderAccountRemoteStatus();
+                    return true;
+                } catch (error) {
+                    const message = safeSyncErrorMessage(error);
+                    finishSyncConfidence(syncConfidenceStateForError(error), error);
+                    if (status) {
+                        status.textContent = message;
+                        status.classList.add('error');
+                    }
+                    if (accountUiState.signedIn) setAccountStatus(message, true);
+                    return false;
+                } finally {
+                    syncManualInFlight = null;
+                    renderSyncConfidence();
                 }
-            }
+            })();
+            syncManualInFlight = operation;
+            renderSyncConfidence();
+            return operation;
+        };
+
+        window.retrySync = function () {
+            return window.runManualLauncherSync('retry');
         };
 
         function newestLocalTimestamp(targetPath) {
@@ -9642,7 +10187,7 @@
             return backupPath;
         }
 
-        async function uploadGameConfigEntry(game, entry, providers, customCreds) {
+        async function uploadGameConfigEntry(game, entry, providers, customCreds, { replaceExisting = false } = {}) {
             let uploadPath = entry.localPath;
             let temporaryZip = '';
             if (!fs.existsSync(entry.localPath)) throw new Error(`${entry.name}: local path was not found.`);
@@ -9660,7 +10205,9 @@
                         logicalKey: `game-config:${game.id}:${entry.id}`,
                         filePath: uploadPath,
                         contentType: entry.kind === 'folder' ? 'application/zip' : 'application/octet-stream',
-                        maxVersions: globalSettings.saveBackupCount !== undefined ? globalSettings.saveBackupCount : 3,
+                        maxVersions: replaceExisting
+                            ? 1
+                            : (globalSettings.saveBackupCount !== undefined ? globalSettings.saveBackupCount : 3),
                         gameId: /^[0-9a-f-]{36}$/i.test(String(game.id || '')) ? game.id : null,
                         configEntryId: /^[0-9a-f-]{36}$/i.test(String(entry.id || '')) ? entry.id : null
                     });
@@ -9775,34 +10322,55 @@
             return true;
         }
 
-        async function runGameConfigSync(game, direction, trigger = 'manual') {
+        const gameConfigSyncInFlight = new Map();
+
+        async function runGameConfigSync(game, direction, trigger = 'manual', options = {}) {
+            const syncKey = `${game && game.id || game && game.name || 'game'}:${direction}`;
+            if (gameConfigSyncInFlight.has(syncKey)) return gameConfigSyncInFlight.get(syncKey);
             const entries = (Array.isArray(game.configSyncEntries) ? game.configSyncEntries : [])
                 .filter(entry => entry && entry.enabled !== false && entry.localPath)
-                .filter(entry => trigger === 'manual'
+                .filter(entry => trigger === 'manual' || trigger === 'replace'
                     || trigger === 'beforeLaunch' && (entry.beforeLaunch || normalizedSyncV2().gameConfigBeforeLaunch)
                     || trigger === 'afterExit' && (entry.afterExit || normalizedSyncV2().gameConfigAfterExit)
                     || trigger === 'interval' && entry.intervalMinutes > 0 && Date.now() - (entry.lastSyncedAt || 0) >= entry.intervalMinutes * 60000);
             if (!entries.length) return { synced: 0 };
-            const status = await ipcRenderer.invoke('cloud-get-status');
-            const providers = selectedSyncProviders('gameConfigs', status);
-            if (!accountUiState.signedIn && !providers.length) throw new Error('Connect a cloud provider for game configuration sync.');
-            const customCreds = globalSettings.customCloudKeys ? globalSettings.customCloudKeysData : null;
-            let synced = 0;
-            for (const entry of entries) {
-                if (direction === 'download') {
-                    if (await restoreGameConfigEntry(game, entry, providers[0], customCreds)) synced++;
-                } else {
-                    await uploadGameConfigEntry(game, entry, providers, customCreds);
-                    synced++;
+            beginSyncConfidence(['gameConfigs']);
+            const operation = (async () => {
+                try {
+                    const status = await ipcRenderer.invoke('cloud-get-status');
+                    const providers = selectedSyncProviders('gameConfigs', status);
+                    if (!accountUiState.signedIn && !providers.length) throw new Error('Connect a cloud provider for game configuration sync.');
+                    const customCreds = globalSettings.customCloudKeys ? globalSettings.customCloudKeysData : null;
+                    let synced = 0;
+                    for (const entry of entries) {
+                        if (direction === 'download') {
+                            if (await restoreGameConfigEntry(game, entry, providers[0], customCreds)) synced++;
+                        } else {
+                await uploadGameConfigEntry(game, entry, providers, customCreds, options);
+                            synced++;
+                        }
+                    }
+                    if (synced) saveToMemory();
+                    setSyncConfidenceStatus('gameConfigs', 'success');
+                    finishSyncConfidence('success');
+                    return { synced };
+                } catch (error) {
+                    setSyncConfidenceError('gameConfigs', error);
+                    finishSyncConfidence(syncConfidenceStateForError(error), error);
+                    throw error;
                 }
+            })();
+            gameConfigSyncInFlight.set(syncKey, operation);
+            try {
+                return await operation;
+            } finally {
+                if (gameConfigSyncInFlight.get(syncKey) === operation) gameConfigSyncInFlight.delete(syncKey);
             }
-            if (synced) saveToMemory();
-            return { synced };
         }
 
         let gameConfigIntervalHandle = setInterval(() => {
             myGames.forEach(game => {
-                runGameConfigSync(game, 'upload', 'interval').catch(error => console.error('Game config interval sync failed:', error));
+                runGameConfigSync(game, 'upload', 'interval').catch(error => console.error('Game config interval sync failed:', safeSyncErrorMessage(error)));
             });
         }, 60000);
 
@@ -10699,19 +11267,28 @@
         }
 
         let isConfigSyncing = false;
+        let configSyncInFlight = null;
         let configSyncPending = false;
 
-        async function syncConfigToCloud(trigger = 'automatic') {
-            if (!globalSettings.cloudAutoSync) return;
-            if (trigger === 'exit' && !normalizedSyncV2().configBeforeExit) return;
-            if (isConfigSyncing) {
-                configSyncPending = true;
+        async function syncConfigToCloud(trigger = 'automatic', { replaceCloud = false } = {}) {
+            if (!globalSettings.cloudAutoSync && !replaceCloud) {
+                if (['manual', 'retry'].includes(trigger)) setSyncConfidenceStatus('config', 'paused');
                 return;
             }
+            if (trigger === 'exit' && !normalizedSyncV2().configBeforeExit) return;
+            if (configSyncInFlight) {
+                if (!['manual', 'retry', 'exit'].includes(trigger)) configSyncPending = true;
+                return configSyncInFlight;
+            }
+            beginSyncConfidence(['config']);
             isConfigSyncing = true;
-            try {
+            const operation = (async () => {
+                let configSyncSucceeded = false;
+                try {
                 const customCreds = globalSettings.customCloudKeys ? globalSettings.customCloudKeysData : null;
-                const maxVersions = globalSettings.saveBackupCount !== undefined ? globalSettings.saveBackupCount : 3;
+                const maxVersions = replaceCloud
+                    ? 1
+                    : (globalSettings.saveBackupCount !== undefined ? globalSettings.saveBackupCount : 3);
 
                 if (accountUiState.signedIn) {
                     const tempPortablePath = path.join(os.tmpdir(), `sail-portable-config-${Date.now()}.json`);
@@ -10731,7 +11308,12 @@
                 } else {
                     const status = await ipcRenderer.invoke('cloud-get-status');
                     const linkedProviders = selectedSyncProviders('config', status);
-                    if (!linkedProviders.length) return;
+                    if (!linkedProviders.length) {
+                        const unavailable = new Error('Connect a cloud provider for launcher configuration sync.');
+                        setSyncConfidenceStatus('config', 'unavailable', { error: unavailable });
+                        if (['manual', 'retry'].includes(trigger)) throw unavailable;
+                        return;
+                    }
                     for (const linkedProvider of linkedProviders) {
                         const upload = await ipcRenderer.invoke('cloud-upload-save', {
                             provider: linkedProvider,
@@ -10779,11 +11361,25 @@
                         try { fs.unlinkSync(themeFilePath); } catch(e) {}
                     }
                 }
+                configSyncSucceeded = true;
             } catch (err) {
-                console.error("Failed to sync config/themes to cloud:", err);
-                if (trigger === 'manual') throw err;
+                console.error("Failed to sync config/themes to cloud:", safeSyncErrorMessage(err));
+                setSyncConfidenceError('config', err);
+                finishSyncConfidence(syncConfidenceStateForError(err), err);
+                if (['manual', 'retry', 'replace'].includes(trigger)) throw err;
             } finally {
                 isConfigSyncing = false;
+            }
+                if (configSyncSucceeded) {
+                    setSyncConfidenceStatus('config', 'success');
+                }
+                return configSyncSucceeded;
+            })();
+            configSyncInFlight = operation;
+            try {
+                return await operation;
+            } finally {
+                if (configSyncInFlight === operation) configSyncInFlight = null;
                 if (configSyncPending) {
                     configSyncPending = false;
                     syncConfigToCloud('pending');
@@ -10871,13 +11467,13 @@
                     }
                 }
             } catch (err) {
-                console.error("Failed to sync launcher config from cloud:", err);
+                console.error("Failed to sync launcher config from cloud:", safeSyncErrorMessage(err));
             }
         }
 
         function syncConfigToCloudPromise() {
             return syncConfigToCloud('exit').catch(error => {
-                console.error("Exit cloud sync upload failed:", error);
+                console.error("Exit cloud sync upload failed:", safeSyncErrorMessage(error));
             });
         }
 
@@ -10885,7 +11481,7 @@
             try {
                 await syncConfigToCloudPromise();
             } catch(e) {
-                console.error("Exit cloud sync failed:", e);
+                console.error("Exit cloud sync failed:", safeSyncErrorMessage(e));
             } finally {
                 ipcRenderer.send('exit-sync-completed');
             }
@@ -12056,14 +12652,14 @@
                 try {
                     const result = await runGameConfigSync(game, 'download', 'manual');
                     manualConfigStatus.textContent = result.synced ? `Restored ${result.synced} configuration path(s).` : 'No newer cloud configuration was applied.';
-                } catch (error) { manualConfigStatus.textContent = error.message; }
+                } catch (error) { manualConfigStatus.textContent = safeSyncErrorMessage(error); }
             };
             document.getElementById('uploadGameConfigsBtn').onclick = async () => {
                 manualConfigStatus.textContent = 'Uploading configuration…';
                 try {
                     const result = await runGameConfigSync(game, 'upload', 'manual');
                     manualConfigStatus.textContent = `Uploaded ${result.synced} configuration path(s).`;
-                } catch (error) { manualConfigStatus.textContent = error.message; }
+                } catch (error) { manualConfigStatus.textContent = safeSyncErrorMessage(error); }
             };
 
             document.getElementById('perGameAdminToggle').checked = !!game.runAsAdmin;
@@ -12540,6 +13136,7 @@
 
         // --- CLOUD SYNC FUNCTIONS ---
         let skipOauthCancelFlag = false;
+        let pendingCloudOAuthDialogKey = null;
         window.skipCloudSyncOverlay = function() {
             skipOauthCancelFlag = true;
             document.getElementById('cloudSyncOverlay').style.display = 'none';
@@ -12598,7 +13195,14 @@
             btn.innerText = originalText;
             if (res.success) {
                 if (res.pending) {
-                    alert(`Finish connecting ${provider} in your browser. Sail will refresh automatically when authorization is complete.`);
+                    const dialogKey = `cloud-oauth-${provider}`;
+                    pendingCloudOAuthDialogKey = dialogKey;
+                    void sailAlert(
+                        `Finish connecting ${provider} in your browser. Sail will refresh automatically when authorization is complete.`,
+                        { dialogKey, title: 'All set', tone: 'success' }
+                    ).finally(() => {
+                        if (pendingCloudOAuthDialogKey === dialogKey) pendingCloudOAuthDialogKey = null;
+                    });
                 } else {
                     alert(`Successfully linked ${provider} account: ${res.email}`);
                 }
@@ -13118,13 +13722,30 @@
             const indicator = document.getElementById('globalSyncIndicator');
 
             const useSailCloud = sailCloudGameSaveEnabledFor(game);
-            const status = await ipcRenderer.invoke('cloud-get-status');
+            let status;
+            try {
+                status = await ipcRenderer.invoke('cloud-get-status');
+            } catch (error) {
+                const message = safeSyncErrorMessage(error);
+                setSyncConfidenceError('saves', error);
+                finishSyncConfidence(syncConfidenceStateForError(error), error);
+                if (statusText) statusText.innerText = `Cloud Sync Failed: ${message}`;
+                return;
+            }
             const linkedProviders = selectedSyncProviders('saves', status);
             if (!useSailCloud && !linkedProviders.length) {
-                if (sailCloudGameSavesEnabled()) return;
+                if (sailCloudGameSavesEnabled()) {
+                    setSyncConfidenceStatus('saves', 'paused');
+                    finishSyncConfidence('paused');
+                    return;
+                }
+                const unavailable = new Error('No game-save destination is connected.');
+                setSyncConfidenceStatus('saves', 'unavailable', { error: unavailable });
+                finishSyncConfidence('unavailable', unavailable);
                 await promptForGameSaveProvider(statusText);
                 return;
             }
+            beginSyncConfidence(['saves']);
 
             const destinationLabels = [
                 ...(useSailCloud ? ['SAIL CLOUD'] : []),
@@ -13184,10 +13805,14 @@
                     if (!uploadRes.success) throw new Error(`${linkedProvider}: ${uploadRes.error}`);
                 }
                 if (useSailCloud) await refreshSailCloudStorage(false);
+                setSyncConfidenceStatus('saves', 'success');
+                finishSyncConfidence('success');
                 if (statusText) statusText.innerText = "Cloud Sync Complete!";
             } catch(err) {
-                console.error("Cloud sync failed:", err);
-                if (statusText) statusText.innerText = "Cloud Sync Failed: " + (err.message || err);
+                console.error("Cloud sync failed:", safeSyncErrorMessage(err));
+                setSyncConfidenceError('saves', err);
+                finishSyncConfidence(syncConfidenceStateForError(err), err);
+                if (statusText) statusText.innerText = "Cloud Sync Failed: " + safeSyncErrorMessage(err);
             } finally {
                 if (tempZipPath) {
                     try { fs.unlinkSync(tempZipPath); } catch (_) {}
@@ -13211,7 +13836,7 @@
             window.SailAPI.executePluginsOnLaunch(game);
             if (viewingGameIndex === index) updateGamePageActionBar(); else renderGames();
 
-            try { await runGameConfigSync(game, 'download', 'beforeLaunch'); } catch (error) { console.error('Pre-launch game config sync failed:', error); }
+            try { await runGameConfigSync(game, 'download', 'beforeLaunch'); } catch (error) { console.error('Pre-launch game config sync failed:', safeSyncErrorMessage(error)); }
             // Run Cloud Sync check
             await runCloudRestoreCheck(game);
 
@@ -13317,7 +13942,7 @@
                     // FIX 2: UI updates for EVERY game that closes!
                     if (viewingGameIndex === idx) updateGamePageActionBar(); else renderGames();
                     executeSaveSync(idx, viewingGameIndex === idx ? 'gpStatusText' : `status-${idx}`);
-                    runGameConfigSync(g, 'upload', 'afterExit').catch(error => console.error('Post-exit game config sync failed:', error));
+                    runGameConfigSync(g, 'upload', 'afterExit').catch(error => console.error('Post-exit game config sync failed:', safeSyncErrorMessage(error)));
                 }
             });
             scheduleGameProcessPoll();
@@ -17373,6 +17998,11 @@
             return `<span title="This link was resolved instantly from cache" style="display:inline-block;margin-right:6px;padding:1px 6px;border-radius:6px;font-size:10px;font-weight:600;background:rgba(245,166,35,0.16);color:#f5a623;vertical-align:middle;">⚡ Cached</span>`;
         }
         function fmtState(d) {
+            if (d.state === 'error') {
+                const message = DownloadManagerLogic.safeDownloadErrorMessage(d);
+                const nextStep = DownloadManagerLogic.downloadErrorNextStep(d);
+                return `✕ ${escapeHtml(message)}<div style="font-size:10px;opacity:.62;margin-top:3px;">${escapeHtml(nextStep)}</div>`;
+            }
             if (d.state === 'queued') return '🕓 Queued — waiting for a free slot…';
             if (d.state === 'waiting-browser') return '🌐 ' + (d.label || 'Waiting for you to start the download in the browser…');
             if (d.state === 'resolving') {
@@ -17391,7 +18021,6 @@
             if (d.state === 'installing') return '⚙️ ' + (d.label || 'Installing game — running the setup…');
             if (d.state === 'paused') return '⏸️ Paused' + (d.percent ? ' at ' + d.percent + '%' : '') + ' — resume to continue';
             if (d.state === 'done') return d.warning ? '⚠️ Done — needs a manual step' : '✅ Installed & ready to play';
-            if (d.state === 'error') return '✕ ' + (d.error || 'Failed');
             return '';
         }
 
@@ -17404,12 +18033,22 @@
             ipcRenderer.invoke('pause-download', id);
             d.state = 'paused'; d.label = 'Paused';
             renderDock();
+            pumpBulkDownloadRetry();
         };
         window.resumeDownload = function (id) {
             const d = dlQueue.get(id); if (!d || !d.resumeOpts) return;
+            if (d.retrying || DownloadManagerLogic.isDownloadSlotActive(d)) return;
+            if (d.needsBrowser && !d.browserCapture) {
+                if (d.url) openDownloadInAppBrowser(d.url);
+                return;
+            }
+            d.retrying = true;
             if (d.browserCapture) {
                 ipcRenderer.invoke('resume-browser-download', id).then(ok => {
                     if (ok) { d.state = 'downloading'; d.label = 'Resuming browser download…'; renderDock(); }
+                }).catch(() => {}).finally(() => {
+                    d.retrying = false;
+                    renderDock();
                 });
                 return;
             }
@@ -17421,7 +18060,9 @@
             const d = dlQueue.get(id);
             ipcRenderer.invoke('cancel-download', id, d ? { deleteFolder: true, gameName: d.name, installDir: d.installDir } : { deleteFolder: false });
             dlQueue.delete(id);
+            dlBulkRetryQueue = dlBulkRetryQueue.filter(item => item !== id);
             renderDock();
+            pumpBulkDownloadRetry();
         };
 
         // Download history — persisted to sail_library.json so it survives restarts.
@@ -17576,6 +18217,9 @@
         // Every download (game / workshop mod / theme / plugin) carries a `category`
         // so the manager can group and filter them in one place.
         let dlMgrFilter = 'all';
+        let dlMgrSearch = '';
+        let dlBulkRetryQueue = [];
+        let dlBulkRetryActive = false;
         const DL_CATS = [
             { key: 'all',    label: 'All',     icon: '🗂️' },
             { key: 'game',   label: 'Games',   icon: '🎮' },
@@ -17598,6 +18242,95 @@
             return counts;
         }
         window.setDlFilter = function (k) { dlMgrFilter = k; renderDownloadsPage(); };
+        window.setDownloadManagerSearch = function (value) {
+            dlMgrSearch = String(value || '').slice(0, 120);
+            renderDownloadsPage();
+        };
+
+        function downloadManagerMatches(download) {
+            return DownloadManagerLogic.matchesDownloadSearch(download, dlMgrSearch);
+        }
+
+        function downloadManagerLimit() {
+            const settings = (window.sailDownloadBridge && window.sailDownloadBridge.getSettings && window.sailDownloadBridge.getSettings()) || {};
+            return Number(settings.maxConcurrent) || 3;
+        }
+
+        function startBulkDownloadRetry(id) {
+            const d = dlQueue.get(id);
+            if (!DownloadManagerLogic.isBulkRetryableDownload(d) || d.retrying || DownloadManagerLogic.isDownloadSlotActive(d)) return false;
+            d.retrying = true;
+            d.state = 'resolving';
+            d.label = initialResolveLabel();
+            d.error = '';
+            renderDock();
+            ipcRenderer.invoke('download-game', d.resumeOpts).catch(error => {
+                if (!dlQueue.has(id)) return;
+                d.retrying = false;
+                d.state = 'error';
+                d.error = error && error.message || 'The download could not be started.';
+                renderDock();
+                pumpBulkDownloadRetry();
+            });
+            return true;
+        }
+
+        function pumpBulkDownloadRetry() {
+            if (!dlBulkRetryActive) return;
+            while (dlBulkRetryQueue.length && DownloadManagerLogic.countActiveDownloadSlots(dlQueue) < downloadManagerLimit()) {
+                const id = dlBulkRetryQueue.shift();
+                startBulkDownloadRetry(id);
+            }
+            if (!dlBulkRetryQueue.length) dlBulkRetryActive = false;
+            renderDownloadsPage();
+        }
+
+        window.retryFailedDownloads = function () {
+            if (dlBulkRetryActive) {
+                setDownloadManagerNotice('Retry is already running. New slots will start as current downloads finish.');
+                return;
+            }
+            const plan = DownloadManagerLogic.planBulkRetry(dlQueue, downloadManagerLimit());
+            if (!plan.retryable.length) {
+                setDownloadManagerNotice('There are no retryable failed downloads. Browser/manual downloads need their browser step first.');
+                return;
+            }
+            dlBulkRetryQueue = plan.retryable.map(download => download.id);
+            dlBulkRetryActive = true;
+            pumpBulkDownloadRetry();
+            const waiting = dlBulkRetryQueue.length;
+            setDownloadManagerNotice(waiting
+                ? `Retry started. ${waiting} failed download(s) are waiting for an available download slot.`
+                : 'Retry started for failed downloads.');
+        };
+
+        window.clearCompletedDownloads = function () {
+            ensureDlHistoryLoaded();
+            const keptHistory = DownloadManagerLogic.clearCompletedHistory(dlHistory);
+            dlHistory.splice(0, dlHistory.length, ...keptHistory);
+            for (const [id, download] of dlQueue) {
+                if (download && download.state === 'done') dlQueue.delete(id);
+            }
+            persistDlHistory();
+            renderDock();
+            renderDownloadsPage();
+        };
+
+        function setDownloadManagerNotice(message) {
+            const existing = document.getElementById('dlManagerNotice');
+            if (existing) {
+                existing.textContent = message || '';
+                existing.style.display = message ? 'block' : 'none';
+                return;
+            }
+            const toolbar = document.getElementById('dlManagerToolbar');
+            if (!toolbar) return;
+            const notice = document.createElement('div');
+            notice.id = 'dlManagerNotice';
+            notice.style.cssText = 'flex:1 0 100%;font-size:11px;opacity:.65;';
+            notice.textContent = message || '';
+            toolbar.appendChild(notice);
+        }
         function renderDlFilterBar() {
             const bar = document.getElementById('dlFilterBar'); if (!bar) return;
             const counts = dlCatCounts();
@@ -17619,6 +18352,13 @@
             if (!body) return;
             ensureDlHistoryLoaded();
             renderDlFilterBar();
+            const retryButton = document.getElementById('dlRetryFailedButton');
+            if (retryButton) {
+                retryButton.disabled = dlBulkRetryActive || ![...dlQueue.values()].some(DownloadManagerLogic.isBulkRetryableDownload);
+                retryButton.title = dlBulkRetryActive ? 'Retry is already running.' : 'Retry failed downloads that can resume without a browser step.';
+            }
+            const clearButton = document.getElementById('dlClearCompletedButton');
+            if (clearButton) clearButton.disabled = !dlHistory.length && ![...dlQueue.values()].some(download => download && download.state === 'done');
             const F = dlMgrFilter;
             const hasActive = dlQueue.size > 0;
             const hasHistory = dlHistory.length > 0;
@@ -17632,10 +18372,11 @@
             body.querySelectorAll('[data-dlp-id]').forEach(el => {
                 const id = el.getAttribute('data-dlp-id');
                 const dd = dlQueue.get(id);
-                if (!dd || (F !== 'all' && dlCatKey(dd.category) !== F)) el.remove();
+                if (!dd || (F !== 'all' && dlCatKey(dd.category) !== F) || !downloadManagerMatches(dd)) el.remove();
             });
             for (const d of [...dlQueue.values()].reverse()) {
                 if (F !== 'all' && dlCatKey(d.category) !== F) continue;
+                if (!downloadManagerMatches(d)) continue;
                 let row = body.querySelector(`[data-dlp-id="${d.id}"]`);
                 const pct = d.state === 'done' ? 100 : (d.percent || 0);
                 const barColor = d.state === 'error' ? '#ef4444' : (d.state === 'done' ? '#10b981' : 'var(--accent)');
@@ -17690,9 +18431,11 @@
             // If a category filter hides everything, show a gentle note instead of a blank page.
             const anyVisible = body.querySelector('[data-dlp-id],[data-dlh-row]');
             let note = body.querySelector('[data-dlp-none]');
-            if (!anyVisible && F !== 'all') {
+            if (!anyVisible && (F !== 'all' || dlMgrSearch)) {
                 if (!note) { note = document.createElement('div'); note.setAttribute('data-dlp-none', '1'); note.style.cssText = 'opacity:0.55;text-align:center;padding:50px 0;font-size:13px;'; body.appendChild(note); }
-                note.textContent = 'No ' + dlCatMeta(F).label.toLowerCase() + ' downloads yet.';
+                note.textContent = dlMgrSearch
+                    ? `No downloads match “${dlMgrSearch}”.`
+                    : 'No ' + dlCatMeta(F).label.toLowerCase() + ' downloads yet.';
             } else if (note) { note.remove(); }
         }
 
@@ -17706,7 +18449,9 @@
             // — only show finished/cleared ones (and everything after a restart). Respect the
             // active category filter so History matches what's shown above.
             const F = dlMgrFilter;
-            const visible = dlHistory.filter(h => !dlQueue.has(h.id) && (F === 'all' || dlCatKey(h.category) === F));
+            const visible = dlHistory.filter(h => !dlQueue.has(h.id)
+                && (F === 'all' || dlCatKey(h.category) === F)
+                && downloadManagerMatches(h));
             if (!visible.length) return;
             const sec = document.createElement('div');
             sec.setAttribute('data-dlh-section', '1');
@@ -17828,11 +18573,14 @@
                 // Completion notification is fired from the 'download-complete' handler — main
                 // never sends a 'download-progress' with state 'done', so don't gate it here.
             }
+            pumpBulkDownloadRetry();
         });
         ipcRenderer.on('download-error', (e, p) => {
             const d = dlQueue.get(p.id); if (!d) return;
+            d.retrying = false;
             d.state = 'error'; d.error = p.error; d.needsBrowser = p.needsBrowser; d.url = p.url || d.url;
             renderDock();
+            pumpBulkDownloadRetry();
         });
         // Look up a Steam App ID + art for a downloaded game by name, so it's added as a
         // proper Steam-style library entry (Steam banner/hero art + metadata) instead of a
@@ -17868,6 +18616,7 @@
 
         ipcRenderer.on('download-complete', async (e, p) => {
             const d = dlQueue.get(p.id); if (!d) return;
+            d.retrying = false;
             d.state = 'done'; d.percent = 100; d.folder = p.folder; d.exePath = p.exePath; d.warning = p.warning; d.cover = p.cover;
             const settings = (window.sailDownloadBridge && window.sailDownloadBridge.getSettings()) || {};
             // Never launch via an installer. If the repack needed an installer but it didn't
@@ -17915,6 +18664,7 @@
             if (settings.notifyOnComplete) {
                 try { new Notification('Download complete', { body: (cleanName || d.name || 'Your download') + ' is ready to play.' }); } catch (e) {}
             }
+            pumpBulkDownloadRetry();
         });
 
         // ---- Debrid services ---------------------------------------------

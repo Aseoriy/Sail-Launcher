@@ -13,6 +13,88 @@ const ARTIFACT_TYPES = Object.freeze([
 
 const INTERVAL_MINUTES = Object.freeze([5, 10, 15, 30, 60]);
 const CONFLICT_MODES = Object.freeze(['prompt', 'newest', 'local']);
+const SYNC_CONFIDENCE_STATES = Object.freeze([
+    'idle',
+    'syncing',
+    'success',
+    'failed',
+    'paused',
+    'unavailable'
+]);
+const SYNC_CONFIDENCE_CATEGORIES = Object.freeze(['config', 'library', 'saves', 'gameConfigs']);
+
+function normalizeSyncTimestamp(value) {
+    const timestamp = Number(value);
+    return Number.isFinite(timestamp) && timestamp > 0 ? timestamp : null;
+}
+
+function safeSyncErrorMessage(error) {
+    let message = error && error.message ? error.message : String(error || '');
+    message = message.replace(/\s+/g, ' ').trim();
+    if (!message) return 'Sync failed. Try again.';
+    if (/offline|network|fetch|timed? ?out|temporarily unavailable|did not respond|ECONN|ENOTFOUND|EAI_AGAIN|\b50[23]\b/i.test(message)) {
+        return 'Offline or temporarily unavailable. Check your connection and try again.';
+    }
+    if (/\b40[13]\b|authentication|session|sign in|credential|access token|refresh token/i.test(message)) {
+        return 'Your account session needs attention. Sign in again and retry.';
+    }
+    message = message
+        .replace(/https?:\/\/[^\s]+/gi, 'the remote service')
+        .replace(/[A-Za-z]:[\\/][^\s,;)]*/g, 'a local file')
+        .replace(/\b(?:access|refresh|api)[-_ ]?token\b\s*[:=]?\s*[^\s,;]+/gi, 'account credentials')
+        .replace(/\bauthorization\b\s*[:=]?\s*bearer\s+[^\s,;]+/gi, 'account credentials')
+        .replace(/\bbearer\s+[^\s,;]+/gi, 'account credentials')
+        .replace(/\bauthorization\b\s*[:=]?\s*[^\s,;]+/gi, 'account credentials')
+        .replace(/\b(?:password|api[-_ ]?key|client[-_ ]?secret)\b\s*[:=]\s*[^\s,;]+/gi, 'account credentials')
+        .slice(0, 220)
+        .trim();
+    return message || 'Sync failed. Try again.';
+}
+
+function syncConfidenceStateForError(error) {
+    const message = error && error.message ? error.message : String(error || '');
+    return /offline|network|fetch|timed? ?out|temporarily unavailable|did not respond|ECONN|ENOTFOUND|EAI_AGAIN|\b50[23]\b/i.test(message)
+        ? 'unavailable'
+        : 'failed';
+}
+
+function normalizeSyncConfidence(value = {}) {
+    const source = value && typeof value === 'object' ? value : {};
+    const normalizeRecord = record => {
+        const input = record && typeof record === 'object' ? record : {};
+        return {
+            state: SYNC_CONFIDENCE_STATES.includes(input.state) ? input.state : 'idle',
+            lastSuccessfulAt: normalizeSyncTimestamp(input.lastSuccessfulAt),
+            lastFailedAt: normalizeSyncTimestamp(input.lastFailedAt),
+            error: input.error ? safeSyncErrorMessage(input.error) : ''
+        };
+    };
+    const categories = {};
+    SYNC_CONFIDENCE_CATEGORIES.forEach(category => {
+        categories[category] = normalizeRecord(source.categories && source.categories[category]);
+    });
+    return {
+        schemaVersion: 1,
+        ...normalizeRecord(source),
+        categories
+    };
+}
+
+function recordSyncConfidence(value, category, state, details = {}) {
+    const next = normalizeSyncConfidence(value);
+    const target = SYNC_CONFIDENCE_CATEGORIES.includes(category) ? next.categories[category] : next;
+    const nextState = SYNC_CONFIDENCE_STATES.includes(state) ? state : 'idle';
+    const timestamp = normalizeSyncTimestamp(details.timestamp) || Date.now();
+    target.state = nextState;
+    if (nextState === 'success') {
+        target.lastSuccessfulAt = timestamp;
+        target.error = '';
+    } else if (nextState === 'failed' || nextState === 'unavailable') {
+        target.lastFailedAt = timestamp;
+        target.error = safeSyncErrorMessage(details.error || details.message || 'Sync failed.');
+    }
+    return next;
+}
 
 function normalizeSyncSettings(value = {}) {
     const settings = value && typeof value === 'object' ? value : {};
@@ -82,6 +164,9 @@ function portableSnapshot(snapshot = {}) {
     delete settings.uiAppBg;
     delete settings.uiAppBgStore;
     delete settings.accountSyncEnabled;
+    delete settings.syncConfidence;
+    delete settings.syncStatus;
+    delete settings.sailSyncConfidenceV2;
     return {
         schemaVersion: 2,
         myGames: Array.isArray(snapshot.myGames) ? snapshot.myGames.map(portableGame) : [],
@@ -141,6 +226,12 @@ module.exports = {
     newestMtime,
     normalizeConfigEntry,
     normalizeSyncSettings,
+    normalizeSyncConfidence,
+    recordSyncConfidence,
+    safeSyncErrorMessage,
+    syncConfidenceStateForError,
+    SYNC_CONFIDENCE_CATEGORIES,
+    SYNC_CONFIDENCE_STATES,
     portableGame,
     portableSnapshot,
     sha256File

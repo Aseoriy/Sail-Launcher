@@ -3,6 +3,7 @@
 
     const queue = [];
     let active = false;
+    let activeDialog = null;
 
     function classify(message, requestedTone) {
         if (requestedTone) return requestedTone;
@@ -32,6 +33,8 @@
         const options = request.options || {};
         const tone = classify(options.message, options.tone);
         const kind = options.kind || 'alert';
+        const dialogState = { key: options.dialogKey || '', kind, finish: null };
+        activeDialog = dialogState;
         const layer = document.createElement('div');
         layer.className = 'sail-dialog-layer';
         layer.setAttribute('role', 'presentation');
@@ -101,10 +104,12 @@
             setTimeout(() => {
                 layer.remove();
                 active = false;
+                if (activeDialog === dialogState) activeDialog = null;
                 request.resolve(value);
                 runNext();
             }, 170);
         };
+        dialogState.finish = finish;
         const accept = () => finish(kind === 'prompt' ? input.value : true);
         const cancel = () => finish(kind === 'prompt' ? null : false);
         const onKey = event => {
@@ -135,6 +140,20 @@
     window.sailAlert = (message, options = {}) => enqueue(Object.assign({}, options, { kind: 'alert', message }));
     window.sailConfirm = (message, options = {}) => enqueue(Object.assign({}, options, { kind: 'confirm', message }));
     window.sailPrompt = (message, defaultValue = '', options = {}) => enqueue(Object.assign({}, options, { kind: 'prompt', message, defaultValue }));
+    window.dismissSailAlert = dialogKey => {
+        if (activeDialog && activeDialog.kind === 'alert' && activeDialog.finish && (!dialogKey || activeDialog.key === dialogKey)) {
+            activeDialog.finish(true);
+            return true;
+        }
+        const queuedIndex = queue.findIndex(request => {
+            const options = request.options || {};
+            return options.kind === 'alert' && dialogKey && options.dialogKey === dialogKey;
+        });
+        if (queuedIndex < 0) return false;
+        const [request] = queue.splice(queuedIndex, 1);
+        request.resolve(true);
+        return true;
+    };
 
     // Route legacy alerts through the themed system. Confirmation call sites use
     // sailConfirm explicitly because a custom dialog cannot synchronously block Chromium.
