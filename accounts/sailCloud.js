@@ -18,10 +18,11 @@ class SailCloudClient {
     constructor({ getAccessToken, apiOrigin = SAIL_CLOUD_API }) {
         this.getAccessToken = getAccessToken;
         this.apiOrigin = apiOrigin.replace(/\/+$/, '');
+        this.inFlight = new Map();
     }
 
-    async request(route, options = {}) {
-        const accessToken = await this.getAccessToken();
+    async request(route, options = {}, accessToken = null) {
+        accessToken = accessToken || await this.getAccessToken();
         if (!accessToken) throw new Error('Sign in to use Sail Cloud.');
         const headers = {
             Authorization: `Bearer ${accessToken}`,
@@ -45,12 +46,31 @@ class SailCloudClient {
         return body;
     }
 
+    async coalesce(key, operation) {
+        const accessToken = await this.getAccessToken();
+        if (!accessToken) throw new Error('Sign in to use Sail Cloud.');
+        const accountScope = sha256(Buffer.from(String(accessToken), 'utf8'));
+        const scopedKey = `${accountScope}:${key}`;
+        if (this.inFlight.has(scopedKey)) return this.inFlight.get(scopedKey);
+        const task = Promise.resolve().then(() => operation(accessToken));
+        this.inFlight.set(scopedKey, task);
+        try {
+            return await task;
+        } finally {
+            if (this.inFlight.get(scopedKey) === task) this.inFlight.delete(scopedKey);
+        }
+    }
+
     status() {
-        return this.request('/v1/account-storage/status');
+        return this.coalesce('status', accessToken =>
+            this.request('/v1/account-storage/status', {}, accessToken)
+        );
     }
 
     files() {
-        return this.request('/v1/account-storage/files');
+        return this.coalesce('files', accessToken =>
+            this.request('/v1/account-storage/files', {}, accessToken)
+        );
     }
 
     async uploadBytes(payload, bytes) {
@@ -96,16 +116,19 @@ class SailCloudClient {
     }
 
     async downloadArtifact(artifactId, revision = null) {
-        const metadata = await this.request(`/v1/account-storage/artifacts/${artifactId}/download`, {
-            method: 'POST',
-            body: revision ? { revision } : {}
+        const revisionKey = revision === null ? 'latest' : String(revision);
+        return this.coalesce(`download:${artifactId}:${revisionKey}`, async accessToken => {
+            const metadata = await this.request(`/v1/account-storage/artifacts/${artifactId}/download`, {
+                method: 'POST',
+                body: revision ? { revision } : {}
+            }, accessToken);
+            const response = await fetch(metadata.download_url);
+            if (!response.ok) throw new Error(`R2 download failed (${response.status}).`);
+            const bytes = Buffer.from(await response.arrayBuffer());
+            const digest = sha256(bytes);
+            if (digest !== metadata.sha256) throw new Error('Downloaded Sail Cloud data failed its SHA-256 check.');
+            return { metadata, bytes };
         });
-        const response = await fetch(metadata.download_url);
-        if (!response.ok) throw new Error(`R2 download failed (${response.status}).`);
-        const bytes = Buffer.from(await response.arrayBuffer());
-        const digest = sha256(bytes);
-        if (digest !== metadata.sha256) throw new Error('Downloaded Sail Cloud data failed its SHA-256 check.');
-        return { metadata, bytes };
     }
 
     async downloadArtifactToFile(artifactId, destinationPath, revision = null) {
@@ -119,7 +142,9 @@ class SailCloudClient {
     }
 
     versions(artifactId) {
-        return this.request(`/v1/account-storage/artifacts/${artifactId}/versions`);
+        return this.coalesce(`versions:${artifactId}`, accessToken =>
+            this.request(`/v1/account-storage/artifacts/${artifactId}/versions`, {}, accessToken)
+        );
     }
 
     deleteArtifact(artifactId) {

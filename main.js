@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, dialog, shell, screen, Tray, Menu, session, safeStorage } = require('electron');
+const { app, BrowserWindow, ipcMain: electronIpcMain, dialog, shell, screen, Tray, Menu, session, safeStorage, Notification } = require('electron');
 const { exec, execFile, spawn } = require('child_process');
 const os = require('os');
 const path = require('path');
@@ -9,8 +9,7 @@ const crypto = require('crypto');
 const unrar = require('node-unrar-js');
 const _7z = require('7zip-min');
 try {
-    const sevenZipBin = require('7zip-bin');
-    const pathTo7zip = sevenZipBin.path7za.replace('app.asar', 'app.asar.unpacked');
+    const pathTo7zip = _7z.getConfig().binaryPath.replace('app.asar', 'app.asar.unpacked');
     _7z.config({ binaryPath: pathTo7zip });
 } catch (e) {
     console.error('Failed to configure 7zip-min path:', e);
@@ -18,9 +17,42 @@ try {
 const DiscordRPC = require('discord-rpc');
 const cloudSync = require('./cloudSync');
 const { registerMaintenanceIpc } = require('./maintenance/ipc');
+const { detectLudusaviSaveCandidates, loadLudusaviManifest } = require('./maintenance/ludusavi');
 const { scanSaveCandidates } = require('./maintenance/saveScanner');
 const { registerAccountIpc } = require('./accounts/ipc');
+const { registerAchievementIpc } = require('./achievements/ipc');
+const { findSteamRoot, resolveInstalledSteamApp } = require('./achievements/achievementDiscovery');
+const { RecoveryJournal } = require('./runtime/recoveryJournal');
+const { DownloadJobDirectoryRegistry } = require('./runtime/downloadJobCleanup');
+const { registerDownloadCancellationIpc } = require('./runtime/downloadIpc');
+const { BrowserDownloadIntentRegistry, createBrowserWillDownloadHandler, createPrepareBrowserDownloadHandler } = require('./runtime/browserDownloadIntents');
+const { createDownloadWorkCoordinator } = require('./runtime/downloadWorkCoordinator');
+const { runOwnedChildProcess } = require('./runtime/ownedChildProcess');
+const { DownloadQuarantineCatalog, registerDownloadQuarantineIpc } = require('./runtime/downloadQuarantine');
+const { createAuthorizedIpcRegistrar, createTrustedFrameAuthorizer } = require('./security/ipcAuthorization');
+const { createArchivePowerShellInvocation, scopedArtifactStems } = require('./security/archiveDataBinding');
+const { createExecutionPhaseAuthority } = require('./security/executionPhaseAuthority');
+const { LegacyCloudReferenceStore } = require('./security/legacyCloudReferences');
+const { registerLaunchStatusIpc } = require('./security/launchStatusIpc');
+const { createRemoteDataService, registerRemoteDataIpc } = require('./security/remoteData');
+const { canonicalPortableBytes } = require('./sync/portableArtifactV3');
+const {
+    SOURCES_PARTITION,
+    installIsolatedRemoteNavigationPolicy,
+    installMainNavigationPolicy,
+    installWebviewAttachmentPolicy,
+    openExternalWebUrl
+} = require('./security/navigationPolicy');
 const args = process.argv;
+if (args.includes('--sail-ui-probe')) {
+    app.disableHardwareAcceleration();
+    app.commandLine.appendSwitch('disable-gpu');
+    app.commandLine.appendSwitch('disable-gpu-compositing');
+    app.commandLine.appendSwitch('disable-gpu-sandbox');
+    app.commandLine.appendSwitch('use-angle', 'swiftshader');
+    app.commandLine.appendSwitch('use-gl', 'angle');
+    app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
+}
 let autoLaunchGameId = null;
 const launchArg = args.find(a => a.startsWith('--launch-game-id='));
 if (launchArg) autoLaunchGameId = launchArg.split('=')[1].replace(/"/g, '');
@@ -31,13 +63,176 @@ let backingUpZipPath = null;
 let tray = null;
 let maintenanceService = null;
 let accountServices = null;
+let achievementService = null;
+let mainWindow = null;
+const sailHubGuestContents = new Set();
+let runtimeRecovery = null;
+let runtimeMonitorTimer = null;
+let runtimeMonitorBusy = false;
+let deferredQuitRequested = false;
+let deferredQuitSyncDeadline = 0;
+let deferredQuitTimer = null;
+const runtimeProcessMisses = new Map();
 let isQuitting = false;
 let exitSynced = false;
 
 let exitWhenClosedSetting = false;
 let devToolsEnabled = false;
+function resolveLocallyInstalledSteamAppId(appId) {
+    return resolveInstalledSteamApp(appId);
+}
+
+function isLocallyInstalledSteamAppId(appId) {
+    return !!resolveLocallyInstalledSteamAppId(appId);
+}
+const trustedEntryPath = path.join(__dirname, 'index.html');
+const authorizeIpcEvent = createTrustedFrameAuthorizer({
+    getMainWindow: () => mainWindow,
+    trustedEntryPath
+});
+const ipcMain = createAuthorizedIpcRegistrar(electronIpcMain, authorizeIpcEvent);
 ipcMain.on('set-exit-behavior', (e, val) => exitWhenClosedSetting = val);
 ipcMain.on('set-devtools-setting', (e, val) => devToolsEnabled = val);
+
+function getRunningProcessSnapshot() {
+    return new Promise(resolve => {
+        execFile('tasklist.exe', ['/FO', 'CSV', '/NH'], { windowsHide: true, timeout: 8000, maxBuffer: 4 * 1024 * 1024 }, (error, stdout) => {
+            if (error) return resolve({ names: new Set(), pids: new Set(), byPid: new Map() });
+            const names = new Set();
+            const pids = new Set();
+            const byPid = new Map();
+            for (const line of String(stdout || '').split(/\r?\n/)) {
+                const match = line.match(/^"([^"]*)","(\d+)"/);
+                if (!match) continue;
+                const name = match[1].toLowerCase();
+                const pid = Number(match[2]);
+                names.add(name);
+                pids.add(pid);
+                byPid.set(pid, name);
+            }
+            resolve({ names, pids, byPid });
+        });
+    });
+}
+
+function sendRuntimeSessionEnded(event) {
+    if (!event) return;
+    for (const win of BrowserWindow.getAllWindows()) {
+        if (!win.isDestroyed()) win.webContents.send('runtime-session-ended', event);
+    }
+}
+
+function finishRuntimeSession(payload) {
+    if (!runtimeRecovery) return null;
+    const event = runtimeRecovery.finishSession(payload);
+    if (event) sendRuntimeSessionEnded(event);
+    evaluateDeferredQuit();
+    return event;
+}
+
+async function monitorRuntimeSessions() {
+    if (!runtimeRecovery || runtimeMonitorBusy) return;
+    runtimeMonitorBusy = true;
+    try {
+        const snapshot = runtimeRecovery.snapshot();
+        const sessions = Object.values(snapshot.activeSessions || {});
+        if (!sessions.length) {
+            evaluateDeferredQuit();
+            return;
+        }
+        const running = await getRunningProcessSnapshot();
+        const now = Date.now();
+        for (const session of sessions) {
+            const expectedName = String(session.exeName || '').toLowerCase();
+            const detectedByName = expectedName && running.names.has(expectedName);
+            const detectedByPid = session.pid && running.pids.has(Number(session.pid))
+                && (!expectedName || running.byPid.get(Number(session.pid)) === expectedName);
+            const detected = detectedByName || detectedByPid;
+            if (detected) {
+                runtimeProcessMisses.delete(session.sessionId);
+                runtimeRecovery.touchSession({ gameId: session.gameId, libraryKey: session.libraryKey, sessionId: session.sessionId, observedAt: now });
+                continue;
+            }
+            const misses = (runtimeProcessMisses.get(session.sessionId) || 0) + 1;
+            runtimeProcessMisses.set(session.sessionId, misses);
+            const staleRecoveredSession = session.recovered && now - session.lastHeartbeatAt > 15000;
+            const launchGraceExpired = session.processConfirmed || now - session.startedAt > 45000;
+            if (!staleRecoveredSession && (!launchGraceExpired || misses < 3)) continue;
+            if (staleRecoveredSession && misses < 3) continue;
+            runtimeProcessMisses.delete(session.sessionId);
+            finishRuntimeSession({
+                gameId: session.gameId,
+                libraryKey: session.libraryKey,
+                sessionId: session.sessionId,
+                endedAt: session.recovered ? session.lastHeartbeatAt : now,
+                reason: session.recovered ? 'launcher-recovered-session' : 'process-exited'
+            });
+        }
+    } finally {
+        runtimeMonitorBusy = false;
+    }
+}
+
+function startRuntimeMonitor() {
+    clearInterval(runtimeMonitorTimer);
+    runtimeMonitorTimer = setInterval(() => monitorRuntimeSessions().catch(() => {}), 10000);
+    if (runtimeMonitorTimer.unref) runtimeMonitorTimer.unref();
+    monitorRuntimeSessions().catch(() => {});
+}
+
+function postExitWorkStillRunning(snapshot) {
+    return (snapshot.postExitJobs || []).some(job => [job.save, job.config].some(operation =>
+        operation && operation.required && ['pending', 'running'].includes(operation.status)
+    ));
+}
+
+function evaluateDeferredQuit() {
+    if (!deferredQuitRequested || !runtimeRecovery) return;
+    const snapshot = runtimeRecovery.snapshot();
+    if (Object.keys(snapshot.activeSessions || {}).length) return;
+    if (!deferredQuitSyncDeadline) deferredQuitSyncDeadline = Date.now() + 120000;
+    if (postExitWorkStillRunning(snapshot) && Date.now() < deferredQuitSyncDeadline) {
+        clearTimeout(deferredQuitTimer);
+        deferredQuitTimer = setTimeout(evaluateDeferredQuit, 1000);
+        return;
+    }
+    deferredQuitRequested = false;
+    clearTimeout(deferredQuitTimer);
+    isQuitting = true;
+    app.quit();
+}
+
+function deferQuitForRuntimeWork() {
+    if (!runtimeRecovery) return false;
+    const snapshot = runtimeRecovery.snapshot();
+    const hasActiveGame = Object.keys(snapshot.activeSessions || {}).length > 0;
+    const hasActiveSaveWork = postExitWorkStillRunning(snapshot);
+    if (!hasActiveGame && !hasActiveSaveWork) return false;
+    deferredQuitRequested = true;
+    deferredQuitSyncDeadline = hasActiveGame ? 0 : Date.now() + 120000;
+    for (const win of BrowserWindow.getAllWindows()) {
+        if (!win.isDestroyed()) win.hide();
+    }
+    try {
+        if (tray && typeof tray.displayBalloon === 'function') {
+            tray.displayBalloon({
+                title: 'Sail is protecting this session',
+                content: hasActiveGame
+                    ? 'Sail will stay in the tray until the game closes and its save work finishes.'
+                    : 'Sail will finish the current save operation before closing.'
+            });
+        }
+    } catch (_) {}
+    evaluateDeferredQuit();
+    return true;
+}
+
+function requestApplicationQuit() {
+    if (deferQuitForRuntimeWork()) return false;
+    isQuitting = true;
+    app.quit();
+    return true;
+}
 
 let currentInstallerMute = true;
 ipcMain.on('toggle-installer-mute', (e, state) => {
@@ -48,6 +243,76 @@ ipcMain.on('toggle-installer-mute', (e, state) => {
 // --- DISCORD RPC ENGINE (WITH RETRY SYSTEM) ---
 const clientId = '1486922616701849700';
 const SAIL_WEBSITE_URL = 'https://sail-launcher.sailhub.fyi';
+const SAIL_HUB_MODS_ORIGIN = SAIL_WEBSITE_URL;
+const SAIL_HUB_MODS_PARTITION = 'persist:sailhub-mods';
+
+function isSailHubModsUrl(rawUrl) {
+    if (typeof rawUrl !== 'string' || !rawUrl) return false;
+    try {
+        const parsed = new URL(rawUrl);
+        return parsed.origin === SAIL_HUB_MODS_ORIGIN && parsed.pathname === '/plugins';
+    } catch (_) {
+        return false;
+    }
+}
+
+async function syncSailHubGuestAuth(guestContents) {
+    if (!guestContents || typeof guestContents.getURL !== 'function'
+        || (typeof guestContents.isDestroyed === 'function' && guestContents.isDestroyed())
+        || !isSailHubModsUrl(guestContents.getURL())) return;
+
+    let session = null;
+    try {
+        session = accountServices && accountServices.accountService
+            ? await accountServices.accountService.session()
+            : null;
+    } catch (error) {
+        console.error('Sail Hub account session restore failed:', error && error.message || error);
+        return;
+    }
+
+    const handoff = session && typeof session.access_token === 'string' && typeof session.refresh_token === 'string'
+        ? { access_token: session.access_token, refresh_token: session.refresh_token }
+        : null;
+    const serialized = JSON.stringify(handoff);
+    const script = `(async (launcherSession) => {
+        let client = window.sailSupabase;
+        for (let attempt = 0; !client?.auth && attempt < 20; attempt += 1) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+            client = window.sailSupabase;
+        }
+        if (!client?.auth) return;
+        if (launcherSession) {
+            const result = await client.auth.setSession(launcherSession);
+            if (result && result.error) throw result.error;
+        } else {
+            await client.auth.signOut({ scope: 'local' });
+        }
+        if (typeof window.refreshAuth === 'function') await window.refreshAuth();
+    })(${serialized})`;
+
+    try {
+        await guestContents.executeJavaScript(script, true);
+    } catch (error) {
+        console.error('Sail Hub account session restore failed:', error && error.message || error);
+    }
+}
+
+function registerSailHubGuestContents(guestContents) {
+    if (!guestContents || guestContents.session !== session.fromPartition(SAIL_HUB_MODS_PARTITION)) return;
+    sailHubGuestContents.add(guestContents);
+    const sync = () => { syncSailHubGuestAuth(guestContents).catch(() => {}); };
+    guestContents.on('did-finish-load', sync);
+    guestContents.once('destroyed', () => sailHubGuestContents.delete(guestContents));
+    sync();
+}
+
+function notifySailHubGuestAuthChange() {
+    for (const guestContents of sailHubGuestContents) {
+        syncSailHubGuestAuth(guestContents).catch(() => {});
+    }
+}
+
 let rpc = null;
 let rpcEnabled = true;
 let rpcRetryInterval = null;
@@ -177,19 +442,9 @@ ipcMain.on('set-rpc-setting', (e, disableRpc) => {
 
 ipcMain.on('update-rpc', (e, gameName) => { if (rpcEnabled) setActivity(gameName); });
 
-// --- LAUNCH SPLASH SCREEN ---
-ipcMain.on('show-launch-splash', (e, gameName) => {
-    const splash = new BrowserWindow({
-        width: 350, height: 80, frame: false, transparent: true, alwaysOnTop: true,
-        webPreferences: { nodeIntegration: false, contextIsolation: true }
-    });
-    const html = `
-        <div style="background: rgba(24, 24, 27, 0.95); border: 1px solid #a855f7; border-radius: 12px; height: 100%; display: flex; align-items: center; justify-content: center; color: #fafafa; font-family: 'Segoe UI', sans-serif; font-weight: bold; box-sizing: border-box; box-shadow: 0 10px 25px rgba(0,0,0,0.5);">
-            🚀 Launching ${gameName}...
-        </div>
-    `;
-    splash.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
-    setTimeout(() => { if (!splash.isDestroyed()) splash.close(); }, 2500);
+// --- LAUNCH STATUS ---
+registerLaunchStatusIpc(ipcMain, {
+    resolveGameMetadata: gameId => gateAProfileStore().activeGameMetadata(gameId)
 });
 
 function createWindow() {
@@ -201,7 +456,11 @@ function createWindow() {
         width: state.width, height: state.height, x: state.x, y: state.y, frame: false, titleBarStyle: 'hidden', transparent: true,
         icon: path.join(__dirname, 'icon.ico'),
         show: false,
-        webPreferences: { nodeIntegration: true, contextIsolation: false, webSecurity: false, webviewTag: true }
+        webPreferences: { nodeIntegration: true, contextIsolation: false, webSecurity: true, webviewTag: true }
+    });
+    mainWindow = win;
+    win.once('closed', () => {
+        if (mainWindow === win) mainWindow = null;
     });
 
     win.once('ready-to-show', () => {
@@ -223,47 +482,14 @@ function createWindow() {
     win.on('resized', debouncedSaveBounds);
     win.on('moved', debouncedSaveBounds);
 
-    // Allow internal navigation on sailhub.fyi and any of its subdomains
-    // (e.g. sail-launcher.sailhub.fyi). Everything else opens in the user's browser.
-    const isSailHubUrl = (u) => {
-        try {
-            const { protocol, hostname } = new URL(u);
-            return protocol === 'https:' && (hostname === 'sailhub.fyi' || hostname.endsWith('.sailhub.fyi'));
-        } catch (e) {
-            return false;
-        }
-    };
-
-    win.webContents.on('will-navigate', (event, url) => {
-        if (!url.startsWith('http://') && !url.startsWith('https://')) {
-            return;
-        }
-        if (!isSailHubUrl(url)) {
-            event.preventDefault();
-            shell.openExternal(url);
-        }
+    installMainNavigationPolicy(win.webContents, { shell, trustedEntryPath });
+    installWebviewAttachmentPolicy(win.webContents, {
+        shell,
+        session,
+        onSailLauncherProtocol: handleProtocolUrl
     });
-
-    win.webContents.on('will-frame-navigate', (event) => {
-        const url = event.url;
-        if (!url.startsWith('http://') && !url.startsWith('https://')) {
-            return;
-        }
-        if (!event.isMainFrame && !isSailHubUrl(url)) {
-            event.preventDefault();
-            shell.openExternal(url);
-        }
-    });
-
-    win.webContents.setWindowOpenHandler(({ url }) => {
-        if (!url.startsWith('http://') && !url.startsWith('https://')) {
-            return { action: 'allow' };
-        }
-        if (!isSailHubUrl(url)) {
-            shell.openExternal(url);
-            return { action: 'deny' };
-        }
-        return { action: 'allow' };
+    win.webContents.on('did-attach-webview', (_event, guestContents) => {
+        registerSailHubGuestContents(guestContents);
     });
 
     // Setup Ad Blocker for Webview and Main Window
@@ -309,13 +535,12 @@ function createWindow() {
 
     win.loadFile('index.html');
 
-    win.webContents.session.on('will-download', (event, item, webContents) => {
-        const webContentsId = webContents && webContents.id;
-        if (browserDownloadCapture.enabled && webContentsId && browserDownloadWebContents.has(webContentsId)) {
-            const prepared = pendingBrowserDownloads.get(webContentsId) || null;
-            captureBrowserDownload(win.webContents, item, webContentsId, prepared);
-            return;
-        }
+    const handleSessionDownload = createBrowserWillDownloadHandler({
+        intents: browserDownloadIntents,
+        isCaptureEnabled: () => browserDownloadCapture.enabled,
+        isRegistered: webContentsId => browserDownloadWebContents.has(webContentsId),
+        capture: (item, webContentsId, intent) => captureBrowserDownload(win.webContents, item, webContentsId, intent),
+        fallback(event, item) {
         item.pause();
         const filename = item.getFilename();
         dialog.showSaveDialog(win, {
@@ -329,7 +554,14 @@ function createWindow() {
                 item.resume();
             }
         });
+        }
     });
+    const downloadSessions = new Set([
+        win.webContents.session,
+        session.fromPartition('persist:sailhub-mods'),
+        session.fromPartition(SOURCES_PARTITION)
+    ]);
+    for (const downloadSession of downloadSessions) downloadSession.on('will-download', handleSessionDownload);
 
     win.webContents.on('context-menu', (e, props) => {
         if (devToolsEnabled) {
@@ -343,8 +575,103 @@ function createWindow() {
         }
     });
 
+    let rendererRecoveryAttempts = 0;
+    let rendererRecoveryResetTimer = null;
+    win.webContents.on('did-finish-load', () => {
+        clearTimeout(rendererRecoveryResetTimer);
+        rendererRecoveryResetTimer = setTimeout(() => { rendererRecoveryAttempts = 0; }, 30000);
+        if (process.argv.includes('--sail-ui-probe')) {
+            setTimeout(async () => {
+                try {
+                    const result = await win.webContents.executeJavaScript(`(async () => {
+                        const page = document.getElementById('gamePageView');
+                        const layout = document.getElementById('gpContentLayout');
+                        const panel = document.getElementById('gpAchievementsPanel');
+                        const browse = document.getElementById('achievementBrowseList');
+                        const recent = document.getElementById('achievementRecentList');
+                        const sample = document.createElement('div');
+                        sample.className = 'achievement-row is-openable';
+                        sample.setAttribute('data-achievement-open', '0');
+                        if (recent) recent.appendChild(sample);
+                        const clicked = [];
+                        const previous = window.achievementOpenGame;
+                        window.achievementOpenGame = index => clicked.push(index);
+                        if (sample) sample.click();
+                        if (recent) recent.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+                        window.achievementOpenGame = previous;
+                        if (sample && sample.parentNode) sample.parentNode.removeChild(sample);
+                        page.classList.add('compact-game-page');
+                        layout.style.display = 'none';
+                        panel.hidden = false;
+                        const compactLayoutDisplay = getComputedStyle(layout).display;
+                        const compactPanelDisplay = getComputedStyle(panel).display;
+                        page.classList.remove('compact-game-page');
+                        layout.style.display = '';
+                        const quarantineSummary = await window.refreshDownloadQuarantine();
+                        const refusedQuarantinePath = await require('electron').ipcRenderer.invoke('open-download-quarantine', 'C:\\\\not-a-quarantine-token');
+                        const retainedCopy = require('./ui/downloadQuarantine').cancellationMessage({ status: 'cancelled_quarantined', retained: true });
+                        const quarantinePanel = document.getElementById('downloadQuarantinePanel');
+                        const quarantineSummaryText = document.getElementById('downloadQuarantineSummary');
+                        const quarantinePanelStateCorrect = quarantineSummary.itemCount > 0
+                            ? getComputedStyle(quarantinePanel).display !== 'none'
+                                && quarantineSummaryText.textContent.includes(String(quarantineSummary.itemCount))
+                                && !!document.querySelector('#downloadQuarantineRoots button')
+                            : getComputedStyle(quarantinePanel).display === 'none';
+                        return {
+                            panelInsideContentLayout: !!(layout && panel && layout.contains(panel)),
+                            hasBrowseList: !!browse,
+                            hasRecentList: !!recent,
+                            hasBrowseMore: !!document.getElementById('achievementBrowseMore'),
+                            hasHubViewToggle: !!document.querySelector('[data-hub-view="browse"]'),
+                            hasHubPanes: !!document.querySelector('.achievement-hub-panes'),
+                            compactLayoutDisplay,
+                            compactPanelDisplay,
+                            recentClickOpened: clicked.includes(0),
+                            hasQuarantinePanel: !!document.getElementById('downloadQuarantinePanel'),
+                            hasQuarantineRefresh: typeof window.refreshDownloadQuarantine === 'function',
+                            quarantineSummaryShape: !!quarantineSummary && Array.isArray(quarantineSummary.roots),
+                            quarantineItemCount: quarantineSummary.itemCount,
+                            quarantinePanelStateCorrect,
+                            rendererPathOpenRefused: refusedQuarantinePath && refusedQuarantinePath.status === 'open_refused',
+                            retainedCopyTruthful: retainedCopy === 'Download cancelled. Temporary files were retained in quarantine for safety.',
+                            lessAnimationsNukesAll: !![...document.styleSheets].some(sheet => {
+                                try {
+                                    return [...sheet.cssRules].some(rule => String(rule.selectorText || '').includes('body.less-animations *:not(.spin-icon)'));
+                                } catch (_) { return false; }
+                            })
+                        };
+                    })()`);
+                    const reportPath = require('path').join(app.getPath('userData'), 'sail-ui-probe.json');
+                    require('fs').mkdirSync(require('path').dirname(reportPath), { recursive: true });
+                    require('fs').writeFileSync(reportPath, `${JSON.stringify(result, null, 2)}\n`);
+                    app.exit(result.panelInsideContentLayout || !result.hasBrowseList || !result.hasRecentList
+                        || result.compactPanelDisplay === 'none' || !result.recentClickOpened || result.lessAnimationsNukesAll
+                        || !result.hasQuarantinePanel || !result.hasQuarantineRefresh || !result.quarantineSummaryShape
+                        || !result.quarantinePanelStateCorrect || !result.rendererPathOpenRefused || !result.retainedCopyTruthful ? 2 : 0);
+                } catch (error) {
+                    console.error(error);
+                    app.exit(3);
+                }
+            }, 1500);
+        }
+    });
+    win.webContents.on('render-process-gone', (_event, details) => {
+        if (isQuitting || win.isDestroyed() || details.reason === 'clean-exit') return;
+        if (rendererRecoveryAttempts >= 2) return;
+        rendererRecoveryAttempts += 1;
+        setTimeout(() => {
+            if (!isQuitting && !win.isDestroyed()) win.reload();
+        }, 800);
+    });
+
     win.on('close', (event) => {
         if (!isQuitting && !exitWhenClosedSetting) {
+            event.preventDefault();
+            win.hide();
+            return;
+        }
+
+        if (!isQuitting && deferQuitForRuntimeWork()) {
             event.preventDefault();
             win.hide();
             return;
@@ -373,7 +700,15 @@ ipcMain.on('restart-app', () => {
 ipcMain.handle('get-user-data', () => app.getPath('userData'));
 ipcMain.handle('get-auto-launch', () => autoLaunchGameId);
 
-ipcMain.handle('search-steam-workshop', async (e, appId, query, page = 1) => {
+ipcMain.handle('search-steam-workshop', async (e, payload) => {
+    const input = exactGateAPayload(payload, ['gameId', 'steamAppId', 'query', 'page'], 'Steam Workshop search');
+    const game = gateAProfileStore().activeGameMetadata(input.gameId);
+    const appId = String(input.steamAppId || '');
+    const query = typeof input.query === 'string' ? input.query.slice(0, 256) : '';
+    const page = Number.isSafeInteger(input.page) && input.page >= 1 && input.page <= 100 ? input.page : 1;
+    if (!/^\d{1,12}$/.test(appId) || String(game.steamAppId || '') !== appId) {
+        throw new Error('Steam Workshop search does not match the active game.');
+    }
     return new Promise((resolve) => {
         const https = require('https');
         const url = `https://steamcommunity.com/workshop/browse/?appid=${appId}&searchtext=${encodeURIComponent(query)}&browsesort=trend&section=readytouseitems&p=${page}`;
@@ -387,7 +722,15 @@ ipcMain.handle('search-steam-workshop', async (e, appId, query, page = 1) => {
         
         https.get(url, options, (res) => {
             const chunks = [];
-            res.on('data', (chunk) => { chunks.push(chunk); });
+            let total = 0;
+            res.on('data', (chunk) => {
+                total += chunk.length;
+                if (total > 2 * 1024 * 1024) {
+                    res.destroy(new Error('Steam Workshop response exceeded the allowed size.'));
+                    return;
+                }
+                chunks.push(chunk);
+            });
             res.on('end', () => {
                 try {
                     const buffer = Buffer.concat(chunks);
@@ -412,7 +755,11 @@ ipcMain.handle('search-steam-workshop', async (e, appId, query, page = 1) => {
                         const legacyMatches = [...html.matchAll(/data-publishedfileid="(\d+)".*?src="(.*?)".*?class="workshopItemTitle.*?>(.*?)</gs)];
                         items = legacyMatches.map(m => ({ id: m[1], previewUrl: m[2], title: m[3] }));
                     }
-                    resolve(items);
+                    resolve(items.slice(0, 60).map(item => ({
+                        id: /^\d{1,20}$/.test(String(item.id || '')) ? String(item.id) : '',
+                        previewUrl: String(item.previewUrl || '').slice(0, 4096),
+                        title: String(item.title || '').replace(/<[^>]*>/g, '').slice(0, 512)
+                    })).filter(item => item.id));
                 } catch(e) {
                     console.error('Error decoding/parsing workshop search:', e);
                     resolve([]);
@@ -425,7 +772,14 @@ ipcMain.handle('search-steam-workshop', async (e, appId, query, page = 1) => {
     });
 });
 
-ipcMain.handle('download-workshop-item', async (e, appId, itemId) => {
+ipcMain.handle('download-workshop-item', async (e, payload) => {
+    const input = exactGateAPayload(payload, ['gameId', 'steamAppId', 'itemId'], 'Steam Workshop download');
+    const game = gateAProfileStore().activeGameMetadata(input.gameId);
+    const appId = String(input.steamAppId || '');
+    const itemId = String(input.itemId || '');
+    if (!/^\d{1,12}$/.test(appId) || !/^\d{1,20}$/.test(itemId) || String(game.steamAppId || '') !== appId) {
+        throw new Error('Steam Workshop download does not match the active game.');
+    }
     return new Promise((resolve) => {
         const steamCmdDir = path.join(app.getPath('userData'), 'steamcmd');
         const steamCmdExe = path.join(steamCmdDir, 'steamcmd.exe');
@@ -438,7 +792,12 @@ ipcMain.handle('download-workshop-item', async (e, appId, itemId) => {
             child.on('close', (code) => {
                 if (code === 0 || code === 7) { // 7 is usually a success code in steamcmd indicating it needs a restart or finished with minor warnings
                     const downloadPath = path.join(steamCmdDir, 'steamapps', 'workshop', 'content', appId, itemId);
-                    resolve({ success: true, path: downloadPath });
+                    try {
+                        const location = gateAProfileStore().createDirectoryCapability(input.gameId, downloadPath, 'folder-open');
+                        resolve({ success: true, location });
+                    } catch (error) {
+                        resolve({ success: false, error: error.message });
+                    }
                 } else {
                     resolve({ success: false, error: `SteamCMD exited with code ${code}` });
                 }
@@ -478,19 +837,25 @@ ipcMain.handle('get-common-paths', () => {
 ipcMain.handle('set-autostart', (e, enable) => { app.setLoginItemSettings({ openAtLogin: enable, path: app.getPath('exe'), args: ['--hidden'] }); });
 ipcMain.handle('get-autostart', () => app.getLoginItemSettings().openAtLogin);
 
-ipcMain.handle('create-shortcut', (e, gameId, gameName, gameExePath, shortcutIcon) => {
-    const desktop = app.getPath('desktop');
-    const shortcutPath = path.join(desktop, `${gameName.replace(/[<>:"/\\|?*]+/g, '')}.lnk`);
+ipcMain.handle('create-shortcut', (e, payload) => {
+    const input = exactGateAPayload(payload, ['gameId', 'capabilityId', 'expectedRevision'], 'Game shortcut');
+    const store = gateAProfileStore();
+    const resolved = store.resolveExecutionCapability({
+        capabilityId: input.capabilityId,
+        expectedRevision: input.expectedRevision,
+        gameId: input.gameId,
+        operation: 'shortcut'
+    });
+    const metadata = store.activeGameMetadata(input.gameId);
+    const safeName = metadata.name.replace(/[<>:"/\\|?*]+/g, '').slice(0, 120) || 'Game';
+    const shortcutPath = path.join(app.getPath('desktop'), `${safeName}.lnk`);
+    const gameExePath = resolved.details.executablePath || '';
     const ext = path.extname(gameExePath).toLowerCase();
-
-    let iconToUse = gameExePath;
-    if (shortcutIcon) { iconToUse = shortcutIcon; }
-    else if (ext === '.bat' || ext === '.cmd' || ext === '.lnk') { iconToUse = process.execPath; }
-
+    const iconToUse = !gameExePath || ['.bat', '.cmd', '.lnk'].includes(ext) ? process.execPath : gameExePath;
     shell.writeShortcutLink(shortcutPath, 'create', {
         target: process.execPath,
-        args: `--launch-game-id="${gameId}"`,
-        description: `Launch ${gameName}`,
+        args: `--launch-game-id="${metadata.id}"`,
+        description: `Launch ${metadata.name}`,
         icon: iconToUse,
         iconIndex: 0
     });
@@ -507,36 +872,68 @@ ipcMain.on('show-game-context', (e, index) => {
     menu.popup(BrowserWindow.fromWebContents(e.sender));
 });
 
-ipcMain.handle('get-running-exes', () => {
-    return new Promise(resolve => {
-        // Avoid an extra cmd.exe process for this frequent, read-only query.
-        execFile('tasklist.exe', ['/FO', 'CSV', '/NH'], { windowsHide: true, timeout: 8000, maxBuffer: 4 * 1024 * 1024 }, (err, stdout) => {
-            if (err) return resolve([]);
-            const exes = stdout.split('\n').map(line => {
-                // Regex to match CSV parts properly even if they contain commas
-                const matches = line.match(/"([^"]*)"/);
-                return matches ? matches[1].toLowerCase() : '';
-            }).filter(Boolean);
-            resolve([...new Set(exes)]);
-        });
-    });
+ipcMain.handle('runtime-recovery-state', async () => {
+    await monitorRuntimeSessions();
+    return runtimeRecovery ? runtimeRecovery.snapshot() : { activeSessions: {}, completedSessions: [], postExitJobs: [] };
+});
+ipcMain.handle('runtime-session-start', (_event, payload) => runtimeRecovery ? runtimeRecovery.startSession(payload) : null);
+ipcMain.handle('runtime-session-observed', (_event, payload) => runtimeRecovery ? runtimeRecovery.touchSession(payload) : null);
+ipcMain.handle('runtime-session-finish', (_event, payload) => finishRuntimeSession(payload));
+ipcMain.handle('runtime-session-acknowledge', (_event, eventId) => runtimeRecovery ? runtimeRecovery.acknowledgeSession(eventId) : false);
+ipcMain.handle('runtime-post-exit-begin', (_event, payload) => runtimeRecovery ? runtimeRecovery.ensurePostExitJob(payload) : null);
+ipcMain.handle('runtime-post-exit-update', (_event, payload) => {
+    const result = runtimeRecovery ? runtimeRecovery.updatePostExitJob(payload) : null;
+    evaluateDeferredQuit();
+    return result;
 });
 
 ipcMain.handle('check-backup-running', () => activeBackupProcess !== null);
 
-ipcMain.handle('check-backup', (e, exePath, gameName) => {
-    if (!exePath || activeBackupProcess !== null) return [];
+function resolveGameBackupLayout(payload, operation) {
+    const input = exactGateAPayload(payload, ['gameId', 'capabilityId', 'expectedRevision'], `Game backup ${operation}`);
+    const store = gateAProfileStore();
+    const resolved = store.resolveExecutionCapability({
+        capabilityId: input.capabilityId,
+        expectedRevision: input.expectedRevision,
+        gameId: input.gameId,
+        operation
+    });
+    const exePath = resolved.details.executablePath;
+    if (!exePath) throw new Error('This game does not have a locally approved executable backup root.');
+    const gameDir = path.dirname(exePath);
+    const backupDir = path.dirname(gameDir);
+    const legacyAlias = store.legacyStorageAlias(input.gameId);
+    const [safeName, legacyName = null] = scopedArtifactStems(
+        store.authorityScope(input.gameId),
+        legacyAlias && legacyAlias.stem || ''
+    );
+    return { input, store, exePath, gameDir, backupDir, safeName, legacyName };
+}
+
+function spawnBoundArchivePowerShell(action, sourcePath, destinationPath) {
+    const invocation = createArchivePowerShellInvocation(action, sourcePath, destinationPath);
+    return spawn(invocation.file, invocation.args, invocation.options);
+}
+
+ipcMain.handle('check-backup', (e, payload) => {
+    if (activeBackupProcess !== null) return [];
     try {
-        const backupDir = path.dirname(path.dirname(exePath));
-        const safeName = gameName.replace(/[<>:"/\\|?*]+/g, '');
-        const prefix = `${safeName}_backup_`;
+        const { input, store, backupDir, safeName, legacyName } = resolveGameBackupLayout(payload, 'backup-list');
+        const stems = [safeName, legacyName].filter(Boolean);
 
         if (!fs.existsSync(backupDir)) return [];
 
-        let backups = fs.readdirSync(backupDir)
-            .filter(f => f.startsWith(prefix) && f.endsWith('.zip'))
-            .map(f => {
-                let dateStr = f.replace(prefix, '').replace('.zip', '');
+        const backups = [];
+        const seen = new Set();
+        for (const f of fs.readdirSync(backupDir)) {
+            const stem = stems.find(candidate => f.startsWith(`${candidate}_backup_`) && f.endsWith('.zip'));
+            if (!stem || seen.has(f)) continue;
+            try {
+                const backupPath = path.join(backupDir, f);
+                const stat = fs.lstatSync(backupPath);
+                if (!stat.isFile() || stat.isSymbolicLink()) continue;
+                const prefix = `${stem}_backup_`;
+                let dateStr = f.slice(prefix.length, -4);
                 let parsedDate = null;
                 if (dateStr.length === 19) {
                     const year = dateStr.slice(0, 4);
@@ -546,29 +943,38 @@ ipcMain.handle('check-backup', (e, exePath, gameName) => {
                     const min = dateStr.slice(14, 16);
                     parsedDate = `${year}-${month}-${day} ${hour}:${min}`;
                 }
-                return { filename: f, date: parsedDate || dateStr, fullPath: path.join(backupDir, f) };
-            })
-            .sort((a, b) => b.filename.localeCompare(a.filename)); // newest first
+                const capability = store.createBackupFileCapability(input.gameId, backupPath);
+                backups.push({ filename: f, date: parsedDate || dateStr, capabilityId: capability.capabilityId, revision: capability.revision });
+                seen.add(f);
+            } catch (_) {}
+        }
+        backups.sort((a, b) => b.filename.localeCompare(a.filename)); // newest first
 
-        const oldZipPath = path.join(backupDir, `${safeName} backup.zip`);
-        if (fs.existsSync(oldZipPath)) {
-            backups.push({ filename: `${safeName} backup.zip`, date: 'Legacy Backup', fullPath: oldZipPath });
+        for (const stem of stems) {
+            const filename = `${stem} backup.zip`;
+            const oldZipPath = path.join(backupDir, filename);
+            if (!fs.existsSync(oldZipPath) || seen.has(filename)) continue;
+            try {
+                const stat = fs.lstatSync(oldZipPath);
+                if (!stat.isFile() || stat.isSymbolicLink()) continue;
+                const capability = store.createBackupFileCapability(input.gameId, oldZipPath);
+                backups.push({ filename, date: 'Legacy Backup', capabilityId: capability.capabilityId, revision: capability.revision });
+                seen.add(filename);
+            } catch (_) {}
         }
 
         return backups;
     } catch (err) { return []; }
 });
 
-ipcMain.handle('backup-game', async (e, exePath, gameName) => {
+ipcMain.handle('backup-game', async (e, payload) => {
+    const { gameDir, backupDir, safeName } = resolveGameBackupLayout(payload, 'backup-create');
     return new Promise((resolve) => {
-        const gameDir = path.dirname(exePath);
-        const backupDir = path.dirname(gameDir);
-        const safeName = gameName.replace(/[<>:"/\\|?*]+/g, '');
         const timestamp = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
         backingUpZipPath = path.join(backupDir, `${safeName}_backup_${timestamp}.zip`);
 
         if (fs.existsSync(backingUpZipPath)) fs.unlinkSync(backingUpZipPath);
-        activeBackupProcess = spawn('powershell.exe', ['-NoProfile', '-Command', `Compress-Archive -Path "${gameDir}\\*" -DestinationPath "${backingUpZipPath}" -Force`]);
+        activeBackupProcess = spawnBoundArchivePowerShell('compress', gameDir, backingUpZipPath);
         activeBackupProcess.on('close', (code) => {
             activeBackupProcess = null;
 
@@ -586,7 +992,7 @@ ipcMain.handle('backup-game', async (e, exePath, gameName) => {
                 } catch (e) { }
             }
 
-            resolve(code === 0 ? backingUpZipPath : null);
+            resolve({ success: code === 0 });
         });
     });
 });
@@ -603,22 +1009,34 @@ ipcMain.handle('cancel-backup', () => {
     return false;
 });
 
-ipcMain.handle('restore-backup', async (e, exePath, gameName, backupFilename) => {
+ipcMain.handle('restore-backup', async (e, payload) => {
+    const input = exactGateAPayload(payload, [
+        'gameId', 'capabilityId', 'expectedRevision',
+        'backupCapabilityId', 'backupExpectedRevision'
+    ], 'Game backup restore');
+    const { store, gameDir } = resolveGameBackupLayout({
+        gameId: input.gameId,
+        capabilityId: input.capabilityId,
+        expectedRevision: input.expectedRevision
+    }, 'backup-restore');
+    const backup = store.resolveTransferCapability({
+        gameId: input.gameId,
+        capabilityId: input.backupCapabilityId,
+        expectedRevision: input.backupExpectedRevision,
+        operation: 'backup-read'
+    });
     return new Promise((resolve) => {
-        const gameDir = path.dirname(exePath);
-        const backupDir = path.dirname(gameDir);
-        const safeName = gameName.replace(/[<>:"/\\|?*]+/g, '');
-        const zipPath = backupFilename ? path.join(backupDir, backupFilename) : path.join(backupDir, `${safeName} backup.zip`);
+        const zipPath = backup.details.targetPath;
 
         if (!fs.existsSync(zipPath)) return resolve(false);
-        const child = spawn('powershell.exe', ['-NoProfile', '-Command', `Expand-Archive -Path "${zipPath}" -DestinationPath "${gameDir}" -Force`]);
+        const child = spawnBoundArchivePowerShell('expand', zipPath, gameDir);
         child.on('close', (code) => resolve(code === 0));
     });
 });
 
-ipcMain.handle('open-backup-folder', (e, exePath, gameName) => {
+ipcMain.handle('open-backup-folder', (e, payload) => {
     try {
-        const backupDir = path.dirname(path.dirname(exePath));
+        const { backupDir } = resolveGameBackupLayout(payload, 'backup-open');
         if (fs.existsSync(backupDir)) {
             shell.openPath(backupDir);
             return true;
@@ -627,33 +1045,83 @@ ipcMain.handle('open-backup-folder', (e, exePath, gameName) => {
     return false;
 });
 
-ipcMain.handle('delete-backup', (e, exePath, gameName, backupFilename) => {
+ipcMain.handle('delete-backup', (e, payload) => {
     try {
-        const backupDir = path.dirname(path.dirname(exePath));
-        const safeName = gameName.replace(/[<>:"/\\|?*]+/g, '');
-        const zipPath = backupFilename ? path.join(backupDir, backupFilename) : path.join(backupDir, `${safeName} backup.zip`);
+        const input = exactGateAPayload(payload, [
+            'gameId', 'backupCapabilityId', 'backupExpectedRevision'
+        ], 'Game backup deletion');
+        const backup = gateAProfileStore().resolveTransferCapability({
+            gameId: input.gameId,
+            capabilityId: input.backupCapabilityId,
+            expectedRevision: input.backupExpectedRevision,
+            operation: 'backup-delete'
+        });
+        const zipPath = backup.details.targetPath;
         if (fs.existsSync(zipPath)) { fs.unlinkSync(zipPath); return true; }
     } catch (err) { }
     return false;
 });
 
 // --- SAVE VERSIONING (Google Drive sync) ---
-ipcMain.handle('zip-save-to-drive', async (e, localSavePath, driveFolder, gameName, maxVersions) => {
+function localSaveVersionLayout(gameId) {
+    const store = gateAProfileStore();
+    const root = path.join(os.homedir(), 'SailLauncherSaves');
+    const legacyAlias = store.legacyStorageAlias(gameId);
+    const [cleanName, legacyName = null] = scopedArtifactStems(
+        store.authorityScope(gameId),
+        legacyAlias && legacyAlias.stem || ''
+    );
+    const savesDir = path.join(root, cleanName, 'Saves');
+    const legacySavesDir = legacyName ? path.join(root, legacyName, 'Saves') : null;
+    return { store, cleanName, legacyName, root, savesDir, legacySavesDir };
+}
+
+ipcMain.handle('zip-save-to-drive', async (e, payload) => {
+    const input = exactGateAPayload(payload, ['gameId', 'capabilityId', 'expectedRevision', 'maxVersions'], 'Local save backup');
+    const { store, cleanName, savesDir } = localSaveVersionLayout(input.gameId);
+    const source = store.resolveFilesystemCapability({
+        gameId: input.gameId,
+        capabilityId: input.capabilityId,
+        expectedRevision: input.expectedRevision,
+        operation: 'backup-read'
+    });
+    const localSavePath = source.details.rootPath;
+    const maxVersions = Number.isSafeInteger(input.maxVersions) ? Math.max(1, Math.min(50, input.maxVersions)) : 3;
     return new Promise((resolve) => {
         try {
-            const cleanName = gameName.replace(/[<>:"/\\|?*]+/g, '');
-            const savesDir = path.join(os.homedir(), 'SailLauncherSaves', cleanName, 'Saves');
             if (!fs.existsSync(savesDir)) fs.mkdirSync(savesDir, { recursive: true });
 
             const timestamp = new Date().toISOString().replace(/[:.]/g, '-').substring(0, 19);
             const zipName = `${cleanName}_save_${timestamp}.zip`;
             const zipPath = path.join(savesDir, zipName);
+            const partialPrefix = `.${cleanName}_save_`;
+            for (const fileName of fs.readdirSync(savesDir)) {
+                if (!fileName.startsWith(partialPrefix) || !fileName.endsWith('.partial.zip')) continue;
+                try { fs.unlinkSync(path.join(savesDir, fileName)); } catch (_) {}
+            }
+            const partialZipPath = path.join(savesDir, `.${zipName}.partial.zip`);
 
-            const child = spawn('powershell.exe', ['-NoProfile', '-Command',
-                `Compress-Archive -Path "${localSavePath}\\*" -DestinationPath "${zipPath}" -Force`
-            ]);
+            const child = spawnBoundArchivePowerShell('compress', localSavePath, partialZipPath);
+            let settled = false;
+            const finish = success => {
+                if (settled) return;
+                settled = true;
+                if (!success) {
+                    try { fs.unlinkSync(partialZipPath); } catch (_) {}
+                }
+                resolve(success);
+            };
+            child.on('error', () => finish(false));
             child.on('close', (code) => {
-                if (code === 0 && maxVersions > 0) {
+                let succeeded = false;
+                if (code === 0 && fs.existsSync(partialZipPath)) {
+                    try {
+                        if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath);
+                        fs.renameSync(partialZipPath, zipPath);
+                        succeeded = true;
+                    } catch (_) {}
+                }
+                if (succeeded && maxVersions > 0) {
                     try {
                         const prefix = `${cleanName}_save_`;
                         let existing = fs.readdirSync(savesDir)
@@ -664,53 +1132,94 @@ ipcMain.handle('zip-save-to-drive', async (e, localSavePath, driveFolder, gameNa
                         }
                     } catch (e) { }
                 }
-                resolve(code === 0);
+                finish(succeeded);
             });
         } catch (err) { resolve(false); }
     });
 });
 
-ipcMain.handle('list-save-versions', (e, driveFolder, gameName) => {
+ipcMain.handle('list-save-versions', (e, payload) => {
     try {
-        const cleanName = gameName.replace(/[<>:"/\\|?*]+/g, '');
-        const savesDir = path.join(os.homedir(), 'SailLauncherSaves', cleanName, 'Saves');
-        if (!fs.existsSync(savesDir)) return [];
-        const prefix = `${cleanName}_save_`;
-        return fs.readdirSync(savesDir)
-            .filter(f => f.startsWith(prefix) && f.endsWith('.zip'))
-            .map(f => {
-                let dateStr = f.replace(prefix, '').replace('.zip', '');
-                let parsedDate = null;
-                if (dateStr.length === 19) {
-                    parsedDate = `${dateStr.slice(0, 4)}-${dateStr.slice(5, 7)}-${dateStr.slice(8, 10)} ${dateStr.slice(11, 13)}:${dateStr.slice(14, 16)}`;
-                }
-                return { filename: f, date: parsedDate || dateStr, fullPath: path.join(savesDir, f) };
-            })
-            .sort((a, b) => b.filename.localeCompare(a.filename)); // newest first
+        const input = exactGateAPayload(payload, ['gameId', 'capabilityId', 'expectedRevision'], 'Local save backup list');
+        const { store, cleanName, legacyName, savesDir, legacySavesDir } = localSaveVersionLayout(input.gameId);
+        store.resolveFilesystemCapability({
+            gameId: input.gameId,
+            capabilityId: input.capabilityId,
+            expectedRevision: input.expectedRevision,
+            operation: 'backup-read'
+        });
+        const locations = [{ stem: cleanName, directory: savesDir }];
+        if (legacyName && legacySavesDir) locations.push({ stem: legacyName, directory: legacySavesDir });
+        const versions = [];
+        const seen = new Set();
+        for (const location of locations) {
+            if (!fs.existsSync(location.directory)) continue;
+            const prefix = `${location.stem}_save_`;
+            for (const f of fs.readdirSync(location.directory)) {
+                const identity = `${location.directory.toLocaleLowerCase('en-US')}\u0000${f.toLocaleLowerCase('en-US')}`;
+                if (!f.startsWith(prefix) || !f.endsWith('.zip') || seen.has(identity)) continue;
+                try {
+                    const backupPath = path.join(location.directory, f);
+                    const stat = fs.lstatSync(backupPath);
+                    if (!stat.isFile() || stat.isSymbolicLink()) continue;
+                    let dateStr = f.slice(prefix.length, -4);
+                    let parsedDate = null;
+                    if (dateStr.length === 19) {
+                        parsedDate = `${dateStr.slice(0, 4)}-${dateStr.slice(5, 7)}-${dateStr.slice(8, 10)} ${dateStr.slice(11, 13)}:${dateStr.slice(14, 16)}`;
+                    }
+                    const capability = store.createBackupFileCapability(input.gameId, backupPath);
+                    versions.push({ filename: f, date: parsedDate || dateStr, capabilityId: capability.capabilityId, revision: capability.revision });
+                    seen.add(identity);
+                } catch (_) {}
+            }
+        }
+        return versions.sort((a, b) => b.filename.localeCompare(a.filename)); // newest first
     } catch (err) { return []; }
 });
 
-ipcMain.handle('restore-save-version', async (e, driveFolder, gameName, localSavePath, saveFilename) => {
+ipcMain.handle('restore-save-version', async (e, payload) => {
+    const input = exactGateAPayload(payload, [
+        'gameId', 'destinationCapabilityId', 'destinationExpectedRevision',
+        'backupCapabilityId', 'backupExpectedRevision'
+    ], 'Local save backup restore');
+    const store = gateAProfileStore();
+    const destination = store.resolveFilesystemCapability({
+        gameId: input.gameId,
+        capabilityId: input.destinationCapabilityId,
+        expectedRevision: input.destinationExpectedRevision,
+        operation: 'backup-write'
+    });
+    const backup = store.resolveTransferCapability({
+        gameId: input.gameId,
+        capabilityId: input.backupCapabilityId,
+        expectedRevision: input.backupExpectedRevision,
+        operation: 'backup-read'
+    });
     return new Promise((resolve) => {
         try {
-            const cleanName = gameName.replace(/[<>:"/\\|?*]+/g, '');
-            const savesDir = path.join(os.homedir(), 'SailLauncherSaves', cleanName, 'Saves');
-            const zipPath = saveFilename ? path.join(savesDir, saveFilename) : null;
+            const zipPath = backup.details.targetPath;
+            const localSavePath = destination.details.rootPath;
 
             if (!zipPath || !fs.existsSync(zipPath)) return resolve(false);
-            const child = spawn('powershell.exe', ['-NoProfile', '-Command',
-                `Expand-Archive -Path "${zipPath}" -DestinationPath "${localSavePath}" -Force`
-            ]);
+            const child = spawnBoundArchivePowerShell('expand', zipPath, localSavePath);
             child.on('close', (code) => resolve(code === 0));
         } catch (err) { resolve(false); }
     });
 });
 
-ipcMain.handle('open-save-versions-folder', (e, driveFolder, gameName) => {
+ipcMain.handle('open-save-versions-folder', (e, payload) => {
     try {
-        const cleanName = gameName.replace(/[<>:"/\\|?*]+/g, '');
-        const savesDir = path.join(os.homedir(), 'SailLauncherSaves', cleanName, 'Saves');
-        if (fs.existsSync(savesDir)) { shell.openPath(savesDir); return true; }
+        const input = exactGateAPayload(payload, ['gameId', 'capabilityId', 'expectedRevision'], 'Local save backup folder');
+        const { store, root, savesDir, legacySavesDir } = localSaveVersionLayout(input.gameId);
+        store.resolveFilesystemCapability({
+            gameId: input.gameId,
+            capabilityId: input.capabilityId,
+            expectedRevision: input.expectedRevision,
+            operation: 'backup-read'
+        });
+        const existing = [savesDir, legacySavesDir].filter(directory => directory && fs.existsSync(directory));
+        if (existing.length > 1 && fs.existsSync(root)) { shell.openPath(root); return true; }
+        if (existing.length === 1) { shell.openPath(existing[0]); return true; }
     } catch (err) { }
     return false;
 });
@@ -719,12 +1228,12 @@ ipcMain.handle('open-save-versions-folder', (e, driveFolder, gameName) => {
 ipcMain.handle('cloud-link-account', async (e, { provider, customCreds }) => {
     if (!customCreds && accountServices && ['google', 'dropbox'].includes(provider)) {
         try {
-            const account = await accountServices.accountService.state();
-            if (account.signedIn) {
-                const pending = await accountServices.accountService.startCloudOAuth(provider);
-                await shell.openExternal(pending.url);
-                return { success: true, pending: true, email: account.user.email };
-            }
+                const account = await accountServices.accountService.state();
+                if (account.signedIn) {
+                    const pending = await accountServices.accountService.startCloudOAuth(provider);
+                    if (!openExternalWebUrl(shell, pending.url)) throw new Error('Cloud authorization URL was rejected.');
+                    return { success: true, pending: true, email: account.user.email };
+                }
         } catch (error) {
             return { success: false, error: error.message };
         }
@@ -752,10 +1261,12 @@ ipcMain.handle('cloud-link-account', async (e, { provider, customCreds }) => {
         title: `Link ${provider.toUpperCase()}`,
         webPreferences: {
             nodeIntegration: false,
-            contextIsolation: true
+            contextIsolation: true,
+            sandbox: true,
+            webSecurity: true
         }
     });
-    
+    installIsolatedRemoteNavigationPolicy(authWin.webContents, { shell });
     authWin.loadURL(authUrl);
 
     try {
@@ -845,82 +1356,300 @@ async function hydratePortableCloudToken(provider, customCreds) {
     });
 }
 
-ipcMain.handle('cloud-upload-save', async (e, { provider, gameName, localZipPath, maxVersions, customCreds, subFolder }) => {
+function gateAProfileStore() {
+    if (!accountServices || !accountServices.profileStore) throw new Error('Local filesystem authority is not ready.');
+    return accountServices.profileStore;
+}
+
+function gateATransferPath(extension = '.zip') {
+    const root = path.join(app.getPath('userData'), 'SailGateATransfers');
+    fs.mkdirSync(root, { recursive: true });
+    return path.join(root, `${crypto.randomUUID()}${extension}`);
+}
+
+function safeRemoteFolder(value) {
+    const text = String(value || '').trim();
+    if (!text) return undefined;
+    if (text.length > 200 || text.includes('..') || /[\u0000-\u001f\\]/.test(text)) throw new Error('The remote folder name is invalid.');
+    return text;
+}
+
+const legacyCloudReferences = new LegacyCloudReferenceStore(() => gateAProfileStore());
+
+function newestApprovedMtime(rootPath) {
+    let newest = 0;
+    let visited = 0;
+    const visit = (targetPath, depth) => {
+        if (depth > 20 || ++visited > 100000) return;
+        let stat;
+        try { stat = fs.lstatSync(targetPath); } catch (_) { return; }
+        if (stat.isSymbolicLink()) return;
+        newest = Math.max(newest, stat.mtimeMs || 0);
+        if (!stat.isDirectory()) return;
+        let names;
+        try { names = fs.readdirSync(targetPath); } catch (_) { return; }
+        for (const name of names) visit(path.join(targetPath, name), depth + 1);
+    };
+    visit(rootPath, 0);
+    return newest;
+}
+
+ipcMain.handle('authority-filesystem-newest-mtime', async (e, payload) => {
+    const input = exactGateAPayload(payload, [
+        'gameId', 'capabilityId', 'expectedRevision', 'kind'
+    ], 'Local filesystem timestamp');
+    if (!['save', 'config'].includes(input.kind)) throw new Error('Unsupported local data kind.');
+    const resolved = gateAProfileStore().resolveFilesystemCapability({
+        gameId: input.gameId,
+        capabilityId: input.capabilityId,
+        expectedRevision: input.expectedRevision,
+        operation: input.kind === 'save' ? 'save-read' : 'config-read'
+    });
+    return newestApprovedMtime(resolved.details.rootPath);
+});
+
+ipcMain.handle('cloud-upload-save', async (e, payload) => {
     try {
-        await hydratePortableCloudToken(provider, customCreds);
-        if (provider === 'google') await cloudSync.googleDrive.uploadFile(customCreds, gameName, localZipPath, maxVersions, subFolder);
-        else if (provider === 'onedrive') await cloudSync.oneDrive.uploadFile(customCreds, gameName, localZipPath, maxVersions, subFolder);
-        else if (provider === 'dropbox') await cloudSync.dropbox.uploadFile(customCreds, gameName, localZipPath, maxVersions, subFolder);
-        else if (provider === 'mediafire') await cloudSync.mediaFire.uploadFile(gameName, localZipPath);
-        else return { success: false, error: 'Unknown provider' };
+        const input = exactGateAPayload(payload, [
+            'provider', 'gameId', 'capabilityId', 'expectedRevision',
+            'maxVersions', 'customCreds', 'artifactType', 'configEntryId'
+        ], 'Cloud upload');
+        const provider = String(input.provider || '');
+        if (!['google', 'onedrive', 'dropbox', 'mediafire'].includes(provider)) return { success: false, error: 'Unknown provider' };
+        if (!Number.isSafeInteger(input.maxVersions) || input.maxVersions < 1 || input.maxVersions > 50) {
+            throw new Error('The cloud version count is outside its allowed range.');
+        }
+        const store = gateAProfileStore();
+        const artifactScope = legacyCloudReferences.scope(input);
+        const resolved = store.resolveTransferCapability({
+            capabilityId: input.capabilityId,
+            expectedRevision: input.expectedRevision,
+            gameId: input.gameId,
+            operation: 'transfer-read'
+        });
+        if (artifactScope.artifactType === 'launcher-config') {
+            const canonical = canonicalPortableBytes(fs.readFileSync(resolved.details.targetPath), {
+                kindHint: 'launcher-snapshot',
+                expectedKind: 'launcher-snapshot'
+            });
+            fs.writeFileSync(resolved.details.targetPath, canonical.bytes);
+            const verified = canonicalPortableBytes(fs.readFileSync(resolved.details.targetPath), {
+                kindHint: 'launcher-snapshot',
+                expectedKind: 'launcher-snapshot'
+            });
+            if (!canonical.bytes.equals(verified.bytes)) throw new Error('The portable upload failed independent V3 readback verification.');
+        }
+        await hydratePortableCloudToken(provider, input.customCreds);
+        try {
+            if (provider === 'google') await cloudSync.googleDrive.uploadFile(input.customCreds, artifactScope.gameName, resolved.details.targetPath, input.maxVersions, artifactScope.subFolder);
+            else if (provider === 'onedrive') await cloudSync.oneDrive.uploadFile(input.customCreds, artifactScope.gameName, resolved.details.targetPath, input.maxVersions, artifactScope.subFolder);
+            else if (provider === 'dropbox') await cloudSync.dropbox.uploadFile(input.customCreds, artifactScope.gameName, resolved.details.targetPath, input.maxVersions, artifactScope.subFolder);
+            else if (provider === 'mediafire') await cloudSync.mediaFire.uploadFile(artifactScope.gameName, resolved.details.targetPath);
+        } finally {
+            try { fs.unlinkSync(resolved.details.targetPath); } catch (_) {}
+        }
         return { success: true };
     } catch(err) {
         return { success: false, error: err.message };
     }
 });
 
-ipcMain.handle('cloud-list-versions', async (e, { provider, gameName, customCreds, subFolder }) => {
+ipcMain.handle('cloud-list-versions', async (e, payload) => {
     try {
-        await hydratePortableCloudToken(provider, customCreds);
+        const input = exactGateAPayload(payload, [
+            'provider', 'gameId', 'artifactType', 'configEntryId', 'customCreds'
+        ], 'Cloud version list');
+        const provider = String(input.provider || '');
+        if (!['google', 'onedrive', 'dropbox', 'mediafire'].includes(provider)) return { success: false, error: 'Unknown provider' };
+        const scope = legacyCloudReferences.scope(input);
+        await hydratePortableCloudToken(provider, input.customCreds);
         let versions = [];
-        if (provider === 'google') versions = await cloudSync.googleDrive.listFiles(customCreds, gameName, subFolder);
-        else if (provider === 'onedrive') versions = await cloudSync.oneDrive.listFiles(customCreds, gameName, subFolder);
-        else if (provider === 'dropbox') versions = await cloudSync.dropbox.listFiles(customCreds, gameName, subFolder);
-        else if (provider === 'mediafire') versions = await cloudSync.mediaFire.listFiles(gameName);
-        return { success: true, versions };
+        if (provider === 'google') versions = await cloudSync.googleDrive.listFiles(input.customCreds, scope.gameName, scope.subFolder);
+        else if (provider === 'onedrive') versions = await cloudSync.oneDrive.listFiles(input.customCreds, scope.gameName, scope.subFolder);
+        else if (provider === 'dropbox') versions = await cloudSync.dropbox.listFiles(input.customCreds, scope.gameName, scope.subFolder);
+        else if (provider === 'mediafire') versions = await cloudSync.mediaFire.listFiles(scope.gameName);
+        return { success: true, versions: legacyCloudReferences.issue(scope, provider, versions) };
     } catch(err) {
         return { success: false, error: err.message };
     }
 });
 
-ipcMain.handle('cloud-download-save', async (e, { provider, fileId, localZipPath, customCreds }) => {
+ipcMain.handle('cloud-create-download-transfer', async (e, payload) => {
+    const input = exactGateAPayload(payload, ['gameId', 'extension'], 'Cloud download preparation');
+    const extension = input.extension === '.json' ? '.json' : '.zip';
+    const targetPath = gateATransferPath(extension);
+    return input.gameId === 'launcher-portable'
+        ? gateAProfileStore().createLauncherTransferCapability(targetPath, 'transfer-write')
+        : gateAProfileStore().createTransferCapability(input.gameId, targetPath, 'transfer-write');
+});
+
+ipcMain.handle('cloud-download-save', async (e, payload) => {
     try {
-        await hydratePortableCloudToken(provider, customCreds);
-        if (provider === 'google') await cloudSync.googleDrive.downloadFile(customCreds, fileId, localZipPath);
-        else if (provider === 'onedrive') await cloudSync.oneDrive.downloadFile(customCreds, fileId, localZipPath);
-        else if (provider === 'dropbox') await cloudSync.dropbox.downloadFile(customCreds, fileId, localZipPath);
-        else if (provider === 'mediafire') await cloudSync.mediaFire.downloadFile(fileId, localZipPath);
-        else return { success: false, error: 'Unknown provider' };
-        return { success: true };
+        const input = exactGateAPayload(payload, [
+            'provider', 'reference', 'gameId', 'artifactType', 'configEntryId',
+            'capabilityId', 'expectedRevision', 'customCreds'
+        ], 'Cloud download');
+        const provider = String(input.provider || '');
+        if (!['google', 'onedrive', 'dropbox', 'mediafire'].includes(provider)) return { success: false, error: 'Unknown provider' };
+        const remote = legacyCloudReferences.resolve(input, provider);
+        const store = gateAProfileStore();
+        const resolved = store.resolveTransferCapability({
+            capabilityId: input.capabilityId,
+            expectedRevision: input.expectedRevision,
+            gameId: input.gameId,
+            operation: 'transfer-write'
+        });
+        await hydratePortableCloudToken(provider, input.customCreds);
+        if (provider === 'google') await cloudSync.googleDrive.downloadFile(input.customCreds, remote.fileId, resolved.details.targetPath);
+        else if (provider === 'onedrive') await cloudSync.oneDrive.downloadFile(input.customCreds, remote.fileId, resolved.details.targetPath);
+        else if (provider === 'dropbox') await cloudSync.dropbox.downloadFile(input.customCreds, remote.fileId, resolved.details.targetPath);
+        else if (provider === 'mediafire') await cloudSync.mediaFire.downloadFile(remote.fileId, resolved.details.targetPath);
+        const transfer = input.gameId === 'launcher-portable'
+            ? store.createLauncherTransferCapability(resolved.details.targetPath, 'transfer-read')
+            : store.createTransferCapability(input.gameId, resolved.details.targetPath, 'transfer-read');
+        return { success: true, transfer };
     } catch(err) {
         return { success: false, error: err.message };
     }
 });
 
-ipcMain.handle('cloud-zip-folder', async (e, { localSavePath, zipPath }) => {
+function createCloudZipWithPowerShell(localSavePath, zipPath) {
+    return new Promise((resolve) => {
+        const env = {
+            ...process.env,
+            SAIL_LAUNCHER_CLOUD_SAVE_SOURCE: localSavePath,
+            SAIL_LAUNCHER_CLOUD_SAVE_DESTINATION: zipPath
+        };
+        const command = [
+            "$ErrorActionPreference = 'Stop'",
+            "$source = [Environment]::GetEnvironmentVariable('SAIL_LAUNCHER_CLOUD_SAVE_SOURCE')",
+            "$destination = [Environment]::GetEnvironmentVariable('SAIL_LAUNCHER_CLOUD_SAVE_DESTINATION')",
+            '$sourceItem = Get-Item -LiteralPath $source -Force',
+            '$entries = @($(if ($sourceItem.PSIsContainer) { Get-ChildItem -LiteralPath $source -Force } else { $sourceItem }))',
+            'if ($entries.Count -eq 0) { exit 0 }',
+            'Compress-Archive -LiteralPath $entries.FullName -DestinationPath $destination -Force'
+        ].join('; ');
+        let settled = false;
+        const finish = success => {
+            if (settled) return;
+            settled = true;
+            resolve(!!success && fs.existsSync(zipPath));
+        };
+        try {
+            const child = spawn('powershell.exe', [
+                '-NoProfile',
+                '-NonInteractive',
+                '-Command',
+                command
+            ], { windowsHide: true, env });
+            child.on('error', () => finish(false));
+            child.on('close', code => finish(code === 0));
+        } catch (_) {
+            finish(false);
+        }
+    });
+}
+
+ipcMain.handle('cloud-zip-folder', async (e, payload) => {
     try {
-        if (!localSavePath || !zipPath || !fs.existsSync(localSavePath)) return false;
+        const input = exactGateAPayload(payload, [
+            'gameId', 'capabilityId', 'expectedRevision', 'kind'
+        ], 'Cloud archive preparation');
+        if (!['save', 'config'].includes(input.kind)) throw new Error('Unsupported local data kind.');
+        const store = gateAProfileStore();
+        const resolved = store.resolveFilesystemCapability({
+            capabilityId: input.capabilityId,
+            expectedRevision: input.expectedRevision,
+            gameId: input.gameId,
+            operation: input.kind === 'save' ? 'save-read' : 'config-read'
+        });
+        const localSavePath = resolved.details.rootPath;
+        const zipPath = gateATransferPath('.zip');
+        if (!localSavePath || !fs.existsSync(localSavePath)) return { success: false };
         fs.mkdirSync(path.dirname(zipPath), { recursive: true });
         if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath);
-        await new Promise((resolve, reject) => {
-            _7z.cmd(
-                ['a', '-tzip', '-mx=5', zipPath, path.join(localSavePath, '*')],
-                (error) => error ? reject(error) : resolve()
-            );
-        });
-        return fs.existsSync(zipPath);
+
+        // Use the same compressor as local save backups first. Bundled 7-Zip
+        // can return warning code 1 when a game has just released a file,
+        // even though the archive may have been created successfully.
+        if (await createCloudZipWithPowerShell(localSavePath, zipPath)) {
+            return { success: true, transfer: store.createTransferCapability(input.gameId, zipPath, 'transfer-read') };
+        }
+        try { if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath); } catch (_) {}
+
+        let sevenZipError = null;
+        try {
+            await new Promise((resolve, reject) => {
+                _7z.cmd(
+                    ['a', '-tzip', '-mx=5', zipPath, path.join(localSavePath, '*')],
+                    (error) => error ? reject(error) : resolve()
+                );
+            });
+            if (fs.existsSync(zipPath)) {
+                return { success: true, transfer: store.createTransferCapability(input.gameId, zipPath, 'transfer-read') };
+            }
+        } catch (error) {
+            sevenZipError = error;
+        }
+
+        try { if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath); } catch (_) {}
+        if (sevenZipError) {
+            const detail = [sevenZipError.message, sevenZipError.stderr].filter(Boolean).join(' ').replace(/\s+/g, ' ').slice(0, 400);
+            console.error('Cloud archive creation failed with PowerShell and 7-Zip:', detail);
+        }
+        return { success: false };
     } catch (error) {
         console.error('Cloud archive creation failed:', error);
-        return false;
+        return { success: false, error: error && error.message || 'Cloud archive creation failed.' };
     }
 });
 
-ipcMain.handle('cloud-extract-zip', async (e, { zipPath, localSavePath }) => {
+ipcMain.handle('cloud-extract-zip', async (e, payload) => {
     try {
-        if (!zipPath || !localSavePath || !fs.existsSync(zipPath)) return false;
-        fs.mkdirSync(localSavePath, { recursive: true });
-        await _7z.unpack(zipPath, localSavePath);
-        return true;
+        const input = exactGateAPayload(payload, [
+            'gameId', 'transferCapabilityId', 'transferExpectedRevision',
+            'destinationCapabilityId', 'destinationExpectedRevision', 'kind'
+        ], 'Cloud archive extraction');
+        if (!['save', 'config'].includes(input.kind)) throw new Error('Unsupported local data kind.');
+        const store = gateAProfileStore();
+        const archive = store.resolveTransferCapability({
+            capabilityId: input.transferCapabilityId,
+            expectedRevision: input.transferExpectedRevision,
+            gameId: input.gameId,
+            operation: 'transfer-read'
+        });
+        const destination = store.resolveFilesystemCapability({
+            capabilityId: input.destinationCapabilityId,
+            expectedRevision: input.destinationExpectedRevision,
+            gameId: input.gameId,
+            operation: input.kind === 'save' ? 'save-write' : 'config-write'
+        });
+        const zipPath = archive.details.targetPath;
+        const localSavePath = destination.details.rootPath;
+        if (!zipPath || !localSavePath || !fs.existsSync(zipPath)) return { success: false };
+        const destinationIsFile = destination.details.rootIdentity && destination.details.rootIdentity.kind === 'file';
+        const extractionPath = destinationIsFile ? path.dirname(localSavePath) : localSavePath;
+        if (input.kind === 'config' && fs.existsSync(localSavePath)) {
+            const backupPath = `${localSavePath}.sail-backup-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+            fs.cpSync(localSavePath, backupPath, { recursive: true, errorOnExist: true });
+        }
+        fs.mkdirSync(extractionPath, { recursive: true });
+        try {
+            await _7z.unpack(zipPath, extractionPath);
+            return { success: true };
+        } finally {
+            try { fs.unlinkSync(zipPath); } catch (_) {}
+        }
     } catch (error) {
         console.error('Cloud archive extraction failed:', error);
-        return false;
+        return { success: false, error: error && error.message || 'Cloud archive extraction failed.' };
     }
 });
 
 ipcMain.on('window-min', (e) => BrowserWindow.fromWebContents(e.sender)?.minimize());
 ipcMain.on('window-max', (e) => { const win = BrowserWindow.fromWebContents(e.sender); if (win) win.isMaximized() ? win.unmaximize() : win.maximize(); });
 ipcMain.on('window-close', (e, exitWhenClosed) => {
-    if (exitWhenClosed) { isQuitting = true; app.quit(); }
+    if (exitWhenClosed) requestApplicationQuit();
     else { BrowserWindow.fromWebContents(e.sender)?.hide(); }
 });
 
@@ -1015,8 +1744,36 @@ ipcMain.handle('create-zip', async (e, { sourceDir, destPath }) => {
     });
 });
 
-ipcMain.handle('open-url', (e, url) => shell.openExternal(url));
-ipcMain.handle('show-item-in-folder', (e, itemPath) => shell.showItemInFolder(itemPath));
+ipcMain.handle('open-url', (e, url) => {
+    if (!openExternalWebUrl(shell, url)) throw new Error('This link cannot be opened.');
+    return true;
+});
+ipcMain.handle('show-game-local-file', (e, payload) => {
+    const input = exactGateAPayload(payload, ['gameId', 'capabilityId', 'expectedRevision'], 'Reveal game file');
+    const resolved = gateAProfileStore().resolveExecutionCapability({
+        capabilityId: input.capabilityId,
+        expectedRevision: input.expectedRevision,
+        gameId: input.gameId,
+        operation: 'reveal'
+    });
+    if (!resolved.details.executablePath) return false;
+    shell.showItemInFolder(resolved.details.executablePath);
+    return true;
+});
+ipcMain.handle('open-folder-capability', async (e, payload) => {
+    const input = exactGateAPayload(payload, ['gameId', 'capabilityId', 'expectedRevision'], 'Open local folder');
+    const resolved = gateAProfileStore().resolveFilesystemCapability({
+        capabilityId: input.capabilityId,
+        expectedRevision: input.expectedRevision,
+        gameId: input.gameId,
+        operation: 'folder-open'
+    });
+    const target = resolved.details && resolved.details.rootPath;
+    if (!target) throw new Error('The approved folder is unavailable.');
+    const result = await shell.openPath(target);
+    if (result) throw new Error(result);
+    return { success: true, capability: resolved.replacement };
+});
 
 // ============================================================================
 // Auto-updater: download the launcher installer, run it silently, restart.
@@ -1084,94 +1841,58 @@ ipcMain.handle('cleanup-update-folder', async () => {
     try { fs.rmSync(UPDATER_DIR, { recursive: true, force: true }); return true; } catch (_) { return false; }
 });
 
-ipcMain.handle('kill-process', (e, targetExeName) => exec(`taskkill /F /T /IM "${targetExeName}"`));
+ipcMain.handle('kill-game-process', (e, payload) => {
+    const input = exactGateAPayload(payload, ['gameId', 'capabilityId', 'expectedRevision'], 'Stop game process');
+    const resolved = gateAProfileStore().resolveExecutionCapability({
+        capabilityId: input.capabilityId,
+        expectedRevision: input.expectedRevision,
+        gameId: input.gameId,
+        operation: 'terminate'
+    });
+    const target = resolved.details.playDetectionPath || resolved.details.executablePath;
+    if (!target) return false;
+    const imageName = path.basename(target);
+    if (!/^[^<>:"/\\|?*\u0000-\u001f]{1,255}\.exe$/i.test(imageName)) return false;
+    execFile('taskkill.exe', ['/F', '/T', '/IM', imageName], { windowsHide: true }, () => {});
+    return true;
+});
 
-let ludusaviManifestCache = null;
-
-async function getLudusaviManifest() {
-    if (ludusaviManifestCache) return ludusaviManifestCache;
-    
-    const manifestPath = path.join(app.getPath('userData'), 'ludusavi_manifest.json');
-    
-    try {
-        if (fs.existsSync(manifestPath)) {
-            const stats = fs.statSync(manifestPath);
-            const ageDays = (Date.now() - stats.mtimeMs) / (1000 * 60 * 60 * 24);
-            if (ageDays < 7) {
-                ludusaviManifestCache = fs.readJsonSync(manifestPath);
-                return ludusaviManifestCache;
-            }
-        }
-    } catch(e) {}
-    
-    try {
-        const res = await fetch('https://raw.githubusercontent.com/mtkennerly/ludusavi-manifest/master/data/manifest.json');
-        if (res.ok) {
-            const json = await res.json();
-            fs.writeJsonSync(manifestPath, json);
-            ludusaviManifestCache = json;
-            return json;
-        }
-    } catch(e) {
-        console.error("Ludusavi fetch error:", e);
-    }
-    
-    if (fs.existsSync(manifestPath)) {
-        ludusaviManifestCache = fs.readJsonSync(manifestPath);
-        return ludusaviManifestCache;
-    }
-    return null;
-}
-
-function resolveLudusaviPath(rawPath) {
-    let p = rawPath;
-    p = p.replace(/<winAppData>/gi, process.env.APPDATA || '');
-    p = p.replace(/<winLocalAppData>/gi, process.env.LOCALAPPDATA || '');
-    p = p.replace(/<winDocuments>/gi, path.join(process.env.USERPROFILE || '', 'Documents'));
-    p = p.replace(/<winPublic>/gi, 'C:\\Users\\Public');
-    p = p.replace(/<winProgramData>/gi, process.env.PROGRAMDATA || '');
-    p = p.replace(/<winDir>/gi, process.env.windir || '');
-    p = p.replace(/<winProfile>/gi, process.env.USERPROFILE || '');
-    p = p.replace(/<osUserName>/gi, process.env.USERNAME || '');
-    p = p.replace(/\//g, '\\');
-    return p;
-}
-
-ipcMain.handle('detect-saves-ludusavi', async (e, gameName) => {
-    const manifest = await getLudusaviManifest();
-    if (!manifest) return { success: false, error: "Failed to download Ludusavi database." };
-    
-    const gameKey = Object.keys(manifest).find(k => k.toLowerCase() === gameName.toLowerCase());
-    if (!gameKey) return { success: true, paths: [] };
-    
-    const gameData = manifest[gameKey];
-    if (!gameData.files) return { success: true, paths: [] };
-    
-    const dirs = new Set();
-    for (const rawPath of Object.keys(gameData.files)) {
-        if (!rawPath.toLowerCase().includes('<win') && !rawPath.toLowerCase().includes('<os')) continue;
-        
-        let resolved = resolveLudusaviPath(rawPath);
-        let dirPath = resolved;
-        if (resolved.includes('*')) {
-            dirPath = resolved.substring(0, resolved.indexOf('*'));
-        }
-        
-        dirPath = path.normalize(dirPath).replace(/\\$/, '');
-        
+ipcMain.handle('detect-saves-ludusavi', async (event, request) => {
+    const input = typeof request === 'string' ? { gameName: request } : Object.assign({}, request || {});
+    const sendStatus = status => {
         try {
-            if (fs.existsSync(dirPath)) {
-                if (fs.statSync(dirPath).isDirectory()) dirs.add(dirPath);
-                else dirs.add(path.dirname(dirPath));
-            } else {
-                dirs.add(path.dirname(dirPath));
-            }
-        } catch(e) {
-            dirs.add(path.dirname(dirPath));
-        }
+            if (!event.sender.isDestroyed()) event.sender.send('save-detection-status', {
+                scanId: input.scanId || '',
+                phase: status.phase,
+                message: status.message
+            });
+        } catch (_) {}
+    };
+    try {
+        const loaded = await loadLudusaviManifest({
+            cachePath: path.join(app.getPath('userData'), 'ludusavi_manifest.yaml'),
+            fetchImpl: globalThis.fetch,
+            onStatus: sendStatus
+        });
+        sendStatus({ phase: 'matching', message: 'Checking known Ludusavi save locations…' });
+        const steamRoot = findSteamRoot();
+        const result = detectLudusaviSaveCandidates(loaded.manifest, input, {
+            documentsPath: app.getPath('documents'),
+            homePath: app.getPath('home'),
+            steamRoot
+        });
+        return {
+            success: true,
+            paths: result.candidates.map(candidate => candidate.path),
+            candidates: result.candidates,
+            matchedGame: result.matchedGame,
+            stale: loaded.stale,
+            warning: loaded.warning || null
+        };
+    } catch (error) {
+        console.error('Ludusavi save detection failed:', error && error.message || error);
+        return { success: false, paths: [], candidates: [], error: 'Failed to load the Ludusavi save database.' };
     }
-    
-    return { success: true, paths: [...dirs] };
 });
 
 ipcMain.handle('detect-saves-auto', async (e, gameName) => {
@@ -1234,50 +1955,153 @@ function runScript(scriptPath, wait = true) {
     });
 }
 
-ipcMain.handle('run-script', (e, scriptPath) => runScript(scriptPath, false));
+function exactGateAPayload(value, allowed, label) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        const error = new Error(`${label} must be an object.`);
+        error.code = 'SAIL_GATE_A_INVALID_PAYLOAD';
+        throw error;
+    }
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) {
+        const error = new Error(`${label} has an unsupported prototype.`);
+        error.code = 'SAIL_GATE_A_INVALID_PAYLOAD';
+        throw error;
+    }
+    for (const key of Object.keys(value)) {
+        if (!allowed.includes(key) || ['__proto__', 'prototype', 'constructor'].includes(key)) {
+            const error = new Error(`${label}.${key} is not allowed.`);
+            error.code = 'SAIL_GATE_A_INVALID_PAYLOAD';
+            throw error;
+        }
+    }
+    return value;
+}
 
-ipcMain.handle('launch-game', async (e, { exePath, steamAppId, runAsAdmin, highPriority, launchArgs, preLaunchScript, postLaunchScript, companionApp }) => {
+ipcMain.handle('launch-game', async (e, payload) => {
+    const input = exactGateAPayload(payload, [
+        'capabilityId', 'expectedRevision', 'gameId',
+        'needsSaveSync', 'needsGameConfigSync'
+    ], 'Launch request');
+    if (!accountServices || !accountServices.profileStore) throw new Error('Local game authority is not ready.');
+    const gameMetadata = accountServices.profileStore.activeGameMetadata(input.gameId);
+    const resolved = accountServices.profileStore.resolveExecutionCapability({
+        capabilityId: input.capabilityId,
+        expectedRevision: input.expectedRevision,
+        gameId: input.gameId,
+        operation: 'launch'
+    });
+    const phaseAuthority = createExecutionPhaseAuthority({
+        profileStore: accountServices.profileStore,
+        gameId: input.gameId,
+        resolvedCapability: resolved
+    });
+    const {
+        executablePath: exePath,
+        steamAppId,
+        playDetectionPath
+    } = resolved.details;
+    if (!exePath && !steamAppId) throw new Error('Local game setup is incomplete.');
+    const gameId = gameMetadata.id;
+    const gameName = gameMetadata.name;
+    const libraryKey = `${gameMetadata.profileId}:${gameMetadata.libraryId}`;
+    const needsSaveSync = input.needsSaveSync === true;
+    const needsGameConfigSync = input.needsGameConfigSync === true;
+    const exeName = exePath ? path.basename(exePath).toLowerCase() : 'steam.exe';
+    const trackedExeName = path.basename(playDetectionPath || exePath || 'steam.exe').toLowerCase();
+    const startTrackedSession = pid => {
+        if (!runtimeRecovery || !gameId) return null;
+        return runtimeRecovery.startSession({
+            gameId,
+            gameName,
+            libraryKey,
+            pid,
+            exeName: trackedExeName,
+            processConfirmed: !!pid && trackedExeName === exeName,
+            startedAt: Date.now(),
+            needsSaveSync,
+            needsGameConfigSync
+        });
+    };
 
-
-    // 2. Fallback to prevent crashes if exePath is completely missing
-    if (!exePath) return { pid: null, exeName: 'unknown', runAsAdmin: false, untrackable: true };
-
-    // 3. Normal launch logic for pirated/custom games
-    const exeName = path.basename(exePath).toLowerCase();
-    const ext = path.extname(exePath).toLowerCase();
-
-    // ... (Leave preLaunchScript, companionApp, and everything below this exactly as is)
-
-    if (companionApp) {
+    const beforePreLaunch = phaseAuthority.resolve('pre-script');
+    if (beforePreLaunch.preLaunchScript) await runScript(beforePreLaunch.preLaunchScript, true);
+    const beforeCompanion = phaseAuthority.resolve('companion');
+    if (beforeCompanion.companionPath) {
         try {
-            if (companionApp.toLowerCase().endsWith('.exe')) {
-                const comp = spawn(companionApp, [], { cwd: path.dirname(companionApp), detached: true, stdio: 'ignore' });
+            if (beforeCompanion.companionPath.toLowerCase().endsWith('.exe')) {
+                const comp = spawn(beforeCompanion.companionPath, [], { cwd: path.dirname(beforeCompanion.companionPath), detached: true, stdio: 'ignore' });
                 comp.unref();
-            } else { shell.openPath(companionApp); }
+            } else { shell.openPath(beforeCompanion.companionPath); }
         } catch (err) { console.log("Companion launch failed", err); }
     }
+    const launchDetails = phaseAuthority.resolve('launch');
 
-    return new Promise(async (resolve) => {
-        if (runAsAdmin) {
-            const argsString = launchArgs ? `-ArgumentList '${launchArgs}'` : '';
-            spawn('powershell.exe', ['-Command', `Start-Process -FilePath "${exePath}" ${argsString} -WorkingDirectory "${path.dirname(exePath)}" -Verb RunAs`]);
-            resolve({ pid: null, exeName: exeName, runAsAdmin: true });
-        } else if ((ext === '.lnk' || ext === '.bat' || ext === '.cmd') && !launchArgs) {
-            await shell.openPath(exePath);
-            resolve({ pid: null, exeName: exeName, runAsAdmin: false, untrackable: true });
+    return new Promise(async (resolve, reject) => {
+        const launchExePath = launchDetails.executablePath;
+        const launchSteamAppId = launchDetails.steamAppId;
+        const launchWorkingDirectory = launchDetails.workingDirectory;
+        const launchArgv = Array.isArray(launchDetails.argv) ? launchDetails.argv : [];
+        const launchPlayDetectionPath = launchDetails.playDetectionPath;
+        const launchExt = launchExePath ? path.extname(launchExePath).toLowerCase() : '';
+        const launchExeName = launchExePath ? path.basename(launchExePath).toLowerCase() : 'steam.exe';
+        if (launchSteamAppId && !launchExePath) {
+            try {
+                await shell.openExternal(`steam://run/${launchSteamAppId}`);
+                const session = launchPlayDetectionPath ? startTrackedSession(null) : null;
+                resolve({ pid: null, exeName: 'steam.exe', runAsAdmin: false, untrackable: !launchPlayDetectionPath, sessionId: session && session.sessionId, startedAt: session && session.startedAt });
+            } catch (error) {
+                reject(error);
+            }
+            return;
+        }
+        if (launchDetails.runAsAdmin) {
+            const env = {
+                ...process.env,
+                SAIL_APPROVED_EXECUTABLE: launchExePath,
+                SAIL_APPROVED_WORKING_DIRECTORY: launchWorkingDirectory,
+                SAIL_APPROVED_ARGV_JSON: JSON.stringify(launchArgv)
+            };
+            const command = [
+                "$approvedExe = [Environment]::GetEnvironmentVariable('SAIL_APPROVED_EXECUTABLE')",
+                "$approvedCwd = [Environment]::GetEnvironmentVariable('SAIL_APPROVED_WORKING_DIRECTORY')",
+                "$approvedArgv = @((ConvertFrom-Json ([Environment]::GetEnvironmentVariable('SAIL_APPROVED_ARGV_JSON'))))",
+                'Start-Process -FilePath $approvedExe -ArgumentList $approvedArgv -WorkingDirectory $approvedCwd -Verb RunAs'
+            ].join('; ');
+            spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command], { windowsHide: true, env });
+            const trackable = launchExt === '.exe' || !!launchPlayDetectionPath;
+            const session = trackable ? startTrackedSession(null) : null;
+            resolve({ pid: null, exeName: launchExeName, runAsAdmin: true, untrackable: !trackable, sessionId: session && session.sessionId, startedAt: session && session.startedAt });
+        } else if ((launchExt === '.lnk' || launchExt === '.bat' || launchExt === '.cmd') && launchArgv.length === 0) {
+            await shell.openPath(launchExePath);
+            const session = launchPlayDetectionPath ? startTrackedSession(null) : null;
+            resolve({ pid: null, exeName: launchExeName, runAsAdmin: false, untrackable: !launchPlayDetectionPath, sessionId: session && session.sessionId, startedAt: session && session.startedAt });
         } else {
-            const argsArray = launchArgs ? launchArgs.split(' ') : [];
-            const gameProcess = spawn(exePath, argsArray, { cwd: path.dirname(exePath), stdio: 'ignore' });
+            const gameProcess = spawn(launchExePath, launchArgv, { cwd: launchWorkingDirectory, stdio: 'ignore' });
 
-            if (highPriority && gameProcess.pid) {
+            if (launchDetails.highPriority && gameProcess.pid) {
                 exec(`wmic process where processid=${gameProcess.pid} CALL setpriority 128`, () => { });
             }
 
+            const session = startTrackedSession(gameProcess.pid);
             gameProcess.on('close', () => {
-                if (postLaunchScript) runScript(postLaunchScript, false);
-                e.sender.send('game-closed', gameProcess.pid);
+                try {
+                    const afterClose = phaseAuthority.resolve('post-script');
+                    if (afterClose.postLaunchScript) runScript(afterClose.postLaunchScript, false);
+                } catch (_) {
+                    console.warn('Post-launch script skipped because its local capability is no longer current.');
+                }
+                if (session && (!launchPlayDetectionPath || trackedExeName === launchExeName)) {
+                    finishRuntimeSession({
+                        gameId,
+                        libraryKey,
+                        sessionId: session.sessionId,
+                        endedAt: Date.now(),
+                        reason: 'process-close-event'
+                    });
+                }
+                if (!e.sender.isDestroyed()) e.sender.send('game-closed', gameProcess.pid);
             });
-            resolve({ pid: gameProcess.pid, exeName: exeName, runAsAdmin: false });
+            resolve({ pid: gameProcess.pid, exeName: exeName, runAsAdmin: false, sessionId: session && session.sessionId, startedAt: session && session.startedAt });
         }
     });
 });
@@ -1406,54 +2230,8 @@ ipcMain.handle('hub-download-file', async (e, { fileUrl, type }) => {
     return downloadHubFile(fileUrl, targetDir);
 });
 
-// --- Game Download Sources: fetch raw HTML with a browser-like User-Agent ---
-// Used by the "Download" tab scrapers (SteamRIP / FitGirl / SteamGG).
-// Routed through the main process so we can set a desktop UA, follow redirects,
-// and sidestep renderer CORS / Cloudflare fetch fingerprinting.
-function fetchSourceHtml(url, redirects = 0) {
-    return new Promise((resolve) => {
-        if (redirects > 6) return resolve({ ok: false, status: 0, html: '', error: 'Too many redirects' });
-        let client;
-        try {
-            client = url.startsWith('https') ? https : http;
-        } catch (e) {
-            return resolve({ ok: false, status: 0, html: '', error: 'Bad URL' });
-        }
-        const req = client.get(url, {
-            headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-                'Accept-Language': 'en-US,en;q=0.9',
-                'Referer': url
-            },
-            timeout: 20000
-        }, (response) => {
-            // Follow redirects
-            if (response.statusCode >= 300 && response.statusCode < 400 && response.headers.location) {
-                response.resume();
-                let loc = response.headers.location;
-                try { loc = new URL(loc, url).href; } catch (e) {}
-                return resolve(fetchSourceHtml(loc, redirects + 1));
-            }
-            let data = '';
-            response.setEncoding('utf8');
-            response.on('data', (chunk) => { data += chunk; });
-            response.on('end', () => {
-                resolve({ ok: response.statusCode >= 200 && response.statusCode < 300, status: response.statusCode, html: data, finalUrl: url });
-            });
-        });
-        req.on('error', (err) => resolve({ ok: false, status: 0, html: '', error: err.message }));
-        req.on('timeout', () => { req.destroy(); resolve({ ok: false, status: 0, html: '', error: 'Request timed out' }); });
-    });
-}
-
-ipcMain.handle('scrape-fetch', async (e, url) => {
-    try {
-        return await fetchSourceHtml(url);
-    } catch (err) {
-        return { ok: false, status: 0, html: '', error: err.message };
-    }
-});
+const remoteDataService = createRemoteDataService();
+registerRemoteDataIpc(ipcMain, remoteDataService);
 
 // ============================================================
 //  Game Download Engine — aria2 + link resolver + post-process
@@ -1462,9 +2240,15 @@ const ARIA2_DL_URL = 'https://github.com/aria2/aria2/releases/download/release-1
 const DL_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 let aria2BinPath = null;
 const activeDownloads = new Map(); // id -> { proc, dir, meta }
+const downloadQuarantineCatalog = new DownloadQuarantineCatalog({
+    catalogPath: path.join(app.getPath('userData'), 'download-quarantine-roots.json')
+});
+const downloadJobDirectories = new DownloadJobDirectoryRegistry({ quarantineCatalog: downloadQuarantineCatalog });
+const downloadWork = createDownloadWorkCoordinator(downloadJobDirectories);
 let browserDownloadCapture = { enabled: false, defaults: {} };
 const browserDownloadWebContents = new Set();
 const pendingBrowserDownloads = new Map();
+const browserDownloadIntents = new BrowserDownloadIntentRegistry({ beginJob: beginDownloadJob });
 
 const AD_BLOCK_HOSTS = [
     'a-ads.com', 'ad.a-ads.com', 'aads.com', 'hilltopads.net', 'hilltopads.com', 'clickadu.com',
@@ -1503,50 +2287,6 @@ function applyAdBlock(sess) {
     });
 }
 ipcMain.handle('set-adblock', (e, enabled) => { adBlockEnabled = !!enabled; return adBlockEnabled; });
-
-// Render a page in a hidden Chromium window so Cloudflare / DDoS-Guard JS
-// challenges are solved automatically, and so login cookies from the in-app
-// browser (same default session) carry over. Returns the
-// fully-rendered HTML.
-function renderPageHtml(url, { timeout = 45000 } = {}) {
-    return new Promise((resolve) => {
-        let done = false, win = null, poll = null;
-        const finish = (val) => {
-            if (done) return; done = true;
-            clearTimeout(timer); if (poll) clearInterval(poll);
-            try { if (win && !win.isDestroyed()) win.destroy(); } catch (e) {}
-            resolve(val);
-        };
-        const timer = setTimeout(() => finish({ ok: false, status: 0, html: '', error: 'render timeout' }), timeout);
-        try {
-            // backgroundThrottling:false is REQUIRED — otherwise the hidden window's
-            // timers are throttled and Cloudflare's JS challenge never completes.
-            win = new BrowserWindow({ show: false, width: 1200, height: 800, webPreferences: { sandbox: true, backgroundThrottling: false } });
-        } catch (e) { return finish({ ok: false, status: 0, html: '', error: e.message }); }
-        try { applyAdBlock(win.webContents.session); } catch (e) {}
-        win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-        const isChallenge = (html) => /just a moment|checking your browser|cf-browser-verification|challenge-platform|_cf_chl|enable javascript and cookies|verifying you are human|attention required|ddos-guard/i.test(html);
-        const tryGrab = async () => {
-            if (done || !win || win.isDestroyed()) return;
-            let html = '';
-            try { html = await win.webContents.executeJavaScript('document.documentElement.outerHTML', true); } catch (e) { return; }
-            // the window may have been destroyed (timeout/finish) while we awaited
-            if (done || !win || win.isDestroyed()) return;
-            if (!html || html.length < 800) return;
-            if (isChallenge(html) && html.length < 80000) return; // wait for challenge to clear
-            let finalUrl = url;
-            try { finalUrl = win.webContents.getURL(); } catch (e) {}
-            finish({ ok: true, status: 200, html, finalUrl });
-        };
-        win.webContents.on('did-finish-load', () => setTimeout(tryGrab, 1200));
-        poll = setInterval(tryGrab, 2000);
-        win.loadURL(url, { userAgent: DL_UA }).catch(() => {});
-    });
-}
-ipcMain.handle('scrape-render', async (e, url) => {
-    try { return await renderPageHtml(url); }
-    catch (err) { return { ok: false, status: 0, html: '', error: err.message }; }
-});
 
 function dlHttpToFile(url, dest, redirects = 0) {
     return new Promise((resolve, reject) => {
@@ -1599,14 +2339,56 @@ async function ensureAria2(wc) {
     return target;
 }
 
-function sanitizeName(name) {
-    return (name || '').replace(/[<>:"/\\|?*]+/g, '').replace(/\s+/g, ' ').trim().slice(0, 80) || ('game_' + Date.now());
+function beginDownloadJob(id, opts) {
+    return downloadJobDirectories.begin(id, {
+        gameName: opts && opts.gameName,
+        installDir: opts && opts.installDir,
+        defaultRoot: path.join(app.getPath('userData'), 'SailDownloads')
+    });
 }
 
-function getDownloadsRoot(custom) {
-    const root = (custom && custom.trim()) ? custom : path.join(app.getPath('userData'), 'SailDownloads');
-    if (!fs.existsSync(root)) fs.mkdirSync(root, { recursive: true });
-    return root;
+async function finishDownloadJob(jobRef, result) {
+    const job = jobRef && jobRef.job ? jobRef.job : jobRef;
+    if (!job || job.cancelled) throw new Error('The cancelled download cannot be completed.');
+    const publication = await downloadJobDirectories.publish(jobRef);
+    const publishedResult = downloadJobDirectories.mapPublishedResult(result, publication);
+    downloadJobDirectories.forget(job);
+    let adopted = null;
+    let location = null;
+    let warning = String(publishedResult.warning || '').slice(0, 2000);
+    try {
+        if (publishedResult.autoAdd !== false) {
+            adopted = gateAProfileStore().registerDownloadedGameProposal({
+                gameName: publishedResult.gameName,
+                executablePath: publishedResult.exePath,
+                folderPath: publishedResult.folder,
+                coverPath: publishedResult.cover,
+                sourceId: publishedResult.sourceId
+            });
+            location = adopted.location;
+        } else if (publishedResult.folder) {
+            location = gateAProfileStore().createLauncherDirectoryCapability(publishedResult.folder);
+        }
+    } catch (error) {
+        warning = `${warning ? `${warning} ` : ''}The files were saved, but local setup still needs to be completed.`;
+    }
+    return {
+        gameName: String(publishedResult.gameName || 'Download').slice(0, 240),
+        usable: publishedResult.usable === true,
+        installFailed: publishedResult.installFailed === true,
+        warning,
+        gameId: adopted ? adopted.gameId : 'launcher-device',
+        execution: adopted && adopted.execution || null,
+        localSetupStatus: adopted && adopted.execution ? 'active' : 'local-setup-required',
+        location,
+        state: adopted && adopted.state || null,
+        snapshot: adopted && adopted.snapshot || null
+    };
+}
+
+async function retainDownloadJobError(jobRef) {
+    const job = jobRef && jobRef.job ? jobRef.job : jobRef;
+    if (job && !job.cancelled) await downloadJobDirectories.setState(jobRef, 'error');
 }
 
 // --- Host scrapers (pure HTTP — ported from Black-Pearl) ---------------------
@@ -2108,11 +2890,22 @@ ipcMain.on('set-debrid-config', (e, cfg) => {
     debridKey = (debridService && cfg.key) ? String(cfg.key) : '';
 });
 ipcMain.handle('debrid-validate', async (e, payload) => {
-    payload = payload || {};
-    const service = payload.service, key = payload.key;
+    const input = exactGateAPayload(payload, ['service', 'key'], 'Debrid validation');
+    const service = String(input.service || '');
+    const key = typeof input.key === 'string' && input.key.length <= 8192 && !/[\u0000\r\n]/.test(input.key) ? input.key : '';
     if (!service || !key || !DEBRID[service]) return { ok: false, error: 'Unknown service' };
-    try { const r = await DEBRID[service].validate(key); return r || { ok: false }; }
-    catch (err) { return { ok: false, error: String((err && err.message) || err) }; }
+    const displayText = (value, fallback = '') => {
+        const text = String(value || '').replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 256);
+        return text || fallback;
+    };
+    try {
+        const result = await DEBRID[service].validate(key);
+        return result && result.ok === true
+            ? { ok: true, user: displayText(result.user) }
+            : { ok: false, error: displayText(result && result.error, 'Invalid key') };
+    } catch (err) {
+        return { ok: false, error: displayText(err && err.message || err, 'Request failed') };
+    }
 });
 
 async function resolveDirectUrl(rawUrl, opts) {
@@ -2246,7 +3039,18 @@ function interceptDownload(url, timeoutMs = 55000) {
         try {
             // default session (no partition) so Cloudflare clearance / site logins
             // from the in-app browser carry over; no throttling so challenges run
-            win = new BrowserWindow({ show: false, width: 1200, height: 800, webPreferences: { sandbox: true, backgroundThrottling: false } });
+            win = new BrowserWindow({
+                show: false,
+                width: 1200,
+                height: 800,
+                webPreferences: {
+                    nodeIntegration: false,
+                    contextIsolation: true,
+                    sandbox: true,
+                    webSecurity: true,
+                    backgroundThrottling: false
+                }
+            });
         } catch (e) { return finish(null); }
         sess = win.webContents.session;
         applyAdBlock(sess);
@@ -2346,50 +3150,50 @@ function findArchives(dir) {
 // Extract a .rar via node-unrar-js (pure-JS, supports RAR4 AND RAR5). The bundled
 // 7za.exe ships WITHOUT the RAR codec — it can't open ANY .rar ("Cannot open the
 // file as archive", exit 2) — so SteamRIP/SteamGG rars must go through unrar instead.
-async function extractRar(archivePath, destDir) {
+async function extractRar(archivePath, destDir, work) {
+    if (work) await work.checkpoint();
     if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
     const extractor = await unrar.createExtractorFromFile({ filepath: archivePath, targetPath: destDir });
+    if (work) await work.checkpoint();
     // The files iterator is lazy — extraction only happens as it's consumed.
     const result = extractor.extract();
     let count = 0;
     for (const _f of result.files) count++;
+    await new Promise(resolve => setImmediate(resolve));
+    if (work) await work.checkpoint();
     if (!count) throw new Error('node-unrar-js extracted 0 files (archive empty or split-volume missing parts)');
     return destDir;
 }
 
-function extractArchive(archivePath, destDir) {
+async function extractArchive(archivePath, destDir, work) {
+    if (work) await work.checkpoint();
     if (/\.rar$/i.test(archivePath)) {
         // RAR (incl. RAR5) — 7za can't do these at all; use node-unrar-js.
-        return extractRar(archivePath, destDir).catch((e) => {
+        return extractRar(archivePath, destDir, work).catch((e) => {
             console.error('[extract] unrar failed for', archivePath, '-', e && e.message);
             throw e;
         });
     }
-    return new Promise((resolve, reject) => {
-        if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
-        // 7-Zip (bundled via 7zip-min) handles zip / 7z / split 7z/zip archives
-        _7z.unpack(archivePath, destDir, (err) => {
-            if (!err) return resolve(destDir);
-            console.error('[extract] 7-Zip failed for', archivePath, '-', err && err.message);
-            // For .zip, fall back to PowerShell's Expand-Archive: it unpacks some zips
-            // (Zip64 / unusual metadata) that the bundled 7za rejects with "cannot open".
-            if (/\.zip$/i.test(archivePath)) {
-                const psQuote = (s) => "'" + String(s).replace(/'/g, "''") + "'";
-                const cmd = 'Expand-Archive -LiteralPath ' + psQuote(archivePath) + ' -DestinationPath ' + psQuote(destDir) + ' -Force';
-                const ps = spawn('powershell', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', cmd], { windowsHide: true });
-                let errBuf = '';
-                ps.stderr.on('data', (d) => { errBuf += d.toString(); });
-                ps.on('error', () => reject(err));
-                ps.on('close', (code) => {
-                    if (code === 0) { console.error('[extract] Expand-Archive fallback succeeded for', archivePath); return resolve(destDir); }
-                    const detail = errBuf.trim().split(/\r?\n/)[0] || ('exit ' + code);
-                    reject(new Error('7-Zip: ' + (err && err.message || 'failed') + ' | Expand-Archive: ' + detail));
-                });
-            } else {
-                reject(err);
-            }
-        });
-    });
+    if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
+    const binaryPath = _7z.getConfig().binaryPath;
+    try {
+        await runOwnedChildProcess(binaryPath, ['x', archivePath, `-o${destDir}`, '-y'], work);
+        if (work) await work.checkpoint();
+        return destDir;
+    } catch (err) {
+        console.error('[extract] 7-Zip failed for', archivePath, '-', err && err.message);
+        if (!/\.zip$/i.test(archivePath)) throw err;
+        if (work) await work.checkpoint();
+        const psQuote = (s) => "'" + String(s).replace(/'/g, "''") + "'";
+        const cmd = 'Expand-Archive -LiteralPath ' + psQuote(archivePath) + ' -DestinationPath ' + psQuote(destDir) + ' -Force';
+        try {
+            await runOwnedChildProcess('powershell', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', cmd], work);
+            if (work) await work.checkpoint();
+            return destDir;
+        } catch (fallbackError) {
+            throw new Error('7-Zip: ' + (err && err.message || 'failed') + ' | Expand-Archive: ' + (fallbackError && fallbackError.message || 'failed'));
+        }
+    }
 }
 
 // Read the leading bytes of a file and return the archive extension its magic
@@ -2456,7 +3260,7 @@ function dirSizeBytes(d, depth) {
 // Run a FitGirl (InnoSetup) installer unattended into targetDir. These repacks
 // support InnoSetup's silent switches; /VERYSILENT skips the custom UI, /DIR sets the
 // destination. The installer may still raise a single UAC prompt if it needs admin.
-function runSilentInstall(installerPath, targetDir, ctl, skipExtras) {
+function runSilentInstall(installerPath, targetDir, ctl, skipExtras, work) {
     return new Promise((resolve, reject) => {
         try { if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true }); } catch (e) {}
         // FitGirl installers require admin to install — a plain spawn (non-elevated)
@@ -2588,13 +3392,15 @@ function runSilentInstall(installerPath, targetDir, ctl, skipExtras) {
             '$pre = @{}',
             'try { foreach ($p in @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $base -ne "" -and $_.ProcessName -ieq $base })) { $pre[[int]$p.Id] = $true } } catch {}',
             '# Snapshot pre-existing cmd.exe PIDs so we only auto-close installer-spawned cmd windows',
-            '$preCmdPids = @{}',
-            'try { foreach ($p in @(Get-Process "cmd" -ErrorAction SilentlyContinue)) { $preCmdPids[[int]$p.Id] = $true } } catch {}',
             'function Get-FolderSize($p) { try { return [double]((Get-ChildItem -LiteralPath $p -Recurse -File -Force -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum) } catch { return [double]0 } }',
             'Write-Host ("LAUNCH base=" + $base + " installer=" + $installer + " target=" + $target)',
             '# Bail clearly if the installer path the renderer handed us does not actually exist',
             '# (avoids a cryptic ShellExecute failure and tells us WHICH path was wrong).',
             'if ([string]::IsNullOrEmpty($installer) -or -not (Test-Path -LiteralPath $installer)) { Write-Host ("LAUNCH_FAIL installer not found: " + $installer); exit 2 }',
+            '# Wait for the main process to commit the exact job state before elevation. If the',
+            '# wrapper is cancelled before this gate is opened, the installer is never launched.',
+            'Write-Host "READY_TO_LAUNCH"',
+            'while (-not (Test-Path -LiteralPath $env:SAIL_LAUNCH_GATE)) { Start-Sleep -Milliseconds 50 }',
             '# Launch the installer ELEVATED. Start-Process blocks on the UAC dialog, so by the',
             '# time it returns the prompt has already been answered. We do NOT rely on -PassThru',
             '# returning a usable object (it can be $null even on success) — instead the wait below',
@@ -2646,16 +3452,6 @@ function runSilentInstall(installerPath, targetDir, ctl, skipExtras) {
             '        $muteState = $true',
             '        try { if ((Get-Content -LiteralPath "$env:SAIL_MUTE_FLAG" -ErrorAction SilentlyContinue) -eq "0") { $muteState = $false } } catch {}',
             '        try { [void][AppMuter]::SetMute($ids.ToArray(), $muteState) } catch {}',
-            '        if ($env:SAIL_SKIP_REDIST -eq "1") {',
-            '            # Kill FitGirl file checker ("Finisher") and all redistributable installers by name',
-            '            try { Get-Process -Name "Finisher","dxwebsetup","dxsetup","vcredist*","vc_redist*","dotNetFx*","dotnet*" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue } catch {}',
-            '            # Close installer-spawned cmd.exe windows (e.g. FitGirl hosts-file protection script)',
-            '            try {',
-            '                Get-Process "cmd" -ErrorAction SilentlyContinue | Where-Object {',
-            '                    -not $preCmdPids.ContainsKey([int]$_.Id)',
-            '                } | ForEach-Object { try { [void]$_.CloseMainWindow() } catch {} }',
-            '            } catch {}',
-            '        }',
             '    } else {',
             '        $sz = Get-FolderSize $target',
             '        if (($sz - $lastSize) -gt 1MB) { $idle = 0 } else { $idle++ }',
@@ -2680,6 +3476,7 @@ function runSilentInstall(installerPath, targetDir, ctl, skipExtras) {
         }
         const psScript = psLines.join('\r\n');
         const tmpFile = path.join(process.env.TEMP || process.env.TMP || path.dirname(installerPath), 'sail_inst_' + Date.now() + '.ps1');
+        const launchGate = tmpFile + '.launch';
         // Write WITH a UTF-8 BOM so Windows PowerShell 5.1 decodes the script as UTF-8 (it
         // falls back to the ANSI code page for BOM-less files). The dynamic paths now travel
         // via env vars below, but the BOM is cheap belt-and-suspenders.
@@ -2693,29 +3490,47 @@ function runSilentInstall(installerPath, targetDir, ctl, skipExtras) {
             SAIL_INSTALLER: installerPath,
             SAIL_TARGET: targetDir,
             SAIL_ARGS: innoArgs,
+            SAIL_LAUNCH_GATE: launchGate,
             SAIL_MUTE_FLAG: path.join(app.getPath('userData'), '.installer_mute'),
             SAIL_SKIP_REDIST: skipExtras ? '1' : '0'
         });
         try { proc = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', tmpFile], { windowsHide: true, env: psEnv }); }
         catch (e) { try { fs.unlinkSync(tmpFile); } catch (er) {} return reject(e); }
         ctl.proc = proc;
+        Promise.resolve(work && work.setStop(() => { try { proc.kill(); } catch (_) {} })).catch(() => {});
         // Capture the watcher's diagnostic output (LAUNCH/ROOT/PHASE1/DONE lines). Mirrored to
         // the console AND a log file next to the install so a failed auto-install is debuggable.
         let psOut = '';
-        try { proc.stdout && proc.stdout.on('data', d => { psOut += d.toString(); }); } catch (e) {}
+        let launchAuthorized = false;
+        const inspectInstallerOutput = () => {
+            if (launchAuthorized || !psOut.includes('READY_TO_LAUNCH')) return;
+            launchAuthorized = true;
+            Promise.resolve().then(async () => {
+                if (work) {
+                    await work.checkpoint();
+                    await work.markInstallerRunning();
+                    await work.setStop(null);
+                }
+                fs.writeFileSync(launchGate, 'launch', { flag: 'wx' });
+            }).catch(() => { try { proc.kill(); } catch (_) {} });
+        };
+        try { proc.stdout && proc.stdout.on('data', d => { psOut += d.toString(); inspectInstallerOutput(); }); } catch (e) {}
         try { proc.stderr && proc.stderr.on('data', d => { psOut += d.toString(); }); } catch (e) {}
-        proc.on('error', (e) => { try { fs.unlinkSync(tmpFile); } catch (er) {} reject(e); });
+        proc.on('error', (e) => { try { fs.unlinkSync(tmpFile); } catch (er) {} try { fs.unlinkSync(launchGate); } catch (er) {} reject(e); });
         proc.on('close', (code) => {
             try { fs.unlinkSync(tmpFile); } catch (er) {}
+            try { fs.unlinkSync(launchGate); } catch (er) {}
             try {
                 const trimmed = psOut.trim();
                 if (trimmed) console.log('[auto-install] ' + trimmed.replace(/\r?\n/g, ' | '));
                 fs.writeFileSync(path.join(path.dirname(targetDir), '_sail_install_log.txt'),
                     '[' + new Date().toISOString() + '] exit=' + code + '\r\n' + psOut, 'utf8');
             } catch (e) {}
-            if (ctl.cancelled) return reject(new Error('Cancelled'));
-            if (code === 1223) return reject(new Error('Windows permission prompt was declined'));   // UAC cancelled
-            resolve(code);
+            Promise.resolve(work && work.markInstallerExited()).catch(() => {}).finally(() => {
+                if (ctl.cancelled) return reject(new Error('Cancelled'));
+                if (code === 1223) return reject(new Error('Windows permission prompt was declined'));   // UAC cancelled
+                resolve(code);
+            });
         });
     });
 }
@@ -2811,8 +3626,16 @@ function cleanRepackSource(dir, keepDir) {
     }
 }
 
-async function postProcessDownload(dir, opts) {
-    const result = { gameName: opts.gameName, folder: dir, exePath: '', cover: '', extracted: false, usable: false, junk: false };
+async function postProcessDownload(job, dir, opts) {
+    return downloadWork.run(job, { type: 'post-processing', state: 'post_processing' }, work => postProcessDownloadBody(dir, opts, work));
+}
+
+async function postProcessDownloadBody(dir, opts, work) {
+    await work.checkpoint();
+    const result = {
+        gameName: opts.gameName, folder: dir, exePath: '', cover: '', extracted: false,
+        usable: false, junk: false, autoAdd: opts.autoAdd !== false, sourceId: opts.sourceId
+    };
     // locate cover saved earlier
     try {
         const coverFile = fs.readdirSync(dir).find(f => /^_cover\./i.test(f));
@@ -2821,6 +3644,7 @@ async function postProcessDownload(dir, opts) {
 
     // Give extension-less downloads (debrid-resolved SteamRIP .zips, etc.) the right
     // archive extension by content, BEFORE we walk/detect — so they auto-extract.
+    await work.checkpoint();
     if (opts.autoExtract !== false) { try { normalizeArchiveExtensions(dir, 0); } catch (e) {} }
 
     // walk ALL payload files recursively (torrents/installers nest in a subfolder)
@@ -2842,12 +3666,14 @@ async function postProcessDownload(dir, opts) {
         const extractTo = path.join(dir, '_game');
         let anyExtracted = false, extractErr = null;
         for (const arc of archives) {
-            try { await extractArchive(arc, extractTo); result.extracted = true; anyExtracted = true; }
-            catch (e) { extractErr = e; console.error('[postProcess] extraction failed for', arc, '-', e && e.message); /* leave archive in place */ }
+            await work.checkpoint();
+            try { await extractArchive(arc, extractTo, work); await work.checkpoint(); result.extracted = true; anyExtracted = true; }
+            catch (e) { await work.checkpoint(); extractErr = e; console.error('[postProcess] extraction failed for', arc, '-', e && e.message); /* leave archive in place */ }
         }
         // Strip SteamRIP/pre-installed filler (readme, .url shortcut, _CommonRedist) so the
         // library folder is just the game. Runs before findGameExe so a redist installer
         // exe can't be mistaken for the game.
+        await work.checkpoint();
         if (result.extracted) { try { cleanExtractedJunk(extractTo, opts.skipRedist !== false); } catch (e) {} }
         // Extraction was attempted but every archive failed → tell the user why instead of
         // silently reporting success with the un-extracted archive sitting in the folder.
@@ -2874,8 +3700,10 @@ async function postProcessDownload(dir, opts) {
         // Free the disk: once extraction succeeded and produced real content, delete the
         // source archive(s) + their split-part siblings (e.g. SteamGG's leftover 18 GB zip).
         let extractedSize = 0; try { extractedSize = dirSizeBytes(extractTo, 0); } catch (e) {}
+        await work.checkpoint();
         if (anyExtracted && extractedSize > 5 * 1024 * 1024) deleteArchiveSources(dir);
     }
+    await work.checkpoint();
     if (!result.exePath) result.exePath = findGameExe(dir, opts.gameName) || '';
 
     // Installer-style payloads (e.g. FitGirl: setup.exe + fg-*.bin parts, often in a
@@ -2920,6 +3748,7 @@ async function postProcessDownload(dir, opts) {
         result.junk = allFiles.length === 0 || allFiles.every(f => /^download(\.|$)/i.test(f.name) || /\.(html?|php|txt)$/i.test(f.name));
         if (!result.junk && allFiles.length === 1 && allFiles[0].size < 100 * 1024) result.junk = true;
     }
+    await work.checkpoint();
     return result;
 }
 
@@ -3036,11 +3865,13 @@ function unusedDownloadPath(dir, fileName) {
     return dest;
 }
 
-async function finishCapturedGameDownload(wc, id, dir, opts, ctl) {
+async function finishCapturedGameDownload(wc, id, dir, opts, ctl, job) {
     wc.send('download-progress', { id, state: 'processing', label: 'Extracting & preparing game...' });
     try {
-        const res = await postProcessDownload(dir, opts);
+        const res = await postProcessDownload(job, dir, opts);
+        if (ctl.cancelled) throw new Error('Cancelled');
         if (res.needsInstall && res.exePath && opts.autoInstall !== false) {
+            await downloadJobDirectories.setState(job, 'installing');
             const installTarget = path.join(dir, '_game');
             let polling = true;
             (async function pollSize() {
@@ -3051,13 +3882,25 @@ async function finishCapturedGameDownload(wc, id, dir, opts, ctl) {
                 }
             })();
             try {
-                await runSilentInstall(res.exePath, installTarget, ctl, opts.skipRedist !== false);
-                polling = false;
-                await waitForDirSettle(installTarget, ctl);
-                let exe = findGameExe(installTarget, opts.gameName);
-                for (let t = 0; !exe && t < 3; t++) { await new Promise(r => setTimeout(r, 3000)); exe = findGameExe(installTarget, opts.gameName); }
+                const exe = await downloadWork.run(job, { type: 'installer', state: 'launching_installer' }, async work => {
+                    await runSilentInstall(res.exePath, installTarget, ctl, opts.skipRedist !== false, work);
+                    await work.checkpoint();
+                    polling = false;
+                    await waitForDirSettle(installTarget, ctl);
+                    await work.checkpoint();
+                    let found = findGameExe(installTarget, opts.gameName);
+                    for (let t = 0; !found && t < 3; t++) {
+                        await new Promise(r => setTimeout(r, 3000));
+                        await work.checkpoint();
+                        found = findGameExe(installTarget, opts.gameName);
+                    }
+                    if (found) {
+                        await work.checkpoint();
+                        cleanRepackSource(dir, installTarget);
+                    }
+                    return found;
+                });
                 if (exe) {
-                    cleanRepackSource(dir, installTarget);
                     res.exePath = exe; res.folder = installTarget; res.needsInstall = false; res.installed = true;
                 } else {
                     res.installFailed = true; res.exePath = '';
@@ -3068,43 +3911,82 @@ async function finishCapturedGameDownload(wc, id, dir, opts, ctl) {
                 res.installFailed = true; res.exePath = ''; res.installError = e.message;
             }
         }
+        if (ctl.cancelled) throw new Error('Cancelled');
         if (!res.usable) {
             wc.send('download-error', { id, url: opts.url, needsBrowser: false, error: 'Browser download finished but no usable game files were found.' });
+            await retainDownloadJobError(job);
             return;
         }
         if (res.installFailed) res.warning = 'Downloaded, but auto-install did not complete' + (res.installError ? ' (' + res.installError + ')' : '') + '. Open the folder and run setup.exe manually.';
         if (res.exePath && !fs.existsSync(res.exePath)) res.exePath = '';
         if (!res.exePath && !res.installFailed) res.exePath = findGameExe((res.folder && fs.existsSync(res.folder)) ? res.folder : dir, opts.gameName) || findGameExe(dir, opts.gameName) || '';
-        wc.send('download-complete', Object.assign({ id }, res));
+        if (ctl.cancelled) throw new Error('Cancelled');
+        const completed = await finishDownloadJob(job, res);
+        wc.send('download-complete', Object.assign({ id }, completed));
     } catch (e) {
         if (ctl.cancelled || /cancelled/i.test(e.message)) return;
-        wc.send('download-complete', { id, gameName: opts.gameName, folder: dir, exePath: '', cover: '', usable: true, warning: 'Saved, but extraction failed: ' + e.message });
+        try {
+            const fallback = await finishDownloadJob(job, {
+                gameName: opts.gameName, folder: dir, exePath: '', cover: '', usable: true,
+                warning: 'Saved, but extraction failed: ' + e.message,
+                autoAdd: opts.autoAdd !== false, sourceId: opts.sourceId
+            });
+            wc.send('download-complete', Object.assign({ id }, fallback));
+        } catch (completionError) {
+            await retainDownloadJobError(job);
+            wc.send('download-error', { id, error: 'The download finished, but Sail could not safely publish its staging directory.' });
+        }
     }
 }
 
-function captureBrowserDownload(wc, item, webContentsId, prepared) {
-    const defaults = Object.assign({}, browserDownloadCapture.defaults || {});
-    const preparedOpts = prepared && prepared.opts ? prepared.opts : {};
+async function captureBrowserDownload(wc, item, webContentsId, intent) {
+    if (!intent || !intent.job || !intent.continuation || !intent.options) {
+        try { item.cancel(); } catch (e) {}
+        return;
+    }
+    const preparedOpts = intent.options;
     const fileName = safeOutName(item.getFilename() || 'download') || 'download';
-    const id = preparedOpts.id || ('browser_' + Date.now() + '_' + Math.floor(Math.random() * 1000));
-    const opts = Object.assign(defaults, preparedOpts, {
-        id,
+    const id = intent.job.id;
+    const opts = Object.assign({}, preparedOpts, {
+        id: intent.job.id,
         gameName: preparedOpts.gameName || browserGameName(fileName),
         sourceId: preparedOpts.sourceId || 'browser',
         url: (() => { try { return item.getURL(); } catch (e) { return preparedOpts.url || ''; } })()
     });
-    pendingBrowserDownloads.delete(webContentsId);
-    const dir = path.join(getDownloadsRoot(opts.installDir), sanitizeName(opts.gameName));
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const job = intent.job;
+    const continuation = intent.continuation;
+    let dir;
+    try {
+        dir = await downloadJobDirectories.ensureDirectory(continuation);
+    } catch (error) {
+        try { item.cancel(); } catch (e) {}
+        wc.send('download-error', { id, url: opts.url, needsBrowser: true, error: 'This download name or folder cannot be used.' });
+        return;
+    }
     const savePath = unusedDownloadPath(dir, fileName);
-    const ctl = { proc: null, item, dir, cancelled: false, paused: false, browserCapture: true };
+    const ctl = { proc: null, item, dir, cancelled: false, paused: false, browserCapture: true, job, continuation };
+    await downloadJobDirectories.attachControl(continuation, ctl);
+    const browserOperation = await downloadJobDirectories.beginOperation(continuation, {
+        type: 'browser-download',
+        state: 'downloading',
+        stop: () => { try { item.cancel(); } catch (_) {} }
+    });
     activeDownloads.set(id, ctl);
     item.setSavePath(savePath);
+    item.resume();
+    let coverPromise = Promise.resolve();
     if (opts.image && /^https?:/i.test(opts.image)) {
         let ext = '.jpg'; try { ext = path.extname(new URL(opts.image).pathname) || '.jpg'; } catch (e) {}
-        dlHttpToFile(opts.image, path.join(dir, '_cover' + ext)).catch(() => {});
+        coverPromise = dlHttpToFile(opts.image, path.join(dir, '_cover' + ext)).catch(() => {});
     }
-    wc.send('browser-download-started', { id, gameName: opts.gameName, fileName, image: opts.image || '', sourceId: opts.sourceId, url: opts.url, installDir: opts.installDir || '', opts });
+    wc.send('browser-download-started', {
+        id,
+        gameName: String(opts.gameName || '').slice(0, 240),
+        fileName,
+        image: String(opts.image || '').slice(0, 4096),
+        sourceId: String(opts.sourceId || 'browser').slice(0, 80),
+        url: String(opts.url || '').slice(0, 8192)
+    });
     let lastBytes = 0, lastAt = Date.now();
     item.on('updated', () => {
         if (ctl.cancelled) return;
@@ -3124,43 +4006,160 @@ function captureBrowserDownload(wc, item, webContentsId, prepared) {
     });
     item.once('done', async (event, state) => {
         activeDownloads.delete(id);
+        await coverPromise;
+        await downloadJobDirectories.endOperation(browserOperation);
         if (ctl.cancelled || state === 'cancelled') return;
         if (state !== 'completed') {
             wc.send('download-error', { id, url: opts.url, needsBrowser: true, error: 'Browser download was interrupted (' + state + ').' });
+            await retainDownloadJobError(continuation);
             return;
         }
-        await finishCapturedGameDownload(wc, id, dir, opts, ctl);
+        browserDownloadIntents.complete(intent);
+        await downloadJobDirectories.setState(continuation, 'post_processing');
+        await finishCapturedGameDownload(wc, id, dir, opts, ctl, continuation);
     });
 }
 
 ipcMain.on('set-browser-download-capture', (e, config) => {
     config = config || {};
-    browserDownloadCapture = { enabled: !!config.enabled, defaults: config.defaults || {} };
+    const defaults = config.defaults && typeof config.defaults === 'object' ? config.defaults : {};
+    browserDownloadCapture = {
+        enabled: !!config.enabled,
+        defaults: {
+            maxSpeed: Math.max(0, Number(defaults.maxSpeed) || 0),
+            autoExtract: defaults.autoExtract !== false,
+            autoInstall: defaults.autoInstall !== false,
+            skipRedist: defaults.skipRedist !== false,
+            autoAdd: defaults.autoAdd !== false
+        }
+    };
 });
 ipcMain.handle('register-browser-webview', (e, webContentsId) => {
     if (Number.isFinite(Number(webContentsId))) browserDownloadWebContents.add(Number(webContentsId));
     return true;
 });
-ipcMain.handle('prepare-browser-download', (e, payload) => {
-    payload = payload || {};
-    const id = Number(payload.webContentsId);
-    if (!Number.isFinite(id)) return false;
-    browserDownloadWebContents.add(id);
-    pendingBrowserDownloads.set(id, { opts: payload.opts || {} });
-    return true;
-});
-ipcMain.handle('resume-browser-download', (e, id) => {
+ipcMain.handle('prepare-browser-download', createPrepareBrowserDownloadHandler({
+    intents: browserDownloadIntents,
+    registry: downloadJobDirectories,
+    getDefaults: () => browserDownloadCapture.defaults || {},
+    registerWebContents: id => browserDownloadWebContents.add(id),
+    authorizeOptions: (_event, payload, prepared) => {
+        const outer = exactGateAPayload(payload, ['webContentsId', 'metadata', 'rootCapabilityId', 'rootExpectedRevision'], 'Browser download preparation');
+        const metadata = exactGateAPayload(outer.metadata, ['gameName', 'image', 'sourceId', 'url'], 'Browser download metadata');
+        const normalized = normalizeDownloadRequest({
+            id: 'browser-download',
+            gameName: metadata.gameName,
+            image: metadata.image || '',
+            sourceId: metadata.sourceId || 'browser',
+            url: metadata.url,
+            maxSpeed: prepared.maxSpeed,
+            autoExtract: prepared.autoExtract,
+            autoInstall: prepared.autoInstall,
+            skipRedist: prepared.skipRedist,
+            autoAdd: prepared.autoAdd,
+            ...(outer.rootCapabilityId !== undefined ? {
+                rootCapabilityId: outer.rootCapabilityId,
+                rootExpectedRevision: outer.rootExpectedRevision
+            } : {})
+        });
+        delete normalized.id;
+        return { ...normalized, browserCapture: true };
+    }
+}));
+ipcMain.handle('resume-browser-download', async (e, id) => {
     const d = activeDownloads.get(id);
     if (!d || !d.item) return false;
-    try { d.paused = false; d.item.resume(); return true; } catch (err) { return false; }
+    try {
+        d.paused = false;
+        if (d.job) await downloadJobDirectories.setState(d.continuation || d.job, 'downloading');
+        d.item.resume();
+        return true;
+    } catch (err) { return false; }
 });
 
+function boundedDownloadText(value, label, maxLength, pattern = null) {
+    const text = String(value || '').trim();
+    if (!text || text.length > maxLength || /[\u0000-\u001f\u007f]/.test(text) || pattern && !pattern.test(text)) {
+        throw new Error(`${label} is invalid.`);
+    }
+    return text;
+}
+
+function typedDownloadUrl(value, label, { allowMagnet = true } = {}) {
+    const source = boundedDownloadText(value, label, 8192);
+    if (allowMagnet && source.startsWith('magnet:')) {
+        if (!/^magnet:\?xt=urn:[A-Za-z0-9][A-Za-z0-9:._-]{1,300}(?:&[^\s]*)?$/i.test(source)) throw new Error(`${label} is invalid.`);
+        return source;
+    }
+    let parsed;
+    try { parsed = new URL(source); } catch (_) { throw new Error(`${label} is invalid.`); }
+    if (parsed.protocol !== 'https:' || parsed.username || parsed.password || parsed.port && parsed.port !== '443' || source.includes('\\')) {
+        throw new Error(`${label} must be a credential-free HTTPS URL.`);
+    }
+    return parsed.href;
+}
+
+function normalizeDownloadRequest(value) {
+    const input = exactGateAPayload(value, [
+        'id', 'gameName', 'image', 'url', 'links', 'sourceId', 'mirrors', 'maxSpeed',
+        'autoExtract', 'autoInstall', 'skipRedist', 'autoAdd',
+        'rootCapabilityId', 'rootExpectedRevision'
+    ], 'Download request');
+    const output = {
+        id: boundedDownloadText(input.id, 'Download ID', 128, /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/),
+        gameName: boundedDownloadText(input.gameName, 'Download game name', 240),
+        image: input.image ? typedDownloadUrl(input.image, 'Download image', { allowMagnet: false }) : '',
+        sourceId: boundedDownloadText(input.sourceId || 'download', 'Download source', 80, /^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/),
+        mirrors: [],
+        links: [],
+        maxSpeed: Math.max(0, Math.min(100000000, Number(input.maxSpeed) || 0)),
+        autoExtract: input.autoExtract !== false,
+        autoInstall: input.autoInstall !== false,
+        skipRedist: input.skipRedist !== false,
+        autoAdd: input.autoAdd !== false
+    };
+    if (input.url) output.url = typedDownloadUrl(input.url, 'Download URL');
+    if (input.links !== undefined) {
+        if (!Array.isArray(input.links) || !input.links.length || input.links.length > 32) throw new Error('Download links are invalid.');
+        output.links = input.links.map((row, index) => {
+            const link = exactGateAPayload(row, ['url', 'name'], `Download link ${index}`);
+            return {
+                url: typedDownloadUrl(link.url, `Download link ${index}`),
+                name: String(link.name || '').trim().replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 240)
+            };
+        });
+    }
+    if (input.mirrors !== undefined) {
+        if (!Array.isArray(input.mirrors) || input.mirrors.length > 16) throw new Error('Download mirrors are invalid.');
+        output.mirrors = input.mirrors.map((url, index) => typedDownloadUrl(url, `Download mirror ${index}`));
+    }
+    if (!output.url && !output.links.length) throw new Error('A typed download URL is required.');
+    if (input.rootCapabilityId !== undefined || input.rootExpectedRevision !== undefined) {
+        if (typeof input.rootCapabilityId !== 'string' || !Number.isSafeInteger(input.rootExpectedRevision)) throw new Error('The download root reference is invalid.');
+        const resolved = gateAProfileStore().resolveDeviceRootCapability({
+            kind: 'download-root',
+            capabilityId: input.rootCapabilityId,
+            expectedRevision: input.rootExpectedRevision
+        });
+        output.installDir = resolved.details.rootPath;
+    } else output.installDir = '';
+    return output;
+}
+
 ipcMain.handle('download-game', async (e, opts) => {
+    opts = normalizeDownloadRequest(opts);
     const wc = e.sender;
     const id = opts.id;
     const ctl = { proc: null, cancelled: false, paused: false };
+    let job = null;
+    let continuation = null;
     let slowTimer = null;
     try {
+        job = beginDownloadJob(id, opts);
+        continuation = await downloadJobDirectories.beginAttempt(job);
+        ctl.job = job;
+        ctl.continuation = continuation;
+        await downloadJobDirectories.attachControl(continuation, ctl, 'resolving');
         // Normalise to a list of files. New callers pass opts.links = [{url,name}];
         // legacy single-link callers pass opts.url.
         let links = (Array.isArray(opts.links) && opts.links.length)
@@ -3170,6 +4169,7 @@ ipcMain.handle('download-game', async (e, opts) => {
         links = links.filter(l => !DL_SKIP_FILE.test((l.name || '') + ' ' + (l.url || '')));
         if (!links.length) {
             wc.send('download-error', { id, error: 'No usable download links found.', url: opts.url, needsBrowser: true });
+            await retainDownloadJobError(continuation);
             return { success: false };
         }
 
@@ -3204,16 +4204,17 @@ ipcMain.handle('download-game', async (e, opts) => {
 
         const aria2 = await ensureAria2(wc);
 
-        const root = getDownloadsRoot(opts.installDir);
-        const dir = path.join(root, sanitizeName(opts.gameName));
-        ctl.dir = dir;   // so cancel-download can delete the folder/partials this job created
-        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        const dir = await downloadJobDirectories.ensureDirectory(continuation);
+        ctl.dir = dir;
+        await downloadJobDirectories.setState(continuation, 'downloading');
 
-        // grab cover art for the library entry (best-effort)
+        // Keep the cover destination ready; the actual write is serialized as owned job work
+        // after the payload so cancellation can never quarantine while it is still writing.
+        let coverDownload = null;
         if (opts.image && /^https?:/i.test(opts.image)) {
             let ext = '.jpg';
             try { ext = path.extname(new URL(opts.image).pathname) || '.jpg'; } catch (er) {}
-            dlHttpToFile(opts.image, path.join(dir, '_cover' + ext)).catch(() => {});
+            coverDownload = { url: opts.image, destination: path.join(dir, '_cover' + ext) };
         }
 
         // Resolve every link up-front into concrete files (a single Gofile folder can
@@ -3221,6 +4222,7 @@ ipcMain.handle('download-game', async (e, opts) => {
         if (ctl.cancelled) { clearTimeout(slowTimer); throw new Error('Cancelled'); }
         const resolveResult = await resolveJob;
         clearTimeout(slowTimer);
+        await downloadJobDirectories.assertActive(continuation);
         if (ctl.cancelled) throw new Error('Cancelled');
         let files = [];
         if (raceMirrors) {
@@ -3254,14 +4256,19 @@ ipcMain.handle('download-game', async (e, opts) => {
             while (attempt < 3 && !ok) {
                 attempt++;
                 try {
-                    await runAria2Download(aria2, file, dir, opts, ctl, (p) => {
+                    await downloadWork.run(continuation, {
+                        type: 'payload-download',
+                        state: 'downloading',
+                        stop: () => { try { if (ctl.proc) ctl.proc.kill(); } catch (_) {} }
+                    }, () => runAria2Download(aria2, file, dir, opts, ctl, (p) => {
                         const overall = Math.round(((i + (p.percent || 0) / 100) / total) * 100);
                         wc.send('download-progress', {
                             id, state: 'downloading', percent: overall, partPercent: p.percent,
                             part: i + 1, partCount: total, downloaded: p.downloaded, total: p.total,
                             speed: p.speed, eta: p.eta, label: partLabel + (attempt > 1 ? ' (retry ' + (attempt - 1) + ')' : '')
                         });
-                    });
+                    }));
+                    await downloadJobDirectories.assertActive(continuation);
                     ok = true;
                 } catch (e) {
                     lastErr = e;
@@ -3285,15 +4292,25 @@ ipcMain.handle('download-game', async (e, opts) => {
             if (!ok) throw lastErr || new Error('Download failed');
         }
 
+        if (coverDownload) {
+            await downloadWork.run(continuation, { type: 'cover-download', state: 'downloading' }, async work => {
+                await dlHttpToFile(coverDownload.url, coverDownload.destination).catch(() => {});
+                await work.checkpoint();
+            });
+        }
         activeDownloads.delete(id);
+        await downloadJobDirectories.setState(continuation, 'processing');
         wc.send('download-progress', { id, state: 'processing', label: 'Extracting & preparing game...' });
         try {
-            const res = await postProcessDownload(dir, opts);
+            const res = await postProcessDownload(continuation, dir, opts);
+            await downloadJobDirectories.assertActive(continuation);
+            if (ctl.cancelled) throw new Error('Cancelled');
 
             // Auto-install: FitGirl repacks come as setup.exe + .bin parts. If the
             // user has auto-install on, run the installer unattended into a clean folder,
             // then delete the repack source so only the playable game remains.
             if (res.needsInstall && res.exePath && opts.autoInstall !== false) {
+                await downloadJobDirectories.setState(continuation, 'installing');
                 const installTarget = path.join(dir, '_game');
                 let polling = true;
                 (async function pollSize() {
@@ -3312,19 +4329,31 @@ ipcMain.handle('download-game', async (e, opts) => {
                     wc.send('download-progress', { id, state: 'installing', percent: 100, label: 'Starting the installer — approve the Windows admin prompt if it appears…' });
                     // runSilentInstall now blocks until the orphaned InnoSetup child (setup.tmp)
                     // has fully exited, so the game files are already written when it returns.
-                    await runSilentInstall(res.exePath, installTarget, ctl, opts.skipRedist !== false);
-                    polling = false;
-                    // A short settle catches any trailing writes (shortcuts, config) flushed in the
-                    // last moment after the installer process exited.
-                    await waitForDirSettle(installTarget, ctl, (sz) => {
-                        const gb = sz / (1024 * 1024 * 1024);
-                        wc.send('download-progress', { id, state: 'installing', percent: 100, label: 'Finishing up… ' + gb.toFixed(2) + ' GB installed' });
+                    const exe = await downloadWork.run(continuation, { type: 'installer', state: 'launching_installer' }, async work => {
+                        await runSilentInstall(res.exePath, installTarget, ctl, opts.skipRedist !== false, work);
+                        await work.checkpoint();
+                        polling = false;
+                        // A short settle catches any trailing writes (shortcuts, config) flushed in the
+                        // last moment after the installer process exited.
+                        await waitForDirSettle(installTarget, ctl, (sz) => {
+                            const gb = sz / (1024 * 1024 * 1024);
+                            wc.send('download-progress', { id, state: 'installing', percent: 100, label: 'Finishing up… ' + gb.toFixed(2) + ' GB installed' });
+                        });
+                        await work.checkpoint();
+                        // The exe occasionally lands a beat after the final byte — retry a couple times.
+                        let found = findGameExe(installTarget, opts.gameName);
+                        for (let t = 0; !found && t < 3; t++) {
+                            await new Promise(r => setTimeout(r, 3000));
+                            await work.checkpoint();
+                            found = findGameExe(installTarget, opts.gameName);
+                        }
+                        if (found) {
+                            await work.checkpoint();
+                            cleanRepackSource(dir, installTarget);
+                        }
+                        return found;
                     });
-                    // The exe occasionally lands a beat after the final byte — retry a couple times.
-                    let exe = findGameExe(installTarget, opts.gameName);
-                    for (let t = 0; !exe && t < 3; t++) { await new Promise(r => setTimeout(r, 3000)); exe = findGameExe(installTarget, opts.gameName); }
                     if (exe) {
-                        cleanRepackSource(dir, installTarget);   // succeeded → remove the repack files
                         res.exePath = exe;
                         res.folder = installTarget;
                         res.needsInstall = false;
@@ -3345,6 +4374,7 @@ ipcMain.handle('download-game', async (e, opts) => {
                 }
             }
 
+            if (ctl.cancelled) throw new Error('Cancelled');
             if (!res.usable) {
                 wc.send('download-error', {
                     id, url: opts.url, needsBrowser: true,
@@ -3352,6 +4382,7 @@ ipcMain.handle('download-game', async (e, opts) => {
                         ? 'The host returned a web page instead of the game file. Use "Open game page" to grab it manually.'
                         : 'Download finished but no game files were found.'
                 });
+                await retainDownloadJobError(continuation);
             } else {
                 if (res.installFailed) {
                     res.warning = 'Downloaded, but auto-install didn\'t complete'
@@ -3367,10 +4398,23 @@ ipcMain.handle('download-game', async (e, opts) => {
                     const finalRoot = (res.folder && fs.existsSync(res.folder)) ? res.folder : dir;
                     res.exePath = findGameExe(finalRoot, opts.gameName) || (finalRoot !== dir ? findGameExe(dir, opts.gameName) : '') || '';
                 }
-                wc.send('download-complete', Object.assign({ id }, res));
+                if (ctl.cancelled) throw new Error('Cancelled');
+                const completed = await finishDownloadJob(continuation, res);
+                wc.send('download-complete', Object.assign({ id }, completed));
             }
         } catch (perr) {
-            wc.send('download-complete', { id, gameName: opts.gameName, folder: dir, exePath: '', cover: '', usable: true, warning: 'Saved, but extraction failed: ' + perr.message });
+            if (ctl.cancelled || /cancelled/i.test(perr.message)) throw perr;
+            try {
+                const fallback = await finishDownloadJob(continuation, {
+                    gameName: opts.gameName, folder: dir, exePath: '', cover: '', usable: true,
+                    warning: 'Saved, but extraction failed: ' + perr.message,
+                    autoAdd: opts.autoAdd !== false, sourceId: opts.sourceId
+                });
+                wc.send('download-complete', Object.assign({ id }, fallback));
+            } catch (completionError) {
+                await retainDownloadJobError(continuation);
+                wc.send('download-error', { id, error: 'The download finished, but Sail could not safely publish its staging directory.' });
+            }
         }
         return { success: true };
     } catch (err) {
@@ -3378,7 +4422,12 @@ ipcMain.handle('download-game', async (e, opts) => {
         activeDownloads.delete(id);
         // Paused = a clean, resumable stop. Tell the renderer so it shows "Paused" + a Resume
         // button instead of an error, and keep the partial files on disk.
-        if (ctl.paused || /paused/i.test(err.message)) { wc.send('download-progress', { id, state: 'paused', label: 'Paused' }); return { success: false, paused: true }; }
+        if (ctl.paused || /paused/i.test(err.message)) {
+            try { if (continuation) await downloadJobDirectories.setState(continuation, 'paused'); }
+            catch (_) { return { success: false, stale: true }; }
+            wc.send('download-progress', { id, state: 'paused', label: 'Paused' });
+            return { success: false, paused: true };
+        }
         if (ctl.cancelled || /cancelled/i.test(err.message)) return { success: false, cancelled: true };
         // PixelDrain's Worker proxy can drop the FIRST request while it cold-starts, so the
         // initial click 4xx/5xx's but a retry succeeds against the now-warm worker. We can't
@@ -3387,46 +4436,45 @@ ipcMain.handle('download-game', async (e, opts) => {
         if (/pixeldrain/i.test(opts.url || '')) {
             errMsg = 'PixelDrain didn\'t respond on this attempt (its proxy worker was warming up). Just click Download again — the second try almost always works.';
         }
+        await retainDownloadJobError(continuation || job);
         wc.send('download-error', { id, error: errMsg, url: opts.url, needsBrowser: !!err.needsBrowser });
         return { success: false, error: errMsg };
     }
 });
 
-// Folder a download writes into (mirrors the path built in download-game), so cancel can
-// delete a paused job's files even after it's no longer in activeDownloads.
-function downloadDirFor(gameName, installDir) {
-    try { return path.join(getDownloadsRoot(installDir), sanitizeName(gameName)); } catch (e) { return null; }
-}
-
-// Cancel = stop for good and (when asked) delete everything this download created — the
-// folder and all partial/finished files — so cancelling leaves nothing behind.
-ipcMain.handle('cancel-download', (e, id, info) => {
-    info = info || {};
-    const d = activeDownloads.get(id);
-    if (d) {
-        d.cancelled = true;
-        try { d.proc && d.proc.kill(); } catch (err) {}
-        try { d.item && d.item.cancel(); } catch (err) {}
-        activeDownloads.delete(id);
+// Cancellation is registered from the shared production module so runtime tests execute
+// the same ownership checks, control shutdown, bounded retries, and cleanup authority.
+registerDownloadCancellationIpc(ipcMain, {
+    registry: downloadJobDirectories,
+    activeDownloads,
+    pendingBrowserDownloads,
+    browserIntents: browserDownloadIntents,
+    onCleanupOutcome(job, outcome) {
+        try {
+            if (mainWindow && !mainWindow.isDestroyed()) {
+                mainWindow.webContents.send('download-cancel-outcome', { id: job.id, ...outcome });
+            }
+        } catch (_) {}
     }
-    for (const [webContentsId, pending] of pendingBrowserDownloads) {
-        if (pending && pending.opts && pending.opts.id === id) pendingBrowserDownloads.delete(webContentsId);
-    }
-    if (info.deleteFolder) {
-        const dir = (d && d.dir) || (info.gameName ? downloadDirFor(info.gameName, info.installDir) : null);
-        // Give aria2 a moment to release its file handles (Windows locks the .aria2 file)
-        // before removing the directory tree.
-        if (dir) setTimeout(() => { try { fs.rmSync(dir, { recursive: true, force: true }); } catch (err) {} }, 600);
-    }
-    return true;
 });
+registerDownloadQuarantineIpc(ipcMain, { catalog: downloadQuarantineCatalog, shell });
 
 // Pause = kill aria2 but keep the partial download + .aria2 control file so Resume can
 // continue from where it stopped. Removed from activeDownloads; files stay on disk.
-ipcMain.handle('pause-download', (e, id) => {
+ipcMain.handle('pause-download', async (e, id) => {
     const d = activeDownloads.get(id);
-    if (d && d.item) { d.paused = true; try { d.item.pause(); return true; } catch (err) { return false; } }
-    if (d) { d.paused = true; try { d.proc && d.proc.kill(); } catch (err) {} activeDownloads.delete(id); return true; }
+    if (d && d.item) {
+        d.paused = true;
+        if (d.job) await downloadJobDirectories.setState(d.continuation || d.job, 'paused');
+        try { d.item.pause(); return true; } catch (err) { return false; }
+    }
+    if (d) {
+        d.paused = true;
+        if (d.job) await downloadJobDirectories.setState(d.continuation || d.job, 'paused');
+        try { d.proc && d.proc.kill(); } catch (err) {}
+        activeDownloads.delete(id);
+        return true;
+    }
     return false;
 });
 
@@ -3455,21 +4503,42 @@ ipcMain.handle('clear-cache', async () => {
 // Called AFTER the user first plays & exits a downloaded game (saves don't exist at
 // install time). `playedSince` (ms epoch, optional) prefers folders touched during/after
 // the just-finished session. Returns the best-matching folder path, or null.
-ipcMain.handle('scan-game-saves', async (e, gameName, playedSince, scanOptions = {}) => {
+ipcMain.handle('scan-game-saves', async (_event, payload) => {
+    const input = exactGateAPayload(payload, ['gameId', 'capabilityId', 'expectedRevision', 'playedSince'], 'Save discovery');
+    const game = gateAProfileStore().activeGameMetadata(input.gameId);
+    const resolved = gateAProfileStore().resolveExecutionCapability({
+        gameId: input.gameId,
+        capabilityId: input.capabilityId,
+        expectedRevision: input.expectedRevision,
+        operation: 'save-scan'
+    });
     try {
-        const candidates = await scanSaveCandidates({ gameName, installRoot: scanOptions.installRoot, includeInstallRoot: scanOptions.includeInstallRoot !== false, customRoots: scanOptions.customRoots || [] });
-        if (!candidates.length) return null;
+        const candidates = await scanSaveCandidates({
+            gameName: game.name,
+            installRoot: resolved.details.workingDirectory || '',
+            includeInstallRoot: true,
+            customRoots: []
+        });
+        const playedSince = Number(input.playedSince) || 0;
         const recent = playedSince ? candidates.filter(item => new Date(item.modifiedAt).getTime() >= playedSince - 5 * 60 * 1000) : candidates;
-        return (recent[0] || candidates[0]).path;
-    } catch (er) { return null; }
+        return { found: candidates.length > 0, count: candidates.length, recent: recent.length > 0 };
+    } catch (error) { return { found: false, count: 0, recent: false }; }
+});
+
+ipcMain.handle('authority-get-device-root-status', (_event, payload) => {
+    const input = exactGateAPayload(payload, ['kind'], 'Device root status');
+    return gateAProfileStore().deviceRootStatus(input.kind);
 });
 
 ipcMain.handle('pick-download-folder', async () => {
     const r = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] });
-    return r.canceled ? null : r.filePaths[0];
+    if (r.canceled || !r.filePaths[0]) return { canceled: true };
+    const capability = gateAProfileStore().createDeviceRootCapability('download-root', r.filePaths[0]);
+    return { canceled: false, capability, label: path.basename(r.filePaths[0]) || 'Selected folder' };
 });
 
-const gotTheLock = app.requestSingleInstanceLock();
+const allowMultiInstance = process.env.SAIL_ALLOW_MULTI_INSTANCE === '1';
+const gotTheLock = allowMultiInstance || app.requestSingleInstanceLock();
 if (!gotTheLock) app.quit();
 else {
     app.setAppUserModelId("com.aseoriy.saillauncher");
@@ -3502,23 +4571,12 @@ else {
         }
     });
 
-    ipcMain.handle('get-file-icon', async (e, filePath) => {
-        try {
-            const icon = await app.getFileIcon(filePath, { size: 'large' });
-            return icon.toDataURL();
-        } catch (err) {
-            return null;
-        }
-    });
-
-
-
     ipcMain.handle('import-steam-games', async () => {
-        return new Promise((resolve) => {
+        return new Promise((resolve, reject) => {
             exec('reg query "HKCU\\Software\\Valve\\Steam" /v SteamPath', (err, stdout) => {
-                if (err) return resolve([]);
+                if (err) return resolve(gateAProfileStore().registerDiscoveredGames([], 'steam-import'));
                 const match = stdout.match(/SteamPath\s+REG_SZ\s+(.*)/);
-                if (!match) return resolve([]);
+                if (!match) return resolve(gateAProfileStore().registerDiscoveredGames([], 'steam-import'));
                 const steamPath = match[1].trim().replace(/\//g, '\\');
                 const libraryFoldersPath = path.join(steamPath, 'steamapps', 'libraryfolders.vdf');
 
@@ -3554,13 +4612,15 @@ else {
                                 games.push({
                                     name: nameMatch[1],
                                     steamAppId: idMatch[1],
-                                    exePath: guessedExe || "" // Save the path so the tracker works!
+                                    executablePath: guessedExe || '',
+                                    platform: 'steam'
                                 });
                             }
                         } catch (e) { }
                     });
                 });
-                resolve(games);
+                try { resolve(gateAProfileStore().registerDiscoveredGames(games, 'steam-import')); }
+                catch (error) { reject(error); }
             });
         });
     });
@@ -3568,7 +4628,7 @@ else {
     ipcMain.handle('import-epic-games', async () => {
         return new Promise((resolve) => {
             const manifestDir = path.join(process.env.PROGRAMDATA || 'C:\\ProgramData', 'Epic', 'EpicGamesLauncher', 'Data', 'Manifests');
-            if (!fs.existsSync(manifestDir)) return resolve([]);
+            if (!fs.existsSync(manifestDir)) return resolve(gateAProfileStore().registerDiscoveredGames([], 'epic-import'));
             
             let games = [];
             const files = fs.readdirSync(manifestDir).filter(f => f.endsWith('.item'));
@@ -3581,20 +4641,21 @@ else {
                         
                         games.push({
                             name: data.DisplayName,
-                            exePath: fullExePath || data.InstallLocation,
-                            epicId: data.AppName
+                            executablePath: fullExePath || '',
+                            epicId: data.AppName,
+                            platform: 'epic'
                         });
                     }
                 } catch(e) {}
             });
-            resolve(games);
+            resolve(gateAProfileStore().registerDiscoveredGames(games, 'epic-import'));
         });
     });
 
     ipcMain.handle('import-gog-games', async () => {
-        return new Promise((resolve) => {
+        return new Promise((resolve, reject) => {
             exec('reg query "HKLM\\SOFTWARE\\WOW6432Node\\GOG.com\\Games" /s', (err, stdout) => {
-                if (err) return resolve([]);
+                if (err) return resolve(gateAProfileStore().registerDiscoveredGames([], 'gog-import'));
                 
                 let games = [];
                 const lines = stdout.split('\n');
@@ -3603,7 +4664,7 @@ else {
                 lines.forEach(line => {
                     const l = line.trim();
                     if (l.startsWith('HKEY_')) {
-                        if (currentGame.name && currentGame.exePath) games.push({...currentGame});
+                        if (currentGame.name && currentGame.exePath) games.push({ name: currentGame.name, executablePath: currentGame.exePath, platform: 'gog' });
                         currentGame = {};
                     } else if (l.includes('gameName')) {
                         const match = l.match(/gameName\s+REG_SZ\s+(.*)/);
@@ -3621,10 +4682,11 @@ else {
                     if (currentGame.path && !path.isAbsolute(currentGame.exePath)) {
                         currentGame.exePath = path.join(currentGame.path, currentGame.exePath);
                     }
-                    games.push({...currentGame});
+                    games.push({ name: currentGame.name, executablePath: currentGame.exePath, platform: 'gog' });
                 }
-                
-                resolve(games);
+
+                try { resolve(gateAProfileStore().registerDiscoveredGames(games, 'gog-import')); }
+                catch (error) { reject(error); }
             });
         });
     });
@@ -3634,15 +4696,41 @@ else {
 
     app.commandLine.appendSwitch('enable-features', 'GamepadButtonAxisEvents');
 
+    app.on('before-quit', () => {
+        if (achievementService) achievementService.dispose();
+        clearInterval(runtimeMonitorTimer);
+        clearTimeout(deferredQuitTimer);
+    });
+
     app.whenReady().then(() => {
         try { applyAdBlock(session.defaultSession); } catch (e) {}
-        accountServices = registerAccountIpc({ app, ipcMain, safeStorage });
-        maintenanceService = registerMaintenanceIpc({ app, ipcMain, BrowserWindow, dialog, shell, findExecutable: findBestExe });
+        try { applyAdBlock(session.fromPartition(SOURCES_PARTITION)); } catch (e) {}
+        runtimeRecovery = new RecoveryJournal(path.join(app.getPath('userData'), 'runtime', 'recovery.json'));
+        accountServices = registerAccountIpc({
+            app,
+            ipcMain: electronIpcMain,
+            safeStorage,
+            authorizeIpcEvent,
+            dialog,
+            validateSteamAppId: isLocallyInstalledSteamAppId,
+            onSessionChanged: notifySailHubGuestAuthChange
+        });
+        maintenanceService = registerMaintenanceIpc({
+            app, ipcMain: electronIpcMain, BrowserWindow, dialog, shell,
+            findExecutable: findBestExe, authorizeIpcEvent,
+            profileStore: accountServices.profileStore
+        });
+        achievementService = registerAchievementIpc({
+            app, ipcMain: electronIpcMain, BrowserWindow, Notification, dialog, authorizeIpcEvent,
+            profileStore: accountServices.profileStore,
+            resolveSteamInstallation: resolveLocallyInstalledSteamAppId
+        });
         createWindow();
+        startRuntimeMonitor();
         tray = new Tray(path.join(__dirname, 'icon.ico'));
         const contextMenu = Menu.buildFromTemplate([
             { label: 'Open Sail Launcher', click: () => BrowserWindow.getAllWindows()[0].show() },
-            { label: 'Quit', click: () => { isQuitting = true; app.quit(); } }
+            { label: 'Quit', click: () => requestApplicationQuit() }
         ]);
         tray.setToolTip('Sail Launcher');
         tray.setContextMenu(contextMenu);

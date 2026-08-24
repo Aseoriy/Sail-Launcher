@@ -147,6 +147,22 @@
 .maintenance-setting-row input[type="number"],
 .maintenance-setting-row select { width: 150px; }
 .maintenance-setting-stack { display: flex; flex-direction: column; gap: 7px; margin: 12px 0; }
+.maintenance-master-setting {
+    margin-bottom: 8px;
+    padding: 13px;
+    border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border-color));
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+.maintenance-master-setting span { display: flex; flex-direction: column; gap: 4px; }
+.maintenance-master-setting small { max-width: 560px; font-size: 10px; font-weight: 400; line-height: 1.4; opacity: .56; }
+#maintenanceSettingsBody { transition: opacity .2s ease; }
+#maintenanceSettingsBody.maintenance-disabled {
+    opacity: .42;
+    pointer-events: none;
+    user-select: none;
+}
+[data-maintenance-dependent].maintenance-disabled { opacity: .42; }
 .maintenance-setting-stack textarea,
 .maintenance-setting-stack input[type="text"] { width: 100%; box-sizing: border-box; }
 .maintenance-setting-stack textarea {

@@ -61,7 +61,7 @@ test('accent outline affects interactive states without overriding resting butto
     selectors.forEach(selector => assert.match(selector, /:(hover|focus-visible|active)|\[aria-pressed="true"\]/));
     assert.match(index, /Button &amp; dropdown highlight style/);
     assert.match(index, /browseBtn\.classList\.add\('save-scan-loading'\)/);
-    assert.match(maintenance, /data-save-rescan=/);
+    assert.match(maintenance, /button\.dataset\.saveRescan = gameId/);
     assert.match(maintenance, /Scanning Save Folders/);
     assert.match(maintenanceCss, /@keyframes maintenanceSaveScanSpin/);
 });
@@ -73,17 +73,17 @@ test('switching themes cannot retain previous canvas-editor appearance overrides
     assert.match(index, /globalSettings\.uiAppBg = ct\.uiAppBg !== undefined \? ct\.uiAppBg : '';/);
     assert.match(index, /globalSettings\.uiAppBgStore = ct\.uiAppBgStore \? _clone\(ct\.uiAppBgStore\) : null;/);
     assert.match(index, /globalSettings\.uiAccent = ct\.uiAccent !== undefined \? ct\.uiAccent : '';/);
-    assert.match(index, /document\.body\.className = \(themeId \|\| 'theme-midnight'\)[\s\S]{0,500}globalSettings\.uiCustom = \{\};[\s\S]{0,200}globalSettings\.uiAppBg = '';[\s\S]{0,200}globalSettings\.uiAppBgStore = null;[\s\S]{0,200}globalSettings\.uiAccent = '';[\s\S]{0,200}applyUiCustom\(\);[\s\S]{0,100}applyUiAccent\(\);/);
+    assert.match(index, /document\.body\.className = SafeDom\.safeThemeId\(themeId\) \+ ' ' \+ classesToKeep\.join\(' '\)[\s\S]{0,500}globalSettings\.uiCustom = \{\};[\s\S]{0,200}globalSettings\.uiAppBg = '';[\s\S]{0,200}globalSettings\.uiAppBgStore = null;[\s\S]{0,200}globalSettings\.uiAccent = '';[\s\S]{0,200}applyUiCustom\(\);[\s\S]{0,100}applyUiAccent\(\);/);
     assert.match(index, /function uieSyncCurrentThemeOverrides\(\)[\s\S]{0,1500}ct\.uiCustom = clone\(globalSettings\.uiCustom\)[\s\S]{0,1000}ct\.uiAccent = globalSettings\.uiAccent/);
     assert.match(index, /uieSyncCurrentThemeOverrides\(\); saveToMemory\(\);/);
     assert.match(index, /body\.glassmorphic-mode\.disable-translucency \{ background: ' \+ appBg \+ ' !important;/);
 });
 
-test('v5.3.3 sidebar, announcements, and forced reinstall wiring are present', () => {
+test('v5.4.0 sidebar, announcements, and forced reinstall wiring are present', () => {
     const root = path.join(__dirname, '..');
     const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
     const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
-    assert.equal(packageJson.version, '5.3.3');
+    assert.equal(packageJson.version, '5.4.0');
     assert.equal(packageJson.dependencies['@supabase/supabase-js'], '2.109.0');
     assert.match(index, /grid-template-columns:\s*280px 1fr/);
     assert.match(index, /<div class="settings-tabs">/);

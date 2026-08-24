@@ -109,6 +109,68 @@
     overflow-wrap: anywhere;
 }
 
+.sail-dialog-choice-list {
+    display: grid;
+    gap: 9px;
+    margin-top: 16px;
+}
+
+.sail-dialog-choice {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    min-height: 58px;
+    padding: 10px 12px;
+    color: var(--text-color, #f8fafc) !important;
+    text-align: left;
+    border: 1px solid color-mix(in srgb, var(--border-color, #334155) 84%, var(--accent, #a855f7)) !important;
+    border-radius: 11px;
+    background: color-mix(in srgb, var(--card-bg, #111c2c) 76%, transparent) !important;
+    box-shadow: none !important;
+    transform: none !important;
+}
+
+.sail-dialog-choice:hover,
+.sail-dialog-choice:focus-visible {
+    border-color: color-mix(in srgb, var(--accent, #a855f7) 74%, white 8%) !important;
+    background: color-mix(in srgb, var(--accent, #a855f7) 13%, var(--card-bg, #111c2c)) !important;
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent, #a855f7) 14%, transparent) !important;
+    outline: none;
+}
+
+.sail-dialog-choice-icon {
+    display: grid;
+    place-items: center;
+    width: 34px;
+    height: 34px;
+    flex: 0 0 auto;
+    color: var(--accent, #a855f7);
+    border: 1px solid color-mix(in srgb, var(--accent, #a855f7) 34%, transparent);
+    border-radius: 9px;
+    background: color-mix(in srgb, var(--accent, #a855f7) 10%, transparent);
+}
+
+.sail-dialog-choice-icon svg {
+    width: 19px;
+    height: 19px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.sail-dialog-choice-copy {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.sail-dialog-choice-copy strong { font-size: 12px; }
+.sail-dialog-choice-copy small { font-size: 10px; opacity: .58; line-height: 1.4; }
+
 .sail-dialog-input {
     width: 100%;
     box-sizing: border-box;

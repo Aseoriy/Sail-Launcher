@@ -36,7 +36,7 @@ test('restart and Sail Hub download IPC handlers are registered once', () => {
 test('cloud archive IPC uses directory creation supported by node fs', () => {
     assert.doesNotMatch(main, /fs\.ensureDirSync/);
     assert.match(main, /fs\.mkdirSync\(path\.dirname\(zipPath\), \{ recursive: true \}\)/);
-    assert.match(main, /fs\.mkdirSync\(localSavePath, \{ recursive: true \}\)/);
+    assert.match(main, /fs\.mkdirSync\(extractionPath, \{ recursive: true \}\)/);
 });
 
 test('plugin archive IPC delegates to the safe shared extractor', () => {
@@ -54,7 +54,7 @@ test('plugin archive IPC delegates to the safe shared extractor', () => {
     assert.ok(fallbackEnd > fallbackStart);
     const extractor = main.slice(fallbackStart, fallbackEnd);
     assert.match(extractor, /replace\(\/\'\/g, "\'\'"\)/);
-    assert.match(extractor, /spawn\('powershell', \['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', cmd\]/);
+    assert.match(extractor, /runOwnedChildProcess\('powershell', \['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', cmd\], work\)/);
 });
 
 test('aria2 downloads keep HTTPS certificate validation enabled', () => {
@@ -79,7 +79,7 @@ test('uploaded-file loading is bounded and explains when a full restart is requi
     assert.match(index, /Completely exit Sail Launcher, start it again, then press Refresh List/);
 });
 
-test('renderer avoids continuous blob animation and throttles pointer tilt', () => {
+test('renderer avoids continuous blob animation and throttles the card pointer spotlight', () => {
     for (const className of ['glass-blob-1', 'glass-blob-2', 'glass-blob-3', 'glass-blob-4']) {
         const start = index.indexOf(`body.glassmorphic-mode .${className}`);
         const end = index.indexOf('}', start);
@@ -90,7 +90,7 @@ test('renderer avoids continuous blob animation and throttles pointer tilt', () 
     assert.match(index, /const _iconPendingRoots = new Set\(\)/);
     assert.match(index, /roots\.forEach\(root => \{ if \(root\.isConnected\) paintIcons\(root\); \}\)/);
     assert.match(index, /content-visibility:\s*auto/);
-    assert.match(index, /loading="lazy" decoding="async" class="card-banner"/);
+    assert.match(index, /image\.loading = 'lazy';\s*image\.decoding = 'async'/);
     assert.match(index, /document\.hidden \? hiddenDelay : 10000/);
     assert.match(index, /function queueConfigSync\(\)/);
     assert.doesNotMatch(index, /fs\.writeJsonSync\(dataPath[\s\S]{0,1000}syncConfigToCloud\(\);/);
@@ -100,10 +100,10 @@ test('renderer avoids continuous blob animation and throttles pointer tilt', () 
     assert.match(index, /#accountModal button,[\s\S]*?#accountModal select\s*\{[^}]*backdrop-filter:\s*none\s*!important/s);
 });
 
-test('library names are escaped before entering generated markup', () => {
-    assert.match(index, /escapeHtml\(game\.name\)/);
-    assert.match(index, /escapeHtml\(g\.name\)/);
-    assert.match(index, /escapeHtml\(section\.name\)/);
+test('library names enter privileged DOM only through text properties', () => {
+    assert.match(index, /className: 'card-title', text: String\(game\.name \|\| ''\)\.slice\(0, 256\)/);
+    assert.match(index, /className: 'continue-title', text: String\(g\.name \|\| ''\)\.slice\(0, 256\)/);
+    assert.match(index, /className: 'folder-name', text: String\(section\.name \|\| ''\)\.slice\(0, 128\)/);
     assert.doesNotMatch(index, /onclick="editSection\('\$\{section\.name\}/);
     assert.match(index, /else if \(!game\.tags\.includes\(sectionId\)\) game\.tags\.push\(sectionId\)/);
     assert.doesNotMatch(index, /myGames\[index\]\.sectionId\s*=/);

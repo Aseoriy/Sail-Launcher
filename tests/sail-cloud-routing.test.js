@@ -11,7 +11,7 @@ test('signed-in launcher data uses Sail Cloud with opt-in game saves', () => {
     assert.match(renderer, /artifactType:\s*'launcher-config'/);
     assert.match(renderer, /artifactType:\s*'game-config'/);
     assert.match(renderer, /artifactType:\s*'game-save'/);
-    assert.match(renderer, /artifactType:\s*'theme'/);
+    assert.doesNotMatch(renderer, /artifactType:\s*'theme'/);
     assert.match(renderer, /accountUiState\.signedIn && category !== 'saves'/);
     assert.match(renderer, /selectedSyncProviders\('saves'/);
     assert.match(renderer, /id="sailCloudGameSaveToggle"/);
@@ -44,7 +44,26 @@ test('signed-in launcher data uses Sail Cloud with opt-in game saves', () => {
     assert.match(renderer, /dialog-select-folder/);
     assert.match(renderer, /zip-save-to-drive/);
     assert.match(renderer, /cloud-extract-zip/);
-    assert.match(renderer, /makePortableSnapshot\(\{ myGames, customSections, globalSettings \}\)/);
+    assert.match(renderer, /profiles-create-portable-upload-transfer/);
+    assert.doesNotMatch(renderer, /makePortableSnapshot\(\{ myGames, customSections, globalSettings \}\)/);
+});
+
+test('Sail Cloud save import configures a missing local destination inline and then continues', () => {
+    const renderer = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+    const start = renderer.indexOf('window.importSelectedSailCloudGameSaves');
+    const end = renderer.indexOf('window.keepAccountDataLocal', start);
+    const importFlow = renderer.slice(start, end);
+    const configureAt = importFlow.indexOf("invokeAccount('authority-configure-filesystem'");
+    const confirmAt = importFlow.indexOf('const confirmed = await sailConfirm');
+    const downloadAt = importFlow.indexOf("invokeAccount('account-cloud-download-file'");
+
+    assert.ok(start > 0);
+    assert.ok(end > start);
+    assert.ok(configureAt > 0);
+    assert.ok(confirmAt > configureAt);
+    assert.ok(downloadAt > confirmAt);
+    assert.match(importFlow, /if \(selected && selected\.canceled\)/);
+    assert.doesNotMatch(importFlow, /find\(entry => !entry\.localConfigured\)/);
 });
 
 test('Sail Hub packages and previews no longer write to Supabase Storage', () => {
@@ -102,9 +121,10 @@ test('Sail Cloud storage can be refreshed, inspected, and deleted safely', () =>
         renderer.indexOf('function renderSailCloudFiles'),
         renderer.indexOf('function renderAccountUi')
     );
-    assert.match(fileRenderer, /escapeHtml\(label\)/);
-    assert.match(fileRenderer, /escapeHtml\(message\)/);
-    assert.doesNotMatch(fileRenderer, /\besc\(/);
+    assert.match(fileRenderer, /SafeDom\.element\(document, 'div', \{ className: 'account-cloud-file-name', text: label \}\)/);
+    assert.match(fileRenderer, /SafeDom\.element\(document, 'div', \{ className: 'account-status error', text: message \}\)/);
+    assert.doesNotMatch(fileRenderer, /innerHTML\s*=/);
+    assert.doesNotMatch(fileRenderer, /insertAdjacentHTML/);
     assert.match(renderer, /value < 1024 \* 1024/);
     assert.match(client, /\/v1\/account-storage\/files/);
     assert.match(client, /deleteArtifact/);

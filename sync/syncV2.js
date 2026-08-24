@@ -1,6 +1,14 @@
 const crypto = require('crypto');
 const fs = require('fs-extra');
 const path = require('path');
+const {
+    PORTABLE_SCHEMA,
+    admitPortableArtifact,
+    createPortableSnapshot,
+    portableArtifactToSnapshot,
+    serializePortableArtifact,
+    validatePortableArtifact
+} = require('./portableArtifactV3');
 
 const ARTIFACT_TYPES = Object.freeze([
     'launcher-config',
@@ -137,42 +145,12 @@ function normalizeSyncSettings(value = {}) {
 }
 
 function portableGame(game = {}) {
-    const copy = { ...game };
-    [
-        'exePath', 'installFolder', 'localSave', 'driveSave', 'playDetectionPath',
-        'companionApp', 'preLaunchScript', 'postLaunchScript', 'shortcutIcon'
-    ].forEach(key => delete copy[key]);
-    if (Array.isArray(copy.configSyncEntries)) {
-        copy.configSyncEntries = copy.configSyncEntries.map(entry => {
-            const portable = { ...entry };
-            delete portable.localPath;
-            return portable;
-        });
-    }
-    return copy;
+    const projected = createPortableSnapshot({ myGames: [game], customSections: [], globalSettings: {} });
+    return portableArtifactToSnapshot(projected.artifact).myGames[0] || null;
 }
 
-function portableSnapshot(snapshot = {}) {
-    const settings = { ...(snapshot.globalSettings || {}) };
-    delete settings.customCloudKeysData;
-    delete settings.steamApiKey;
-    delete settings.discordToken;
-    delete settings.customFont;
-    delete settings.defaultDriveFolder;
-    delete settings.quickPaths;
-    delete settings.localLauncherAvatar;
-    delete settings.uiAppBg;
-    delete settings.uiAppBgStore;
-    delete settings.accountSyncEnabled;
-    delete settings.syncConfidence;
-    delete settings.syncStatus;
-    delete settings.sailSyncConfidenceV2;
-    return {
-        schemaVersion: 2,
-        myGames: Array.isArray(snapshot.myGames) ? snapshot.myGames.map(portableGame) : [],
-        customSections: Array.isArray(snapshot.customSections) ? snapshot.customSections : [],
-        globalSettings: settings
-    };
+function portableSnapshot(snapshot = {}, context = {}) {
+    return createPortableSnapshot(snapshot, context).artifact;
 }
 
 function sha256File(filePath) {
@@ -232,7 +210,12 @@ module.exports = {
     syncConfidenceStateForError,
     SYNC_CONFIDENCE_CATEGORIES,
     SYNC_CONFIDENCE_STATES,
+    PORTABLE_SCHEMA,
+    admitPortableArtifact,
     portableGame,
     portableSnapshot,
+    portableArtifactToSnapshot,
+    serializePortableArtifact,
+    validatePortableArtifact,
     sha256File
 };

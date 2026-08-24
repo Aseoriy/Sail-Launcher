@@ -108,11 +108,25 @@ test('cloud save compression waits for the 7-Zip callback before checking the ar
     assert.match(handler, /await new Promise\(\(resolve, reject\) =>/);
     assert.match(handler, /_7z\.cmd\([\s\S]*?\(error\) => error \? reject\(error\) : resolve\(\)/);
     assert.doesNotMatch(handler, /await _7z\.cmd\(/);
+    assert.match(handler, /createCloudZipWithPowerShell\(localSavePath, zipPath\)/);
+    assert.ok(
+        handler.indexOf('createCloudZipWithPowerShell(localSavePath, zipPath)')
+            < handler.indexOf('await new Promise((resolve, reject) =>'),
+        'PowerShell compression should be attempted before the 7-Zip fallback'
+    );
+    assert.match(mainSource, /Get-ChildItem -LiteralPath \$source -Force/);
+    assert.match(mainSource, /Compress-Archive -LiteralPath \$entries\.FullName/);
 });
 
 test('Sail Hub webview and account restore use persistent startup-safe storage', async () => {
     assert.match(rendererSource, /partition="persist:sailhub-mods"/);
     assert.match(mainSource, /session\.fromPartition\('persist:sailhub-mods'\)/);
+    assert.match(rendererSource, /showContinuePlaying: true, showModsPage: true/);
+    assert.match(rendererSource, /globalSettings\.showModsPage = true/);
+    assert.match(mainSource, /onSailLauncherProtocol: handleProtocolUrl/);
+    assert.match(mainSource, /const SAIL_HUB_MODS_ORIGIN = SAIL_WEBSITE_URL/);
+    assert.match(mainSource, /client\.auth\.setSession\(launcherSession\)/);
+    assert.match(mainSource, /onSessionChanged: notifySailHubGuestAuthChange/);
 
     const { AccountService } = require('../accounts/accountService');
     const service = Object.create(AccountService.prototype);

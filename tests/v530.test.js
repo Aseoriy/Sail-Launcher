@@ -12,18 +12,20 @@ const {
     decideConflict,
     normalizeConfigEntry,
     normalizeSyncSettings,
+    portableArtifactToSnapshot,
     portableSnapshot
 } = require('../sync/syncV2');
 
 test('profile store migrates a legacy snapshot and never exposes PIN verifiers', t => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sail-profile-test-'));
     t.after(() => fs.removeSync(root));
-    const store = new ProfileStore(root);
-    const initial = store.initialize({
+    fs.writeJsonSync(path.join(root, 'sail_library.json'), {
         myGames: [{ id: 'one', name: 'Test Game' }],
         customSections: [{ name: 'Test' }],
         globalSettings: { theme: 'theme-midnight' }
     });
+    const store = new ProfileStore(root);
+    const initial = store.initialize();
     assert.equal(initial.profiles.length, 1);
     assert.equal(store.loadActiveSnapshot().myGames[0].name, 'Test Game');
     const withPin = store.createProfile('Locked', '2468', {});
@@ -34,18 +36,25 @@ test('profile store migrates a legacy snapshot and never exposes PIN verifiers',
     assert.equal(store.unlockProfile(locked.id, '2468').success, true);
 });
 
-test('remote library merges preserve this PC device paths', t => {
+test('remote library merges preserve this PC main-owned authority', t => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sail-profile-merge-'));
     t.after(() => fs.removeSync(root));
-    const store = new ProfileStore(root);
-    const state = store.initialize({
+    const localRoot = path.join(root, 'local-game');
+    const executablePath = path.join(localRoot, 'game.exe');
+    const savePath = path.join(localRoot, 'save');
+    fs.ensureDirSync(savePath);
+    fs.writeFileSync(executablePath, 'game');
+    fs.writeJsonSync(path.join(root, 'sail_library.json'), {
         myGames: [{
             id: 'game-one',
             name: 'Old Name',
-            exePath: 'C:\\Games\\game.exe',
-            localSave: 'C:\\Saves\\game'
+            exePath: executablePath,
+            localSave: savePath
         }]
     });
+    const store = new ProfileStore(root);
+    const state = store.initialize();
+    const before = store.authorityStatus('game-one');
     const profile = state.profiles[0];
     const library = profile.libraries[0];
     store.mergeControlPlane({
@@ -64,12 +73,16 @@ test('remote library merges preserve this PC device paths', t => {
     });
     const game = store.loadActiveSnapshot().myGames[0];
     assert.equal(game.name, 'Cloud Name');
-    assert.equal(game.exePath, 'C:\\Games\\game.exe');
-    assert.equal(game.localSave, 'C:\\Saves\\game');
+    assert.equal(game.exePath, undefined);
+    assert.equal(game.localSave, undefined);
+    const after = store.authorityStatus('game-one');
+    assert.equal(after.execution.capabilityId, before.execution.capabilityId);
+    assert.equal(after.execution.state, 'active');
+    assert.equal(after.filesystems[0].capabilityId, before.filesystems[0].capabilityId);
 });
 
 test('portable account snapshots exclude device paths and secrets', () => {
-    const result = portableSnapshot({
+    const result = portableArtifactToSnapshot(portableSnapshot({
         myGames: [{
             id: 'one',
             name: 'Game',
@@ -87,7 +100,7 @@ test('portable account snapshots exclude device paths and secrets', () => {
             syncConfidence: { state: 'failed', lastSuccessfulAt: Date.now() },
             syncStatus: { error: 'local-only status' }
         }
-    });
+    }));
     assert.equal(result.myGames[0].exePath, undefined);
     assert.equal(result.myGames[0].localSave, undefined);
     assert.equal(result.myGames[0].configSyncEntries[0].localPath, undefined);
@@ -259,6 +272,12 @@ test('account IPC registers alerts and Sail Cloud file handlers', t => {
             isEncryptionAvailable: () => false,
             encryptString: () => Buffer.alloc(0),
             decryptString: () => ''
+        },
+        authorizeIpcEvent: () => true,
+        dialog: {
+            showOpenDialog: async () => ({ canceled: true, filePaths: [] }),
+            showSaveDialog: async () => ({ canceled: true }),
+            showMessageBox: async () => ({ response: 1 })
         }
     });
     assert.equal(typeof handlers.get('account-alert-admin-state'), 'function');

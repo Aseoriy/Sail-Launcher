@@ -1,7 +1,7 @@
 {
   "name": "sail-launcher",
   "productName": "Sail Launcher",
-  "version": "5.3.3",
+  "version": "5.4.0",
   "description": "Pookie's custom launcher for games",
   "author": "Aseoriy",
   "main": "main.js",
@@ -9,7 +9,8 @@
     "start": "electron .",
     "build": "electron-builder --win nsis",
     "test": "node --test tests/*.test.js",
-    "check": "node --check main.js && node --check cloudSync.js && node --check accounts/profileStore.js && node --check accounts/accountService.js && node --check accounts/sailCloud.js && node --check accounts/ipc.js && node --check sync/syncV2.js && node --test tests/*.test.js && npm --prefix cloudflare-worker run check"
+    "test:electron-security": "node tests/run-electron-security.js",
+    "check": "node --check main.js && node --check cloudSync.js && node --check accounts/profileStore.js && node --check accounts/accountService.js && node --check accounts/sailCloud.js && node --check accounts/ipc.js && node --check security/ipcAuthorization.js && node --check security/navigationPolicy.js && node --check security/remoteData.js && node --check security/remoteDataWorker.js && node --check sync/syncV2.js && node --check maintenance/ludusavi.js && node --check runtime/recoveryJournal.js && node --check runtime/downloadJobCleanup.js && node --check runtime/downloadIpc.js && node --check runtime/downloadQuarantine.js && node --check runtime/browserDownloadIntents.js && node --check runtime/downloadWorkCoordinator.js && node --check runtime/ownedChildProcess.js && node --check achievements/achievementLogic.js && node --check achievements/achievementParsers.js && node --check achievements/achievementDiscovery.js && node --check achievements/steamAchievements.js && node --check achievements/achievementService.js && node --check achievements/achievementView.js && node --check achievements/ipc.js && node --check ui/achievements.js && node --check ui/remoteJson.js && node --check ui/downloadQuarantine.js && node --test tests/*.test.js && npm --prefix cloudflare-worker run check"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.109.0",
@@ -19,6 +20,7 @@
     "fs-extra": "^11.2.0",
     "howlongtobeat": "^1.8.0",
     "howlongtobeat-js": "^1.0.2",
+    "js-yaml": "^4.1.1",
     "jvc-hltb": "^1.0.0",
     "node-unrar-js": "^2.0.2",
     "steamcmd": "^3.0.0",
@@ -30,19 +32,24 @@
   },
   "build": {
     "appId": "com.aseoriy.saillauncher",
+    "artifactName": "Sail-Launcher-Setup-${version}.${ext}",
     "files": [
       "main.js",
       "cloudSync.js",
       "accounts/**/*",
       "sync/**/*",
       "maintenance/**/*",
+      "runtime/**/*",
+      "security/**/*",
+      "achievements/**/*",
       "ui/**/*",
       "index.html",
       "icon.ico",
       "node_modules/**/*"
     ],
     "asarUnpack": [
-      "node_modules/7zip-bin/**/*"
+      "node_modules/7zip-bin/**/*",
+      "node_modules/7zip-min/node_modules/7zip-bin/**/*"
     ],
     "win": {
       "target": "nsis",
