@@ -6,6 +6,7 @@ const https = require('node:https');
 const net = require('node:net');
 const path = require('node:path');
 const { Worker } = require('node:worker_threads');
+const launcherVersion = require('../package.json').version;
 
 const REMOTE_DATA_CHANNEL = 'remote-data';
 const MAX_COMPRESSED_BYTES = 2 * 1024 * 1024;
@@ -16,6 +17,7 @@ const TOTAL_TIMEOUT_MS = 20000;
 const REFERENCE_TTL_MS = 15 * 60 * 1000;
 const MAX_REFERENCES = 600;
 const MAX_ACTIVE_DECODE_WORKERS = 4;
+const FITGIRL_GAME_CATEGORY_ID = '5';
 
 const STEAM_LANGUAGES = new Set([
     'arabic', 'brazilian', 'bulgarian', 'czech', 'danish', 'dutch', 'english',
@@ -209,6 +211,14 @@ function buildOperationContext(payload, getReference) {
                 url.searchParams.set('_embed', '1');
                 return createContext(operation, url, { expectedType: 'json', source });
             }
+            if (source === 'fitgirl') {
+                url = parseStrictUrl('https://fitgirl-repacks.site/wp-json/wp/v2/posts');
+                url.searchParams.set('search', query);
+                url.searchParams.set('categories', FITGIRL_GAME_CATEGORY_ID);
+                url.searchParams.set('per_page', '12');
+                url.searchParams.set('_fields', 'id,type,link,title,content,categories');
+                return createContext(operation, url, { expectedType: 'json', source });
+            }
             url = parseStrictUrl(`https://${SOURCE_HOSTS[source]}/`);
             url.searchParams.set('s', query);
             return createContext(operation, url, { expectedType: 'html', source });
@@ -342,7 +352,7 @@ function expectedContentType(headers, expectedType) {
 
 function defaultHeaders(expectedType) {
     return Object.freeze({
-        'User-Agent': 'Sail-Launcher/5.4.0',
+        'User-Agent': `Sail-Launcher/${launcherVersion}`,
         'Accept': expectedType === 'json' ? 'application/json' : 'text/html,application/xhtml+xml',
         'Accept-Encoding': 'gzip, deflate, br'
     });
@@ -631,7 +641,7 @@ function createRemoteDataService(options = {}) {
         if (context.expectedType === 'json') {
             const data = decoded.data;
             const response = { data };
-            if (context.source === 'steamgg' && Array.isArray(data)) {
+            if (['steamgg', 'fitgirl'].includes(context.source) && Array.isArray(data)) {
                 response.references = [];
                 for (const post of data) {
                     if (Date.now() >= deadline) fail('TIMEOUT');

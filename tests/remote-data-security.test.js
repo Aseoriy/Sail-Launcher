@@ -77,7 +77,7 @@ test('typed operations construct only the intended HTTPS destinations', () => {
         [{ operation: 'steam.playerSummaries', apiKey: key, steamIds: ['76561198000000000'] }, 'https://api.steampowered.com/ISteamUser/GetPlayerSummaries/v0002/?key=' + key + '&steamids=76561198000000000'],
         [{ operation: 'steam.appDetails', appId: '620', language: 'english' }, 'https://store.steampowered.com/api/appdetails?appids=620&l=english'],
         [{ operation: 'steam.storeSearch', query: 'Portal 2' }, 'https://store.steampowered.com/api/storesearch/?term=Portal+2&l=english&cc=US'],
-        [{ operation: 'source.search', source: 'fitgirl', query: 'Portal 2' }, 'https://fitgirl-repacks.site/?s=Portal+2'],
+        [{ operation: 'source.search', source: 'fitgirl', query: 'Portal 2' }, 'https://fitgirl-repacks.site/wp-json/wp/v2/posts?search=Portal+2&categories=5&per_page=12&_fields=id%2Ctype%2Clink%2Ctitle%2Ccontent%2Ccategories'],
         [{ operation: 'source.search', source: 'steamgg', query: 'Portal 2' }, 'https://steamgg.net/wp-json/wp/v2/posts?search=Portal+2&per_page=12&_embed=1']
     ];
     for (const [payload, expected] of cases) {
@@ -122,8 +122,15 @@ test('raw URLs, extra keys, malformed IDs, and arbitrary source values fail befo
 test('source detail requests require an opaque main-process reference', async () => {
     const network = fakeNetwork([
         {
-            body: '<!doctype html><a href="/portal-repack/">Portal</a>',
-            headers: { 'content-type': 'text/html; charset=utf-8' }
+            body: JSON.stringify([{
+                id: 620,
+                type: 'post',
+                link: 'https://fitgirl-repacks.site/portal-repack/',
+                categories: [5],
+                title: { rendered: 'Portal' },
+                content: { rendered: '<img src="https://images.example/portal.jpg">' }
+            }]),
+            headers: { 'content-type': 'application/json' }
         },
         {
             body: '<!doctype html><article>Approved detail</article>',

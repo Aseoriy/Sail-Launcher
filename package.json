@@ -1,7 +1,7 @@
 {
   "name": "sail-launcher",
   "productName": "Sail Launcher",
-  "version": "5.4.0",
+  "version": "5.4.1",
   "description": "Pookie's custom launcher for games",
   "author": "Aseoriy",
   "main": "main.js",
@@ -10,7 +10,7 @@
     "build": "electron-builder --win nsis",
     "test": "node --test tests/*.test.js",
     "test:electron-security": "node tests/run-electron-security.js",
-    "check": "node --check main.js && node --check cloudSync.js && node --check accounts/profileStore.js && node --check accounts/accountService.js && node --check accounts/sailCloud.js && node --check accounts/ipc.js && node --check security/ipcAuthorization.js && node --check security/navigationPolicy.js && node --check security/remoteData.js && node --check security/remoteDataWorker.js && node --check sync/syncV2.js && node --check maintenance/ludusavi.js && node --check runtime/recoveryJournal.js && node --check runtime/downloadJobCleanup.js && node --check runtime/downloadIpc.js && node --check runtime/downloadQuarantine.js && node --check runtime/browserDownloadIntents.js && node --check runtime/downloadWorkCoordinator.js && node --check runtime/ownedChildProcess.js && node --check achievements/achievementLogic.js && node --check achievements/achievementParsers.js && node --check achievements/achievementDiscovery.js && node --check achievements/steamAchievements.js && node --check achievements/achievementService.js && node --check achievements/achievementView.js && node --check achievements/ipc.js && node --check ui/achievements.js && node --check ui/remoteJson.js && node --check ui/downloadQuarantine.js && node --test tests/*.test.js && npm --prefix cloudflare-worker run check"
+    "check": "node --check main.js && node --check cloudSync.js && node --check accounts/profileStore.js && node --check accounts/accountService.js && node --check accounts/sailCloud.js && node --check accounts/ipc.js && node --check security/ipcAuthorization.js && node --check security/navigationPolicy.js && node --check security/remoteData.js && node --check security/remoteDataWorker.js && node --check sync/syncV2.js && node --check maintenance/ludusavi.js && node --check runtime/recoveryJournal.js && node --check runtime/downloadJobCleanup.js && node --check runtime/downloadIpc.js && node --check runtime/downloadQuarantine.js && node --check runtime/browserDownloadIntents.js && node --check runtime/downloadWorkCoordinator.js && node --check runtime/ownedChildProcess.js && node --check achievements/achievementLogic.js && node --check achievements/achievementParsers.js && node --check achievements/achievementDiscovery.js && node --check achievements/steamAchievements.js && node --check achievements/achievementService.js && node --check achievements/achievementView.js && node --check achievements/ipc.js && node --check ui/achievements.js && node --check ui/remoteJson.js && node --check ui/downloadSourceLogic.js && node --check ui/downloadQuarantine.js && node --test tests/*.test.js && npm --prefix cloudflare-worker run check"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.109.0",

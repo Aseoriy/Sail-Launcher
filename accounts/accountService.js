@@ -256,18 +256,38 @@ class SafeStorageAdapter {
         // the empty result would hide an existing session for the rest of the
         // process.
         if (!this.isEncryptionAvailable()) return {};
-        this.cache = {};
-        if (!fs.existsSync(this.filePath)) return this.cache;
-        try {
-            const payload = fs.readJsonSync(this.filePath);
-            for (const [key, encoded] of Object.entries(payload || {})) {
-                const encrypted = Buffer.from(String(encoded), 'base64');
-                this.cache[key] = this.safeStorage.decryptString(encrypted);
+        // A refresh-token rotation can be interrupted while the session is
+        // being written. Prefer a complete pending replacement, then the
+        // primary file, and finally the previous committed file.
+        for (const filePath of [
+            `${this.filePath}.tmp`,
+            this.filePath,
+            `${this.filePath}.bak`
+        ]) {
+            const loaded = this.readEncryptedFile(filePath);
+            if (loaded) {
+                this.cache = loaded;
+                return this.cache;
             }
-        } catch (_) {
-            this.cache = {};
         }
+        this.cache = {};
         return this.cache;
+    }
+
+    readEncryptedFile(filePath) {
+        if (!fs.existsSync(filePath)) return null;
+        try {
+            const payload = fs.readJsonSync(filePath);
+            if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
+            const loaded = {};
+            for (const [key, encoded] of Object.entries(payload)) {
+                const encrypted = Buffer.from(String(encoded), 'base64');
+                loaded[key] = this.safeStorage.decryptString(encrypted);
+            }
+            return loaded;
+        } catch (_) {
+            return null;
+        }
     }
 
     persist() {
@@ -278,7 +298,26 @@ class SafeStorageAdapter {
             const encrypted = this.safeStorage.encryptString(String(value));
             output[key] = encrypted.toString('base64');
         }
-        fs.writeJsonSync(this.filePath, output, { spaces: 2 });
+        const temporaryPath = `${this.filePath}.tmp`;
+        const backupPath = `${this.filePath}.bak`;
+        let descriptor;
+        try {
+            descriptor = fs.openSync(temporaryPath, 'w');
+            fs.writeFileSync(descriptor, JSON.stringify(output, null, 2), 'utf8');
+            fs.fsyncSync(descriptor);
+        } finally {
+            if (descriptor !== undefined) fs.closeSync(descriptor);
+        }
+
+        // Keep the old complete file available until the replacement has
+        // itself been fully written and renamed. If the process stops between
+        // these renames, load() can recover either complete snapshot.
+        if (fs.existsSync(this.filePath)) {
+            if (fs.existsSync(backupPath)) fs.unlinkSync(backupPath);
+            fs.renameSync(this.filePath, backupPath);
+        }
+        fs.renameSync(temporaryPath, this.filePath);
+        try { fs.unlinkSync(backupPath); } catch (_) {}
     }
 
     isEncryptionAvailable() {

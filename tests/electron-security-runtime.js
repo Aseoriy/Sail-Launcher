@@ -141,7 +141,7 @@ async function run() {
             <meta charset="utf-8">
             <title>Sail security runtime</title>
             <div id="launchStatus" role="status" hidden><span id="launchStatusMessage"></span></div>
-            <a id="release-link" href="https://sail-launcher.sailhub.fyi/releases/v5.4.0" target="_blank">Release notes</a>
+            <a id="release-link" href="https://sail-launcher.sailhub.fyi/releases/v5.4.1" target="_blank">Release notes</a>
             <iframe id="child" srcdoc="<!doctype html><p>child frame</p>"></iframe>
             <webview id="sourceWebview" src="${remoteUrl}" partition="persist:sail-sources" allowpopups preload="${pathToFileURL(preloadPath).href}"></webview>
         `);
@@ -476,7 +476,7 @@ async function run() {
         await mainWindow.webContents.executeJavaScript(`window.location.href = 'https://sailhub.fyi/attempted-navigation'`).catch(() => {});
         await delay(150);
         if (mainWindow.webContents.getURL() !== pathToFileURL(entryPath).href) throw new Error('Remote content replaced the privileged local document.');
-        if (!externalized.includes('https://sail-launcher.sailhub.fyi/releases/v5.4.0')) throw new Error('Release link was not externalized.');
+        if (!externalized.includes('https://sail-launcher.sailhub.fyi/releases/v5.4.1')) throw new Error('Release link was not externalized.');
         if (!externalized.includes('https://sailhub.fyi/attempted-navigation')) throw new Error('Remote navigation was not externalized.');
 
         stage('guest');

@@ -65,6 +65,8 @@ let maintenanceService = null;
 let accountServices = null;
 let achievementService = null;
 let mainWindow = null;
+const fullscreenControllers = new WeakMap();
+const fullscreenStates = new WeakMap();
 const sailHubGuestContents = new Set();
 let runtimeRecovery = null;
 let runtimeMonitorTimer = null;
@@ -468,7 +470,7 @@ function createWindow() {
     });
 
     const saveBounds = () => {
-        if (!win.isMaximized() && !win.isMinimized()) {
+        if (!win.isMaximized() && !win.isMinimized() && !isWindowFullscreen(win)) {
             try { fs.writeFileSync(windowStatePath, JSON.stringify(win.getBounds())); } catch (e) { }
         }
     };
@@ -481,6 +483,104 @@ function createWindow() {
     win.on('close', saveBounds);
     win.on('resized', debouncedSaveBounds);
     win.on('moved', debouncedSaveBounds);
+    let restoreNormalWindowLevelAfterFullscreen = false;
+    let normalWindowStateBeforeFullscreen = null;
+    let fullscreenDisplayTransferPending = false;
+    let restoreNormalWindowStateTimeout = null;
+    const sendFullscreenState = (active = win.isFullScreen()) => {
+        if (!win.isDestroyed() && !win.webContents.isDestroyed()) {
+            win.webContents.send('window-fullscreen-changed', active === true);
+        }
+    };
+    const rememberNormalWindowState = () => {
+        if (normalWindowStateBeforeFullscreen || win.isDestroyed()) return;
+        const wasMaximized = win.isMaximized();
+        normalWindowStateBeforeFullscreen = {
+            bounds: wasMaximized ? win.getNormalBounds() : win.getBounds(),
+            wasMaximized
+        };
+    };
+    const restoreNormalWindowState = (attempt = 0) => {
+        if (!normalWindowStateBeforeFullscreen || fullscreenDisplayTransferPending || win.isDestroyed()) return;
+        clearTimeout(restoreNormalWindowStateTimeout);
+        restoreNormalWindowStateTimeout = setTimeout(() => {
+            if (!normalWindowStateBeforeFullscreen || fullscreenDisplayTransferPending || win.isDestroyed() || isWindowFullscreen(win)) return;
+            if (win.isFullScreen()) {
+                if (attempt < 20) restoreNormalWindowState(attempt + 1);
+                return;
+            }
+
+            const previousState = normalWindowStateBeforeFullscreen;
+            normalWindowStateBeforeFullscreen = null;
+            if (previousState.wasMaximized) {
+                win.setBounds(previousState.bounds);
+                win.maximize();
+            } else {
+                if (win.isMaximized()) win.unmaximize();
+                win.setBounds(previousState.bounds);
+            }
+        }, attempt === 0 ? 0 : 16);
+    };
+    const raiseFullscreenWindowLevel = () => {
+        // Fullscreen docks such as MyDockFinder can stay above an ordinary
+        // Electron fullscreen window. Raise Sail only for the fullscreen
+        // session so the desktop chrome hides and the exit control stays usable.
+        if (!win.isAlwaysOnTop()) {
+            restoreNormalWindowLevelAfterFullscreen = true;
+            win.setAlwaysOnTop(true, 'screen-saver');
+        }
+    };
+    const restoreNormalWindowLevel = () => {
+        if (restoreNormalWindowLevelAfterFullscreen) {
+            restoreNormalWindowLevelAfterFullscreen = false;
+            win.setAlwaysOnTop(false);
+        }
+    };
+    const setNativeFullscreen = active => {
+        const enabled = active === true;
+        if (enabled) rememberNormalWindowState();
+        fullscreenStates.set(win, enabled);
+        if (enabled) raiseFullscreenWindowLevel();
+        win.setFullScreen(enabled);
+        if (!enabled) {
+            restoreNormalWindowLevel();
+            restoreNormalWindowState();
+        }
+        // Windows can resize synchronously without emitting the macOS-style
+        // transition event, so update the renderer immediately as well.
+        sendFullscreenState(enabled);
+    };
+    fullscreenControllers.set(win, {
+        setFullscreen: setNativeFullscreen,
+        rememberNormalWindowState,
+        beginDisplayTransfer: () => { fullscreenDisplayTransferPending = true; },
+        finishDisplayTransfer: () => { fullscreenDisplayTransferPending = false; }
+    });
+    win.on('enter-full-screen', () => {
+        fullscreenStates.set(win, true);
+        raiseFullscreenWindowLevel();
+        sendFullscreenState(true);
+    });
+    win.on('leave-full-screen', () => {
+        fullscreenStates.set(win, false);
+        restoreNormalWindowLevel();
+        restoreNormalWindowState();
+        sendFullscreenState(false);
+    });
+    win.on('will-move', (event, newBounds) => {
+        if (!isWindowFullscreen(win)) return;
+        if (normalWindowStateBeforeFullscreen && newBounds) {
+            const fullscreenBounds = win.getBounds();
+            normalWindowStateBeforeFullscreen.bounds = {
+                ...normalWindowStateBeforeFullscreen.bounds,
+                x: normalWindowStateBeforeFullscreen.bounds.x + newBounds.x - fullscreenBounds.x,
+                y: normalWindowStateBeforeFullscreen.bounds.y + newBounds.y - fullscreenBounds.y
+            };
+        }
+        event.preventDefault();
+        setNativeFullscreen(false);
+    });
+    win.webContents.once('did-finish-load', sendFullscreenState);
 
     installMainNavigationPolicy(win.webContents, { shell, trustedEntryPath });
     installWebviewAttachmentPolicy(win.webContents, {
@@ -1646,8 +1746,27 @@ ipcMain.handle('cloud-extract-zip', async (e, payload) => {
     }
 });
 
+function setWindowFullscreen(win, enabled) {
+    if (!win || win.isDestroyed()) return;
+    const controller = fullscreenControllers.get(win);
+    if (controller) controller.setFullscreen(enabled === true);
+    else win.setFullScreen(enabled === true);
+}
+
+function isWindowFullscreen(win) {
+    if (!win || win.isDestroyed()) return false;
+    return fullscreenStates.has(win) ? fullscreenStates.get(win) === true : win.isFullScreen();
+}
+
 ipcMain.on('window-min', (e) => BrowserWindow.fromWebContents(e.sender)?.minimize());
-ipcMain.on('window-max', (e) => { const win = BrowserWindow.fromWebContents(e.sender); if (win) win.isMaximized() ? win.unmaximize() : win.maximize(); });
+ipcMain.on('window-fullscreen-toggle', (e) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    if (win) setWindowFullscreen(win, !isWindowFullscreen(win));
+});
+ipcMain.on('window-set-fullscreen', (e, enabled) => {
+    const win = BrowserWindow.fromWebContents(e.sender);
+    if (win) setWindowFullscreen(win, enabled === true);
+});
 ipcMain.on('window-close', (e, exitWhenClosed) => {
     if (exitWhenClosed) requestApplicationQuit();
     else { BrowserWindow.fromWebContents(e.sender)?.hide(); }
@@ -1671,16 +1790,22 @@ ipcMain.handle('get-displays', () => {
 ipcMain.on('move-to-display-fullscreen', (e, displayId) => {
     const win = BrowserWindow.fromWebContents(e.sender);
     if (!win) return;
-    
-    if (displayId) {
-        const display = screen.getAllDisplays().find(d => d.id == displayId);
-        if (display) {
-            win.setBounds(display.bounds);
-        }
+
+    const display = displayId ? screen.getAllDisplays().find(d => d.id == displayId) : null;
+    const controller = fullscreenControllers.get(win);
+    const enterFullscreen = () => {
+        if (controller) controller.finishDisplayTransfer();
+        if (display) win.setBounds(display.bounds);
+        setWindowFullscreen(win, true);
+    };
+    if (isWindowFullscreen(win)) {
+        if (controller) controller.beginDisplayTransfer();
+        win.once('leave-full-screen', enterFullscreen);
+        setWindowFullscreen(win, false);
+    } else {
+        if (controller) controller.rememberNormalWindowState();
+        enterFullscreen();
     }
-    
-    // Toggle fullscreen after moving
-    win.setFullScreen(!win.isFullScreen());
 });
 
 ipcMain.handle('dialog-select-folder', async (e, defaultPath) => {

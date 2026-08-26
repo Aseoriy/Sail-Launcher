@@ -281,6 +281,22 @@
             color: white;
         }
 
+        body.native-fullscreen.glassmorphic-mode:not(.theme-custom) {
+            background:
+                radial-gradient(circle at 0% 0%, color-mix(in srgb, var(--accent) 8%, transparent) 0%, transparent 70%),
+                radial-gradient(circle at 100% 100%, color-mix(in srgb, var(--accent) 5%, transparent) 0%, transparent 80%),
+                var(--bg-color) !important;
+        }
+
+        body.native-fullscreen.force-translucency.theme-custom,
+        body.native-fullscreen.force-translucency.theme-custom.glassmorphic-mode {
+            background: var(--force-trans-bg, var(--bg-color)) !important;
+        }
+
+        body.native-fullscreen.force-translucency.theme-custom::after {
+            display: none;
+        }
+
         .nav-arrow {
             background: transparent;
             border: none;
@@ -4029,9 +4045,9 @@
             </button>
             <button class="titlebar-btn" id="muteBtn" title="Mute / unmute launcher sounds"><span class="app-ic" data-ic="volume" role="img"></span></button>
             <button class="titlebar-btn" id="supportersBtn" title="Supporters — thank you for keeping the fleet sailing!" onclick="openSupportersModal()" style="margin-right: 16px;">💜</button>
-            <button class="titlebar-btn" id="minBtn"><span class="app-ic" data-ic="minimize" role="img"></span></button>
-            <button class="titlebar-btn" id="maxBtn"><span class="app-ic" data-ic="maximize" role="img"></span></button>
-            <button class="titlebar-btn close" id="closeBtn"><span class="app-ic" data-ic="close" role="img"></span></button>
+            <button class="titlebar-btn" id="minBtn" title="Minimize" aria-label="Minimize"><span class="app-ic" data-ic="minimize" role="img"></span></button>
+            <button class="titlebar-btn" id="maxBtn" title="Enter full screen" aria-label="Enter full screen" aria-pressed="false"><span class="app-ic" data-ic="maximize" role="img"></span></button>
+            <button class="titlebar-btn close" id="closeBtn" title="Close" aria-label="Close"><span class="app-ic" data-ic="close" role="img"></span></button>
         </div>
     </div>
 
@@ -6780,12 +6796,27 @@
         const os = require('os');
         const remoteData = require('./ui/remoteJson').createRemoteDataClient(ipcRenderer);
         const SafeDom = require('./ui/safeDom');
+        const DownloadSourceLogic = require('./ui/downloadSourceLogic');
         const DownloadQuarantineUi = require('./ui/downloadQuarantine');
         const LaunchStatus = require('./ui/launchStatus');
         LaunchStatus.bindLaunchStatus(document, ipcRenderer);
 
         document.getElementById('minBtn').addEventListener('click', () => ipcRenderer.send('window-min'));
-        document.getElementById('maxBtn').addEventListener('click', () => ipcRenderer.send('window-max'));
+        const fullscreenBtn = document.getElementById('maxBtn');
+        fullscreenBtn.addEventListener('click', () => ipcRenderer.send('window-fullscreen-toggle'));
+        ipcRenderer.on('window-fullscreen-changed', (_event, isFullscreen) => {
+            const active = isFullscreen === true;
+            const icon = fullscreenBtn.querySelector('[data-ic]');
+            if (icon) {
+                icon.dataset.ic = active ? 'restore' : 'maximize';
+                icon.removeAttribute('data-mode');
+            }
+            fullscreenBtn.title = active ? 'Exit full screen' : 'Enter full screen';
+            fullscreenBtn.setAttribute('aria-label', fullscreenBtn.title);
+            fullscreenBtn.setAttribute('aria-pressed', String(active));
+            document.body.classList.toggle('native-fullscreen', active);
+            if (typeof paintIcons === 'function') paintIcons(fullscreenBtn);
+        });
         document.getElementById('closeBtn').addEventListener('click', () => ipcRenderer.send('window-close', globalSettings.exitWhenClosed));
 
         // Mute toggle for launcher sounds (the Big Picture boot chime). Reflects + persists
@@ -6819,6 +6850,7 @@
             'mute':          '<path d="M11 5 6 9H2v6h4l5 4z"/><path d="M22 9l-6 6"/><path d="M16 9l6 6"/>',
             'minimize':      '<path d="M5 12h14"/>',
             'maximize':      '<rect x="4" y="4" width="16" height="16" rx="1.5"/>',
+            'restore':       '<path d="M8 7V5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-2"/><rect x="3" y="8" width="13" height="13" rx="1.5"/>',
             'close':         '<path d="M18 6 6 18"/><path d="M6 6l12 12"/>',
             'sync':          '<path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M8 16H3v5"/>',
             'refresh':       '<path d="M20 11a8 8 0 0 0-14.9-3L3 10"/><path d="M3 4v6h6"/><path d="M4 13a8 8 0 0 0 14.9 3L21 14"/><path d="M21 20v-6h-6"/>',
@@ -6889,7 +6921,7 @@
         // Emoji shown for each icon when the user prefers emoji mode (also the accessible label).
         const ICON_EMOJI = {
             'chevron-left': '❮', 'chevron-right': '❯', 'menu': '☰', 'volume': '🔊', 'mute': '🔇',
-            'minimize': '─', 'maximize': '□', 'close': '✕', 'sync': '🔄', 'refresh': '🔄', 'pause': '⏸', 'play': '▶', 'arrow-left': '🔙',
+            'minimize': '─', 'maximize': '□', 'restore': '❐', 'close': '✕', 'sync': '🔄', 'refresh': '🔄', 'pause': '⏸', 'play': '▶', 'arrow-left': '🔙',
             'palette': '🎨', 'settings': '⚙️', 'wrench': '🛠️', 'sparkles': '✨', 'chat': '💬',
             'save': '💾', 'cloud': '☁️', 'book': '📚', 'flask': '🧪', 'code': '🧑‍💻',
             'upload': '📤', 'download': '📥', 'globe': '🌐', 'megaphone': '📢',
@@ -18031,6 +18063,8 @@
             } catch (e) { }
         }
 
+        let bigPictureUsesNativeFullscreen = false;
+
         window.toggleBigPicture = function () {
             if (document.body.classList.contains('big-picture-mode')) {
                 openModal('exitBpModal');
@@ -18045,6 +18079,7 @@
                 playConsoleChime();
 
                 if (globalSettings.bigPictureMonitor) {
+                    bigPictureUsesNativeFullscreen = true;
                     require('electron').ipcRenderer.send('move-to-display-fullscreen', globalSettings.bigPictureMonitor);
                     setTimeout(() => {
                         bpIntro.style.opacity = '0';
@@ -18056,6 +18091,7 @@
                         }, 800);
                     }, 1800);
                 } else {
+                    bigPictureUsesNativeFullscreen = false;
                     document.documentElement.requestFullscreen().then(() => {
                         setTimeout(() => {
                             bpIntro.style.opacity = '0';
@@ -18085,6 +18121,10 @@
             contentArea.style.opacity = '1';
             bpIntro.style.display = 'none';
             if (document.fullscreenElement) document.exitFullscreen().catch(e => console.log("Exit fullscreen failed"));
+            if (bigPictureUsesNativeFullscreen) {
+                require('electron').ipcRenderer.send('window-set-fullscreen', false);
+                bigPictureUsesNativeFullscreen = false;
+            }
             document.body.classList.remove('hide-cursor');
         };
 
@@ -18158,6 +18198,16 @@
         .dl-card .dl-cover-wrap { position: relative; width: 100%; aspect-ratio: 16 / 10; overflow: hidden; background: #0c0c10; }
         .dl-card .dl-cover { width: 100%; height: 100%; object-fit: cover; transition: transform 0.5s cubic-bezier(0.22, 1, 0.36, 1); }
         .dl-card:hover .dl-cover { transform: scale(1.09); }
+        .dl-card .dl-cover-wrap.dl-cover-missing::before {
+            content: 'No cover available';
+            position: absolute;
+            inset: 0;
+            display: grid;
+            place-items: center;
+            color: rgba(255,255,255,0.5);
+            font-size: 12px;
+            letter-spacing: 0.2px;
+        }
         .dl-card .dl-cover-grad { position: absolute; inset: 0; background: linear-gradient(to top, rgba(0,0,0,0.82) 0%, rgba(0,0,0,0.15) 45%, transparent 100%); }
         .dl-card .dl-badge {
             position: absolute; top: 10px; left: 10px;
@@ -18188,6 +18238,41 @@
         #downloadDetailPanel { animation: dlPanelIn 0.4s cubic-bezier(0.22, 1, 0.36, 1); }
         #ddpScreens img { transition: transform 0.25s ease, box-shadow 0.25s ease; }
         #ddpScreens img:hover { transform: scale(1.03); box-shadow: 0 8px 20px rgba(0,0,0,0.4); }
+        .dl-screenshot-viewer {
+            position: fixed;
+            inset: 0;
+            z-index: 12000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 54px;
+            background: rgba(2, 6, 18, 0.92);
+            backdrop-filter: blur(12px);
+            -webkit-app-region: no-drag;
+        }
+        .dl-screenshot-viewer[hidden] { display: none; }
+        .dl-screenshot-viewer img {
+            display: block;
+            max-width: 100%;
+            max-height: 100%;
+            object-fit: contain;
+            border-radius: 10px;
+            box-shadow: 0 22px 70px rgba(0,0,0,0.65);
+            background: #000;
+        }
+        .dl-screenshot-viewer-close {
+            position: absolute;
+            top: 16px;
+            right: 18px;
+            width: 42px;
+            height: 42px;
+            border-radius: 12px;
+            border: 1px solid rgba(255,255,255,0.22);
+            background: rgba(10,15,28,0.82);
+            color: #fff;
+            font-size: 24px;
+            cursor: pointer;
+        }
 
         #downloadDock { animation: dlDockIn 0.35s cubic-bezier(0.22, 1, 0.36, 1); }
         .dl-progress-bar { background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 55%, #fff)) !important; background-size: 200% 100% !important; animation: dlShimmer 1.6s linear infinite; }
@@ -18235,28 +18320,42 @@
         function dlImgSrc(imgEl, base) {
             if (!imgEl) return DL_PLACEHOLDER;
             let cand = imgEl.getAttribute('data-src') || imgEl.getAttribute('data-lazy-src') ||
+                imgEl.getAttribute('data-src-webp') || imgEl.getAttribute('data-lazy-src-webp') ||
                 imgEl.getAttribute('data-back-webp') || imgEl.getAttribute('data-back') ||
                 imgEl.getAttribute('src') || '';
             // srcset fallback (take first URL)
             if (!cand) { const ss = imgEl.getAttribute('data-srcset') || imgEl.getAttribute('srcset'); if (ss) cand = ss.split(',')[0].trim().split(/\s+/)[0]; }
-            const abs = dlAbs(cand, base);
+            const abs = DownloadSourceLogic.normalizeRemoteImageUrl(cand, base);
             return abs || DL_PLACEHOLDER;
         }
 
         // Resolve a card cover from a result container: SteamRIP stores it as a
         // data-back / data-back-webp attribute or CSS background, not an <img>.
         function dlContainerImage(c, base) {
-            const dataAttrs = ['data-back-webp', 'data-back', 'data-bg', 'data-lazy-bg', 'data-src'];
+            const dataAttrs = ['data-back-webp', 'data-back', 'data-bg', 'data-lazy-bg', 'data-src-webp', 'data-src'];
             // attribute on the container itself
-            for (const a of dataAttrs) { const v = c.getAttribute && c.getAttribute(a); if (v) return dlAbs(v, base); }
+            for (const a of dataAttrs) {
+                const v = c.getAttribute && c.getAttribute(a);
+                const image = DownloadSourceLogic.normalizeRemoteImageUrl(v, base);
+                if (image) return image;
+            }
             // attribute on any descendant
-            for (const a of dataAttrs) { const el = c.querySelector('[' + a + ']'); if (el) { const v = el.getAttribute(a); if (v) return dlAbs(v, base); } }
+            for (const a of dataAttrs) {
+                const el = c.querySelector('[' + a + ']');
+                const image = el && DownloadSourceLogic.normalizeRemoteImageUrl(el.getAttribute(a), base);
+                if (image) return image;
+            }
             // a real <img>
             const img = c.querySelector('img');
             if (img) { const s = dlImgSrc(img, base); if (s && s !== DL_PLACEHOLDER) return s; }
             // inline background-image: url(...)
             const styled = (c.getAttribute && c.getAttribute('style')) ? c : c.querySelector('[style*="background"]');
-            if (styled) { const st = styled.getAttribute('style') || ''; const mm = st.match(/url\((['"]?)([^'")]+)\1\)/i); if (mm) return dlAbs(mm[2], base); }
+            if (styled) {
+                const st = styled.getAttribute('style') || '';
+                const mm = st.match(/url\((['"]?)([^'")]+)\1\)/i);
+                const image = mm && DownloadSourceLogic.normalizeRemoteImageUrl(mm[2], base);
+                if (image) return image;
+            }
             return DL_PLACEHOLDER;
         }
 
@@ -18357,42 +18456,44 @@
             fitgirl: {
                 name: 'FitGirl', color: '#ec4899',
                 searchUrl: q => `https://fitgirl-repacks.site/?s=${encodeURIComponent(q)}`,
-                results: doc => genericResults(doc, 'https://fitgirl-repacks.site',
-                    'article', 'h1.entry-title a, h2.entry-title a, .entry-title a'),
+                // Search through the game-only WordPress category. The public search HTML
+                // has no cover art and can include Updates Digest/page entries.
+                searchFn: async (query) => {
+                    const res = await remoteData.searchDownloadSource('fitgirl', query);
+                    return DownloadSourceLogic.normalizeFitGirlPosts(res && res.data).map(item => ({
+                        ...item,
+                        name: dlClean(dlDecodeEntities(item.name))
+                    })).filter(item => item.name && item.url && item.reference);
+                },
                 detail: wpDetail
             },
             steamrip: {
                 name: 'SteamRIP', color: '#3b82f6', requiresDebrid: true, renderOnly: true,
                 searchUrl: q => `https://steamrip.com/?s=${encodeURIComponent(q)}`,
-                // Support both legacy /<slug>-free-download/ URLs and the redesigned game cards.
-                results: doc => {
+                // Only inspect the real result grid. Popular Games uses similar cards in the
+                // sidebar and must never be mixed into the user's search results.
+                results: (doc, query) => {
                     const base = 'https://steamrip.com';
                     const out = [], seen = new Set();
-                    const scope = doc.querySelector('main, #main, .site-main, .content-area') || doc.body || doc;
-                    scope.querySelectorAll('a[href]').forEach(a => {
-                        let href = dlAbs(a.getAttribute('href') || '', base);
+                    const grid = doc.querySelector('.main-content #masonry-grid');
+                    if (!grid) return out;
+                    Array.from(grid.children).filter(card => card.classList.contains('post-element')).forEach(card => {
+                        const link = card.querySelector('h2.thumb-title a[href], a.all-over-thumb-link[href]');
+                        if (!link) return;
+                        let href = dlAbs(link.getAttribute('href') || '', base);
                         let parsed; try { parsed = new URL(href); } catch (e) { return; }
                         if (!/(^|\.)steamrip\.com$/i.test(parsed.hostname)) return;
-                        const card = a.closest('article, .post, .card, .game-card, .game-item, .product, li');
-                        const legacy = /free-download\/?$/i.test(parsed.pathname);
-                        if (!legacy && !card) return;
-                        if (a.closest('nav, header, footer, .menu, .navigation, .pagination')) return;
-                        if (/^\/?$|\/(category|tag|author|page|genre|platform|wp-content|wp-json)(\/|$)/i.test(parsed.pathname)) return;
+                        if (!/free-download[^/]*\/?$/i.test(parsed.pathname)) return;
                         href = href.split('#')[0].split('?')[0];
                         if (seen.has(href)) return;
-                        let name = '';
-                        if (card) {
-                            const title = card.querySelector('h1, h2, h3, h4, .title, .entry-title, [class*="title"]');
-                            name = title ? dlClean(title.textContent) : '';
-                        }
-                        if (!name || name.length < 2) { const img = a.querySelector('img') || (card && card.querySelector('img')); name = img ? dlClean(img.getAttribute('alt') || '') : ''; }
-                        if (!name || name.length < 2) name = dlClean(a.textContent);
-                        if (/^(view|details|read more|download|free download)$/i.test(name)) return;
+                        const title = card.querySelector('h2.thumb-title a[href], h2.the-post-title, .screen-reader-text');
+                        let name = title ? dlClean(title.textContent) : '';
                         if (!name || name.length < 2) return;
                         seen.add(href);
-                        out.push({ name: name.replace(/\s*free\s*download.*/i, '').trim() || name, url: href, image: dlContainerImage(card || a.closest('div') || a, base) });
+                        name = name.replace(/\s*free\s*download.*/i, '').trim() || name;
+                        out.push({ name, url: href, image: dlContainerImage(card, base) });
                     });
-                    return out.slice(0, 12);
+                    return DownloadSourceLogic.filterSearchResultsByTitle(out, query).slice(0, 12);
                 },
                 // Detail pages list premium-filehost links (MegaDB / 1Fichier / GoFile /
                 // Buzzheavier / Rapidgator / …). A connected debrid service unlocks them.
@@ -18644,7 +18745,7 @@
                     const { doc, references, error } = await dlFetchDoc({ source: id, query });
                     if (token !== dlSearchToken) return;
                     if (error || !doc) { renderSourceFallback(id, query, error || 'blocked'); done++; return; }
-                    const items = src.results(doc) || [];
+                    const items = src.results(doc, query) || [];
                     items.forEach(item => { item.reference = referenceForSourceUrl(references, item.url); });
                     if (items.length === 0) { renderSourceFallback(id, query, 'No results'); }
                     items.filter(item => item.reference).forEach(it => { renderDownloadCard(id, it); total++; });
@@ -18702,8 +18803,16 @@
             img.className = 'dl-cover';
             img.loading = 'lazy';
             img.alt = '';
-            if (!SafeDom.setImageSource(img, item.image, { allowAnyHost: true, hideInvalid: false })) img.src = 'icon.ico';
-            img.onerror = () => { img.onerror = null; img.src = 'icon.ico'; };
+            const showMissingCover = () => {
+                img.onerror = null;
+                img.hidden = true;
+                cover.classList.add('dl-cover-missing');
+            };
+            if (!item.image || item.image === DL_PLACEHOLDER ||
+                !SafeDom.setImageSource(img, item.image, { allowAnyHost: true, hideInvalid: false })) {
+                showMissingCover();
+            }
+            img.onerror = showMissingCover;
             const grad = document.createElement('div'); grad.className = 'dl-cover-grad';
             const badge = document.createElement('span'); badge.className = 'dl-badge'; badge.style.background = SafeDom.safeCssColor(src.color, '#888888'); badge.textContent = src.name;
             const play = document.createElement('div'); play.className = 'dl-play'; play.append(SafeDom.element(document, 'span', { text: '▶ View' }));
@@ -18769,7 +18878,98 @@
             document.getElementById('downloadSearchPanel').style.display = 'flex';
         };
 
-        function scrapeMeta(doc) {
+        let dlScreenshotViewer = null;
+        let dlScreenshotReturnFocus = null;
+
+        function closeDownloadScreenshot() {
+            if (!dlScreenshotViewer) return;
+            dlScreenshotViewer.hidden = true;
+            const image = dlScreenshotViewer.querySelector('img');
+            if (image) image.removeAttribute('src');
+            if (dlScreenshotReturnFocus && typeof dlScreenshotReturnFocus.focus === 'function') dlScreenshotReturnFocus.focus();
+            dlScreenshotReturnFocus = null;
+        }
+
+        function ensureDownloadScreenshotViewer() {
+            if (dlScreenshotViewer) return dlScreenshotViewer;
+            const viewer = document.createElement('div');
+            viewer.className = 'dl-screenshot-viewer';
+            viewer.hidden = true;
+            viewer.setAttribute('role', 'dialog');
+            viewer.setAttribute('aria-modal', 'true');
+            viewer.setAttribute('aria-label', 'Full screenshot preview');
+            const image = document.createElement('img');
+            image.alt = 'Full game screenshot';
+            const close = document.createElement('button');
+            close.type = 'button';
+            close.className = 'dl-screenshot-viewer-close';
+            close.textContent = '×';
+            close.title = 'Close full screenshot';
+            close.setAttribute('aria-label', 'Close full screenshot');
+            close.onclick = closeDownloadScreenshot;
+            viewer.onclick = event => { if (event.target === viewer) closeDownloadScreenshot(); };
+            viewer.append(image, close);
+            document.body.appendChild(viewer);
+            dlScreenshotViewer = viewer;
+            return viewer;
+        }
+
+        function openDownloadScreenshot(fullUrl, thumbnailUrl, trigger) {
+            const viewer = ensureDownloadScreenshotViewer();
+            const image = viewer.querySelector('img');
+            const full = SafeDom.safeImageUrl(fullUrl, { allowAnyHost: true });
+            const thumbnail = SafeDom.safeImageUrl(thumbnailUrl, { allowAnyHost: true });
+            if (!full && !thumbnail) return;
+            dlScreenshotReturnFocus = trigger || document.activeElement;
+            image.onerror = () => {
+                image.onerror = null;
+                if (thumbnail && image.src !== thumbnail) image.src = thumbnail;
+            };
+            image.src = full || thumbnail;
+            viewer.hidden = false;
+            viewer.querySelector('button').focus();
+        }
+
+        document.addEventListener('keydown', event => {
+            if (event.key === 'Escape' && dlScreenshotViewer && !dlScreenshotViewer.hidden) closeDownloadScreenshot();
+        });
+
+        function screenshotImages(scope) {
+            if (!scope) return [];
+            const heading = Array.from(scope.querySelectorAll('h2, h3, h4'))
+                .find(node => /\bscreenshots?\b/i.test(node.textContent || ''));
+            const images = [];
+            if (heading) {
+                let node = heading.nextElementSibling;
+                while (node && !/^H[1-4]$/.test(node.tagName)) {
+                    if (node.matches('img')) images.push(node);
+                    node.querySelectorAll('img').forEach(image => images.push(image));
+                    node = node.nextElementSibling;
+                }
+            }
+            if (!images.length) {
+                scope.querySelectorAll('a[href*="/screenshots/"] img, [class*="screenshot"] img')
+                    .forEach(image => images.push(image));
+            }
+            return images;
+        }
+
+        function screenshotRecord(image, base) {
+            const thumbnail = dlImgSrc(image, base);
+            if (!thumbnail || thumbnail === DL_PLACEHOLDER) return null;
+            let full = '';
+            for (const attribute of ['data-large-file', 'data-orig-file', 'data-full', 'data-zoom-image']) {
+                full = DownloadSourceLogic.normalizeRemoteImageUrl(image.getAttribute(attribute), base);
+                if (full) break;
+            }
+            const anchor = image.closest('a[href]');
+            const anchorUrl = anchor && DownloadSourceLogic.normalizeRemoteImageUrl(anchor.getAttribute('href'), base);
+            if (!full && anchorUrl && /\.(?:jpe?g|png|webp|gif)(?:[?#]|$)/i.test(anchorUrl)) full = anchorUrl;
+            full = DownloadSourceLogic.fullScreenshotImageUrl(full || thumbnail, base);
+            return { thumbnail, full: full || thumbnail };
+        }
+
+        function scrapeMeta(doc, base) {
             const meta = { description: '', screenshots: [], size: '' };
             const content = doc.querySelector('.entry-content, .post-content, article .content, #the-post, article, main');
             // description: gather first paragraphs of text
@@ -18793,19 +18993,14 @@
             let sm = bodyText.match(/(?:Repack Size|Final Size|Download Size|Game Size|Size)\s*:?\s*~?\s*([\d.,]+\s*(?:GB|MB))/i);
             if (!sm) sm = bodyText.match(/([\d.,]+\s*GB)/i);
             if (sm) meta.size = sm[1].replace(/\s+/g, ' ').trim();
-            // screenshots
-            const imgs = (scope || doc).querySelectorAll('img');
+            // Only images in the page's actual Screenshots section belong in the gallery.
+            // Torrent status badges, cover art, donation images, and sidebar artwork do not.
             const seen = new Set();
-            imgs.forEach(im => {
-                let s = im.getAttribute('data-src') || im.getAttribute('data-lazy-src') || im.getAttribute('src') || '';
-                if (!s) return;
-                if (s.startsWith('//')) s = 'https:' + s;
-                if (!/^https?:/.test(s)) return;
-                if (/(logo|icon|avatar|gravatar|emoji|smile|button|banner-|ad[-_]|placeholder)/i.test(s)) return;
-                if (im.width && im.width < 200) return;
-                if (seen.has(s)) return;
-                seen.add(s);
-                if (meta.screenshots.length < 6) meta.screenshots.push(s);
+            screenshotImages(scope || doc).forEach(image => {
+                const record = screenshotRecord(image, base);
+                if (!record || seen.has(record.full)) return;
+                seen.add(record.full);
+                if (meta.screenshots.length < 6) meta.screenshots.push(record);
             });
             return meta;
         }
@@ -18943,7 +19138,7 @@
                 const { doc, error: fe } = await dlFetchDoc({ reference: item.reference });
                 if (myToken !== dlDetailToken) return; // user navigated away — abandon
                 if (fe || !doc) error = fe || 'Could not load page';
-                else { links = src.detail(doc, item.url) || []; meta = scrapeMeta(doc); }
+                else { links = src.detail(doc, item.url) || []; meta = scrapeMeta(doc, item.url); }
             } catch (e) { error = e.message; }
             if (myToken !== dlDetailToken) return;
 
@@ -18955,14 +19150,23 @@
             if (meta.screenshots.length) {
                 const sc = document.getElementById('ddpScreens');
                 sc.replaceChildren();
-                meta.screenshots.forEach(url => {
+                meta.screenshots.forEach(screenshot => {
                     const im = document.createElement('img');
-                    const safeUrl = SafeDom.safeImageUrl(url, { allowAnyHost: true });
-                    if (!safeUrl) return;
-                    im.src = safeUrl; im.loading = 'lazy'; im.alt = '';
-                    im.style.cssText = 'width:100%;height:130px;object-fit:cover;border-radius:8px;cursor:pointer;background:#000;';
+                    const thumbnail = SafeDom.safeImageUrl(screenshot.thumbnail, { allowAnyHost: true });
+                    const full = SafeDom.safeImageUrl(screenshot.full, { allowAnyHost: true });
+                    if (!thumbnail) return;
+                    im.src = thumbnail; im.loading = 'lazy'; im.alt = 'Open full game screenshot';
+                    im.tabIndex = 0;
+                    im.setAttribute('role', 'button');
+                    im.style.cssText = 'width:100%;height:150px;object-fit:contain;border-radius:8px;cursor:pointer;background:#000;';
                     im.onerror = () => im.remove();
-                    im.onclick = () => ipcRenderer.invoke('open-url', safeUrl);
+                    im.onclick = () => openDownloadScreenshot(full || thumbnail, thumbnail, im);
+                    im.onkeydown = event => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                            event.preventDefault();
+                            openDownloadScreenshot(full || thumbnail, thumbnail, im);
+                        }
+                    };
                     sc.appendChild(im);
                 });
                 document.getElementById('ddpScreensWrap').style.display = 'block';

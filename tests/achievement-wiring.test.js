@@ -16,7 +16,7 @@ const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 
 const SafeDom = require('../ui/safeDom');
 
 test('v5.4 packages and registers the achievement subsystem', () => {
-    assert.equal(packageJson.version, '5.4.0');
+    assert.equal(packageJson.version, '5.4.1');
     assert.equal(packageJson.build.artifactName, 'Sail-Launcher-Setup-${version}.${ext}');
     assert.ok(packageJson.build.files.includes('achievements/**/*'));
     assert.match(packageJson.scripts.check, /achievements\/achievementService\.js/);

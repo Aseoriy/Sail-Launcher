@@ -140,6 +140,38 @@ test('account session storage retries after secure storage becomes available', a
     assert.equal(await waiting, true);
 });
 
+test('account session storage recovers a rotated session after an interrupted replacement', async t => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sail-session-atomic-'));
+    t.after(() => fs.removeSync(root));
+    const filePath = path.join(root, 'sail_account_session.json');
+    const safeStorage = {
+        isEncryptionAvailable: () => true,
+        encryptString: value => Buffer.from(String(value), 'utf8'),
+        decryptString: value => Buffer.from(value).toString('utf8')
+    };
+    const writer = new SafeStorageAdapter(filePath, safeStorage);
+    await writer.setItem('supabase.auth.token', 'session-before-rotation');
+
+    const originalRenameSync = fs.renameSync;
+    let renameCount = 0;
+    fs.renameSync = (source, target) => {
+        renameCount += 1;
+        if (renameCount === 2) throw new Error('simulated interruption during session replacement');
+        return originalRenameSync(source, target);
+    };
+    try {
+        await assert.rejects(
+            writer.setItem('supabase.auth.token', 'session-after-rotation'),
+            /simulated interruption/
+        );
+    } finally {
+        fs.renameSync = originalRenameSync;
+    }
+
+    const reader = new SafeStorageAdapter(filePath, safeStorage);
+    assert.equal(await reader.getItem('supabase.auth.token'), 'session-after-rotation');
+});
+
 test('username sign-in surfaces the Edge Function response message', async () => {
     const service = Object.create(AccountService.prototype);
     service.client = {
