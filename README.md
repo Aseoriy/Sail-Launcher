@@ -21,7 +21,7 @@
 
 ## About Sail Launcher
 
-Sail Launcher is a feature-rich desktop launcher built for managing games and applications outside a traditional storefront.
+Sail Launcher is a super cool game/app launcher that has a built in game downloader that scrapes popular sites like steamrip and fitgirl.
 
 It combines library management, metadata retrieval, launch automation, playtime tracking, cloud-save synchronization, Steam Workshop support, downloads, installation tools, maintenance utilities, and extensive interface customization in one application.
 
