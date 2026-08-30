@@ -216,7 +216,7 @@ async function main() {
                 transferCreated: !!(transfer && transfer.capabilityId)
             };
         })()`);
-        assert.equal(report.version, '5.4.1');
+        assert.equal(report.version, '5.5.0');
         assert.equal(path.resolve(report.userData), path.resolve(fixture.userData));
         assert.equal(report.achievementSyncCalls, 1);
         assert.ok(report.profileCaptureCalls >= 1);

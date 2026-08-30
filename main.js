@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain: electronIpcMain, dialog, shell, screen, Tray, Menu, session, safeStorage, Notification } = require('electron');
+const { app, BrowserWindow, ipcMain: electronIpcMain, dialog, shell, screen, Tray, Menu, session, safeStorage, Notification, net } = require('electron');
 const { exec, execFile, spawn } = require('child_process');
 const os = require('os');
 const path = require('path');
@@ -6,6 +6,8 @@ const fs = require('fs');
 const https = require('https');
 const http = require('http');
 const crypto = require('crypto');
+const dnsPromises = require('node:dns').promises;
+const nodeNet = require('node:net');
 const unrar = require('node-unrar-js');
 const _7z = require('7zip-min');
 try {
@@ -26,9 +28,67 @@ const { RecoveryJournal } = require('./runtime/recoveryJournal');
 const { DownloadJobDirectoryRegistry } = require('./runtime/downloadJobCleanup');
 const { registerDownloadCancellationIpc } = require('./runtime/downloadIpc');
 const { BrowserDownloadIntentRegistry, createBrowserWillDownloadHandler, createPrepareBrowserDownloadHandler } = require('./runtime/browserDownloadIntents');
+const {
+    ManagedVerificationCoordinator,
+    mergeRefreshedDownload,
+    shouldPreservePartialForRetry
+} = require('./runtime/downloadResolutionLifecycle');
 const { createDownloadWorkCoordinator } = require('./runtime/downloadWorkCoordinator');
 const { runOwnedChildProcess } = require('./runtime/ownedChildProcess');
+const { runOwnedWorker } = require('./runtime/ownedWorker');
 const { DownloadQuarantineCatalog, registerDownloadQuarantineIpc } = require('./runtime/downloadQuarantine');
+const {
+    AKIRABOX_HOST_RE,
+    BUZZHEAVIER_HOST_RE,
+    DATANODES_BROWSER_TRANSFER_AUTHORITY,
+    DATANODES_HOST_RE,
+    FILEDITCH_HOST_RE,
+    FILEKEEPER_HOST_RE,
+    FUCKINGFAST_HOST_RE,
+    PIXELDRAIN_HOST_RE,
+    ROOTZ_HOST_RE,
+    VIKINGFILE_HOST_RE,
+    X1337_HOST_RE,
+    credentialFreeHttpsUrl,
+    extractDataNodesBrowserDownload,
+    extractFuckingFastBrowserDownload,
+    gofileShareDetails,
+    managedHostTransferRequest,
+    resolve1337xUrl,
+    resolveAkiraBoxUrl,
+    resolveBuzzHeavierUrl,
+    resolveDataNodesUrl,
+    resolveFileDitchUrl,
+    resolveFileKeeperUrl,
+    resolveGofileUrl,
+    resolveMegaDbUrl,
+    resolvePixeldrainUrl,
+    resolveRootzUrl,
+    resolveVikingFileUrl,
+    validateDataNodesBrowserTransfer
+} = require('./runtime/downloadHostResolvers');
+const {
+    FILECRYPT_CHALLENGE_EXPRESSION,
+    fileCryptLinkCandidates,
+    fileCryptSubmitExpression,
+    normalizeFileCryptContainerUrl,
+    solveFileCryptProof
+} = require('./runtime/fileCryptResolver');
+const {
+    HEALTH_STATES,
+    classifyFileCryptResponse,
+    createDownloadLinkHealthChecker,
+    isHealthTargetAllowed
+} = require('./runtime/downloadLinkHealth');
+const {
+    DEFAULT_VERIFICATION_RESOURCE_HOSTS,
+    findSystemChromiumExecutable,
+    resolveWithSystemChromium,
+    verificationNeedsAttention
+} = require('./runtime/systemBrowserResolver');
+const DownloadSourceLogic = require('./ui/downloadSourceLogic');
+const ARCHIVE_EXTRACT_WORKER = path.join(__dirname, 'runtime', 'archiveExtractWorker.js');
+const DOWNLOAD_PREPARATION_WORKER = path.join(__dirname, 'runtime', 'downloadPreparationWorker.js');
 const { createAuthorizedIpcRegistrar, createTrustedFrameAuthorizer } = require('./security/ipcAuthorization');
 const { createArchivePowerShellInvocation, scopedArtifactStems } = require('./security/archiveDataBinding');
 const { createExecutionPhaseAuthority } = require('./security/executionPhaseAuthority');
@@ -65,6 +125,7 @@ let maintenanceService = null;
 let accountServices = null;
 let achievementService = null;
 let mainWindow = null;
+let hostTransferProbeStarted = false;
 const fullscreenControllers = new WeakMap();
 const fullscreenStates = new WeakMap();
 const sailHubGuestContents = new Set();
@@ -449,6 +510,112 @@ registerLaunchStatusIpc(ipcMain, {
     resolveGameMetadata: gameId => gateAProfileStore().activeGameMetadata(gameId)
 });
 
+function hostTransferProbePayload(job) {
+    if (!job) return { totalBytes: 0, files: [] };
+    const roots = [...new Set([job.directory, job.quarantinePath, job.finalDirectory]
+        .filter(value => typeof value === 'string' && value))];
+    const files = [];
+    const walk = (directory, depth = 0) => {
+        if (depth > 8 || files.length >= 1000) return;
+        let entries;
+        try { entries = fs.readdirSync(directory, { withFileTypes: true }); } catch (_) { return; }
+        for (const entry of entries) {
+            if (files.length >= 1000) break;
+            const fullPath = path.join(directory, entry.name);
+            let stats;
+            try { stats = fs.lstatSync(fullPath); } catch (_) { continue; }
+            if (stats.isSymbolicLink()) continue;
+            if (stats.isDirectory()) {
+                walk(fullPath, depth + 1);
+                continue;
+            }
+            if (!stats.isFile() || !stats.size || entry.name.endsWith('.aria2')
+                || entry.name.startsWith('_cover') || entry.name.startsWith('.')) continue;
+            files.push({ name: entry.name.slice(0, 240), bytes: stats.size });
+        }
+    };
+    roots.forEach(root => walk(root));
+    return {
+        totalBytes: files.reduce((total, file) => total + file.bytes, 0),
+        files: files.slice(0, 20)
+    };
+}
+
+async function runHostTransferProbe(win) {
+    const fixtures = [
+        {
+            label: 'Sail FileDitch transfer probe',
+            url: process.env.SAIL_FILEDITCH_TRANSFER_PROBE_URL || '',
+            expectedHost: 'fileditchfiles.me'
+        },
+        {
+            label: 'Sail BuzzHeavier transfer probe',
+            url: process.env.SAIL_BUZZHEAVIER_TRANSFER_PROBE_URL || '',
+            expectedHost: 'buzzheavier.com'
+        }
+    ];
+    const report = { startedAt: new Date().toISOString(), fixtures: [] };
+    const pause = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
+
+    for (const fixture of fixtures) {
+        const row = { label: fixture.label, sourceUrl: fixture.url, expectedHost: fixture.expectedHost };
+        let job = null;
+        try {
+            const start = await win.webContents.executeJavaScript(
+                `window.__sailStartHostTransferProbe(${JSON.stringify(fixture)})`, true
+            );
+            Object.assign(row, { id: start && start.id || '', host: start && start.host || '', buttonText: start && start.buttonText || '' });
+            if (!row.id) throw new Error(start && start.error || 'The launcher did not create a download job.');
+
+            const deadline = Date.now() + 120000;
+            while (Date.now() < deadline) {
+                job = downloadJobDirectories.get(row.id) || job;
+                const payload = hostTransferProbePayload(job);
+                const state = await win.webContents.executeJavaScript(
+                    `window.__sailGetHostTransferProbeState(${JSON.stringify(row.id)})`, true
+                );
+                row.rendererState = state;
+                row.jobState = job && job.state || '';
+                row.payload = payload;
+                if (payload.totalBytes > 0 && state && (state.sawProcessing || state.completed)) {
+                    row.transferComplete = true;
+                    break;
+                }
+                if (state && state.error && !state.sawProcessing) {
+                    row.error = state.error;
+                    break;
+                }
+                await pause(200);
+            }
+            if (!row.transferComplete && !row.error) row.error = 'Timed out before a complete payload transfer was observed.';
+        } catch (error) {
+            row.error = error && error.message || String(error);
+        } finally {
+            if (row.id) {
+                try {
+                    row.cancellation = await win.webContents.executeJavaScript(
+                        `window.__sailCancelHostTransferProbe(${JSON.stringify(row.id)})`, true
+                    );
+                } catch (_) {}
+                await pause(500);
+                row.payload = hostTransferProbePayload(job);
+            }
+        }
+        row.passed = row.transferComplete === true
+            && row.payload && row.payload.totalBytes > 0
+            && row.host === row.expectedHost
+            && /^⬇️ Download/.test(row.buttonText || '');
+        report.fixtures.push(row);
+    }
+
+    report.finishedAt = new Date().toISOString();
+    report.passed = report.fixtures.length === fixtures.length && report.fixtures.every(row => row.passed);
+    const reportPath = path.join(app.getPath('userData'), 'sail-host-transfer-probe.json');
+    fs.mkdirSync(path.dirname(reportPath), { recursive: true });
+    fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
+    app.exit(report.passed ? 0 : 4);
+}
+
 function createWindow() {
     const windowStatePath = path.join(app.getPath('userData'), 'window-state.json');
     let state = { width: 1300, height: 850 };
@@ -633,14 +800,13 @@ function createWindow() {
         }
     });
 
-    win.loadFile('index.html');
-
     const handleSessionDownload = createBrowserWillDownloadHandler({
         intents: browserDownloadIntents,
         isCaptureEnabled: () => browserDownloadCapture.enabled,
         isRegistered: webContentsId => browserDownloadWebContents.has(webContentsId),
         capture: (item, webContentsId, intent) => captureBrowserDownload(win.webContents, item, webContentsId, intent),
-        fallback(event, item) {
+        fallback(event, item, downloadWebContents) {
+        if (downloadWebContents && managedResolverWebContents.has(downloadWebContents.id)) return;
         item.pause();
         const filename = item.getFilename();
         dialog.showSaveDialog(win, {
@@ -717,6 +883,24 @@ function createWindow() {
                                 && quarantineSummaryText.textContent.includes(String(quarantineSummary.itemCount))
                                 && !!document.querySelector('#downloadQuarantineRoots button')
                             : getComputedStyle(quarantinePanel).display === 'none';
+                        const hostProbe = typeof window.__sailProbeDownloadHostButtons === 'function'
+                            ? window.__sailProbeDownloadHostButtons()
+                            : { buttons: [], clicks: [], browserOpens: [] };
+                        const sourceWebview = document.getElementById('sourceWebview');
+                        let sourceBrowserLoad = null;
+                        if (sourceWebview && typeof sourceWebview.loadURL === 'function') {
+                            const originalLoadURL = sourceWebview.loadURL;
+                            sourceWebview.loadURL = (url, options) => {
+                                sourceBrowserLoad = { url, options };
+                                return Promise.resolve();
+                            };
+                            window.openSourcesBrowser(
+                                'https://megadb.net/referrer-probe',
+                                false,
+                                { referrer: 'https://steamrip.com/referrer-probe/' }
+                            );
+                            sourceWebview.loadURL = originalLoadURL;
+                        }
                         return {
                             panelInsideContentLayout: !!(layout && panel && layout.contains(panel)),
                             hasBrowseList: !!browse,
@@ -734,6 +918,22 @@ function createWindow() {
                             quarantinePanelStateCorrect,
                             rendererPathOpenRefused: refusedQuarantinePath && refusedQuarantinePath.status === 'open_refused',
                             retainedCopyTruthful: retainedCopy === 'Download cancelled. Temporary files were retained in quarantine for safety.',
+                            hostProbeButtons: hostProbe.buttons,
+                            hostProbeClicks: hostProbe.clicks,
+                            hostProbeBrowserOpens: hostProbe.browserOpens,
+                            directHostButtons: hostProbe.buttons.length === 9
+                                && hostProbe.buttons.filter(row => row.host !== 'akirabox.to').every(row => /^⬇️ Download/.test(row.text))
+                                && hostProbe.buttons.some(row => row.host === 'akirabox.to' && /^🌐 Open in Browser/.test(row.text)),
+                            directHostClicks: hostProbe.clicks.map(row => row.host).sort().join(',')
+                                === '1337x.to,bzzhr.to,datanodes.to,fileditchfiles.me,fuckingfast,gofile.io,rootz.so,vikingfile.com'
+                                && hostProbe.clicks.some(row => row.host === 'fuckingfast' && row.partCount === 2)
+                                && hostProbe.browserOpens.length === 1
+                                && hostProbe.browserOpens[0].url === 'https://akirabox.to/probe-file/game.rar'
+                                && hostProbe.browserOpens[0].system === true,
+                            sourceBrowserReferrerForwarded: sourceBrowserLoad
+                                && sourceBrowserLoad.url === 'https://megadb.net/referrer-probe'
+                                && sourceBrowserLoad.options
+                                && sourceBrowserLoad.options.httpReferrer === 'https://steamrip.com/referrer-probe/',
                             lessAnimationsNukesAll: !![...document.styleSheets].some(sheet => {
                                 try {
                                     return [...sheet.cssRules].some(rule => String(rule.selectorText || '').includes('body.less-animations *:not(.spin-icon)'));
@@ -747,11 +947,29 @@ function createWindow() {
                     app.exit(result.panelInsideContentLayout || !result.hasBrowseList || !result.hasRecentList
                         || result.compactPanelDisplay === 'none' || !result.recentClickOpened || result.lessAnimationsNukesAll
                         || !result.hasQuarantinePanel || !result.hasQuarantineRefresh || !result.quarantineSummaryShape
-                        || !result.quarantinePanelStateCorrect || !result.rendererPathOpenRefused || !result.retainedCopyTruthful ? 2 : 0);
+                        || !result.quarantinePanelStateCorrect || !result.rendererPathOpenRefused || !result.retainedCopyTruthful
+                        || !result.directHostButtons || !result.directHostClicks
+                        || !result.sourceBrowserReferrerForwarded ? 2 : 0);
                 } catch (error) {
                     console.error(error);
                     app.exit(3);
                 }
+            }, 1500);
+        }
+        if (process.argv.includes('--sail-host-transfer-probe') && !hostTransferProbeStarted) {
+            hostTransferProbeStarted = true;
+            setTimeout(() => {
+                runHostTransferProbe(win).catch(error => {
+                    const reportPath = path.join(app.getPath('userData'), 'sail-host-transfer-probe.json');
+                    try {
+                        fs.writeFileSync(reportPath, `${JSON.stringify({
+                            startedAt: new Date().toISOString(),
+                            passed: false,
+                            error: error && error.message || String(error)
+                        }, null, 2)}\n`);
+                    } catch (_) {}
+                    app.exit(5);
+                });
             }, 1500);
         }
     });
@@ -789,6 +1007,10 @@ function createWindow() {
             }, 5000);
         }
     });
+
+    // Register every lifecycle/download/probe listener before navigation. Packaged ASAR
+    // loads are fast enough to finish before late listeners are attached otherwise.
+    win.loadFile('index.html');
 }
 
 // Restart App Hook
@@ -2358,6 +2580,18 @@ ipcMain.handle('hub-download-file', async (e, { fileUrl, type }) => {
 const remoteDataService = createRemoteDataService();
 registerRemoteDataIpc(ipcMain, remoteDataService);
 
+async function resolveSteamMetadataForDownload(gameName, sourceId) {
+    if (!DownloadSourceLogic.isSteamCatalogDownloadSource(sourceId)) return null;
+    const cleanName = DownloadSourceLogic.cleanDownloadedGameName(gameName);
+    if (!cleanName) return null;
+    try {
+        const response = await remoteDataService.execute({ operation: 'steam.storeSearch', query: cleanName });
+        return DownloadSourceLogic.steamStoreMetadataForDownloadedGame(cleanName, response && response.data);
+    } catch (_) {
+        return null;
+    }
+}
+
 // ============================================================
 //  Game Download Engine — aria2 + link resolver + post-process
 // ============================================================
@@ -2372,8 +2606,10 @@ const downloadJobDirectories = new DownloadJobDirectoryRegistry({ quarantineCata
 const downloadWork = createDownloadWorkCoordinator(downloadJobDirectories);
 let browserDownloadCapture = { enabled: false, defaults: {} };
 const browserDownloadWebContents = new Set();
+const managedResolverWebContents = new Set();
 const pendingBrowserDownloads = new Map();
 const browserDownloadIntents = new BrowserDownloadIntentRegistry({ beginJob: beginDownloadJob });
+const managedVerificationCoordinator = new ManagedVerificationCoordinator();
 
 const AD_BLOCK_HOSTS = [
     'a-ads.com', 'ad.a-ads.com', 'aads.com', 'hilltopads.net', 'hilltopads.com', 'clickadu.com',
@@ -2391,11 +2627,13 @@ const AD_BLOCK_HOSTS = [
     'plugrush.com', 'adsterra', 'pushwhy', 'amazon-adsystem.com', 'media.net', 'criteo.com'
 ];
 let adBlockEnabled = true;
+const HUMAN_VERIFICATION_RESOURCE_HOSTS = new Set(DEFAULT_VERIFICATION_RESOURCE_HOSTS);
 // hosts that are legitimate download targets — never treat these as ads
-const DL_HOST_ALLOW = /(gofile|pixeldrain|datanodes|fuckingfast|1fichier|mediafire|mega\.nz|megadb|qiwi|multiup|bowfile|hexload|vikingfile|rootz|akirabox|filekeeper|filecrypt|steamrip|fitgirl|rutor\.info)/i;
+const DL_HOST_ALLOW = /(gofile|pixeldrain|datanodes|fuckingfast|1fichier|mediafire|mega\.nz|megadb|qiwi|multiup|bowfile|hexload|vikingfile|rootz|akirabox|filekeeper|fileditch(?:files)?|buzzheavier|bzzhr|steamrip|fitgirl|rutor\.info|1337x)/i;
 function isAdHost(url) {
     try {
         const h = new URL(url).hostname.toLowerCase();
+        if (HUMAN_VERIFICATION_RESOURCE_HOSTS.has(h)) return false;
         if (DL_HOST_ALLOW.test(h)) return false;
         if (AD_BLOCK_HOSTS.some(d => h.includes(d))) return true;
         // generic ad/popunder subdomains (ad., ads., adserver., banner., popunder., popads.)
@@ -2472,7 +2710,7 @@ function beginDownloadJob(id, opts) {
     });
 }
 
-async function finishDownloadJob(jobRef, result) {
+async function finishDownloadJob(jobRef, result, steamMetadataPromise = null) {
     const job = jobRef && jobRef.job ? jobRef.job : jobRef;
     if (!job || job.cancelled) throw new Error('The cancelled download cannot be completed.');
     const publication = await downloadJobDirectories.publish(jobRef);
@@ -2481,18 +2719,31 @@ async function finishDownloadJob(jobRef, result) {
     let adopted = null;
     let location = null;
     let warning = String(publishedResult.warning || '').slice(0, 2000);
+    const steamMetadata = await Promise.resolve(
+        steamMetadataPromise || resolveSteamMetadataForDownload(publishedResult.gameName, publishedResult.sourceId)
+    ).catch(() => null);
     try {
-        if (publishedResult.autoAdd !== false) {
+        const canRegisterGame = publishedResult.autoAdd !== false
+            && publishedResult.usable === true
+            && publishedResult.needsInstall !== true
+            && publishedResult.installFailed !== true
+            && !!publishedResult.exePath
+            && fs.existsSync(publishedResult.exePath);
+        if (canRegisterGame) {
             adopted = gateAProfileStore().registerDownloadedGameProposal({
                 gameName: publishedResult.gameName,
                 executablePath: publishedResult.exePath,
                 folderPath: publishedResult.folder,
                 coverPath: publishedResult.cover,
-                sourceId: publishedResult.sourceId
+                sourceId: publishedResult.sourceId,
+                steamAppId: steamMetadata && steamMetadata.steamAppId
             });
             location = adopted.location;
         } else if (publishedResult.folder) {
             location = gateAProfileStore().createLauncherDirectoryCapability(publishedResult.folder);
+            if (publishedResult.autoAdd !== false && !warning) {
+                warning = 'The files were saved, but Sail did not add the game because setup has not produced a playable executable yet.';
+            }
         }
     } catch (error) {
         warning = `${warning ? `${warning} ` : ''}The files were saved, but local setup still needs to be completed.`;
@@ -2511,6 +2762,31 @@ async function finishDownloadJob(jobRef, result) {
     };
 }
 
+function installerTargetForDownload(downloadDir, installerPath) {
+    const extractedPayload = path.resolve(downloadDir, '_game');
+    const resolvedInstaller = path.resolve(String(installerPath || ''));
+    const relative = path.relative(extractedPayload, resolvedInstaller);
+    const installerIsInsideExtractedPayload = relative === ''
+        || (!!relative && !relative.startsWith('..') && !path.isAbsolute(relative));
+    return path.join(downloadDir, installerIsInsideExtractedPayload ? 'i' : '_game');
+}
+
+function applyInstallerCompletionPolicy(result, opts) {
+    if (!result || (result.needsInstall !== true && result.installFailed !== true)) return result;
+    result.autoAdd = false;
+    result.exePath = '';
+    if (result.installFailed) {
+        result.warning = 'Downloaded, but auto-install did not complete'
+            + (result.installError ? ' (' + result.installError + ')' : '')
+            + '. Open the folder and run setup.exe manually.';
+    } else if (opts && opts.autoInstall === false) {
+        result.warning = 'Downloaded, but automatic setup is turned off. Open the folder and run setup.exe manually.';
+    } else {
+        result.warning = 'Downloaded, but setup could not be started. Open the folder and run setup.exe manually.';
+    }
+    return result;
+}
+
 async function retainDownloadJobError(jobRef) {
     const job = jobRef && jobRef.job ? jobRef.job : jobRef;
     if (job && !job.cancelled) await downloadJobDirectories.setState(jobRef, 'error');
@@ -2523,7 +2799,7 @@ async function retainDownloadJobError(jobRef) {
 
 // Generic HTTP request with optional body and redirect control. Returns
 // { status, headers, body }. follow:false lets callers read 3xx Location headers.
-function dlRequest(method, url, { headers, body, follow = true } = {}, _depth = 0) {
+function dlRequest(method, url, { headers, body, follow = true, timeoutMs = 25000, headersOnly = false } = {}, _depth = 0) {
     return new Promise((resolve, reject) => {
         if (_depth > 6) return reject(new Error('Too many redirects'));
         let u; try { u = new URL(url); } catch (e) { return reject(e); }
@@ -2532,149 +2808,450 @@ function dlRequest(method, url, { headers, body, follow = true } = {}, _depth = 
         const req = client.request(u, opts, (res) => {
             if (follow && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
                 let loc = res.headers.location; try { loc = new URL(loc, url).href; } catch (e) {}
-                res.resume(); return resolve(dlRequest(method, loc, { headers, body, follow }, _depth + 1));
+                res.resume(); return resolve(dlRequest(method, loc, { headers, body, follow, timeoutMs, headersOnly }, _depth + 1));
+            }
+            if (headersOnly) {
+                const result = { status: res.statusCode, headers: res.headers, body: '' };
+                res.on('error', () => {});
+                res.destroy();
+                return resolve(result);
             }
             let data = ''; res.setEncoding('utf8');
             res.on('data', c => data += c);
             res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: data }));
         });
         req.on('error', reject);
-        req.setTimeout(25000, () => req.destroy(new Error('timeout')));
+        req.setTimeout(Math.max(1000, Math.min(30000, Number(timeoutMs) || 25000)), () => req.destroy(new Error('timeout')));
         if (body) req.write(body);
         req.end();
     });
 }
+
+async function dlElectronRequest(method, url, { headers, body, follow = false, timeoutMs = 25000 } = {}) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), Math.max(1000, Math.min(30000, Number(timeoutMs) || 25000)));
+    try {
+        const requestHeaders = Object.assign({ 'User-Agent': DL_UA, 'Accept': '*/*' }, headers || {});
+        delete requestHeaders['Content-Length'];
+        delete requestHeaders['content-length'];
+        const response = await net.fetch(url, {
+            method,
+            headers: requestHeaders,
+            body: body || undefined,
+            redirect: follow ? 'follow' : 'manual',
+            signal: controller.signal
+        });
+        const outputHeaders = {};
+        for (const [name, value] of response.headers.entries()) outputHeaders[name.toLowerCase()] = value;
+        if (typeof response.headers.getSetCookie === 'function') outputHeaders['set-cookie'] = response.headers.getSetCookie();
+        return { status: response.status, headers: outputHeaders, body: await response.text() };
+    } finally {
+        clearTimeout(timeout);
+    }
+}
 const CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 const GOFILE_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36 Edg/147.0.0.0';
 
-// GoFile: guest token + a computed (NOT scraped) X-Website-Token SHA256 header.
+// GoFile: the host rotates its website-token generator. The resolver discovers
+// the current same-origin script, caches one guest account, and walks folders.
 async function scrapeGofile(rawUrl) {
-    const contentId = rawUrl.split('?')[0].split('/').filter(Boolean).pop();
-    if (!contentId) return null;
-    const xbl = 'en';
-    const acc = await dlRequest('POST', 'https://api.gofile.io/accounts', { headers: { 'User-Agent': GOFILE_UA, 'Content-Length': '0' } });
-    let token = null; try { const j = JSON.parse(acc.body); if (j.status === 'ok') token = j.data.token; } catch (e) {}
-    if (!token) return null;
-    const timeSlot = Math.floor(Date.now() / 1000 / 14400);
-    const xwt = crypto.createHash('sha256').update(`${GOFILE_UA}::${xbl}::${token}::${timeSlot}::5d4f7g8sd45fsd`).digest('hex');
-    const res = await dlRequest('GET', `https://api.gofile.io/contents/${contentId}`, {
-        headers: { 'User-Agent': GOFILE_UA, 'Authorization': 'Bearer ' + token, 'X-BL': xbl, 'X-Website-Token': xwt }
+    return resolveGofileUrl(rawUrl, {
+        request: dlElectronRequest,
+        userAgent: GOFILE_UA
     });
-    let info = null; try { info = JSON.parse(res.body); } catch (e) {}
-    if (!info || info.status !== 'ok' || !info.data) return null;
-    const dlHeaders = [`Cookie: accountToken=${token}`, `User-Agent: ${GOFILE_UA}`, `Accept: */*`, `Referer: https://gofile.io/`];
-    const d = info.data, out = [];
-    if (d.type === 'file' && d.link) out.push({ url: d.link, name: d.name, kind: 'http', headers: dlHeaders });
-    if (d.type === 'folder' && d.children) {
-        for (const k in d.children) { const c = d.children[k]; if (c && c.type === 'file' && c.link) out.push({ url: c.link, name: c.name, kind: 'http', headers: dlHeaders }); }
-    }
-    return out.length ? out : null;
 }
-async function scrapePixeldrain(rawUrl, referer) {
-    // The /api/file/{id}?download endpoint serves the file directly. Pixeldrain's
-    // hotlink protection rejects a FOREIGN Referer (e.g. steamgg.net) → 403 → aria2
-    // exit 22. Sending pixeldrain's OWN domain as the Referer always passes the check,
-    // so we use that regardless of the embedding site.
-    const headers = ['Referer: https://pixeldrain.com/', 'User-Agent: ' + CHROME_UA];
-    const probeHeaders = { 'User-Agent': CHROME_UA, 'Referer': 'https://pixeldrain.com/' };
 
-    // Pixeldrain "list" links (/l/{id}) are albums/folders holding every part of the
-    // game. SteamGG posts these a lot — expand the list into its individual files.
-    const lm = rawUrl.match(/pixeldrain\.com\/l\/([a-zA-Z0-9_-]+)/i) || rawUrl.match(/\/api\/list\/([a-zA-Z0-9_-]+)/i);
-    if (lm) {
-        try {
-            const res = await dlRequest('GET', `https://pixeldrain.com/api/list/${lm[1]}`, { headers: probeHeaders });
-            let data = null; try { data = JSON.parse(res.body); } catch (e) {}
-            const files = (data && Array.isArray(data.files)) ? data.files : [];
-            const out = [];
-            for (const f of files.filter(f => f && f.id)) {
-                const direct = `https://pixeldrain.com/api/file/${f.id}?download`;
-                const prox = await pixeldrainProxyUrl(direct);
-                out.push({ url: prox || direct, name: f.name || '', kind: 'http', headers });
+function mergeDownloadCookies(current, setCookie) {
+    const rows = Array.isArray(setCookie) ? setCookie : (setCookie ? [setCookie] : []);
+    const cookies = new Map(String(current || '').split(/;\s*/).filter(Boolean).map(value => {
+        const split = value.indexOf('=');
+        return split > 0 ? [value.slice(0, split), value.slice(split + 1)] : ['', ''];
+    }).filter(row => row[0]));
+    for (const row of rows) {
+        const pair = String(row || '').split(';')[0];
+        const split = pair.indexOf('=');
+        if (split > 0) cookies.set(pair.slice(0, split), pair.slice(split + 1));
+    }
+    return [...cookies].map(([name, value]) => `${name}=${value}`).join('; ');
+}
+
+async function scrapeSteamRipGofileContainer(rawUrl, referer) {
+    const containerUrl = normalizeFileCryptContainerUrl(rawUrl);
+    if (!containerUrl || !/^https:\/\/steamrip\.com\//i.test(String(referer || ''))) return null;
+    let proofStarted = false;
+    const browserResult = await resolveWithSystemChromium(containerUrl, FILECRYPT_CHALLENGE_EXPRESSION, {
+        executablePath: findSystemChromiumExecutable(),
+        timeoutMs: 6 * 60 * 1000,
+        evaluationTimeoutMs: 15000,
+        tempRoot: path.join(app.getPath('temp'), 'sail-filecrypt-resolver'),
+        navigationReferrer: referer,
+        clickSelector: '.pow-captcha__box',
+        clickTimeoutMs: 20000,
+        isAllowedUrl: parsed => /^(?:www\.)?filecrypt\.cc$/i.test(parsed.hostname),
+        captureResponseUrl: value => {
+            try {
+                const parsed = new URL(value);
+                return parsed.origin === new URL(containerUrl).origin
+                    && /^\/captchasession\/[A-Fa-f0-9]+\.json$/.test(parsed.pathname);
+            } catch (_) { return false; }
+        },
+        handleResponse: async response => {
+            if (proofStarted) return null;
+            let payload = null;
+            try { payload = JSON.parse(response && response.body || ''); } catch (_) {}
+            if (!payload || !payload.challenge) return null;
+            proofStarted = true;
+            const startedAt = Date.now();
+            const proof = await solveFileCryptProof(payload.challenge, { timeoutMs: 5 * 60 * 1000 });
+            const remaining = 30000 - (Date.now() - startedAt);
+            if (remaining > 0) await new Promise(resolve => setTimeout(resolve, remaining));
+            proof.elapsed = Date.now() - startedAt;
+            return { expression: fileCryptSubmitExpression({ challenge: payload.challenge }, proof) };
+        },
+        acceptResult: value => value && ['container', 'rejected', 'error'].includes(value.stage)
+    });
+    if (!browserResult || browserResult.stage !== 'container'
+        || normalizeFileCryptContainerUrl(browserResult.location) !== containerUrl) return null;
+
+    const containerHealth = classifyFileCryptResponse({
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+        body: String(browserResult.statusText || '')
+    });
+    if (containerHealth.status === HEALTH_STATES.DOWN) {
+        throw buildLinkDownError(containerUrl, containerHealth.reason);
+    }
+
+    for (const link of browserResult.links || []) {
+        const details = gofileShareDetails(link && link.href);
+        if (details && details.contentId) return scrapeGofile(link.href);
+    }
+
+    const candidates = fileCryptLinkCandidates(browserResult.links, containerUrl);
+    if (!candidates.length) return null;
+    let cookie = String(browserResult.cookie || '').replace(/[\r\n]/g, '').slice(0, 8192);
+    const userAgent = String(browserResult.ua || GOFILE_UA).replace(/[\r\n]/g, '').slice(0, 1024);
+    for (const candidate of candidates) {
+        for (let attempt = 0; attempt < 3; attempt++) {
+            const headers = {
+                'User-Agent': userAgent,
+                'Accept': 'text/html,application/xhtml+xml',
+                'Referer': containerUrl
+            };
+            if (cookie) headers.Cookie = cookie;
+            const response = await dlRequest('GET', candidate, { headers, follow: false, timeoutMs: 15000 });
+            cookie = mergeDownloadCookies(cookie, response && response.headers && response.headers['set-cookie']);
+            const locations = [response && response.headers && response.headers.location];
+            const body = String(response && response.body || '');
+            for (const match of body.matchAll(/https:\/\/gofile\.io\/d\/[A-Za-z0-9_-]{4,128}/gi)) locations.push(match[0]);
+            const goMatch = body.match(/https:\/\/(?:www\.)?filecrypt\.cc\/Go\/[A-Fa-f0-9]{40,64}\.html/i);
+            if (goMatch) {
+                const goUrl = new URL(goMatch[0]);
+                if (goUrl.origin === new URL(containerUrl).origin) {
+                    const goHeaders = Object.assign({}, headers, { Referer: candidate });
+                    if (cookie) goHeaders.Cookie = cookie;
+                    const goResponse = await dlRequest('GET', goUrl.href, {
+                        headers: goHeaders,
+                        follow: false,
+                        timeoutMs: 15000
+                    });
+                    cookie = mergeDownloadCookies(cookie, goResponse && goResponse.headers && goResponse.headers['set-cookie']);
+                    locations.push(goResponse && goResponse.headers && goResponse.headers.location);
+                }
             }
-            if (out.length) return out;
-        } catch (e) {}
-        return null;
-    }
-
-    // Single file: /u/{id}, /d/{id} or /api/file/{id}
-    const m = rawUrl.match(/\/(?:u|d|api\/file)\/([a-zA-Z0-9_-]+)/i);
-    if (!m) return null;
-    const direct = `https://pixeldrain.com/api/file/${m[1]}?download`;
-    // Route through a randomly-chosen Cloudflare Worker proxy when one is configured:
-    // the fetch then originates from Cloudflare's IP (not the user's), transparently
-    // bypassing pixeldrain's 10GB/day per-IP cap. pixeldrainProxyUrl HEAD-probes the
-    // chosen worker and falls back to the next; null means every worker was dead.
-    const prox = await pixeldrainProxyUrl(direct);
-    if (prox) return [{ url: prox, kind: 'http', headers }];
-    // No (working) proxy → go direct, but verify the file is actually servable BEFORE
-    // handing it to aria2. When this IP has hit Pixeldrain's free transfer cap, the API
-    // answers 403 / 429 with a body like {success:false,value:"file_rate_limited_captcha_required"}
-    // — that needs a human captcha on the website and can't be bypassed here. Detect it and
-    // bail cleanly (a HEAD request never buffers the multi-GB body) so the user gets a clear message.
-    try {
-        const chk = await dlRequest('HEAD', direct, { headers: probeHeaders, follow: false });
-        if (chk.status === 403 || chk.status === 429 || /captcha|rate.?limited|too.?many/i.test(chk.body || '')) return null;
-    } catch (e) { /* network hiccup — let aria2 try the link anyway */ }
-    return [{ url: direct, kind: 'http', headers }];
-}
-async function scrapeDatanodes(rawUrl) {
-    // the file code is the FIRST path segment (an extra /filename.bin may follow)
-    const idm = rawUrl.match(/datanodes\.\w+\/([a-z0-9]+)/i);
-    const fileId = idm ? idm[1] : rawUrl.split('?')[0].split('/').filter(Boolean)[0];
-    if (!fileId) return null;
-    const form = new URLSearchParams({ op: 'download2', id: fileId, rand: '', referer: `https://datanodes.to/${fileId}`, method_free: 'Free Download >>', __dl: '1' }).toString();
-    const res = await dlRequest('POST', 'https://datanodes.to/download', { headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Cookie': 'lang=english', 'Referer': `https://datanodes.to/${fileId}`, 'X-Requested-With': 'XMLHttpRequest' }, body: form, follow: false });
-    // datanodes either returns JSON {url} or a 302 Location to the file CDN
-    let data = null; try { data = JSON.parse(res.body); } catch (e) {}
-    if (data && data.url) return [{ url: decodeURIComponent(data.url), kind: 'http' }];
-    const loc = res.headers['location'];
-    if (loc && /^https?:\/\//i.test(loc) && !/datanodes\.\w+\/?$/i.test(loc)) return [{ url: loc, kind: 'http' }];
-    return null;
-}
-async function scrapeBuzzheavier(rawUrl) {
-    const u = new URL(rawUrl);
-    const domain = u.origin;
-    const cleanUrl = u.origin + u.pathname.replace(/\/$/, '');
-    // Fast path: plain HTTP (works only if Cloudflare isn't challenging this request).
-    try {
-        const page = await dlRequest('GET', cleanUrl, { headers: { 'User-Agent': CHROME_UA, 'Referer': domain } });
-        if (page.status < 400 && /hx-get/i.test(page.body)) {
-            const hxAll = [...page.body.matchAll(/hx-get\s*=\s*"([^"]+)"/gi)].map(m => m[1]);
-            const endpoint = hxAll.find(h => /\/download\?t=/i.test(h)) || hxAll.find(h => /\/download/i.test(h)) || '';
-            if (endpoint) {
-                const full = endpoint.startsWith('http') ? endpoint : domain + endpoint;
-                const resp = await dlRequest('GET', full, { headers: { 'hx-current-url': cleanUrl, 'hx-request': 'true', 'referer': cleanUrl, 'User-Agent': CHROME_UA }, follow: false });
-                const direct = resp.headers['hx-redirect'] || resp.headers['location'];
-                if (direct) return [{ url: direct.startsWith('http') ? direct : domain + direct, kind: 'http' }];
+            for (const location of locations) {
+                const details = gofileShareDetails(location);
+                if (details && details.contentId) return scrapeGofile(location);
             }
         }
-    } catch (e) {}
-    // Otherwise it's behind Cloudflare's interactive "verify you are human" (Turnstile)
-    // challenge, which genuinely can't be solved automatically (it needs a human click).
-    // Return null fast; the handler shows an accurate, host-specific message.
+    }
     return null;
+}
+async function scrapePixeldrain(rawUrl, referer) {
+    return resolvePixeldrainUrl(rawUrl, {
+        request: dlElectronRequest,
+        userAgent: CHROME_UA,
+        referer,
+        proxyUrls: pixeldrainProxies
+    });
+}
+async function scrapeDatanodes(rawUrl, referer) {
+    return resolveDataNodesUrl(rawUrl, {
+        request: dlRequest,
+        userAgent: CHROME_UA,
+        referer,
+        acceptDirectUrl: url => !isAdHost(url)
+    });
+}
+const BUZZHEAVIER_BROWSER_RESOLVE_JS = `(async function () {
+    var controls = [].slice.call(document.querySelectorAll('[hx-get]'));
+    var control = controls.find(function (node) { return /\\/download\\?t=/i.test(node.getAttribute('hx-get') || ''); });
+    if (!control) return null;
+    var endpoint = new URL(control.getAttribute('hx-get'), location.href);
+    endpoint.searchParams.delete('alt');
+    if (window.__sailBuzzHeavierEndpoint === endpoint.href) return null;
+    window.__sailBuzzHeavierEndpoint = endpoint.href;
+    try {
+        var response = await fetch(endpoint.href, {
+            method: 'GET',
+            credentials: 'include',
+            redirect: 'manual',
+            headers: { 'HX-Current-URL': location.href, 'HX-Request': 'true' }
+        });
+        return {
+            url: response.headers.get('HX-Redirect') || response.headers.get('Location') || '',
+            pageUrl: location.origin + location.pathname.replace(/\\/$/, ''),
+            userAgent: navigator.userAgent
+        };
+    } catch (error) { return null; }
+})();`;
+
+async function resolveBuzzheavierWithSystemBrowser(rawUrl, timeoutMs = 20000, sourceReferer = '') {
+    const executablePath = findSystemChromiumExecutable();
+    if (!executablePath) return null;
+    try {
+        const result = await resolveWithSystemChromium(rawUrl, BUZZHEAVIER_BROWSER_RESOLVE_JS, {
+            executablePath,
+            tempRoot: path.join(app.getPath('temp'), 'SailLauncherHostBrowser'),
+            timeoutMs,
+            navigationReferrer: sourceReferer,
+            isAllowedUrl: parsed => BUZZHEAVIER_HOST_RE.test(parsed.hostname),
+            acceptResult: value => value && typeof value.url === 'string' && /^https:\/\//i.test(value.url)
+        });
+        if (!result || !result.url) return null;
+        let pageUrl = rawUrl;
+        try {
+            const parsedPage = new URL(result.pageUrl || rawUrl);
+            if (parsedPage.protocol === 'https:' && !parsedPage.username && !parsedPage.password
+                && BUZZHEAVIER_HOST_RE.test(parsedPage.hostname)) pageUrl = parsedPage.href;
+        } catch (_) {}
+        const browserUserAgent = String(result.userAgent || CHROME_UA)
+            .replace(/[\r\n]/g, '')
+            .slice(0, 512);
+        return {
+            url: result.url,
+            pageUrl,
+            headers: ['Referer: ' + pageUrl, 'User-Agent: ' + browserUserAgent]
+        };
+    } catch (error) {
+        if (process.argv.includes('--sail-host-transfer-probe')) {
+            console.error('BUZZ_SYSTEM_BROWSER_PROBE=' + JSON.stringify({ message: error.message }));
+        }
+        return null;
+    }
+}
+
+function resolveBuzzheavierWithElectronBrowser(rawUrl, timeoutMs = 15000, sourceReferer = '') {
+    return new Promise((resolve) => {
+        let done = false, win = null, poller = null, sess = null, downloadHandler = null, browserUserAgent = CHROME_UA;
+        const finish = (value) => {
+            if (done) return;
+            done = true;
+            clearTimeout(timer);
+            if (poller) clearInterval(poller);
+            try { if (sess && downloadHandler) sess.removeListener('will-download', downloadHandler); } catch (_) {}
+            try { if (win && win.webContents) managedResolverWebContents.delete(win.webContents.id); } catch (_) {}
+            try { if (win && !win.isDestroyed()) win.destroy(); } catch (_) {}
+            resolve(value || null);
+        };
+        const timer = setTimeout(async () => {
+            if (process.argv.includes('--sail-host-transfer-probe') && win && !win.isDestroyed()) {
+                try {
+                    const diagnostic = await win.webContents.executeJavaScript(`({
+                        url: location.href,
+                        title: document.title,
+                        text: String(document.body && document.body.innerText || '').slice(0, 800),
+                        userAgent: navigator.userAgent,
+                        webdriver: navigator.webdriver,
+                        hasDownloadControl: !!document.querySelector('[hx-get*="/download"]')
+                    })`, true);
+                    const cookies = await win.webContents.session.cookies.get({ url: rawUrl });
+                    diagnostic.cookieNames = cookies.map(cookie => cookie.name);
+                    console.error('BUZZ_TRANSFER_PROBE_DIAGNOSTIC=' + JSON.stringify(diagnostic));
+                } catch (_) {}
+            }
+            finish(null);
+        }, timeoutMs);
+        try {
+            win = new BrowserWindow({
+                show: false,
+                width: 1100,
+                height: 760,
+                webPreferences: {
+                    nodeIntegration: false,
+                    contextIsolation: true,
+                    sandbox: true,
+                    webSecurity: true,
+                    backgroundThrottling: false
+                }
+            });
+        } catch (_) { return finish(null); }
+        managedResolverWebContents.add(win.webContents.id);
+
+        sess = win.webContents.session;
+        applyAdBlock(sess);
+        // Cloudflare validates browser client hints against the browser's real Chromium
+        // version. A hard-coded Chrome UA can disagree with Electron's hints and keep the
+        // managed check in a loop, so retain the runtime UA and remove only Electron's tag.
+        browserUserAgent = win.webContents.getUserAgent()
+            .replace(/\s(?:Electron|SailLauncher)\/[\d.]+/gi, '')
+            .trim();
+        win.webContents.setUserAgent(browserUserAgent);
+        win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+        const keepOnProvider = (event, target) => {
+            try {
+                if (!BUZZHEAVIER_HOST_RE.test(new URL(target).hostname)) event.preventDefault();
+            } catch (_) { event.preventDefault(); }
+        };
+        win.webContents.on('will-navigate', keepOnProvider);
+        win.webContents.on('will-redirect', keepOnProvider);
+
+        const browserHeaders = async pageUrl => {
+            const headers = [`Referer: ${pageUrl}`, `User-Agent: ${browserUserAgent}`];
+            try {
+                const cookies = await sess.cookies.get({ url: pageUrl });
+                const cookieHeader = cookies.map(cookie => `${cookie.name}=${cookie.value}`).join('; ');
+                if (cookieHeader) headers.push(`Cookie: ${cookieHeader}`);
+            } catch (_) {}
+            return headers;
+        };
+        downloadHandler = (event, item, downloadWebContents) => {
+            if (downloadWebContents !== win.webContents) return;
+            const fileUrl = item.getURL();
+            let name = '';
+            try { name = item.getFilename() || ''; } catch (_) {}
+            try { item.cancel(); } catch (_) {}
+            browserHeaders(rawUrl).then(headers => finish({
+                url: fileUrl,
+                name,
+                pageUrl: rawUrl,
+                headers,
+                capturedDownload: true
+            })).catch(() => finish(null));
+        };
+        sess.on('will-download', downloadHandler);
+
+        const inspect = () => {
+            if (done || !win || win.isDestroyed() || win.webContents.isLoadingMainFrame()) return;
+            win.webContents.executeJavaScript(BUZZHEAVIER_BROWSER_RESOLVE_JS, true)
+                .then(async result => {
+                    if (result && result.url) {
+                        result.headers = await browserHeaders(result.pageUrl || rawUrl);
+                        finish(result);
+                    }
+                })
+                .catch(() => {});
+        };
+        win.webContents.on('did-finish-load', inspect);
+        poller = setInterval(inspect, 1200);
+        const loadOptions = sourceReferer ? { httpReferrer: sourceReferer } : undefined;
+        win.loadURL(rawUrl, loadOptions).catch(() => finish(null));
+    });
+}
+
+async function resolveBuzzheavierWithBrowser(rawUrl, timeoutMs = 35000, sourceReferer = '') {
+    const systemResult = await resolveBuzzheavierWithSystemBrowser(rawUrl, Math.min(timeoutMs, 20000), sourceReferer);
+    if (systemResult) return systemResult;
+    return resolveBuzzheavierWithElectronBrowser(rawUrl, Math.min(timeoutMs, 15000), sourceReferer);
+}
+
+const BUZZHEAVIER_TRANSFER_HOST_RE = /(^|\.)(?:buzzheavier\.com|bzzhr\.(?:to|co)|fuckingfast\.net)$/i;
+const BUZZHEAVIER_FALLBACK_DNS = Object.freeze(['1.1.1.1', '8.8.8.8']);
+
+function usableSystemDnsAddress(value) {
+    const address = String(value || '').toLowerCase();
+    if (!nodeNet.isIP(address) || address === '0.0.0.0' || address === '::' || address === '::1') return false;
+    return !address.startsWith('127.');
+}
+
+async function managedTransferNeedsDnsFallback(rawUrl) {
+    let host;
+    try { host = new URL(rawUrl).hostname; } catch (_) { return false; }
+    if (!BUZZHEAVIER_TRANSFER_HOST_RE.test(host) && !FUCKINGFAST_HOST_RE.test(host)) return false;
+    try {
+        const addresses = await dnsPromises.lookup(host, { all: true, verbatim: true });
+        return !addresses.some(entry => usableSystemDnsAddress(entry && entry.address));
+    } catch (_) { return true; }
+}
+
+async function scrapeBuzzheavier(rawUrl, referer) {
+    const resolved = await resolveBuzzHeavierUrl(rawUrl, {
+        request: dlRequest,
+        userAgent: CHROME_UA,
+        referer,
+        acceptDirectUrl: url => !isAdHost(url),
+        // Give ordinary BuzzHeavier pages one short invisible pass first. Pages
+        // that really need a human challenge still fall through to the visible,
+        // provider-scoped verification handoff below.
+        browserResolve: (pageUrl, sourceReferer) => resolveBuzzheavierWithSystemBrowser(
+            pageUrl,
+            8000,
+            sourceReferer
+        )
+    });
+    if (!resolved || !resolved.length) return resolved;
+    return Promise.all(resolved.map(async file => {
+        if (!await managedTransferNeedsDnsFallback(file.url)) return file;
+        return Object.assign({}, file, { dnsServers: BUZZHEAVIER_FALLBACK_DNS.slice() });
+    }));
+}
+
+async function scrapeFileditch(rawUrl) {
+    return resolveFileDitchUrl(rawUrl, {
+        request: dlRequest,
+        userAgent: CHROME_UA,
+        acceptDirectUrl: url => !isAdHost(url)
+    });
 }
 async function scrapeFuckingfast(rawUrl) {
     const u = new URL(rawUrl);
-    const cleanUrl = u.origin + u.pathname.replace(/\/$/, '');
-    // current layout: the direct dl.fuckingfast.co link is embedded in the page JS
+    if (!FUCKINGFAST_HOST_RE.test(u.hostname)) return null;
+    const parts = u.pathname.split('/').filter(Boolean);
+    const id = parts[0] && parts[0].toLowerCase() === 'f' ? parts[1] : parts[0];
+    if (!/^[A-Za-z0-9_-]{4,128}$/.test(id || '')) return null;
+    const pageUrl = u.origin + u.pathname.replace(/\/$/, '');
+    const goUrl = `${u.origin}/f/${encodeURIComponent(id)}/go`;
     try {
-        const page = await dlRequest('GET', cleanUrl, { headers: { 'User-Agent': CHROME_UA } });
-        const m = page.body.match(/https:\/\/dl\.fuckingfast\.co\/dl\/[^"'\s)]+/);
-        if (m) {
-            // grab the real filename from the page so aria2 saves it correctly
-            const tm = page.body.match(/<title>\s*([^<]+?)\s*<\/title>/i);
-            const name = tm && /\.(rar|zip|7z|bin|iso|exe)/i.test(tm[1]) ? tm[1].trim() : '';
-            // token links are single-use → force a single connection so aria2 never
-            // needs to "resume" on a consumed token (which causes exit code 8)
-            return [{ url: m[0], kind: 'http', maxConn: 1, name }];
-        }
-    } catch (e) {}
-    // fallback: older HEAD /download → hx-redirect/location
-    const resp = await dlRequest('HEAD', cleanUrl + '/download', { headers: { 'hx-current-url': cleanUrl, 'hx-request': 'true', 'referer': cleanUrl, 'User-Agent': CHROME_UA }, follow: false });
-    const hx = resp.headers['hx-redirect']; if (hx) return [{ url: hx.startsWith('http') ? hx : u.origin + hx, kind: 'http' }];
-    const loc = resp.headers['location']; if (loc) return [{ url: loc.startsWith('http') ? loc : u.origin + loc, kind: 'http' }];
+        const page = await dlElectronRequest('GET', pageUrl, {
+            headers: { 'User-Agent': CHROME_UA, Referer: u.origin + '/' },
+            follow: false,
+            timeoutMs: 10000
+        });
+        if (!page || page.status < 200 || page.status >= 400) return null;
+        const cookie = mergeDownloadCookies('', page.headers && page.headers['set-cookie']);
+        const headers = {
+            'User-Agent': CHROME_UA,
+            Accept: '*/*',
+            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+            'HX-Current-URL': pageUrl,
+            'HX-Request': 'true',
+            Origin: u.origin,
+            Referer: pageUrl
+        };
+        if (cookie) headers.Cookie = cookie;
+        const response = await dlElectronRequest('POST', goUrl, {
+            headers,
+            body: '',
+            follow: false,
+            timeoutMs: 10000
+        });
+        const captured = extractFuckingFastBrowserDownload({
+            status: response && response.status,
+            headers: response && response.headers,
+            body: response && response.body,
+            url: goUrl
+        }, rawUrl);
+        if (captured) return [{
+            url: captured.url,
+            kind: 'http',
+            maxConn: 1,
+            disableIpv6: true,
+            ...(await managedTransferNeedsDnsFallback(captured.url)
+                ? { dnsServers: BUZZHEAVIER_FALLBACK_DNS.slice() }
+                : {}),
+            name: captured.name || ''
+        }];
+    } catch (_) {}
     return null;
 }
 async function scrapeMediafire(rawUrl) {
@@ -2690,54 +3267,77 @@ async function scrapeMediafire(rawUrl) {
 // scrapeXFS extension check rejects it. Handle it directly: the file code is the
 // first path segment and the real filename is the last segment.
 async function scrapeFilekeeper(rawUrl) {
-    const u = new URL(rawUrl);
-    const segs = u.pathname.split('/').filter(Boolean);
-    const code = segs[0];
-    if (!code) return null;
-    const name = segs.length > 1 ? decodeURIComponent(segs[segs.length - 1]) : '';
-    const form = new URLSearchParams({ op: 'download2', id: code, rand: '', referer: '', method_free: '', down_direct: '1' }).toString();
-    const resp = await dlRequest('POST', rawUrl, {
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': CHROME_UA, 'Referer': rawUrl },
-        body: form, follow: false
+    return resolveFileKeeperUrl(rawUrl, {
+        request: dlRequest,
+        userAgent: CHROME_UA
     });
-    const loc = resp.headers['location'];
-    if (loc && /^https?:\/\//i.test(loc)) return [{ url: loc, kind: 'http', name }];
-    const m = (resp.body || '').match(/https?:\/\/[^"'\s<>]+\/download\/[^"'\s<>]+/i);
-    if (m) return [{ url: m[0], kind: 'http', name }];
-    return null;
 }
-// Generic XFileSharing-style host (megadb.net etc.): GET the page, look for a
-// direct link, else submit the op=download2 form. Best-effort (these hosts are
-// often Cloudflare-gated); returns null cleanly on failure instead of hanging.
-async function scrapeXFS(rawUrl) {
-    const u = new URL(rawUrl);
-    const page = await dlRequest('GET', rawUrl, { headers: { 'User-Agent': CHROME_UA, 'Referer': u.origin } });
-    const findDirect = (html) => {
-        let m = html.match(/href="(https?:\/\/[^"]+\/d\/[^"]+)"/i)
-            || html.match(/(https?:\/\/[a-z0-9.\-]+\/(?:files?|d|dl|download)\/[^"'\s<>]+\.(?:rar|zip|7z|bin|iso)[^"'\s<>]*)/i)
-            || html.match(/href="(https?:\/\/[^"]+\.(?:rar|zip|7z|bin|iso)(?:\?[^"]*)?)"/i);
-        return m ? (m[1] || m[0]) : null;
-    };
-    let direct = findDirect(page.body);
-    if (direct) return [{ url: direct, kind: 'http' }];
-    // collect the download form's hidden fields and re-POST as op=download2
-    const fields = {};
-    const inputRe = /<input[^>]*name=["']([^"']+)["'][^>]*?value=["']([^"']*)["']/gi;
-    let im; while ((im = inputRe.exec(page.body))) fields[im[1]] = im[2];
-    if (!fields.id) { const idm = rawUrl.match(/\/([a-z0-9]{8,})/i); if (idm) fields.id = idm[1]; }
-    if (!fields.id) return null;
-    fields.op = 'download2';
-    fields.method_free = fields.method_free || 'Free Download';
-    fields.down_direct = '1';
-    const cookies = (page.headers['set-cookie'] || []).map(c => c.split(';')[0]).join('; ');
-    const resp = await dlRequest('POST', rawUrl, {
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': CHROME_UA, 'Referer': rawUrl, 'Cookie': cookies },
-        body: new URLSearchParams(fields).toString(), follow: false
+
+async function scrapeAkiraBox(rawUrl) {
+    return resolveAkiraBoxUrl(rawUrl, {
+        request: dlRequest,
+        userAgent: CHROME_UA
     });
-    const loc = resp.headers['location'];
-    if (loc && /^https?:\/\//i.test(loc) && /\.(rar|zip|7z|bin|iso)/i.test(loc)) return [{ url: loc, kind: 'http' }];
-    direct = findDirect(resp.body || '');
-    return direct ? [{ url: direct, kind: 'http' }] : null;
+}
+
+async function scrape1337x(rawUrl) {
+    return resolve1337xUrl(rawUrl, {
+        request: dlRequest,
+        userAgent: CHROME_UA
+    });
+}
+const X1337_SYSTEM_BROWSER_RESOLVE_JS = [
+    '(function(){',
+    "if(document.readyState!=='complete'||/just a moment/i.test(document.title||''))return null;",
+    "var links=[].slice.call(document.querySelectorAll('a[href]'));",
+    "var magnet=links.find(function(link){return /^magnet:\\?xt=urn:btih:[A-Za-z0-9]{32,64}(?:&|$)/i.test(link.href||'');});",
+    "if(magnet)return {url:magnet.href,name:(document.title||'Torrent download').slice(0,240),pageUrl:location.href,userAgent:navigator.userAgent};",
+    "var torrent=links.find(function(link){try{var parsed=new URL(link.href,location.href);return parsed.protocol==='https:'&&/(^|\\.)1337x\\.(?:to|st|gd|is|tw|ws)$/i.test(parsed.hostname)&&/\\.torrent$/i.test(parsed.pathname);}catch(e){return false;}});",
+    "return torrent?{url:torrent.href,name:(document.title||'Torrent download').slice(0,240),pageUrl:location.href,userAgent:navigator.userAgent}:null;",
+    '})()'
+].join('');
+
+async function resolve1337xWithSystemBrowser(rawUrl, timeoutMs = 20000, sourceReferer = '', signal = null) {
+    const executablePath = findSystemChromiumExecutable();
+    if (!executablePath) return null;
+    try {
+        const result = await resolveWithSystemChromium(rawUrl, X1337_SYSTEM_BROWSER_RESOLVE_JS, {
+            executablePath,
+            tempRoot: path.join(app.getPath('temp'), 'SailLauncherHostBrowser'),
+            timeoutMs,
+            navigationReferrer: sourceReferer,
+            isAllowedUrl: parsed => X1337_HOST_RE.test(parsed.hostname),
+            acceptResult: value => value && managedHostUrlAllowed('1337x', value.url, rawUrl),
+            signal
+        });
+        if (!result || !managedHostUrlAllowed('1337x', result.url, rawUrl)) return null;
+        if (/^magnet:/i.test(result.url)) {
+            return [{ url: result.url, name: result.name || 'Torrent download', kind: 'magnet', maxConn: 1 }];
+        }
+        const pageUrl = managedHostPageAllowed('1337x', new URL(result.pageUrl || rawUrl), rawUrl)
+            ? result.pageUrl || rawUrl
+            : rawUrl;
+        const browserUserAgent = String(result.userAgent || CHROME_UA).replace(/[\r\n]/g, '').slice(0, 512);
+        return [{
+            url: result.url,
+            name: result.name || 'Torrent download',
+            kind: 'http',
+            maxConn: 1,
+            headers: ['Referer: ' + pageUrl, 'User-Agent: ' + browserUserAgent]
+        }];
+    } catch (_) {
+        return null;
+    }
+}
+// MegaDB requires both the approved source referrer and its short on-page timer.
+// Keep that handshake in the testable host resolver rather than downloading the
+// referrer-error HTML page as though it were a game archive.
+async function scrapeXFS(rawUrl, referer) {
+    return resolveMegaDbUrl(rawUrl, {
+        request: dlRequest,
+        userAgent: CHROME_UA,
+        referer
+    });
 }
 
 // rutor.info — Russian torrent tracker. Fetch the torrent page, pull the magnet link
@@ -2748,7 +3348,7 @@ async function scrapeRutor(rawUrl) {
     const res = await dlRequest('GET', rawUrl, { headers: { 'User-Agent': CHROME_UA } });
     if (!res || !res.body) return null;
     const magnet = res.body.match(/href="(magnet:\?[^"]+)"/i);
-    if (magnet) return [{ url: magnet[1], kind: 'magnet' }];
+    if (magnet) return [{ url: magnet[1].replace(/&amp;/gi, '&'), kind: 'magnet' }];
     const dl = res.body.match(/href="((?:https?:\/\/d\.rutor\.info)?\/download\/\d+[^"]*)"/i);
     if (dl) {
         const u = dl[1].startsWith('http') ? dl[1] : 'http://d.rutor.info' + dl[1];
@@ -2757,62 +3357,22 @@ async function scrapeRutor(rawUrl) {
     return null;
 }
 
-// VikingFile (vikingfile.com) — common on SteamGG/FitGirl mirrors. The download page
-// has no static file anchor; clicking "Download" POSTs the file hash to the site API,
-// which returns the direct server URL. We replicate that POST over plain HTTP (no
-// browser, no ads). Tries several endpoint/field/response shapes since the site has
-// changed its API over time; returns null cleanly so the caller can fall back.
+// Rootz exposes file metadata behind a short-lived page token. Keep that handshake in
+// the strict resolver so deleted files are reported before any browser is opened.
+async function scrapeRootz(rawUrl) {
+    return resolveRootzUrl(rawUrl, {
+        request: dlRequest,
+        userAgent: CHROME_UA
+    });
+}
+
+// VikingFile redirects its public domain to vik1ngfile.site. The strict resolver only
+// follows those two provider domains and never treats Telegram/support links as files.
 async function scrapeVikingfile(rawUrl) {
-    let u; try { u = new URL(rawUrl); } catch (e) { return null; }
-    const origin = u.origin; // e.g. https://vikingfile.com
-    const segs = u.pathname.split('/').filter(Boolean);
-    let hash = segs.length ? segs[segs.length - 1] : '';   // …/f/<hash>
-    let page = '';
-    try {
-        const res = await dlRequest('GET', rawUrl, { headers: { 'User-Agent': CHROME_UA, 'Referer': origin } });
-        page = res.body || '';
-    } catch (e) {}
-    // 1) a full direct server link already sitting in the page / inline JS
-    let m = page.match(/https?:\\?\/\\?\/[a-z0-9.\-]*vikingfile\.com\\?\/download\\?\/[^"'\s<>\\]+/i);
-    if (m) return [{ url: m[0].replace(/\\\//g, '/'), kind: 'http' }];
-    // pull the hash from a hidden input / JS var if the URL didn't carry it
-    const hm = page.match(/name=["']hash["'][^>]*value=["']([^"']+)["']/i)
-        || page.match(/id=["']hash["'][^>]*value=["']([^"']+)["']/i)
-        || page.match(/["']?hash["']?\s*[:=]\s*["']([a-z0-9]{6,})["']/i);
-    if (hm) hash = hm[1];
-    if (!hash) return null;
-    // best-effort filename for aria2
-    let name = '';
-    const nm = page.match(/<title>\s*([^<]+?)\s*<\/title>/i);
-    if (nm && /\.(rar|zip|7z|bin|iso|exe)/i.test(nm[1])) name = nm[1].replace(/\s*[\-|–·].*$/, '').trim();
-    const pickUrl = (resp) => {
-        if (!resp) return '';
-        let data = null; try { data = JSON.parse(resp.body); } catch (e) {}
-        const cand = data && (data.url || data.link || data.download || data.direct);
-        if (cand && /^https?:\/\//i.test(cand)) return cand;
-        const tm = (resp.body || '').match(/https?:\/\/[^\s"'<>]+/i);
-        if (tm && /vikingfile\.com\/download\//i.test(tm[0])) return tm[0];
-        const loc = resp.headers && resp.headers['location'];
-        if (loc && /^https?:\/\//i.test(loc)) return loc;
-        return '';
-    };
-    // 2) POST the hash to the download API (try the known endpoints / field names)
-    const attempts = [
-        { ep: origin + '/api/download', body: { hash } },
-        { ep: origin + '/download', body: { hash } },
-        { ep: origin + '/api/get-url', body: { hash } }
-    ];
-    for (const a of attempts) {
-        try {
-            const resp = await dlRequest('POST', a.ep, {
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': CHROME_UA, 'Referer': rawUrl, 'Origin': origin, 'X-Requested-With': 'XMLHttpRequest' },
-                body: new URLSearchParams(a.body).toString(), follow: false
-            });
-            const url = pickUrl(resp);
-            if (url) return [{ url, kind: 'http', name }];
-        } catch (e) {}
-    }
-    return null;
+    return resolveVikingFileUrl(rawUrl, {
+        request: dlRequest,
+        userAgent: CHROME_UA
+    });
 }
 
 // Resolve a (possibly indirect) link into one or more concrete files aria2 can
@@ -2823,50 +3383,75 @@ async function scrapeVikingfile(rawUrl) {
 // through to the "direct archive" check (their page URLs often end in .bin/.rar
 // and would otherwise download the HTML landing page) nor to the browser (which
 // hangs on their JS/captcha). We just report failure so the user can pick another host.
-const DL_KNOWN_HOST = /gofile|pixeldrain\.(com|net|in|nl|biz|tech|dev)|datanodes|fuckingfast\.(co|net)|mediafire|megadb|filekeeper/i;
+const DL_KNOWN_HOST = /gofile|pixeldrain\.(com|net|in|nl|biz|tech|dev)|datanodes|fuckingfast\.(co|com|net)|mediafire|megadb|filekeeper|fileditch(?:files)?|buzzheavier|bzzhr|akirabox\.(com|to)|multiup\.(?:io|org)|1337x\.|rootz\.so|vikingfile\.com|vik1ngfile\.site/i;
+const DL_MANAGED_RETRY_HOST = /datanodes|fuckingfast\.(?:co|com|net)|filekeeper|fileditch(?:files)?|buzzheavier|bzzhr|akirabox\.(?:com|to)|multiup\.(?:io|org)|1337x\.|rootz\.so|vikingfile\.com|vik1ngfile\.site/i;
 
 // Per-source Referer to spoof when a host applies hotlink protection.
-const SOURCE_REFERER = { steamgg: 'https://steamgg.net/' };
+const SOURCE_REFERER = {
+    steamgg: 'https://steamgg.net/',
+    fitgirl: 'https://fitgirl-repacks.site/',
+    steamrip: 'https://steamrip.com/'
+};
+
+const downloadLinkHealthChecker = createDownloadLinkHealthChecker({
+    request: dlRequest,
+    ttlMs: 60 * 1000
+});
+
+async function inspectDownloadLinkHealth(rawUrl, sourceId) {
+    const normalizedSource = String(sourceId || '').toLowerCase();
+    if (!isHealthTargetAllowed(rawUrl, normalizedSource)) {
+        return { status: HEALTH_STATES.UNKNOWN, reason: 'unsupported-health-target', httpStatus: 0 };
+    }
+    const referer = SOURCE_REFERER[normalizedSource] || '';
+    const value = await downloadLinkHealthChecker(rawUrl, {
+        sourceId: normalizedSource,
+        headers: {
+            'User-Agent': CHROME_UA,
+            ...(referer ? { Referer: referer } : {})
+        }
+    });
+    return {
+        status: Object.values(HEALTH_STATES).includes(value && value.status) ? value.status : HEALTH_STATES.UNKNOWN,
+        reason: String(value && value.reason || 'unknown').slice(0, 160),
+        httpStatus: Number.isInteger(value && value.httpStatus) ? value.httpStatus : 0
+    };
+}
+
+ipcMain.handle('get-download-link-health', async (_event, payload) => {
+    const input = exactGateAPayload(payload, ['url', 'sourceId'], 'Download link health');
+    const url = typeof input.url === 'string' && input.url.length <= 8192 ? input.url : '';
+    const sourceId = typeof input.sourceId === 'string' && input.sourceId.length <= 32 ? input.sourceId : '';
+    return inspectDownloadLinkHealth(url, sourceId);
+});
 
 // ===================================================================
 // PixelDrain Cloudflare-Worker proxy pool + Debrid services
 // (config is pushed from the renderer via the IPC handlers below)
 // ===================================================================
-// Built-in Worker pool — used whenever the user hasn't configured their own in
-// Download Settings. These bypass pixeldrain's 10GB/day per-IP cap by fetching from
-// Cloudflare's IP. Rewriting through one of these is the whole point of the proxy, so
-// we default to them rather than ever handing aria2 a bare pixeldrain.com URL.
-const DEFAULT_PIXELDRAIN_PROXIES = [
+// The former public Worker pool is retired: PixelDrain now rejects those proxy
+// requests as hotlinking. Keep user-supplied Workers supported, but never restore
+// or silently retry the known-dead defaults from an older settings file.
+const RETIRED_PIXELDRAIN_PROXIES = new Set([
     'https://saillauncher.alissatorz.workers.dev',
     'https://saillauncher2.alissatorz.workers.dev',
     'https://saillauncher3.alissatorz.workers.dev',
     'https://saillauncher4.alissatorz.workers.dev',
-];
-let pixeldrainProxies = DEFAULT_PIXELDRAIN_PROXIES.slice(); // list of Worker base URLs, e.g. https://xyz.workers.dev
+]);
+let pixeldrainProxies = []; // optional custom Worker base URLs, e.g. https://xyz.workers.dev
 ipcMain.on('set-pixeldrain-proxies', (e, list) => {
     const cleaned = Array.isArray(list)
-        ? list.map(u => String(u || '').trim()).filter(u => /^https?:\/\//i.test(u))
+        ? [...new Set(list.map(value => {
+            const safe = credentialFreeHttpsUrl(value);
+            if (!safe) return '';
+            const parsed = new URL(safe);
+            if (parsed.search) return '';
+            const normalized = parsed.href.replace(/\/$/, '');
+            return RETIRED_PIXELDRAIN_PROXIES.has(normalized) ? '' : normalized;
+        }).filter(Boolean))]
         : [];
-    // An empty/invalid push (e.g. the renderer sending defaults on startup) must NOT
-    // wipe the built-in pool — fall back to the defaults so pixeldrain always proxies.
-    pixeldrainProxies = cleaned.length ? cleaned : DEFAULT_PIXELDRAIN_PROXIES.slice();
+    pixeldrainProxies = cleaned;
 });
-
-// Wrap a direct pixeldrain API url through a RANDOMLY chosen Worker proxy so the
-// download originates from Cloudflare's IP (bypassing the 10GB/day per-IP cap).
-// NO blocking liveness probe: a HEAD probe that timed out/failed on the very first
-// click used to make this return null → aria2 hit pixeldrain DIRECTLY (4xx/5xx),
-// while the second click "worked" because the worker was warm by then. Instead we
-// shuffle and return a worker IMMEDIATELY — the rewrite is the whole point, and
-// aria2's own retry/failover handles a truly dead worker. Returns null only when
-// the pool is literally empty (which, with DEFAULT_PIXELDRAIN_PROXIES, never happens).
-function pixeldrainProxyUrl(directUrl) {
-    const pool = (pixeldrainProxies || []).slice();
-    if (!pool.length) return null; // no workers configured → fall back to direct pixeldrain
-    for (let i = pool.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); const t = pool[i]; pool[i] = pool[j]; pool[j] = t; }
-    const wrap = (base) => base.replace(/\/+$/, '') + '/?url=' + encodeURIComponent(directUrl);
-    return wrap(pool[0]);
-}
 
 // Debrid services. Each: validate(key) -> {ok, user?} ; unrestrict(key, link) -> {url, name?} | null
 const DEBRID = {
@@ -3035,39 +3620,88 @@ ipcMain.handle('debrid-validate', async (e, payload) => {
 
 async function resolveDirectUrl(rawUrl, opts) {
     opts = opts || {};
+    const throwIfCancelled = () => {
+        if (opts.signal && opts.signal.aborted) {
+            throw Object.assign(new Error('Cancelled'), { name: 'AbortError' });
+        }
+    };
+    throwIfCancelled();
     const referer = opts.referer || SOURCE_REFERER[opts.sourceId] || '';
+    const forceManagedBrowser = opts.forceManagedBrowser === true;
     if (!rawUrl) return null;
     if (rawUrl.startsWith('magnet:') || /\.torrent(\?|#|$)/i.test(rawUrl)) return [{ url: rawUrl, kind: rawUrl.startsWith('magnet:') ? 'magnet' : 'http' }];
-    // BuzzHeavier is removed entirely — its Cloudflare "verify you are human" check can't be
-    // passed automatically, and even a debrid service (TorBox/etc.) can't resolve it. Bail
-    // before debrid/scrapers so it's never attempted.
-    if (/buzzheavier|bzzhr/i.test(rawUrl)) return null;
+    const gofileContainer = normalizeFileCryptContainerUrl(rawUrl);
+    if (gofileContainer) {
+        if (opts.sourceId !== 'steamrip') return null;
+        const health = await inspectDownloadLinkHealth(gofileContainer, opts.sourceId);
+        if (health.status === HEALTH_STATES.DOWN) throw buildLinkDownError(gofileContainer, health.reason);
+        try {
+            return await scrapeSteamRipGofileContainer(gofileContainer, referer);
+        } catch (error) {
+            if (error && error.linkHealth === HEALTH_STATES.DOWN) throw error;
+            return null;
+        }
+    }
     // Debrid FIRST — before any host gives up. When a service is connected it unlocks the
     // link server-side, which bypasses the Cloudflare / captcha / download restrictions on
-    // EVERY filehost (GoFile, 1Fichier, Rapidgator, AND the CF-interactive ones below like
-    // AkiraBox, DataNodes, BuzzHeavier). So we try debrid on every http filehost link, not
+    // EVERY filehost (GoFile, 1Fichier, Rapidgator, AND CF-interactive ones like AkiraBox
+    // and DataNodes). So we try debrid on every http filehost link, not
     // just ones we already know are "free". pixeldrain keeps its own Worker-proxy pool, and
     // magnets/torrents are handled above. On any failure we fall through to the old behaviour.
     if (debridActive() && /^https?:/i.test(rawUrl) && !/pixeldrain/i.test(rawUrl)) {
         const dr = await debridUnrestrict(rawUrl);
         if (dr && dr.url) return [{ url: dr.url, kind: 'http', name: dr.name || '' }];
     }
-    // CF-interactive hosts that can't be auto-resolved WITHOUT debrid — bail now (after the
-    // debrid attempt above) instead of spending 30+ s in the browser interceptor before failing.
-    if (/akirabox\.(com|to)/i.test(rawUrl)) return null;
-    // 1337x is a Cloudflare-gated torrent index (no direct file link); browse-only.
-    if (/1337x\.[a-z]+/i.test(rawUrl)) return null;
     if (DL_KNOWN_HOST.test(rawUrl)) {
         let r = null;
-        try {
-            if (/gofile/i.test(rawUrl)) r = await scrapeGofile(rawUrl);
-            else if (/pixeldrain/i.test(rawUrl)) r = await scrapePixeldrain(rawUrl, referer);
-            else if (/datanodes/i.test(rawUrl)) r = await scrapeDatanodes(rawUrl);
-            else if (/fuckingfast\.(co|net)/i.test(rawUrl)) r = await scrapeFuckingfast(rawUrl);
-            else if (/mediafire/i.test(rawUrl)) r = await scrapeMediafire(rawUrl);
-            else if (/filekeeper/i.test(rawUrl)) r = await scrapeFilekeeper(rawUrl);
-            else if (/megadb/i.test(rawUrl)) r = await scrapeXFS(rawUrl);
-        } catch (e) { /* report failure below */ }
+        if (!forceManagedBrowser) {
+            try {
+                if (/gofile/i.test(rawUrl)) r = await scrapeGofile(rawUrl);
+                else if (/pixeldrain/i.test(rawUrl)) r = await scrapePixeldrain(rawUrl, referer);
+                else if (/datanodes/i.test(rawUrl)) r = await scrapeDatanodes(rawUrl, referer);
+                else if (/akirabox\.(com|to)/i.test(rawUrl)) r = await scrapeAkiraBox(rawUrl);
+                else if (/1337x\./i.test(rawUrl)) r = await scrape1337x(rawUrl);
+                else if (/buzzheavier|bzzhr/i.test(rawUrl)) r = await scrapeBuzzheavier(rawUrl, referer);
+                else if (/fileditch(?:files)?/i.test(rawUrl)) r = await scrapeFileditch(rawUrl);
+                else if (/fuckingfast\.(co|com|net)/i.test(rawUrl)) r = await scrapeFuckingfast(rawUrl);
+                else if (/mediafire/i.test(rawUrl)) r = await scrapeMediafire(rawUrl);
+                else if (/filekeeper/i.test(rawUrl)) r = await scrapeFilekeeper(rawUrl);
+                else if (/megadb/i.test(rawUrl)) r = await scrapeXFS(rawUrl, referer);
+                else if (/rootz\.so/i.test(rawUrl)) r = await scrapeRootz(rawUrl);
+                else if (/vikingfile\.com|vik1ngfile\.site/i.test(rawUrl)) r = await scrapeVikingfile(rawUrl);
+            } catch (e) {
+                if (e && e.name === 'AbortError') throw e;
+                if (e && e.linkHealth === HEALTH_STATES.DOWN) throw e;
+                if (e && e.providerRateLimited) throw e;
+                if (/gofile/i.test(rawUrl) && /^error-(?:notFound|contentNotFound|deleted)$/i.test(String(e && e.gofileStatus || ''))) {
+                    throw buildLinkDownError(rawUrl, e.gofileStatus);
+                }
+                // All other failures continue into the provider-scoped visible handoff below.
+            }
+        }
+        throwIfCancelled();
+        if ((!r || !r.length) && /filekeeper/i.test(rawUrl)) {
+            r = await resolveWithManagedHostBrowser(rawUrl, 'filekeeper', referer, opts.onProgress, opts.signal);
+        } else if ((!r || !r.length) && /datanodes/i.test(rawUrl)) {
+            r = await resolveWithManagedHostBrowser(rawUrl, 'datanodes', referer, opts.onProgress, opts.signal);
+        } else if ((!r || !r.length) && /buzzheavier|bzzhr/i.test(rawUrl)) {
+            r = await resolveWithManagedHostBrowser(rawUrl, 'buzzheavier', referer, opts.onProgress, opts.signal);
+        } else if ((!r || !r.length) && /fileditch(?:files)?/i.test(rawUrl)) {
+            r = await resolveWithManagedHostBrowser(rawUrl, 'fileditch', referer, opts.onProgress, opts.signal);
+        } else if ((!r || !r.length) && /fuckingfast/i.test(rawUrl)) {
+            r = await resolveWithManagedHostBrowser(rawUrl, 'fuckingfast', referer, opts.onProgress, opts.signal);
+        } else if ((!r || !r.length) && /multiup\.(?:io|org)/i.test(rawUrl)) {
+            r = await resolveWithManagedHostBrowser(rawUrl, 'multiup', referer, opts.onProgress, opts.signal);
+        } else if ((!r || !r.length) && /1337x/i.test(rawUrl)) {
+            r = await resolve1337xWithSystemBrowser(rawUrl, 20000, referer, opts.signal);
+            if (!r || !r.length) r = await resolveWithManagedHostBrowser(rawUrl, '1337x', referer, opts.onProgress, opts.signal);
+        } else if ((!r || !r.length) && /pixeldrain/i.test(rawUrl)) {
+            r = await resolveWithManagedHostBrowser(rawUrl, 'pixeldrain', referer, opts.onProgress, opts.signal);
+        } else if ((!r || !r.length) && /rootz\.so/i.test(rawUrl)) {
+            r = await resolveWithManagedHostBrowser(rawUrl, 'rootz', referer, opts.onProgress, opts.signal);
+        } else if ((!r || !r.length) && /vikingfile\.com|vik1ngfile\.site/i.test(rawUrl)) {
+            r = await resolveWithManagedHostBrowser(rawUrl, 'vikingfile', referer, opts.onProgress, opts.signal);
+        }
         return (r && r.length) ? r : null; // never fall through for a known host
     }
     // rutor.info — extract magnet/torrent link from the page. Falls through to the
@@ -3075,15 +3709,10 @@ async function resolveDirectUrl(rawUrl, opts) {
     if (/rutor\.info/i.test(rawUrl)) {
         try { const r = await scrapeRutor(rawUrl); if (r && r.length) return r; } catch (e) {}
     }
-    // VikingFile needs its own POST-to-API scrape. If that fails we deliberately DO
-    // fall through to the browser interceptor below (unlike the known hosts above).
-    if (/vikingfile\.com/i.test(rawUrl)) {
-        try { const r = await scrapeVikingfile(rawUrl); if (r && r.length) return r; } catch (e) {}
-    }
     // already a direct CDN archive / iso link
     if (/\.(zip|rar|7z|bin|iso)(\?|#|$)/i.test(rawUrl)) return [{ url: rawUrl, kind: 'http' }];
     // unknown host → last resort: load the page hidden and intercept the file download
-    const intercepted = await interceptDownload(rawUrl);
+    const intercepted = await interceptDownload(rawUrl, 55000, { signal: opts.signal });
     if (intercepted && intercepted.url) {
         const hdrs = (intercepted.headers && intercepted.headers.Cookie) ? ['Cookie: ' + intercepted.headers.Cookie] : null;
         return [{ url: intercepted.url, kind: intercepted.url.startsWith('magnet:') ? 'magnet' : 'http', headers: hdrs, name: intercepted.name }];
@@ -3091,40 +3720,39 @@ async function resolveDirectUrl(rawUrl, opts) {
     return null;
 }
 
-// Race the resolver across several mirror URLs that point at the SAME download
-// (the same game hosted on different file-hosts). The first host to yield a usable
-// direct link wins and the slower ones are abandoned — so a fast/cached mirror is
-// used instantly instead of blocking on a slow or rate-limited primary host.
-// Returns { files, origin } of the winning host, or null if every mirror failed.
-function resolveFirstMirror(urls, opts) {
-    const list = (urls || []).filter(Boolean);
-    if (!list.length) return Promise.resolve(null);
-    if (list.length === 1) return resolveDirectUrl(list[0], opts).then(r => (r && r.length) ? { files: r, origin: list[0] } : null);
-    return new Promise((resolve) => {
-        let pending = list.length, settled = false;
-        for (const u of list) {
-            resolveDirectUrl(u, opts).then(r => {
-                if (settled) return;
-                if (r && r.length) { settled = true; resolve({ files: r, origin: u }); }
-                else if (--pending === 0) { settled = true; resolve(null); }
-            }).catch(() => { if (!settled && --pending === 0) { settled = true; resolve(null); } });
-        }
-    });
-}
-
 // Build the user-facing "couldn't resolve" error for a host, with host-specific
-// guidance. Shared by the normal and mirror-race resolution paths.
+// guidance.
 function buildUnresolvedError(url) {
     let host = 'this host'; try { host = new URL(url).hostname.replace(/^www\./, ''); } catch (er) {}
+    const exhaustedProtectedHandoff = /(?:gofile|pixeldrain|filecrypt|filekeeper|datanodes|akirabox|buzzheavier|bzzhr|fileditch|fuckingfast|multiup|1337x|rootz|vikingfile|vik1ngfile|megadb|mediafire)/i.test(host);
     let msg = 'Could not auto-resolve a direct link for ' + host + '. Use "Open game page" to download it manually.';
-    if (/megadb/i.test(host)) msg = 'MegaDB requires a captcha that can\'t be bypassed automatically. Click "Open game page" and download it from the site.';
-    else if (/pixeldrain/i.test(host)) msg = 'Pixeldrain is rate-limiting this connection (its free transfer cap / captcha). It\'s not a launcher bug — wait for the cap to reset, pick another host (FileKeeper / FuckingFast / Gofile), or use "Open game page" to solve the captcha on the site.';
+    if (/megadb/i.test(host)) msg = 'MegaDB did not return an approved signed download link. Retry once, or choose another mirror.';
+    else if (/pixeldrain/i.test(host)) msg = 'PixelDrain did not return a usable file through the direct API or any trusted custom Worker. Try another mirror or add a Worker you trust in Download Settings.';
     else if (/gofile/i.test(host)) msg = 'Gofile\'s API is temporarily unavailable (their servers, not the launcher). Try again in a minute, or pick another host.';
-    else if (/datanodes/i.test(host)) msg = 'DataNodes is now behind a Cloudflare "verify you are human" check, so it can\'t download automatically. Pick another host (Pixeldrain / FileKeeper / FuckingFast), or use "Open game page".';
-    else if (/akirabox/i.test(host)) msg = 'AkiraBox is behind a Cloudflare "verify you are human" check (a checkbox you have to click), so it can\'t download automatically. Pick another host (Pixeldrain / FileKeeper / FuckingFast), or use "Open game page".';
-    else if (/buzzheavier|bzzhr/i.test(host)) msg = 'Buzzheavier is behind a Cloudflare "verify you are human" check (a checkbox you have to click), so it can\'t download automatically. Pick another host (Pixeldrain / FileKeeper / FuckingFast), or use "Open game page".';
-    else if (/1337x/i.test(host)) msg = '1337x is a Cloudflare-protected torrent index, so it can\'t download automatically. Use "Open game page" / "Browse" to grab the torrent from the site.';
-    return Object.assign(new Error(msg), { needsBrowser: true });
+    else if (/filecrypt/i.test(host)) msg = 'The GoFile mirror could not finish its protected handoff. Retry once, or pick another host while the mirror refreshes.';
+    else if (/filekeeper/i.test(host)) msg = 'FileKeeper did not return an approved provider download. Retry once, or choose another mirror.';
+    else if (/fuckingfast/i.test(host)) msg = 'FuckingFast did not produce an approved file URL through Sail\'s protected verification. The ad blocker stayed enabled; choose another mirror.';
+    else if (/datanodes/i.test(host)) msg = 'DataNodes did not produce an approved file URL through Sail\'s protected verification. The ad blocker stayed enabled; choose another mirror.';
+    else if (/akirabox/i.test(host)) msg = 'AkiraBox\'s Cloudflare check only completes in your normal browser. Use "Open in Browser"; Sail will not disable your browser\'s ad blocker or loop the check.';
+    else if (/buzzheavier|bzzhr/i.test(host)) msg = 'BuzzHeavier did not return an approved download token through Sail\'s protected handoff. Retry once, or choose another mirror.';
+    else if (/fileditch/i.test(host)) msg = 'FileDitch did not return an approved file redirect through Sail\'s protected handoff. Retry once, or choose another mirror.';
+    else if (/multiup/i.test(host)) msg = 'MultiUp did not return a file through any approved mirror in Sail\'s protected handoff. Choose another host.';
+    else if (/1337x/i.test(host)) msg = '1337x did not expose an approved magnet or same-site torrent file. Try another mirror.';
+    else if (/rootz/i.test(host)) msg = 'Rootz did not expose an active file through its status API. Retry once, or choose another mirror.';
+    else if (/vikingfile|vik1ngfile/i.test(host)) msg = 'VikingFile did not expose an approved provider download. Choose another mirror.';
+    else if (/mediafire/i.test(host)) msg = 'MediaFire did not return an approved direct download. Retry once, or choose another mirror.';
+    return Object.assign(new Error(msg), { needsBrowser: /akirabox/i.test(host) || !exhaustedProtectedHandoff });
+}
+
+function buildLinkDownError(url, reason) {
+    let host = 'This mirror';
+    try { host = new URL(url).hostname.replace(/^www\./, ''); } catch (_) {}
+    const error = new Error(host + ' reports that this download is offline or no longer exists. Choose another mirror.');
+    error.needsBrowser = false;
+    error.linkHealth = HEALTH_STATES.DOWN;
+    error.downloadUrl = String(url || '');
+    error.healthReason = String(reason || '').slice(0, 160);
+    return error;
 }
 
 // Click script: find the real download control while skipping ad links. Prefers
@@ -3133,42 +3761,194 @@ function buildUnresolvedError(url) {
 // clicked something plausible.
 const INTERCEPT_CLICK_JS = `(function(){
     var FILE=/\\.(zip|rar|7z|bin|iso|exe|torrent|part\\d+)(\\?|#|$)/i;
-    var HOST=/gofile|pixeldrain|datanodes|fuckingfast|1fichier|mediafire|mega(\\.nz|db)|qiwi|multiup|bowfile|hexload|vikingfile|rootz|akirabox|store\\d+\\.gofile/i;
+    var HOST=/gofile|pixeldrain|datanodes|fuckingfast|1fichier|mediafire|mega(\\.nz|db)|qiwi|multiup|bowfile|hexload|vikingfile|rootz|akirabox|buzzheavier|bzzhr|fileditch(files)?|store\\d+\\.gofile|1337x/i;
     var AD=/a-ads|doubleclick|googlesyndication|adnxs|popads|propeller|exoclick|juicyads|adsterra|hilltop|clickadu|adcash|monetag|onclick(algo|performance)|realsrv|tsyndicate|\\/ads?\\//i;
     function vis(el){ try{ return el.offsetParent!==null && el.getClientRects().length>0; }catch(e){ return false; } }
+    // A premature or repeated download click can invalidate a pending provider
+    // verification. Wait until the widget has produced a token; the user remains
+    // in control of the challenge itself.
+    var gate=document.querySelector('.cf-turnstile,iframe[src*="challenges.cloudflare.com"],.h-captcha,.g-recaptcha,[data-sitekey]');
+    var token=document.querySelector('input[name="cf-turnstile-response"],textarea[name="cf-turnstile-response"],input[name="h-captcha-response"],textarea[name="h-captcha-response"],textarea[name="g-recaptcha-response"]');
+    if(gate && !globalThis.__sailHumanVerificationComplete && (!token || !String(token.value||'').trim())) return false;
+    // Repeated clicks can invalidate one-time host tokens. This script is polled,
+    // so allow the page time to navigate or produce a download event.
+    if(globalThis.__sailLastDownloadClickAt && Date.now()-globalThis.__sailLastDownloadClickAt<2500) return false;
+    function activate(el){
+        var now=Date.now(), attempts=Number(el.__sailDownloadClickAttempts||0), last=Number(el.__sailDownloadClickedAt||0);
+        if(attempts>=3||(last&&now-last<8000)||el.disabled||(typeof el.matches==='function'&&el.matches('[disabled]'))||String(typeof el.getAttribute==='function'&&el.getAttribute('aria-disabled')||'').toLowerCase()==='true')return false;
+        try{var style=getComputedStyle(el);if(style.pointerEvents==='none'||style.visibility==='hidden')return false;}catch(e){}
+        el.__sailDownloadClickAttempts=attempts+1; el.__sailDownloadClickedAt=now; globalThis.__sailLastDownloadClickAt=now; el.click(); return true;
+    }
     // 1) anchors to a real file or known host
     var as=[].slice.call(document.querySelectorAll('a[href]'));
-    for(var i=0;i<as.length;i++){ var h=as[i].href||''; if(AD.test(h)) continue; if((FILE.test(h)||HOST.test(h)) && vis(as[i])){ as[i].click(); return true; } }
+    for(var i=0;i<as.length;i++){ var h=as[i].href||'', cross=false; try{ cross=new URL(h,location.href).origin!==location.origin; }catch(e){} if(AD.test(h)) continue; if(/^magnet:\\?xt=urn:btih:/i.test(h) && vis(as[i])) return h; if((FILE.test(h)||(HOST.test(h)&&cross)) && vis(as[i])) return activate(as[i]); }
     // 2) explicit download controls (id/class)
-    var sels=['#download','#downloadButton','#btndownload','#download-url','.download-btn','a.download','button.download','a#downloadB','.btn-download'];
-    for(var j=0;j<sels.length;j++){ var el=document.querySelector(sels[j]); if(el && vis(el)){ el.click(); return true; } }
+    var sels=['#download','#download-button','#downloadButton','#btndownload','#download-url','.download-btn','a.download','button.download','a#downloadB','.btn-download'];
+    for(var j=0;j<sels.length;j++){ var el=document.querySelector(sels[j]); if(el && vis(el)) return activate(el); }
     // 3) buttons/links whose visible text is a download verb (not ads)
     var cand=[].slice.call(document.querySelectorAll('a,button,input[type=button],input[type=submit]'));
-    for(var k=0;k<cand.length;k++){ var c=cand[k]; var t=((c.textContent||'')+' '+(c.value||'')).trim().toLowerCase(); var hh=c.href||''; if(AD.test(hh)) continue; if(/^(download|download now|free download|скачать|создать ссылку|get link|continue)$/.test(t) && vis(c)){ c.click(); return true; } }
+    for(var k=0;k<cand.length;k++){ var c=cand[k]; var t=((c.textContent||'')+' '+(c.value||'')).replace(/\\s+/g,' ').trim().toLowerCase(); var hh=c.href||''; if(AD.test(hh)) continue; if(/^(download|download now|start download|free download(?: (?:standard|slow) speed)?|скачать|создать ссылку|get link|continue)$/.test(t) && vis(c)) return activate(c); }
     return false;
 })();`;
 
+// Keep polling after ordinary clicks so DevTools can capture the browser's real
+// file transfer. Magnet links are returned directly because they do not create a
+// browser download event.
+const MANAGED_SYSTEM_BROWSER_CLICK_JS = `(function(){
+    var result=${INTERCEPT_CLICK_JS}
+    if(typeof result==='string') return {url:result,pageUrl:location.href,userAgent:navigator.userAgent};
+    if(result===true) return {postVerificationControlActivated:true};
+    return null;
+})()`;
+
+// A Cloudflare interstitial can appear before FuckingFast's own Turnstile page.
+// Only the provider page's verified /go control is the completed handoff.
+const FUCKINGFAST_VERIFICATION_STATE_JS = `(function(){
+    var control=document.querySelector('[hx-post*="/go"]');
+    var token=document.querySelector('input[name="cf-turnstile-response"],textarea[name="cf-turnstile-response"],input[name="h-captcha-response"],textarea[name="h-captcha-response"],textarea[name="g-recaptcha-response"]');
+    var gate=document.querySelector('.cf-turnstile,iframe[src*="challenges.cloudflare.com"],.h-captcha,.g-recaptcha,[data-sitekey]');
+    var providerReady=globalThis.__sailHumanVerificationComplete===true||globalThis.dlCleared===true||(typeof globalThis.turnstileToken==='string'&&!!globalThis.turnstileToken.trim())||!!(token&&String(token.value||token.getAttribute('value')||'').trim());
+    var text=String(document.body&&document.body.innerText||'').slice(0,20000);
+    var failed=!!control&&/\\bverification failed\\b|\\bchallenge failed\\b|\\bverification expired\\b/i.test(text);
+    if(control&&gate&&!providerReady&&!window.__sailVerificationCentered){
+        window.__sailVerificationCentered=true;
+        try{gate.scrollIntoView({block:'center',inline:'center',behavior:'auto'});}catch(e){}
+    }
+    return {gatePresent:!!gate,verified:!!control&&providerReady,failed:failed};
+})()`;
+
+// FuckingFast can consume the first activation with an ad pop-under and does
+// not always expose its internal cleared flag after Turnstile succeeds. Keep
+// the accepted verification latched in this page and retry the same provider
+// control at the host's measured cadence. DevTools captures the resulting /go
+// HX redirect or /dl request; it never follows an ad target.
+const FUCKINGFAST_SYSTEM_BROWSER_CLICK_JS = `(function(){
+    function vis(el){try{return !!el&&el.offsetParent!==null&&el.getClientRects().length>0;}catch(e){return false;}}
+    var gate=document.querySelector('.cf-turnstile,iframe[src*="challenges.cloudflare.com"],.h-captcha,.g-recaptcha,[data-sitekey]');
+    var token=document.querySelector('input[name="cf-turnstile-response"],textarea[name="cf-turnstile-response"],input[name="h-captcha-response"],textarea[name="h-captcha-response"],textarea[name="g-recaptcha-response"]');
+    var ready=!!(globalThis.dlCleared===true||(typeof globalThis.turnstileToken==='string'&&globalThis.turnstileToken.trim())||(token&&String(token.value||token.getAttribute('value')||'').trim()));
+    var verifiedBefore=globalThis.__sailHumanVerificationComplete===true;
+    if(gate&&!ready&&!verifiedBefore)return null;
+    var control=document.querySelector('[hx-post*="/go"]');
+    if(!vis(control)||control.disabled||String(control.getAttribute&&control.getAttribute('aria-disabled')||'').toLowerCase()==='true')return null;
+    var now=Date.now(),attempts=Number(globalThis.__sailFuckingFastGoAttempts||0),last=Number(globalThis.__sailFuckingFastGoAt||0);
+    if(attempts>=4||(last&&now-last<8000))return null;
+    globalThis.__sailFuckingFastGoAttempts=attempts+1;globalThis.__sailFuckingFastGoAt=now;control.click();
+    return {postVerificationControlActivated:true};
+})()`;
+
+// DataNodes uses one-time form state. Submit the legacy first step once, then
+// activate each distinct step-two label once as the provider replaces controls.
+const DATANODES_SYSTEM_BROWSER_CLICK_JS = `(function(){
+    function vis(el){try{if(!el)return false;var r=typeof el.getBoundingClientRect==='function'?el.getBoundingClientRect():null;return r?Number(r.width)>0&&Number(r.height)>0:el.offsetParent!==null&&el.getClientRects().length>0;}catch(e){return false;}}
+    function label(el){return String((el&&el.innerText||el&&el.textContent||'')+' '+(el&&el.value||'')).toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();}
+    function enabled(el){if(!vis(el)||el.disabled||String(el.getAttribute&&el.getAttribute('aria-disabled')||'').toLowerCase()==='true')return false;try{var s=getComputedStyle(el);return s.pointerEvents!=='none'&&s.visibility!=='hidden'&&s.display!=='none'&&s.opacity!=='0';}catch(e){return true;}}
+    var gate=document.querySelector('.cf-turnstile,iframe[src*="challenges.cloudflare.com"],.h-captcha,.g-recaptcha,[data-sitekey]');
+    var token=document.querySelector('input[name="cf-turnstile-response"],textarea[name="cf-turnstile-response"],input[name="h-captcha-response"],textarea[name="h-captcha-response"],textarea[name="g-recaptcha-response"]');
+    var verified=!!(globalThis.__sailHumanVerificationComplete||(token&&String(token.value||token.getAttribute('value')||'').trim()));
+    if(gate&&!verified)return null;
+    var form=document.querySelector('#downloadForm,form[action*="/download"]');
+    var reveal=document.querySelector('#downloadReveal');
+    var submit=document.querySelector('#method_free,input[name="method_free"],button[name="method_free"]');
+    if(form&&reveal&&submit){
+        if(globalThis.__sailDataNodesStep1Submitted||!enabled(submit))return null;
+        try{var revealStyle=getComputedStyle(reveal);if(revealStyle.pointerEvents==='none'||revealStyle.visibility==='hidden'||revealStyle.display==='none'||revealStyle.opacity==='0')return null;}catch(e){}
+        var field=form.querySelector&&form.querySelector('input[type="hidden"][name="method_free"]');
+        if(!field){field=document.createElement('input');field.type='hidden';field.name='method_free';form.appendChild(field);}
+        field.value='Free Download >>';globalThis.__sailDataNodesStep1Submitted=true;
+        if(typeof form.submit==='function')form.submit();else if(typeof form.requestSubmit==='function')form.requestSubmit();else return null;
+        return {postVerificationControlActivated:true};
+    }
+    var text=String(document.body&&document.body.innerText||'').replace(/\\s+/g,' ').toLowerCase();
+    var controls=[].slice.call(document.querySelectorAll('a,button,[role="button"],input[type=button],input[type=submit]'));
+    var choices=[];
+    for(var i=0;i<controls.length;i++){
+        var current=label(controls[i]);
+        if(enabled(controls[i])&&/^(?:start download|download now|get link|proceed to download|download file|free download(?: standard speed)?|your file is ready)(?:\\b|$)/.test(current))choices.push({el:controls[i],key:current,priority:/^(?:start download|download now|your file is ready)/.test(current)?0:1});
+    }
+    if(!/step\\s*2\\s*of\\s*2|quick check to unlock|unlock your download|your file is ready|start download/.test(text)&&!choices.length)return null;
+    choices.sort(function(a,b){return a.priority-b.priority;});
+    var clicked=globalThis.__sailDataNodesClickedLabels||(globalThis.__sailDataNodesClickedLabels=Object.create(null));
+    for(var j=0;j<choices.length;j++){
+        if(clicked[choices[j].key])continue;
+        if(Number(globalThis.__sailDataNodesStepClicks||0)>=4)return null;
+        clicked[choices[j].key]=true;globalThis.__sailDataNodesStepClicks=Number(globalThis.__sailDataNodesStepClicks||0)+1;choices[j].el.click();
+        return {postVerificationControlActivated:true};
+    }
+    return null;
+})()`;
+
+function managedHostClickExpression(provider) {
+    if (provider === 'fuckingfast') return FUCKINGFAST_SYSTEM_BROWSER_CLICK_JS;
+    if (provider === 'datanodes') return DATANODES_SYSTEM_BROWSER_CLICK_JS;
+    return MANAGED_SYSTEM_BROWSER_CLICK_JS;
+}
+
+function managedHostVerificationOptions(provider) {
+    if (provider !== 'fuckingfast') return {};
+    return {
+        verificationStateExpression: FUCKINGFAST_VERIFICATION_STATE_JS,
+        // The generic observer also sees the preceding Cloudflare interstitial.
+        // Poll the provider-specific state instead so Sail does not minimize or
+        // advance until the real FuckingFast /go control is present.
+        installVerificationObserver: false
+    };
+}
+
 // Open a host page invisibly, auto-click the real download control, and capture
 // the resulting file download URL (+ cookies) without actually saving it here.
-function interceptDownload(url, timeoutMs = 55000) {
+function interceptDownload(url, timeoutMs = 55000, options = {}) {
     return new Promise((resolve) => {
-        let done = false, win = null, clicker = null, sess = null, downloadHandler = null;
-        const finish = (val) => {
+        let done = false, win = null, clicker = null, verificationWatcher = null;
+        let revealTimer = null, hideTimer = null, sess = null, downloadHandler = null;
+        let timer = null, abortHandler = null;
+        let verificationReported = false;
+        let lastBlockedNavigationHost = '';
+        let browserUserAgent = DL_UA;
+        const signal = options.signal || null;
+        const revealAfterMs = Math.max(0, Math.min(Number(options.revealAfterMs) || 0, 10000));
+        const managedHandoffVisible = revealAfterMs > 0 || DL_KNOWN_HOST.test(String(url || ''));
+        const humanVerification = options.humanVerification === true;
+        const finish = (val, reason = '') => {
             if (done) return; done = true;
-            clearTimeout(timer); if (clicker) clearInterval(clicker);
+            clearTimeout(timer); if (clicker) clearInterval(clicker); if (verificationWatcher) clearInterval(verificationWatcher);
+            if (revealTimer) clearTimeout(revealTimer); if (hideTimer) clearTimeout(hideTimer);
+            if (signal && abortHandler) signal.removeEventListener('abort', abortHandler);
             try { if (sess && downloadHandler) sess.removeListener('will-download', downloadHandler); } catch (e) {}
+            try { if (win && win.webContents) managedResolverWebContents.delete(win.webContents.id); } catch (_) {}
             try { if (win && !win.isDestroyed()) win.destroy(); } catch (e) {}
             resolve(val);
         };
-        const timer = setTimeout(() => finish(null), timeoutMs);
+        abortHandler = () => finish(null, 'cancelled');
+        if (signal) {
+            if (signal.aborted) return finish(null, 'cancelled');
+            signal.addEventListener('abort', abortHandler, { once: true });
+        }
+        timer = setTimeout(() => finish(null, 'timeout'), timeoutMs);
         try {
-            // default session (no partition) so Cloudflare clearance / site logins
-            // from the in-app browser carry over; no throttling so challenges run
+            // Reuse the isolated persistent Sources session so clearance/site state
+            // from the in-app browser carries into the one-click handoff. Keep the
+            // renderer unthrottled so provider challenges can finish. Managed hosts
+            // are visible from creation: some provider pages request window.close()
+            // or fail navigation before a delayed show() can run.
             win = new BrowserWindow({
-                show: false,
-                width: 1200,
-                height: 800,
+                show: managedHandoffVisible,
+                width: humanVerification ? 680 : 1200,
+                height: humanVerification ? 560 : 800,
+                autoHideMenuBar: true,
+                skipTaskbar: humanVerification,
+                // Keep verification as an independent top-level window. A child of
+                // the transparent frameless launcher can be suppressed by Windows
+                // before a challenged navigation finishes, leaving only the dock
+                // error and no usable browser step.
+                parent: humanVerification && mainWindow && !mainWindow.isDestroyed()
+                    ? mainWindow
+                    : !managedHandoffVisible && mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined,
                 webPreferences: {
+                    // Never reuse the Sources webview's cookies while presenting a
+                    // different browser identity to a challenge. The fallback gets
+                    // a fresh in-memory session for this single attempt.
+                    partition: humanVerification ? `sail-verification-${crypto.randomUUID()}` : SOURCES_PARTITION,
                     nodeIntegration: false,
                     contextIsolation: true,
                     sandbox: true,
@@ -3176,33 +3956,449 @@ function interceptDownload(url, timeoutMs = 55000) {
                     backgroundThrottling: false
                 }
             });
-        } catch (e) { return finish(null); }
+        } catch (e) {
+            console.error('[download-resolver] Could not create the verification window: ' + String(e && e.message || e).slice(0, 240));
+            return finish(null, 'window-create-error');
+        }
+        managedResolverWebContents.add(win.webContents.id);
+        win.once('closed', () => finish(null, 'window-closed'));
+        win.on('page-title-updated', event => {
+            if (!win || win.isDestroyed() || !win.isVisible()) return;
+            try { event.preventDefault(); win.setTitle('Sail Launcher — Complete download verification'); } catch (_) {}
+        });
         sess = win.webContents.session;
+        // Keep Sail's blocker active during verification too. Challenge resources
+        // are explicitly exempted in isAdHost; ad networks and popunders are not.
         applyAdBlock(sess);
-        win.webContents.setWindowOpenHandler(() => ({ action: 'deny' })); // block ad popups
+        const pageUrlAllowed = navUrl => {
+            if (isAdHost(navUrl)) return false;
+            if (typeof options.isAllowedPageUrl !== 'function') return true;
+            try { return options.isAllowedPageUrl(new URL(navUrl)); } catch (_) { return false; }
+        };
+        const reportBlockedNavigation = navUrl => {
+            if (typeof options.onBlockedNavigation !== 'function') return;
+            try {
+                const host = new URL(String(navUrl || '')).hostname.toLowerCase();
+                if (!host || host === lastBlockedNavigationHost) return;
+                lastBlockedNavigationHost = host;
+                options.onBlockedNavigation(host);
+            } catch (_) {}
+        };
+        // Keep pop-ups suppressed, but route an approved provider target into this same
+        // isolated window so hosts using target=_blank can still reach will-download.
+        win.webContents.setWindowOpenHandler(details => {
+            const target = String(details && details.url || '');
+            let acceptedMagnet = false;
+            if (typeof options.acceptDownloadUrl === 'function' && /^magnet:/i.test(target)) {
+                try { acceptedMagnet = !!options.acceptDownloadUrl(target); } catch (_) {}
+            }
+            if (acceptedMagnet) {
+                finish({ url: target, name: '', headers: null, userAgent: browserUserAgent });
+            } else if (pageUrlAllowed(target)) {
+                setImmediate(() => {
+                    if (!done && win && !win.isDestroyed()) win.loadURL(target).catch(() => {});
+                });
+            } else reportBlockedNavigation(target);
+            return { action: 'deny' };
+        });
         // never let the page bounce the main frame onto an ad/redirect
-        win.webContents.on('will-navigate', (e, navUrl) => { if (isAdHost(navUrl)) { try { e.preventDefault(); } catch (err) {} } });
-        win.webContents.on('will-redirect', (e, navUrl) => { if (isAdHost(navUrl)) { try { e.preventDefault(); } catch (err) {} } });
+        win.webContents.on('will-navigate', (e, navUrl) => { if (!pageUrlAllowed(navUrl)) { try { e.preventDefault(); } catch (err) {} reportBlockedNavigation(navUrl); } });
+        win.webContents.on('will-redirect', (e, navUrl) => { if (!pageUrlAllowed(navUrl)) { try { e.preventDefault(); } catch (err) {} reportBlockedNavigation(navUrl); } });
         downloadHandler = (e, item, downloadWebContents) => {
             if (downloadWebContents !== win.webContents) return;
             const fileUrl = item.getURL();
             let fname = '';
             try { fname = item.getFilename() || ''; } catch (err) {}
             // ignore ad/redirect/non-file payloads
-            if (isAdHost(fileUrl) || /\.(html?|php)(\?|#|$)/i.test(fileUrl) || /^download$/i.test(fname)) { try { item.cancel(); } catch (err) {} return; }
-            sess.cookies.get({ url }).then((cookies) => {
+            let accepted = !isAdHost(fileUrl) && !/\.(html?|php)(\?|#|$)/i.test(fileUrl) && !/^download$/i.test(fname);
+            if (accepted && typeof options.acceptDownloadUrl === 'function') {
+                try { accepted = !!options.acceptDownloadUrl(fileUrl); } catch (_) { accepted = false; }
+            }
+            if (!accepted) { try { item.cancel(); } catch (err) {} return; }
+            try { item.pause(); } catch (_) {}
+            // Attach only cookies scoped to the captured transfer URL. Reading
+            // cookies for the source page and forwarding them to a separate CDN
+            // would leak provider-session state across origins.
+            sess.cookies.get({ url: fileUrl }).then((cookies) => {
                 const cookieHeader = (cookies || []).map(c => `${c.name}=${c.value}`).join('; ');
                 try { item.cancel(); } catch (err) {}
-                finish({ url: fileUrl, name: fname, headers: cookieHeader ? { Cookie: cookieHeader } : null });
-            }).catch(() => { try { item.cancel(); } catch (err) {} finish({ url: fileUrl, name: fname, headers: null }); });
+                finish({ url: fileUrl, name: fname, headers: cookieHeader ? { Cookie: cookieHeader } : null, userAgent: browserUserAgent });
+            }).catch(() => { try { item.cancel(); } catch (err) {} finish({ url: fileUrl, name: fname, headers: null, userAgent: browserUserAgent }); });
         };
         sess.on('will-download', downloadHandler);
+        // Keep Electron's real identity intact in the last-resort fallback. Stripping
+        // only the UA token leaves Sec-CH-UA/navigator.userAgentData inconsistent and
+        // causes Cloudflare to reject an otherwise valid human interaction.
+        browserUserAgent = String(win.webContents.getUserAgent() || DL_UA)
+            .replace(/[\r\n]/g, '')
+            .trim()
+            .slice(0, 512) || DL_UA;
         // retry clicking as the page/SPA settles (some hosts render the button late)
-        const tryClick = () => { if (done || !win || win.isDestroyed()) return; win.webContents.executeJavaScript(INTERCEPT_CLICK_JS, true).catch(() => {}); };
+        const tryClick = () => {
+            if (done || !win || win.isDestroyed()) return;
+            const clickExpression = String(options.clickExpression || INTERCEPT_CLICK_JS);
+            win.webContents.executeJavaScript(clickExpression, true).then(result => {
+                const activated = result === true || !!(result && result.postVerificationControlActivated === true);
+                if (activated && humanVerification && verificationReported
+                    && options.hideOnVerification === true && win && !win.isDestroyed() && win.isVisible()) {
+                    if (hideTimer) clearTimeout(hideTimer);
+                    hideTimer = setTimeout(() => {
+                        if (done || !win || win.isDestroyed()) return;
+                        try { win.hide(); } catch (_) {}
+                    }, 150);
+                }
+                const resultUrl = typeof result === 'string' ? result : result && result.url;
+                if (typeof resultUrl !== 'string' || !/^magnet:\\?xt=urn:btih:/i.test(resultUrl)) return;
+                if (typeof options.acceptDownloadUrl === 'function') {
+                    try { if (!options.acceptDownloadUrl(resultUrl)) return; } catch (_) { return; }
+                }
+                finish({ url: resultUrl, name: '', headers: null, userAgent: browserUserAgent });
+            }).catch(() => {});
+        };
+        const checkVerification = () => {
+            if (!humanVerification || done || !win || win.isDestroyed()) return;
+            const verificationStateExpression = String(options.verificationStateExpression || `(function(){
+                var token=document.querySelector('input[name="cf-turnstile-response"],textarea[name="cf-turnstile-response"],input[name="h-captcha-response"],textarea[name="h-captcha-response"],textarea[name="g-recaptcha-response"]');
+                var gate=document.querySelector('.cf-turnstile,iframe[src*="challenges.cloudflare.com"],.h-captcha,.g-recaptcha,[data-sitekey]');
+                var providerReady=globalThis.dlCleared===true||(typeof globalThis.turnstileToken==='string'&&!!globalThis.turnstileToken.trim());
+                var verified=providerReady||!!(token&&String(token.value||token.getAttribute('value')||'').trim());
+                var text=String(document.body&&document.body.innerText||'').slice(0,20000);
+                var failed=/\\bverification failed\\b|\\bchallenge failed\\b|\\bverification expired\\b/i.test(text);
+                if(gate&&!verified&&!window.__sailVerificationCentered){
+                    window.__sailVerificationCentered=true;
+                    try{gate.scrollIntoView({block:'center',inline:'center',behavior:'auto'});}catch(e){}
+                }
+                return {verified:verified,gatePresent:!!gate,failed:failed};
+            })()`);
+            win.webContents.executeJavaScript(verificationStateExpression, true).then(async state => {
+                if (!state || done || !win || win.isDestroyed()) return;
+                if (!state.verified) {
+                    if (verificationNeedsAttention(state, verificationReported)) {
+                        verificationReported = false;
+                        await win.webContents.executeJavaScript('globalThis.__sailHumanVerificationComplete=false;true', true).catch(() => {});
+                        if (done || !win || win.isDestroyed()) return;
+                        try { win.show(); win.focus(); } catch (_) {}
+                        if (typeof options.onVerificationNeedsAttention === 'function') {
+                            try { options.onVerificationNeedsAttention(); } catch (_) {}
+                        }
+                    }
+                    return;
+                }
+                // The provider may remove the challenge widget before revealing its
+                // real download button. Persist the accepted state for the clicker so
+                // it does not mistake that post-verification render for a fresh gate.
+                await win.webContents.executeJavaScript('globalThis.__sailHumanVerificationComplete=true;true', true).catch(() => {});
+                if (done || !win || win.isDestroyed()) return;
+                if (!verificationReported) {
+                    verificationReported = true;
+                    if (typeof options.onVerificationComplete === 'function') {
+                        try { options.onVerificationComplete(); } catch (_) {}
+                    }
+                }
+                // Advance the host's post-verification download control. tryClick hides
+                // only after it actually activates that control, so a rejected token can
+                // return to the visible handoff instead of looping invisibly.
+                tryClick();
+            }).catch(() => {});
+        };
         win.webContents.on('did-finish-load', () => setTimeout(tryClick, 1500));
         clicker = setInterval(tryClick, 3500);
-        win.loadURL(url, { userAgent: DL_UA }).catch(() => finish(null));
+        if (humanVerification) {
+            win.webContents.on('did-finish-load', () => setTimeout(checkVerification, 100));
+            verificationWatcher = setInterval(checkVerification, 200);
+        }
+        const loadOptions = { ...(options.loadOptions || {}) };
+        if (options.referrer && !loadOptions.httpReferrer) loadOptions.httpReferrer = options.referrer;
+        const revealVerificationWindow = () => {
+            if (revealTimer) { clearTimeout(revealTimer); revealTimer = null; }
+            if (done || !win || win.isDestroyed()) return;
+            try {
+                win.setTitle('Sail Launcher — Complete download verification');
+                win.show();
+                win.focus();
+            } catch (_) {}
+        };
+        if (managedHandoffVisible) {
+            // Start this clock before navigation. Provider challenges can keep
+            // loadURL pending, which previously hid the only window the user
+            // could use to finish verification.
+            if (revealAfterMs) revealTimer = setTimeout(revealVerificationWindow, revealAfterMs);
+            // A provider may call window.close() after a failed/blocked navigation.
+            // Keep the user-owned verification handoff open; the title-bar close
+            // button still closes the BrowserWindow normally.
+            win.webContents.on('close', event => {
+                if (done || !win || win.isDestroyed()) return;
+                try { event.preventDefault(); } catch (_) {}
+                revealVerificationWindow();
+            });
+        }
+        win.loadURL(url, loadOptions).catch(() => {
+            // Chromium rejects some provider challenge/error responses before the
+            // reveal timer fires. Keep the managed handoff visible so this never
+            // collapses into a silent "browser step" error again.
+            if (!managedHandoffVisible) return finish(null);
+            revealVerificationWindow();
+        });
     });
+}
+
+function managedHostUrlAllowed(provider, value, sourceUrl) {
+    const raw = String(value || '');
+    if (/^magnet:\?xt=urn:btih:[A-Za-z0-9]{32,64}(?:&|$)/i.test(raw)) return provider === '1337x';
+    let parsed;
+    try { parsed = new URL(raw); } catch (_) { return false; }
+    if (parsed.protocol !== 'https:' || parsed.username || parsed.password
+        || parsed.port && parsed.port !== '443') return false;
+    const host = parsed.hostname.toLowerCase();
+    if (provider === 'filekeeper') return FILEKEEPER_HOST_RE.test(host) || /(^|\.)dlproxy\.uk$/i.test(host);
+    if (provider === 'datanodes') return DATANODES_HOST_RE.test(host);
+    if (provider === 'akirabox') return AKIRABOX_HOST_RE.test(host);
+    if (provider === 'buzzheavier') return BUZZHEAVIER_HOST_RE.test(host);
+    if (provider === 'fileditch') return FILEDITCH_HOST_RE.test(host);
+    if (provider === 'rootz') {
+        return ROOTZ_HOST_RE.test(host) && /^\/api\/files\/proxy-download\/[A-Za-z0-9_-]{8,128}\/?$/i.test(parsed.pathname);
+    }
+    if (provider === 'vikingfile') {
+        return VIKINGFILE_HOST_RE.test(host) && /^\/download\//i.test(parsed.pathname);
+    }
+    if (provider === 'fuckingfast') {
+        return FUCKINGFAST_HOST_RE.test(host) || BUZZHEAVIER_HOST_RE.test(host);
+    }
+    if (provider === 'multiup') {
+        // MultiUp is a mirror index. Keep its interactive flow on MultiUp itself,
+        // and permit only the established download providers it currently lists.
+        // Unknown redirect/ad hosts remain blocked and never reach aria2.
+        return /(^|\.)(?:multiup\.(?:io|org)|datanodes\.(?:to|net)|mediafire\.com|vikingfile\.com|vik1ngfile\.site|rootz\.so|buzzheavier\.com|bzzhr\.(?:to|co)|fuckingfast\.(?:co|com|net)|hexload\.com|mega\.nz|gofile\.io|1fichier\.com)$/i.test(host);
+    }
+    if (provider === '1337x') return X1337_HOST_RE.test(host) && /\.torrent$/i.test(parsed.pathname);
+    if (provider === 'pixeldrain') return PIXELDRAIN_HOST_RE.test(host);
+    return false;
+}
+
+function managedHostPageAllowed(provider, parsed, sourceUrl) {
+    if (!parsed || parsed.protocol !== 'https:' || parsed.username || parsed.password
+        || parsed.port && parsed.port !== '443') return false;
+    if (provider === 'rootz' && ROOTZ_HOST_RE.test(parsed.hostname)) return true;
+    if (provider === 'vikingfile' && VIKINGFILE_HOST_RE.test(parsed.hostname)) return true;
+    if (managedHostUrlAllowed(provider, parsed.href, sourceUrl)) return true;
+    try { return parsed.origin === new URL(sourceUrl).origin; } catch (_) { return false; }
+}
+
+function managedHostInitialLoad(provider, rawUrl, referer) {
+    let pageUrl = rawUrl;
+    if (provider === 'akirabox') {
+        try {
+            const parsed = new URL(rawUrl);
+            const id = parsed.pathname.split('/').filter(Boolean)[0] || '';
+            if (/^[A-Za-z0-9_-]{4,128}$/.test(id)) {
+                parsed.hostname = 'akirabox.to';
+                parsed.pathname = `/${encodeURIComponent(id)}/file`;
+                parsed.search = '';
+                parsed.hash = '';
+                pageUrl = parsed.href;
+            }
+        } catch (_) {}
+    }
+    return {
+        url: pageUrl,
+        loadOptions: {
+            ...(referer ? { httpReferrer: referer } : {})
+        }
+    };
+}
+
+function managedHostResponseCapture(provider, rawUrl) {
+    if (provider === 'fuckingfast') {
+        return {
+            captureResponseUrl(value) {
+                try {
+                    const parsed = new URL(value);
+                    return FUCKINGFAST_HOST_RE.test(parsed.hostname) && /^\/f\/[A-Za-z0-9_-]{4,128}\/go\/?$/i.test(parsed.pathname);
+                } catch (_) { return false; }
+            },
+            async handleResponse(response) {
+                const captured = extractFuckingFastBrowserDownload(response, rawUrl);
+                return captured ? { attachBrowserContext: true, value: captured } : null;
+            }
+        };
+    }
+    if (provider !== 'datanodes') return {};
+    return {
+        captureResponseUrl(value) {
+            try {
+                const parsed = new URL(value);
+                return DATANODES_HOST_RE.test(parsed.hostname) && /^\/download\/?$/i.test(parsed.pathname);
+            } catch (_) { return false; }
+        },
+        async handleResponse(response) {
+            const captured = extractDataNodesBrowserDownload(response, rawUrl);
+            if (!captured) {
+                let candidate = '';
+                try {
+                    const payload = JSON.parse(String(response && response.body || ''));
+                    candidate = payload && (payload.downloadUrl || payload.download_url || payload.url)
+                        || payload && payload.data && (payload.data.downloadUrl || payload.data.download_url || payload.data.url)
+                        || '';
+                } catch (_) {}
+                try {
+                    const rejectedHost = new URL(candidate).hostname.toLowerCase();
+                    console.warn('[download-resolver] DataNodes returned an unapproved transfer host: ' + rejectedHost);
+                } catch (_) {}
+                return null;
+            }
+            return {
+                attachBrowserContext: true,
+                value: captured
+            };
+        }
+    };
+}
+
+async function resolveWithManagedHostBrowser(rawUrl, provider, referer, onProgress, signal = null) {
+    const initial = managedHostInitialLoad(provider, rawUrl, referer);
+    const reportProgress = label => {
+        if (typeof onProgress !== 'function') return;
+        try { onProgress(label); } catch (_) {}
+    };
+    const systemBrowser = findSystemChromiumExecutable();
+    reportProgress('Waiting for the secure verification window…');
+    console.info('[download-resolver] Opening a visible ' + provider + ' verification handoff in '
+        + (systemBrowser ? 'the system browser.' : 'the Electron fallback.'));
+    let captured = await managedVerificationCoordinator.run(`${provider}:${rawUrl}`, async ownedSignal => {
+        reportProgress('Verification window opened — complete the check there to continue…');
+        if (systemBrowser) {
+            try {
+                let parentBounds = null;
+                try {
+                    if (mainWindow && !mainWindow.isDestroyed()) parentBounds = mainWindow.getBounds();
+                } catch (_) {}
+                const verificationResourceHosts = [
+                    ...HUMAN_VERIFICATION_RESOURCE_HOSTS,
+                    new URL(initial.url).hostname
+                ];
+                const systemCaptured = await resolveWithSystemChromium(initial.url, managedHostClickExpression(provider), {
+                    executablePath: systemBrowser,
+                    tempRoot: path.join(app.getPath('temp'), 'SailLauncherVerificationBrowser'),
+                    timeoutMs: 120000,
+                    visible: true,
+                    appMode: true,
+                    parentBounds,
+                    captureDownloads: true,
+                    observeVerification: true,
+                    minimizeOnVerification: true,
+                    onVerificationComplete: () => reportProgress('Verification accepted — waiting for the host to prepare the file…'),
+                    onVerificationNeedsAttention: () => reportProgress('The host rejected or reset that verification — the check is ready to try again…'),
+                    onBlockedPopup: () => reportProgress('Blocked an off-site ad pop-up — still waiting for the real provider download…'),
+                    blockedHosts: adBlockEnabled ? AD_BLOCK_HOSTS : [],
+                    allowedResourceHosts: verificationResourceHosts,
+                    navigationReferrer: referer,
+                    isAllowedUrl: parsed => managedHostPageAllowed(provider, parsed, rawUrl),
+                    acceptDownloadUrl: value => managedHostUrlAllowed(provider, value, rawUrl),
+                    captureRequestUrl: value => managedHostTransferRequest(provider, value, rawUrl),
+                    // FuckingFast /dl URLs are single-use. Capture the main-frame
+                    // request before Chromium sends it so aria2 gets the first and
+                    // only transfer attempt instead of an already-consumed token.
+                    interceptTransferRequests: provider === 'fuckingfast',
+                    acceptResult: value => value && managedHostUrlAllowed(provider, value.url, rawUrl),
+                    ...managedHostVerificationOptions(provider),
+                    ...managedHostResponseCapture(provider, rawUrl),
+                    signal: ownedSignal
+                });
+                if (systemCaptured) return systemCaptured;
+                if (provider === 'fuckingfast') {
+                    reportProgress('FuckingFast did not return a file after that verification — no second verification window was opened.');
+                    return null;
+                }
+                reportProgress('The system browser did not return a file — trying Sail’s in-app handoff…');
+            } catch (error) {
+                if (error && error.name === 'AbortError') throw error;
+                console.warn('[download-resolver] System-browser verification failed: '
+                    + String(error && error.message || error).slice(0, 240));
+                if (provider === 'fuckingfast') {
+                    reportProgress('The FuckingFast handoff failed — no second verification window was opened.');
+                    return null;
+                }
+                reportProgress('The system browser handoff failed — trying Sail’s in-app handoff…');
+            }
+        }
+        return interceptDownload(initial.url, 120000, {
+            loadOptions: initial.loadOptions,
+            revealAfterMs: ['datanodes', 'akirabox', 'buzzheavier', 'fileditch', 'fuckingfast', 'multiup', '1337x', 'rootz', 'vikingfile'].includes(provider) ? 1200 : 0,
+            humanVerification: true,
+            hideOnVerification: true,
+            clickExpression: managedHostClickExpression(provider),
+            onVerificationComplete: () => reportProgress('Verification accepted — waiting for the host to prepare the file…'),
+            onVerificationNeedsAttention: () => reportProgress('The host rejected or reset that verification — the check is ready to try again…'),
+            onBlockedNavigation: () => reportProgress('Blocked an off-site ad redirect — still waiting for the real provider download…'),
+            isAllowedPageUrl: parsed => managedHostPageAllowed(provider, parsed, rawUrl),
+            acceptDownloadUrl: value => managedHostUrlAllowed(provider, value, rawUrl),
+            ...managedHostVerificationOptions(provider),
+            signal: ownedSignal
+        });
+    }, { signal });
+    if (provider === 'datanodes' && captured
+        && captured.transferAuthority === DATANODES_BROWSER_TRANSFER_AUTHORITY) {
+        reportProgress('DataNodes returned a file link — confirming the transfer…');
+        captured = await validateDataNodesBrowserTransfer(captured, {
+            request: dlRequest,
+            userAgent: DL_UA,
+            acceptUrl: value => !isAdHost(value)
+        });
+        if (!captured) {
+            reportProgress('DataNodes returned a non-file or blocked destination — choose another mirror.');
+            return null;
+        }
+    }
+    const capturedAllowed = captured && (managedHostUrlAllowed(provider, captured.url, rawUrl)
+        || provider === 'datanodes' && captured.transferAuthority === DATANODES_BROWSER_TRANSFER_AUTHORITY
+            && captured.validatedTransfer === true);
+    if (!capturedAllowed) return null;
+    reportProgress('File link captured — starting the download…');
+    if (captured.url.startsWith('magnet:')) {
+        return [{ url: captured.url, name: captured.name || 'Torrent download', kind: 'magnet', maxConn: 1 }];
+    }
+    let pageUrl = rawUrl;
+    try {
+        const candidate = new URL(captured.pageUrl || rawUrl);
+        if (managedHostPageAllowed(provider, candidate, rawUrl)) pageUrl = candidate.href;
+    } catch (_) {}
+    const browserUserAgent = String(captured.userAgent || DL_UA).replace(/[\r\n]/g, '').slice(0, 512);
+    const headers = [`Referer: ${pageUrl}`, `User-Agent: ${browserUserAgent}`];
+    const capturedCookie = Array.isArray(captured.cookies)
+        ? captured.cookies.map(cookie => `${cookie.name}=${cookie.value}`).join('; ')
+        : captured.headers && captured.headers.Cookie;
+    const cookie = String(capturedCookie || '').replace(/[\r\n]/g, '');
+    if (cookie) headers.push(`Cookie: ${cookie}`);
+    const managedFile = {
+        url: captured.url,
+        name: captured.name || '',
+        kind: 'http',
+        maxConn: ['buzzheavier', 'fuckingfast', 'datanodes'].includes(provider) ? 1 : 16,
+        headers
+    };
+    if (provider === 'fuckingfast') {
+        try {
+            const transfer = new URL(captured.url);
+            console.info('[download-resolver] FuckingFast transfer captured: host=' + transfer.hostname
+                + ' path=' + (transfer.pathname.split('/').filter(Boolean)[0] || '/')
+                + ' pathLength=' + transfer.pathname.length
+                + ' queryLength=' + transfer.search.length
+                + ' urlLength=' + captured.url.length
+                + ' cookies=' + (cookie ? 'yes' : 'no'));
+        } catch (_) {}
+        managedFile.requiresFreshVerification = true;
+        managedFile.disableIpv6 = true;
+        if (await managedTransferNeedsDnsFallback(captured.url)) {
+            managedFile.dnsServers = BUZZHEAVIER_FALLBACK_DNS.slice();
+        }
+    }
+    if (provider === 'buzzheavier') {
+        managedFile.resumeAcrossFreshUrl = true;
+        if (await managedTransferNeedsDnsFallback(captured.url)) {
+            managedFile.dnsServers = BUZZHEAVIER_FALLBACK_DNS.slice();
+        }
+    }
+    return [managedFile];
 }
 
 // Find the most likely game executable in a folder, ignoring installers/redists.
@@ -3278,15 +4474,11 @@ function findArchives(dir) {
 async function extractRar(archivePath, destDir, work) {
     if (work) await work.checkpoint();
     if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
-    const extractor = await unrar.createExtractorFromFile({ filepath: archivePath, targetPath: destDir });
+    await runOwnedWorker(ARCHIVE_EXTRACT_WORKER, {
+        archivePath,
+        targetPath: destDir
+    }, work);
     if (work) await work.checkpoint();
-    // The files iterator is lazy — extraction only happens as it's consumed.
-    const result = extractor.extract();
-    let count = 0;
-    for (const _f of result.files) count++;
-    await new Promise(resolve => setImmediate(resolve));
-    if (work) await work.checkpoint();
-    if (!count) throw new Error('node-unrar-js extracted 0 files (archive empty or split-volume missing parts)');
     return destDir;
 }
 
@@ -3388,13 +4580,12 @@ function dirSizeBytes(d, depth) {
 function runSilentInstall(installerPath, targetDir, ctl, skipExtras, work) {
     return new Promise((resolve, reject) => {
         try { if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true }); } catch (e) {}
-        // FitGirl installers require admin to install — a plain spawn (non-elevated)
-        // exits instantly without installing anything. Launch ELEVATED via Start-Process
-        // -Verb RunAs (one UAC prompt), wait for it, and capture the real exit code.
+        // FitGirl installers require admin to install. The policy script checkpoints the
+        // job first, requests one UAC prompt for itself, and then owns the exact elevated
+        // installer process tree so prerequisite handling never targets unrelated setups.
         //
-        // skipExtras: /TASKS="" deselects every optional InnoSetup task (DirectX/VC++
-        // redists, desktop shortcuts, "visit site" URL). Hard-wired [Run] steps can't be
-        // overridden — those are baked into the repack.
+        // skipExtras keeps the normal Inno task deselection and also applies a scoped
+        // descendant policy for FitGirl's custom post-install integrity/prerequisite steps.
         //
         // Audio: FitGirl installers play background music even under /VERYSILENT.
         // Rather than muting the WHOLE system, we mute ONLY the installer's own audio
@@ -3403,205 +4594,25 @@ function runSilentInstall(installerPath, targetDir, ctl, skipExtras, work) {
         // is touched, so the user's other audio keeps playing and there's nothing to restore.
         const extras = skipExtras ? ' /NOICONS /TASKS=""' : '';
         const innoArgs = '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /NOCANCEL /SP-' + extras;
-        const q = (s) => "'" + String(s).replace(/'/g, "''") + "'";
 
         // Build a self-contained PS1 that handles mute + elevated run in one shot.
         // Written to a temp file to avoid command-line escaping of the here-string.
-        const psLines = [
-            'try {',
-            '    Add-Type -TypeDefinition @"',
-            'using System;',
-            'using System.Runtime.InteropServices;',
-            'using System.Collections.Generic;',
-            '[Guid("A95664D2-9614-4F35-A746-DE8DB63617E6")]',
-            '[InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]',
-            '[ComImport]',
-            'interface IMMDeviceEnumerator {',
-            '    void EnumAudioEndpoints(int df, int sm, out IntPtr p);',
-            '    void GetDefaultAudioEndpoint(int df, int role, out IMMDevice d);',
-            '    void GetDevice([MarshalAs(UnmanagedType.LPWStr)] string id, out IMMDevice d);',
-            '    void RegisterEndpointNotificationCallback(IntPtr p);',
-            '    void UnregisterEndpointNotificationCallback(IntPtr p);',
-            '}',
-            '[Guid("D666063F-1587-4E43-81F1-B948E807363F")]',
-            '[InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]',
-            '[ComImport]',
-            'interface IMMDevice {',
-            '    void Activate(ref Guid iid, int ctx, IntPtr p, [MarshalAs(UnmanagedType.IUnknown)] out object o);',
-            '    void OpenPropertyStore(uint a, [MarshalAs(UnmanagedType.Interface)] out object o);',
-            '    void GetId([MarshalAs(UnmanagedType.LPWStr)] out string id);',
-            '    void GetState(out uint s);',
-            '}',
-            '[Guid("77AA99A0-1BD6-484F-8BC7-2C654C9A9B6F")]',
-            '[InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]',
-            '[ComImport]',
-            'interface IAudioSessionManager2 {',
-            '    int NotImpl0();',
-            '    int NotImpl1();',
-            '    void GetSessionEnumerator(out IAudioSessionEnumerator e);',
-            '}',
-            '[Guid("E2F5BB11-0570-40CA-ACDD-3AA01277DEE8")]',
-            '[InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]',
-            '[ComImport]',
-            'interface IAudioSessionEnumerator {',
-            '    void GetCount(out int c);',
-            '    void GetSession(int i, out IAudioSessionControl s);',
-            '}',
-            '[Guid("F4B1A599-7266-4319-A8CA-E70ACB11E8CD")]',
-            '[InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]',
-            '[ComImport]',
-            'interface IAudioSessionControl {',
-            '    int N0(); int N1(); int N2(); int N3(); int N4();',
-            '    int N5(); int N6(); int N7(); int N8();',
-            '}',
-            '[Guid("BFB7FF88-7239-4FC9-8FA2-07C950BE9C6D")]',
-            '[InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]',
-            '[ComImport]',
-            'interface IAudioSessionControl2 {',
-            '    int C0(); int C1(); int C2(); int C3(); int C4();',
-            '    int C5(); int C6(); int C7(); int C8();',
-            '    int GetSessionIdentifier(out IntPtr s);',
-            '    int GetSessionInstanceIdentifier(out IntPtr s);',
-            '    int GetProcessId(out uint pid);',
-            '}',
-            '[Guid("87CE5498-68D6-44E5-9215-6DA47EF883D8")]',
-            '[InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]',
-            '[ComImport]',
-            'interface ISimpleAudioVolume {',
-            '    void SetMasterVolume(float l, ref Guid g);',
-            '    void GetMasterVolume(out float l);',
-            '    void SetMute([MarshalAs(UnmanagedType.Bool)] bool m, ref Guid g);',
-            '    void GetMute([MarshalAs(UnmanagedType.Bool)] out bool m);',
-            '}',
-            '[ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")]',
-            'class MDE {}',
-            'public class AppMuter {',
-            '    static IAudioSessionEnumerator Sessions() {',
-            '        var e = (IMMDeviceEnumerator)(new MDE());',
-            '        IMMDevice d; e.GetDefaultAudioEndpoint(0, 1, out d);',
-            '        var iid = typeof(IAudioSessionManager2).GUID;',
-            '        object o; d.Activate(ref iid, 23, IntPtr.Zero, out o);',
-            '        var mgr = (IAudioSessionManager2)o;',
-            '        IAudioSessionEnumerator se; mgr.GetSessionEnumerator(out se); return se;',
-            '    }',
-            '    public static int SetMute(uint[] pids, bool state) {',
-            '        var set = new HashSet<uint>(pids); int n = 0;',
-            '        IAudioSessionEnumerator se; try { se = Sessions(); } catch { return 0; }',
-            '        int c; se.GetCount(out c);',
-            '        for (int i = 0; i < c; i++) {',
-            '            IAudioSessionControl ctl; try { se.GetSession(i, out ctl); } catch { continue; }',
-            '            try {',
-            '                var ctl2 = (IAudioSessionControl2)ctl;',
-            '                uint pid; ctl2.GetProcessId(out pid);',
-            '                if (set.Contains(pid)) { var v = (ISimpleAudioVolume)ctl; var g = Guid.Empty; v.SetMute(state, ref g); n++; }',
-            '            } catch {}',
-            '        }',
-            '        return n;',
-            '    }',
-            '}',
-            '"@',
-            '} catch {}',
-            '$ec = 0',
-            '# Paths come in via environment variables (set by the Node spawn), NOT embedded in',
-            '# this script. Windows passes env vars to the child as proper UTF-16, so non-ASCII',
-            '# game-folder names survive intact. Embedding them in the .ps1 text would corrupt',
-            '# them because Windows PowerShell 5.1 decodes a BOM-less script with the ANSI code',
-            '# page, mangling any Unicode path -> Start-Process "file not found" -> LAUNCH_FAIL.',
-            '$installer = $env:SAIL_INSTALLER',
-            '$target = $env:SAIL_TARGET',
-            '$innoArgs = $env:SAIL_ARGS',
-            '$base = ""',
-            'try { $base = [System.IO.Path]::GetFileNameWithoutExtension($installer) } catch {}',
-            '# Snapshot installer-named processes that ALREADY exist so we never mistake an',
-            '# unrelated "setup" for ours.',
-            '$pre = @{}',
-            'try { foreach ($p in @(Get-Process -ErrorAction SilentlyContinue | Where-Object { $base -ne "" -and $_.ProcessName -ieq $base })) { $pre[[int]$p.Id] = $true } } catch {}',
-            '# Snapshot pre-existing cmd.exe PIDs so we only auto-close installer-spawned cmd windows',
-            'function Get-FolderSize($p) { try { return [double]((Get-ChildItem -LiteralPath $p -Recurse -File -Force -ErrorAction SilentlyContinue | Measure-Object -Property Length -Sum).Sum) } catch { return [double]0 } }',
-            'Write-Host ("LAUNCH base=" + $base + " installer=" + $installer + " target=" + $target)',
-            '# Bail clearly if the installer path the renderer handed us does not actually exist',
-            '# (avoids a cryptic ShellExecute failure and tells us WHICH path was wrong).',
-            'if ([string]::IsNullOrEmpty($installer) -or -not (Test-Path -LiteralPath $installer)) { Write-Host ("LAUNCH_FAIL installer not found: " + $installer); exit 2 }',
-            '# Wait for the main process to commit the exact job state before elevation. If the',
-            '# wrapper is cancelled before this gate is opened, the installer is never launched.',
-            'Write-Host "READY_TO_LAUNCH"',
-            'while (-not (Test-Path -LiteralPath $env:SAIL_LAUNCH_GATE)) { Start-Sleep -Milliseconds 50 }',
-            '# Launch the installer ELEVATED. Start-Process blocks on the UAC dialog, so by the',
-            '# time it returns the prompt has already been answered. We do NOT rely on -PassThru',
-            '# returning a usable object (it can be $null even on success) — instead the wait below',
-            '# tracks the installer purely by process base name + folder growth.',
-            '$proc = $null',
-            'try {',
-            '    $psi = New-Object System.Diagnostics.ProcessStartInfo',
-            '    $psi.FileName = $installer',
-            '    $psi.Arguments = $innoArgs + \' "/DIR=\' + $target + \'"\'',
-            '    $psi.Verb = \'RunAs\'',
-            '    $psi.UseShellExecute = $true',
-            '    $psi.WorkingDirectory = [System.IO.Path]::GetDirectoryName($installer)',
-            '    $proc = [System.Diagnostics.Process]::Start($psi)',
-            '} catch { Write-Host ("LAUNCH_FAIL " + $_.Exception.Message); exit 1223 }',
-            '$root = 0',
-            'if ($proc -ne $null) { try { $root = [int]$proc.Id } catch { $root = 0 } }',
-            'Write-Host ("ROOT=" + $root)',
-            '# Phase 1 — startup grace: wait until the installer is observably working, i.e. a NEW',
-            '# installer-named process appears OR the target folder starts growing. InnoSetup setup.exe',
-            '# may relaunch itself as setup.tmp (same base name "setup"); either satisfies this.',
-            '$startSize = Get-FolderSize $target',
-            '$seen = $false',
-            '$g = 0',
-            'while ($g -lt 30) {',
-            '    $act = @()',
-            '    try { $act = @(Get-Process -ErrorAction SilentlyContinue | Where-Object { ($root -ne 0 -and $_.Id -eq $root) -or ($base -ne "" -and ($_.ProcessName -ieq $base -or $_.ProcessName -ilike ($base + ".*")) -and -not $pre.ContainsKey([int]$_.Id)) }) } catch {}',
-            '    if ($act.Count -gt 0) { $seen = $true; break }',
-            '    if (((Get-FolderSize $target) - $startSize) -gt 2MB) { $seen = $true; break }',
-            '    Start-Sleep -Milliseconds 1000',
-            '    $g++',
-            '}',
-            'Write-Host ("PHASE1 seen=" + $seen)',
-            '# Phase 2 — wait for completion. While ANY installer process is alive we keep waiting',
-            '# (and mute its audio). Once none are alive we fall back to watching folder growth, so',
-            '# even if process detection ever misses the orphaned child the trailing writes keep us',
-            '# here. Done = sustained idle (no installer process AND no folder growth). Folder size is',
-            '# only measured while no process is active, so the hot install loop stays cheap.',
-            '$lastSize = Get-FolderSize $target',
-            '$idle = 0',
-            '$loops = 0',
-            'while ($true) {',
-            '    $act = @()',
-            '    try { $act = @(Get-Process -ErrorAction SilentlyContinue | Where-Object { ($root -ne 0 -and $_.Id -eq $root) -or ($base -ne "" -and ($_.ProcessName -ieq $base -or $_.ProcessName -ilike ($base + ".*")) -and -not $pre.ContainsKey([int]$_.Id)) }) } catch {}',
-            '    if ($act.Count -gt 0) {',
-            '        $seen = $true',
-            '        $idle = 0',
-            '        $ids = New-Object System.Collections.Generic.List[uint32]',
-            '        foreach ($p in $act) { try { [void]$ids.Add([uint32]$p.Id) } catch {} }',
-            '        $muteState = $true',
-            '        try { if ((Get-Content -LiteralPath "$env:SAIL_MUTE_FLAG" -ErrorAction SilentlyContinue) -eq "0") { $muteState = $false } } catch {}',
-            '        try { [void][AppMuter]::SetMute($ids.ToArray(), $muteState) } catch {}',
-            '    } else {',
-            '        $sz = Get-FolderSize $target',
-            '        if (($sz - $lastSize) -gt 1MB) { $idle = 0 } else { $idle++ }',
-            '        $lastSize = $sz',
-            '    }',
-            '    $need = 8',
-            '    if ($seen) { $need = 6 }',
-            '    if ($idle -ge $need) { break }',
-            '    $loops++',
-            '    if ($loops -gt 8000) { break }',
-            '    Start-Sleep -Milliseconds 1000',
-            '}',
-            'Write-Host ("DONE size=" + $lastSize)',
-            'if ($proc -ne $null) { try { $ec = $proc.ExitCode } catch { $ec = 0 } }',
-            'if ($null -eq $ec) { $ec = 0 }',
-            'exit $ec'
-        ];
+        let psScript;
+        try {
+            psScript = fs.readFileSync(path.join(__dirname, 'runtime', 'fitGirlInstaller.ps1'), 'utf8');
+        } catch (error) {
+            return reject(new Error('FitGirl installer policy could not be loaded: ' + error.message));
+        }
         // Fail fast (with a clear message) if the installer the caller handed us is missing,
         // rather than spawning PowerShell only to hit LAUNCH_FAIL.
         if (!installerPath || !fs.existsSync(installerPath)) {
             return reject(new Error('Installer not found: ' + installerPath));
         }
-        const psScript = psLines.join('\r\n');
-        const tmpFile = path.join(process.env.TEMP || process.env.TMP || path.dirname(installerPath), 'sail_inst_' + Date.now() + '.ps1');
+        const jobStamp = Date.now() + '_' + crypto.randomBytes(6).toString('hex');
+        const tmpFile = path.join(process.env.TEMP || process.env.TMP || path.dirname(installerPath), 'sail_inst_' + jobStamp + '.ps1');
         const launchGate = tmpFile + '.launch';
+        const statusFile = tmpFile + '.status';
+        const innoLogFile = tmpFile + '.inno.log';
         // Write WITH a UTF-8 BOM so Windows PowerShell 5.1 decodes the script as UTF-8 (it
         // falls back to the ANSI code page for BOM-less files). The dynamic paths now travel
         // via env vars below, but the BOM is cheap belt-and-suspenders.
@@ -3617,7 +4628,10 @@ function runSilentInstall(installerPath, targetDir, ctl, skipExtras, work) {
             SAIL_ARGS: innoArgs,
             SAIL_LAUNCH_GATE: launchGate,
             SAIL_MUTE_FLAG: path.join(app.getPath('userData'), '.installer_mute'),
-            SAIL_SKIP_REDIST: skipExtras ? '1' : '0'
+            SAIL_SKIP_REDIST: skipExtras ? '1' : '0',
+            SAIL_STATUS_FILE: statusFile,
+            SAIL_INNO_LOG: innoLogFile,
+            SAIL_ELEVATED: '0'
         });
         try { proc = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', tmpFile], { windowsHide: true, env: psEnv }); }
         catch (e) { try { fs.unlinkSync(tmpFile); } catch (er) {} return reject(e); }
@@ -3641,20 +4655,31 @@ function runSilentInstall(installerPath, targetDir, ctl, skipExtras, work) {
         };
         try { proc.stdout && proc.stdout.on('data', d => { psOut += d.toString(); inspectInstallerOutput(); }); } catch (e) {}
         try { proc.stderr && proc.stderr.on('data', d => { psOut += d.toString(); }); } catch (e) {}
-        proc.on('error', (e) => { try { fs.unlinkSync(tmpFile); } catch (er) {} try { fs.unlinkSync(launchGate); } catch (er) {} reject(e); });
+        const cleanupInstallerPolicyFiles = () => {
+            for (const file of [tmpFile, launchGate, statusFile, innoLogFile]) {
+                try { fs.unlinkSync(file); } catch (_) {}
+            }
+        };
+        proc.on('error', (e) => { cleanupInstallerPolicyFiles(); reject(e); });
         proc.on('close', (code) => {
-            try { fs.unlinkSync(tmpFile); } catch (er) {}
-            try { fs.unlinkSync(launchGate); } catch (er) {}
             try {
                 const trimmed = psOut.trim();
                 if (trimmed) console.log('[auto-install] ' + trimmed.replace(/\r?\n/g, ' | '));
+                let innoLog = '';
+                try {
+                    const raw = fs.readFileSync(innoLogFile);
+                    innoLog = raw.subarray(0, 4 * 1024 * 1024).toString('utf8');
+                } catch (_) {}
                 fs.writeFileSync(path.join(path.dirname(targetDir), '_sail_install_log.txt'),
-                    '[' + new Date().toISOString() + '] exit=' + code + '\r\n' + psOut, 'utf8');
+                    '[' + new Date().toISOString() + '] exit=' + code + '\r\n' + psOut
+                    + (innoLog ? '\r\n[Inno Setup]\r\n' + innoLog : ''), 'utf8');
             } catch (e) {}
+            cleanupInstallerPolicyFiles();
             Promise.resolve(work && work.markInstallerExited()).catch(() => {}).finally(() => {
                 if (ctl.cancelled) return reject(new Error('Cancelled'));
                 if (code === 1223) return reject(new Error('Windows permission prompt was declined'));   // UAC cancelled
-                resolve(code);
+                if (code !== 0) return reject(new Error('FitGirl installer failed with exit code ' + code));
+                resolve(0);
             });
         });
     });
@@ -3667,32 +4692,33 @@ function runSilentInstall(installerPath, targetDir, ctl, skipExtras, work) {
 // install is wrongly reported as failed. Instead, after the launched process exits, watch
 // the destination folder and only consider the install finished once it has STOPPED
 // growing for a sustained window (or nothing was ever written → genuinely failed).
-function waitForDirSettle(dir, ctl, onTick) {
-    return new Promise((resolve) => {
-        const interval = 2500;          // poll cadence
-        const stableMs = 9000;          // size must hold steady this long to count as done
-        const graceZeroMs = 30000;      // if NOTHING is written within this, treat as failed
-        const maxMs = 90 * 60 * 1000;   // hard ceiling (huge repacks can take a while)
-        let last = -1, stableFor = 0, waited = 0;
-        const tick = () => {
-            if (ctl && ctl.cancelled) return resolve();
-            let sz = 0; try { sz = dirSizeBytes(dir, 0); } catch (e) {}
-            if (typeof onTick === 'function') { try { onTick(sz); } catch (e) {} }
-            if (sz === 0) {
-                if (waited >= graceZeroMs) return resolve();   // installer wrote nothing → give up
-            } else if (last >= 0 && Math.abs(sz - last) < 1024 * 1024) {
-                stableFor += interval;
-                if (stableFor >= stableMs) return resolve();    // size held steady → install finished
-            } else {
-                stableFor = 0;
-            }
-            last = sz;
-            waited += interval;
-            if (waited >= maxMs) return resolve();
-            setTimeout(tick, interval);
-        };
-        setTimeout(tick, interval);
-    });
+async function waitForDirSettle(dir, ctl, onTick, work) {
+    const interval = 2500;          // poll cadence
+    const stableMs = 9000;          // size must hold steady this long to count as done
+    const graceZeroMs = 30000;      // if NOTHING is written within this, treat as failed
+    const maxMs = 90 * 60 * 1000;   // hard ceiling (huge repacks can take a while)
+    let last = -1, stableFor = 0, waited = 0;
+    while (waited < maxMs) {
+        await new Promise(resolve => setTimeout(resolve, interval));
+        if (ctl && ctl.cancelled) return;
+        if (work) await work.checkpoint();
+        let sz = 0;
+        try { sz = await preparedDirectorySize(dir, work); }
+        catch (error) {
+            if (/cancelled/i.test(error && error.message || '')) throw error;
+        }
+        if (typeof onTick === 'function') { try { onTick(sz); } catch (e) {} }
+        if (sz === 0) {
+            if (waited >= graceZeroMs) return;   // installer wrote nothing → give up
+        } else if (last >= 0 && Math.abs(sz - last) < 1024 * 1024) {
+            stableFor += interval;
+            if (stableFor >= stableMs) return;  // size held steady → install finished
+        } else {
+            stableFor = 0;
+        }
+        last = sz;
+        waited += interval;
+    }
 }
 
 // After a successful extraction, delete the source archive(s) we just unpacked so the
@@ -3755,6 +4781,19 @@ async function postProcessDownload(job, dir, opts) {
     return downloadWork.run(job, { type: 'post-processing', state: 'post_processing' }, work => postProcessDownloadBody(dir, opts, work));
 }
 
+async function runDownloadPreparation(operation, dir, work, extra = {}) {
+    return runOwnedWorker(DOWNLOAD_PREPARATION_WORKER, Object.assign({ operation, dir }, extra), work);
+}
+
+async function scanDownloadedPayload(dir, gameName, work) {
+    return runDownloadPreparation('scan-payload', dir, work, { gameName: String(gameName || '') });
+}
+
+async function preparedDirectorySize(dir, work) {
+    const result = await runDownloadPreparation('directory-size', dir, work);
+    return Number(result && result.bytes) || 0;
+}
+
 async function postProcessDownloadBody(dir, opts, work) {
     await work.checkpoint();
     const result = {
@@ -3770,23 +4809,19 @@ async function postProcessDownloadBody(dir, opts, work) {
     // Give extension-less downloads (debrid-resolved SteamRIP .zips, etc.) the right
     // archive extension by content, BEFORE we walk/detect — so they auto-extract.
     await work.checkpoint();
-    if (opts.autoExtract !== false) { try { normalizeArchiveExtensions(dir, 0); } catch (e) {} }
+    if (opts.autoExtract !== false) {
+        try { await runDownloadPreparation('normalize-archives', dir, work); }
+        catch (error) {
+            if (/cancelled/i.test(error && error.message || '')) throw error;
+        }
+    }
 
     // walk ALL payload files recursively (torrents/installers nest in a subfolder)
-    const allFiles = [];
-    (function walk(d, depth) {
-        if (depth > 6) return;
-        let ents; try { ents = fs.readdirSync(d, { withFileTypes: true }); } catch (e) { return; }
-        for (const en of ents) {
-            const full = path.join(d, en.name);
-            if (en.isDirectory()) { walk(full, depth + 1); continue; }
-            if (/^_cover\./i.test(en.name)) continue;
-            let size = 0; try { size = fs.statSync(full).size; } catch (e) {}
-            allFiles.push({ name: en.name, full, size });
-        }
-    })(dir, 0);
-    const archives = findArchives(dir);
+    const initialScan = await scanDownloadedPayload(dir, opts.gameName, work);
+    const allFiles = initialScan.files.slice();
+    const archives = initialScan.archives;
 
+    let archiveValidationFailed = false;
     if (opts.autoExtract !== false && archives.length) {
         const extractTo = path.join(dir, '_game');
         let anyExtracted = false, extractErr = null;
@@ -3799,37 +4834,38 @@ async function postProcessDownloadBody(dir, opts, work) {
         // library folder is just the game. Runs before findGameExe so a redist installer
         // exe can't be mistaken for the game.
         await work.checkpoint();
-        if (result.extracted) { try { cleanExtractedJunk(extractTo, opts.skipRedist !== false); } catch (e) {} }
+        if (result.extracted) {
+            await runDownloadPreparation('clean-extracted-junk', extractTo, work, {
+                skipRedist: opts.skipRedist !== false
+            });
+        }
         // Extraction was attempted but every archive failed → tell the user why instead of
         // silently reporting success with the un-extracted archive sitting in the folder.
-        if (!anyExtracted && extractErr) result.warning = 'Auto-extract failed: ' + extractErr.message + ' The archive is in the game folder — extract it manually.';
-        if (result.extracted) result.exePath = findGameExe(extractTo, opts.gameName) || findGameExe(dir, opts.gameName) || '';
+        if (!anyExtracted && extractErr) {
+            archiveValidationFailed = true;
+            result.warning = 'Auto-extract failed: ' + extractErr.message + ' The archive is in the game folder — extract it manually.';
+        }
         // CRITICAL: the file list above was captured BEFORE extraction, so it only knew about
         // the archives (now deleted). A repack can ship setup.exe + fg-*.bin INSIDE that archive
         // (FitGirl sometimes wraps the installer in a .rar). Re-walk the extracted folder and
         // append its files so the installer detection below can see them — otherwise needsInstall
         // is never set and the auto-installer never runs.
         if (result.extracted) {
-            (function walk(d, depth) {
-                if (depth > 6) return;
-                let ents; try { ents = fs.readdirSync(d, { withFileTypes: true }); } catch (e) { return; }
-                for (const en of ents) {
-                    const full = path.join(d, en.name);
-                    if (en.isDirectory()) { walk(full, depth + 1); continue; }
-                    if (/^_cover\./i.test(en.name)) continue;
-                    let size = 0; try { size = fs.statSync(full).size; } catch (e) {}
-                    allFiles.push({ name: en.name, full, size });
-                }
-            })(extractTo, 0);
+            const extractedScan = await scanDownloadedPayload(extractTo, opts.gameName, work);
+            result.exePath = extractedScan.exePath || initialScan.exePath || '';
+            allFiles.push(...extractedScan.files);
         }
         // Free the disk: once extraction succeeded and produced real content, delete the
         // source archive(s) + their split-part siblings (e.g. SteamGG's leftover 18 GB zip).
-        let extractedSize = 0; try { extractedSize = dirSizeBytes(extractTo, 0); } catch (e) {}
+        let extractedSize = 0;
+        try { extractedSize = await preparedDirectorySize(extractTo, work); } catch (e) {}
         await work.checkpoint();
-        if (anyExtracted && extractedSize > 5 * 1024 * 1024) deleteArchiveSources(dir);
+        if (anyExtracted && extractedSize > 5 * 1024 * 1024) {
+            await runDownloadPreparation('delete-archive-sources', dir, work);
+        }
     }
     await work.checkpoint();
-    if (!result.exePath) result.exePath = findGameExe(dir, opts.gameName) || '';
+    if (!result.exePath) result.exePath = initialScan.exePath || '';
 
     // Installer-style payloads (e.g. FitGirl: setup.exe + fg-*.bin parts, often in a
     // torrent subfolder) aren't auto-extractable but ARE a successful download — the
@@ -3867,7 +4903,7 @@ async function postProcessDownloadBody(dir, opts, work) {
     else if (!result.exePath && installer) { result.exePath = installer.full; result.needsInstall = true; }
 
     // Did we actually end up with something playable/installable?
-    result.usable = !!(result.extracted || result.exePath || archives.length || installer || hasBin || bigFile);
+    result.usable = !archiveValidationFailed && !!(result.extracted || result.exePath || archives.length || installer || hasBin || bigFile);
     if (!result.usable) {
         // common failure: the host served an ad/redirect HTML page saved as "download"
         result.junk = allFiles.length === 0 || allFiles.every(f => /^download(\.|$)/i.test(f.name) || /\.(html?|php|txt)$/i.test(f.name));
@@ -3913,10 +4949,19 @@ function runAria2Download(aria2, file, dir, opts, ctl, onProgress) {
         const args = [
             file.url, '--dir=' + dir, '--summary-interval=1', '--console-log-level=warn',
             '--allow-overwrite=true', '--auto-file-renaming=false', '--continue=true',
+            // Large sparse/preallocated files can look frozen at 0% for minutes on
+            // Windows. Allocate as bytes arrive so the transfer becomes visible
+            // immediately and cancellation stays responsive.
+            '--file-allocation=none',
             '--max-connection-per-server=' + conns, '--split=' + conns, '--min-split-size=1M', '--check-certificate=true',
             '--max-tries=3', '--retry-wait=3', '--connect-timeout=30', '--timeout=60',
             '--user-agent=' + DL_UA
         ];
+        // FuckingFast currently advertises IPv6 even on Windows hosts without a
+        // usable IPv6 route. aria2 then exits immediately with WSAEADDRNOTAVAIL
+        // before trying the working IPv4 address. Keep this provider-specific so
+        // other download hosts retain their existing address-family behavior.
+        if (file.disableIpv6 === true) args.push('--disable-ipv6=true');
         // Name the file ONLY when we have a real archive/game filename. The link
         // "name" is often just a host label (e.g. "fuckingfast.co") whose ".co"
         // looks like an extension — using it as --out saved the file as
@@ -3930,31 +4975,66 @@ function runAria2Download(aria2, file, dir, opts, ctl, onProgress) {
         // per-host auth headers (array of "Key: Value" strings), or legacy {Cookie}
         if (Array.isArray(file.headers)) { file.headers.forEach(h => { if (h) args.push('--header=' + h); }); }
         else if (file.headers && file.headers.Cookie) { args.push('--header=Cookie: ' + file.headers.Cookie); }
+        const dnsServers = Array.isArray(file.dnsServers)
+            ? file.dnsServers.filter(server => nodeNet.isIP(String(server || ''))).slice(0, 4)
+            : [];
+        if (dnsServers.length) {
+            args.push('--async-dns=true', '--async-dns-server=' + dnsServers.join(','));
+        }
 
         const proc = spawn(aria2, args, { windowsHide: true });
         ctl.proc = proc;
         let buf = '';
+        let diagnosticTail = '';
+        let sawTransferProgress = false;
+        const startingLabel = file.kind === 'magnet'
+            ? 'Connecting to torrent peers and fetching file metadata…'
+            : 'Connecting to the host and preparing the file…';
+        try { onProgress({ phase: 'starting', percent: 0, label: startingLabel }); } catch (_) {}
+        const slowStartTimer = setTimeout(() => {
+            if (sawTransferProgress || ctl.cancelled || ctl.paused) return;
+            const label = file.kind === 'magnet'
+                ? 'Still fetching torrent metadata — peer availability controls this step…'
+                : 'The link is ready — waiting for the host to send the first bytes…';
+            try { onProgress({ phase: 'starting', percent: 0, label }); } catch (_) {}
+        }, 8000);
         const onData = (data) => {
-            buf += data.toString();
+            const chunk = data.toString();
+            buf += chunk;
+            diagnosticTail = (diagnosticTail + chunk).slice(-4096);
             const lines = buf.split(/\r|\n/);
             buf = lines.pop();
             for (const line of lines) {
                 const mm = line.match(/\[#\w+\s+([\d.]+\s*[KMGT]?i?B)\/([\d.]+\s*[KMGT]?i?B)\((\d+)%\).*?DL:\s*([\d.]+\s*[KMGT]?i?B)(?:.*?ETA:\s*(\S+?))?\]/);
-                if (mm) onProgress({
-                    downloaded: mm[1].replace(/\s/g, ''), total: mm[2].replace(/\s/g, ''),
-                    percent: Number(mm[3]), speed: mm[4].replace(/\s/g, ''), eta: mm[5] || ''
-                });
+                if (mm) {
+                    sawTransferProgress = true;
+                    clearTimeout(slowStartTimer);
+                    onProgress({
+                        phase: 'downloading',
+                        downloaded: mm[1].replace(/\s/g, ''), total: mm[2].replace(/\s/g, ''),
+                        percent: Number(mm[3]), speed: mm[4].replace(/\s/g, ''), eta: mm[5] || ''
+                    });
+                }
             }
         };
         proc.stdout.on('data', onData);
         proc.stderr.on('data', onData);
-        proc.on('error', reject);
+        proc.on('error', error => { clearTimeout(slowStartTimer); reject(error); });
         proc.on('close', (code) => {
+            clearTimeout(slowStartTimer);
+            ctl.proc = null;
             if (ctl.cancelled) return reject(new Error('Cancelled'));
             // Pause = kill aria2 but keep the partial file + .aria2 control file so a later
             // resume continues from where it stopped (aria2 --continue). Don't treat as an error.
             if (ctl.paused) return reject(new Error('Paused'));
             if (code === 0) return resolve();
+            const safeDiagnostic = diagnosticTail
+                .replace(/https?:\/\/\S+/gi, '[url]')
+                .replace(/[\r\n]+/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim()
+                .slice(-1000);
+            if (safeDiagnostic) console.warn(`[download-resolver] aria2 exit ${code}: ${safeDiagnostic}`);
             // Translate the common aria2 exit codes into something a user can act on.
             // 22 = the host returned an HTTP 4xx/5xx (rate-limited, expired, or captcha-walled).
             let msg = 'aria2 exit ' + code;
@@ -3990,18 +5070,19 @@ function unusedDownloadPath(dir, fileName) {
     return dest;
 }
 
-async function finishCapturedGameDownload(wc, id, dir, opts, ctl, job) {
+async function finishCapturedGameDownload(wc, id, dir, opts, ctl, job, steamMetadataPromise) {
     wc.send('download-progress', { id, state: 'processing', label: 'Extracting & preparing game...' });
     try {
         const res = await postProcessDownload(job, dir, opts);
         if (ctl.cancelled) throw new Error('Cancelled');
         if (res.needsInstall && res.exePath && opts.autoInstall !== false) {
             await downloadJobDirectories.setState(job, 'installing');
-            const installTarget = path.join(dir, '_game');
+            const installTarget = installerTargetForDownload(dir, res.exePath);
             let polling = true;
             (async function pollSize() {
                 while (polling) {
-                    let gb = 0; try { gb = dirSizeBytes(installTarget, 0) / (1024 * 1024 * 1024); } catch (e) {}
+                    let gb = 0;
+                    try { gb = await preparedDirectorySize(installTarget, null) / (1024 * 1024 * 1024); } catch (e) {}
                     wc.send('download-progress', { id, state: 'installing', percent: 100, label: gb > 0.01 ? 'Installing game... ' + gb.toFixed(2) + ' GB written' : 'Installing game... preparing files' });
                     await new Promise(r => setTimeout(r, 2500));
                 }
@@ -4011,17 +5092,17 @@ async function finishCapturedGameDownload(wc, id, dir, opts, ctl, job) {
                     await runSilentInstall(res.exePath, installTarget, ctl, opts.skipRedist !== false, work);
                     await work.checkpoint();
                     polling = false;
-                    await waitForDirSettle(installTarget, ctl);
+                    await waitForDirSettle(installTarget, ctl, null, work);
                     await work.checkpoint();
-                    let found = findGameExe(installTarget, opts.gameName);
+                    let found = (await scanDownloadedPayload(installTarget, opts.gameName, work)).exePath;
                     for (let t = 0; !found && t < 3; t++) {
                         await new Promise(r => setTimeout(r, 3000));
                         await work.checkpoint();
-                        found = findGameExe(installTarget, opts.gameName);
+                        found = (await scanDownloadedPayload(installTarget, opts.gameName, work)).exePath;
                     }
                     if (found) {
                         await work.checkpoint();
-                        cleanRepackSource(dir, installTarget);
+                        await runDownloadPreparation('clean-repack-source', dir, work, { keepDir: installTarget });
                     }
                     return found;
                 });
@@ -4042,25 +5123,25 @@ async function finishCapturedGameDownload(wc, id, dir, opts, ctl, job) {
             await retainDownloadJobError(job);
             return;
         }
-        if (res.installFailed) res.warning = 'Downloaded, but auto-install did not complete' + (res.installError ? ' (' + res.installError + ')' : '') + '. Open the folder and run setup.exe manually.';
+        applyInstallerCompletionPolicy(res, opts);
         if (res.exePath && !fs.existsSync(res.exePath)) res.exePath = '';
-        if (!res.exePath && !res.installFailed) res.exePath = findGameExe((res.folder && fs.existsSync(res.folder)) ? res.folder : dir, opts.gameName) || findGameExe(dir, opts.gameName) || '';
+        if (!res.exePath && !res.installFailed) {
+            const finalRoot = (res.folder && fs.existsSync(res.folder)) ? res.folder : dir;
+            try { res.exePath = (await scanDownloadedPayload(finalRoot, opts.gameName, null)).exePath || ''; } catch (e) {}
+            if (!res.exePath && finalRoot !== dir) {
+                try { res.exePath = (await scanDownloadedPayload(dir, opts.gameName, null)).exePath || ''; } catch (e) {}
+            }
+        }
         if (ctl.cancelled) throw new Error('Cancelled');
-        const completed = await finishDownloadJob(job, res);
+        const completed = await finishDownloadJob(job, res, steamMetadataPromise);
         wc.send('download-complete', Object.assign({ id }, completed));
     } catch (e) {
         if (ctl.cancelled || /cancelled/i.test(e.message)) return;
-        try {
-            const fallback = await finishDownloadJob(job, {
-                gameName: opts.gameName, folder: dir, exePath: '', cover: '', usable: true,
-                warning: 'Saved, but extraction failed: ' + e.message,
-                autoAdd: opts.autoAdd !== false, sourceId: opts.sourceId
-            });
-            wc.send('download-complete', Object.assign({ id }, fallback));
-        } catch (completionError) {
-            await retainDownloadJobError(job);
-            wc.send('download-error', { id, error: 'The download finished, but Sail could not safely publish its staging directory.' });
-        }
+        await retainDownloadJobError(job);
+        wc.send('download-error', {
+            id,
+            error: 'The downloaded bytes could not be validated or prepared: ' + String(e && e.message || 'Unknown processing error')
+        });
     }
 }
 
@@ -4078,6 +5159,7 @@ async function captureBrowserDownload(wc, item, webContentsId, intent) {
         sourceId: preparedOpts.sourceId || 'browser',
         url: (() => { try { return item.getURL(); } catch (e) { return preparedOpts.url || ''; } })()
     });
+    const steamMetadataPromise = resolveSteamMetadataForDownload(opts.gameName, opts.sourceId);
     const job = intent.job;
     const continuation = intent.continuation;
     let dir;
@@ -4141,7 +5223,7 @@ async function captureBrowserDownload(wc, item, webContentsId, intent) {
         }
         browserDownloadIntents.complete(intent);
         await downloadJobDirectories.setState(continuation, 'post_processing');
-        await finishCapturedGameDownload(wc, id, dir, opts, ctl, continuation);
+        await finishCapturedGameDownload(wc, id, dir, opts, ctl, continuation, steamMetadataPromise);
     });
 }
 
@@ -4218,6 +5300,14 @@ function typedDownloadUrl(value, label, { allowMagnet = true } = {}) {
     }
     let parsed;
     try { parsed = new URL(source); } catch (_) { throw new Error(`${label} is invalid.`); }
+    // FitGirl still publishes Rutor page links as HTTP even though the same tracker page is
+    // available over HTTPS. Upgrade only the exact known tracker hosts; every other inbound
+    // download URL remains subject to the credential-free HTTPS gate below.
+    if (parsed.protocol === 'http:' && !parsed.username && !parsed.password
+        && (!parsed.port || parsed.port === '80') && /^(?:d\.)?rutor\.info$/i.test(parsed.hostname)) {
+        parsed.protocol = 'https:';
+        parsed.port = '';
+    }
     if (parsed.protocol !== 'https:' || parsed.username || parsed.password || parsed.port && parsed.port !== '443' || source.includes('\\')) {
         throw new Error(`${label} must be a credential-free HTTPS URL.`);
     }
@@ -4227,7 +5317,7 @@ function typedDownloadUrl(value, label, { allowMagnet = true } = {}) {
 function normalizeDownloadRequest(value) {
     const input = exactGateAPayload(value, [
         'id', 'gameName', 'image', 'url', 'links', 'sourceId', 'mirrors', 'maxSpeed',
-        'autoExtract', 'autoInstall', 'skipRedist', 'autoAdd',
+        'autoExtract', 'autoInstall', 'skipRedist', 'autoAdd', 'referrer',
         'rootCapabilityId', 'rootExpectedRevision'
     ], 'Download request');
     const output = {
@@ -4243,6 +5333,7 @@ function normalizeDownloadRequest(value) {
         skipRedist: input.skipRedist !== false,
         autoAdd: input.autoAdd !== false
     };
+    if (input.referrer) output.referer = typedDownloadUrl(input.referrer, 'Download referrer', { allowMagnet: false });
     if (input.url) output.url = typedDownloadUrl(input.url, 'Download URL');
     if (input.links !== undefined) {
         if (!Array.isArray(input.links) || !input.links.length || input.links.length > 32) throw new Error('Download links are invalid.');
@@ -4256,7 +5347,9 @@ function normalizeDownloadRequest(value) {
     }
     if (input.mirrors !== undefined) {
         if (!Array.isArray(input.mirrors) || input.mirrors.length > 16) throw new Error('Download mirrors are invalid.');
-        output.mirrors = input.mirrors.map((url, index) => typedDownloadUrl(url, `Download mirror ${index}`));
+        // Older renderers may still send alternate hosts. Validate the legacy field
+        // for a clean error, but never copy it into the authorized download job.
+        input.mirrors.forEach((url, index) => typedDownloadUrl(url, `Download mirror ${index}`));
     }
     if (!output.url && !output.links.length) throw new Error('A typed download URL is required.');
     if (input.rootCapabilityId !== undefined || input.rootExpectedRevision !== undefined) {
@@ -4273,6 +5366,7 @@ function normalizeDownloadRequest(value) {
 
 ipcMain.handle('download-game', async (e, opts) => {
     opts = normalizeDownloadRequest(opts);
+    const steamMetadataPromise = resolveSteamMetadataForDownload(opts.gameName, opts.sourceId);
     const wc = e.sender;
     const id = opts.id;
     const ctl = { proc: null, cancelled: false, paused: false };
@@ -4315,23 +5409,25 @@ ipcMain.handle('download-game', async (e, opts) => {
             wc.send('download-progress', { id, state: 'resolving', label: resolveLabel, subLabel: 'This may take a moment for uncached files…' });
         }, 4000);
 
-        // Mirrors = the same game on other file-hosts. With a single primary link we can
-        // race the resolver across [primary, ...mirrors] and take whichever host produces
-        // a direct link first; multi-part sets and magnets keep the normal per-link path.
-        const resolveOpts = { sourceId: opts.sourceId };
-        const mirrors = (Array.isArray(opts.mirrors) ? opts.mirrors : [])
-            .filter(u => u && !links.some(l => l.url === u));
-        const raceMirrors = links.length === 1 && mirrors.length > 0;
-        // Kick the resolution off NOW (returns a promise we await after the cheap setup).
-        const resolveJob = raceMirrors
-            ? resolveFirstMirror([links[0].url, ...mirrors], resolveOpts)
-            : Promise.all(links.map(l => resolveDirectUrl(l.url, resolveOpts).then(resolved => ({ link: l, resolved }))));
-
+        const reportResolutionProgress = label => {
+            if (ctl.cancelled || ctl.paused) return;
+            wc.send('download-progress', { id, state: 'resolving', label, subLabel: '' });
+        };
+        const runOwnedLinkResolution = resolveTask => {
+            const abortController = new AbortController();
+            return downloadWork.run(continuation, {
+                type: 'link-resolution',
+                state: 'resolving',
+                stop: () => abortController.abort()
+            }, async work => {
+                const result = await resolveTask(abortController.signal);
+                await work.checkpoint();
+                return result;
+            });
+        };
         const aria2 = await ensureAria2(wc);
-
         const dir = await downloadJobDirectories.ensureDirectory(continuation);
         ctl.dir = dir;
-        await downloadJobDirectories.setState(continuation, 'downloading');
 
         // Keep the cover destination ready; the actual write is serialized as owned job work
         // after the payload so cancellation can never quarantine while it is still writing.
@@ -4342,80 +5438,156 @@ ipcMain.handle('download-game', async (e, opts) => {
             coverDownload = { url: opts.image, destination: path.join(dir, '_cover' + ext) };
         }
 
-        // Resolve every link up-front into concrete files (a single Gofile folder can
-        // expand into several part files), so we know the real total before downloading.
-        if (ctl.cancelled) { clearTimeout(slowTimer); throw new Error('Cancelled'); }
-        const resolveResult = await resolveJob;
-        clearTimeout(slowTimer);
-        await downloadJobDirectories.assertActive(continuation);
-        if (ctl.cancelled) throw new Error('Cancelled');
-        let files = [];
-        if (raceMirrors) {
-            // Winning host's resolved file(s); origin is set to that host so a mid-download
-            // retry re-resolves the same winner for a fresh token.
-            if (!resolveResult || !resolveResult.files || !resolveResult.files.length) throw buildUnresolvedError(links[0].url);
-            resolveResult.files.forEach((f, idx) => files.push(Object.assign({ name: f.name || links[0].name, origin: resolveResult.origin, originIndex: idx }, f)));
-        } else {
-            for (const { link: l, resolved } of resolveResult) {
-                if (!resolved || !resolved.length) throw buildUnresolvedError(l.url);
-                resolved.forEach((f, idx) => files.push(Object.assign({ name: f.name || l.name, origin: l.url, originIndex: idx }, f)));
-            }
-        }
-        // drop the generic steam-fix / obvious non-game payloads
-        const filtered = files.filter(f => !DL_SKIP_FILE.test((f.name || '') + ' ' + (f.url || '')));
-        if (filtered.length) files = filtered;
-        // de-dupe by url
+        // Resolve and download one selected source link at a time. Short-lived host
+        // tokens are consumed immediately instead of expiring while later CAPTCHA
+        // windows are still queued, and only one verification owner exists at once.
+        const sourceTotal = links.length;
         const seenUrl = new Set();
-        files = files.filter(f => !seenUrl.has(f.url) && seenUrl.add(f.url));
-
-        const total = files.length;
-        // Download every part sequentially into the same folder; report aggregate progress.
-        for (let i = 0; i < total; i++) {
+        let downloadedAny = false;
+        for (let sourceIndex = 0; sourceIndex < sourceTotal; sourceIndex++) {
             if (ctl.cancelled) throw new Error('Cancelled');
-            const partLabel = total > 1 ? `Part ${i + 1}/${total}` : '';
-            let file = files[i];
-            let attempt = 0, ok = false, lastErr = null;
-            // Retry up to 3x. Single-use token hosts (fuckingfast) expire mid-download
-            // and can't resume (aria2 exit 8), so on failure we re-resolve the origin
-            // link for a FRESH token and start clean.
-            while (attempt < 3 && !ok) {
-                attempt++;
-                try {
-                    await downloadWork.run(continuation, {
-                        type: 'payload-download',
-                        state: 'downloading',
-                        stop: () => { try { if (ctl.proc) ctl.proc.kill(); } catch (_) {} }
-                    }, () => runAria2Download(aria2, file, dir, opts, ctl, (p) => {
-                        const overall = Math.round(((i + (p.percent || 0) / 100) / total) * 100);
-                        wc.send('download-progress', {
-                            id, state: 'downloading', percent: overall, partPercent: p.percent,
-                            part: i + 1, partCount: total, downloaded: p.downloaded, total: p.total,
-                            speed: p.speed, eta: p.eta, label: partLabel + (attempt > 1 ? ' (retry ' + (attempt - 1) + ')' : '')
-                        });
-                    }));
-                    await downloadJobDirectories.assertActive(continuation);
-                    ok = true;
-                } catch (e) {
-                    lastErr = e;
-                    if (ctl.cancelled || ctl.paused || /cancelled|paused/i.test(e.message)) throw e;
-                    if (attempt < 3) {
-                        cleanPartial(dir, file);
-                        wc.send('download-progress', { id, state: 'resolving', part: i + 1, partCount: total, subLabel: '', label: (partLabel ? partLabel + ' — ' : '') + 'Connection lost, retrying with a fresh link...' });
-                        if (file.origin) {
-                            try {
-                                const re = await resolveDirectUrl(file.origin, { sourceId: opts.sourceId });
-                                if (re && re.length) {
-                                    const nf = re[file.originIndex] || re.find(x => x.name === file.name) || re[0];
-                                    file = Object.assign({ name: file.name, origin: file.origin, originIndex: file.originIndex }, nf);
-                                }
-                            } catch (re2) {}
+            const sourceLink = links[sourceIndex];
+            const sourceLabel = sourceTotal > 1 ? `Part ${sourceIndex + 1}/${sourceTotal}` : '';
+            wc.send('download-progress', {
+                id,
+                state: 'resolving',
+                part: sourceIndex + 1,
+                partCount: sourceTotal,
+                label: (sourceLabel ? sourceLabel + ' — ' : '') + 'Resolving this file…',
+                subLabel: ''
+            });
+            const resolved = await runOwnedLinkResolution(signal => resolveDirectUrl(sourceLink.url, {
+                sourceId: opts.sourceId,
+                referer: opts.referer,
+                onProgress: label => reportResolutionProgress((sourceLabel ? sourceLabel + ' — ' : '') + label),
+                signal
+            }));
+            clearTimeout(slowTimer);
+            if (!resolved || !resolved.length) {
+                const error = buildUnresolvedError(sourceLink.url);
+                error.downloadUrl = sourceLink.url;
+                throw error;
+            }
+            let sourceFiles = resolved.map((file, originIndex) => Object.assign({
+                name: file.name || sourceLink.name,
+                origin: sourceLink.url,
+                originIndex
+            }, file));
+            const filtered = sourceFiles.filter(file => !DL_SKIP_FILE.test((file.name || '') + ' ' + (file.url || '')));
+            if (filtered.length) sourceFiles = filtered;
+            sourceFiles = sourceFiles.filter(file => !seenUrl.has(file.url) && seenUrl.add(file.url));
+            if (!sourceFiles.length) continue;
+
+            await downloadJobDirectories.assertActive(continuation);
+            await downloadJobDirectories.setState(continuation, 'downloading');
+            for (let resolvedIndex = 0; resolvedIndex < sourceFiles.length; resolvedIndex++) {
+                let file = sourceFiles[resolvedIndex];
+                const expandedLabel = sourceFiles.length > 1
+                    ? `${sourceLabel || 'File'} · file ${resolvedIndex + 1}/${sourceFiles.length}`
+                    : sourceLabel;
+                let attempt = 0, ok = false, lastErr = null;
+                while (attempt < 3 && !ok) {
+                    attempt++;
+                    try {
+                        await downloadWork.run(continuation, {
+                            type: 'payload-download',
+                            state: 'downloading',
+                            stop: () => { try { if (ctl.proc) ctl.proc.kill(); } catch (_) {} }
+                        }, () => runAria2Download(aria2, file, dir, opts, ctl, (p) => {
+                            const sourceFraction = (resolvedIndex + (p.percent || 0) / 100) / sourceFiles.length;
+                            const overall = Math.round(((sourceIndex + sourceFraction) / sourceTotal) * 100);
+                            const progressState = p.phase === 'starting' ? 'starting' : 'downloading';
+                            const retryLabel = expandedLabel + (attempt > 1 ? ' (retry ' + (attempt - 1) + ')' : '');
+                            wc.send('download-progress', {
+                                id, state: progressState, percent: overall, partPercent: p.percent,
+                                part: sourceIndex + 1, partCount: sourceTotal, downloaded: p.downloaded, total: p.total,
+                                speed: p.speed, eta: p.eta,
+                                label: p.label || retryLabel
+                            });
+                        }));
+                        await downloadJobDirectories.assertActive(continuation);
+                        ok = true;
+                        downloadedAny = true;
+                    } catch (e) {
+                        lastErr = e;
+                        if (ctl.cancelled || ctl.paused || /cancelled|paused/i.test(e.message)) throw e;
+                        if (file.requiresFreshVerification === true) {
+                            cleanPartial(dir, file);
+                            lastErr = Object.assign(new Error(
+                                'FuckingFast\'s one-time link ended before the file completed. Sail stopped instead of reopening verification in a loop. Click Retry to request one fresh link, or choose another mirror.'
+                            ), {
+                                downloadUrl: file.origin || file.url || '',
+                                needsBrowser: false
+                            });
+                            attempt = 3;
+                            break;
                         }
-                        await new Promise(r => setTimeout(r, 2000));
+                        if (e && e.aria2Code === 22 && file.origin && DL_MANAGED_RETRY_HOST.test(file.origin)) {
+                            if (!shouldPreservePartialForRetry(file, e)) cleanPartial(dir, file);
+                            wc.send('download-progress', {
+                                id, state: 'resolving', part: sourceIndex + 1, partCount: sourceTotal, subLabel: '',
+                                label: (expandedLabel ? expandedLabel + ' — ' : '') + 'Complete the host verification window to continue…'
+                            });
+                            let managed = null;
+                            try {
+                                managed = await runOwnedLinkResolution(signal => resolveDirectUrl(file.origin, {
+                                    sourceId: opts.sourceId,
+                                    referer: opts.referer,
+                                    forceManagedBrowser: true,
+                                    onProgress: label => reportResolutionProgress((expandedLabel ? expandedLabel + ' — ' : '') + label),
+                                    signal
+                                }));
+                            } catch (managedError) {
+                                if (ctl.cancelled || managedError && managedError.name === 'AbortError') throw managedError;
+                                if (managedError && managedError.linkHealth === HEALTH_STATES.DOWN) throw managedError;
+                            }
+                            if (managed && managed.length) {
+                                const next = managed[file.originIndex] || managed.find(item => item.name === file.name) || managed[0];
+                                file = mergeRefreshedDownload(file, next);
+                                continue;
+                            }
+                            lastErr = buildUnresolvedError(file.origin);
+                            attempt = 3;
+                        }
+                        if (e && e.aria2Code === 3) {
+                            e.linkHealth = HEALTH_STATES.DOWN;
+                            e.needsBrowser = false;
+                            e.downloadUrl = file.origin || file.url || '';
+                            attempt = 3;
+                        }
+                        if (attempt < 3) {
+                            const preservingPartial = shouldPreservePartialForRetry(file, e);
+                            if (!preservingPartial) cleanPartial(dir, file);
+                            wc.send('download-progress', {
+                                id, state: 'resolving', part: sourceIndex + 1, partCount: sourceTotal, subLabel: '',
+                                label: (expandedLabel ? expandedLabel + ' — ' : '') + (preservingPartial
+                                    ? 'Connection lost — refreshing the BuzzHeavier link and resuming the saved partial…'
+                                    : 'Connection lost, retrying with a fresh link...')
+                            });
+                            if (file.origin) {
+                                try {
+                                    const refreshed = await runOwnedLinkResolution(signal => resolveDirectUrl(file.origin, {
+                                        sourceId: opts.sourceId,
+                                        referer: opts.referer,
+                                        onProgress: label => reportResolutionProgress((expandedLabel ? expandedLabel + ' — ' : '') + label),
+                                        signal
+                                    }));
+                                    if (refreshed && refreshed.length) {
+                                        const next = refreshed[file.originIndex] || refreshed.find(item => item.name === file.name) || refreshed[0];
+                                        file = mergeRefreshedDownload(file, next);
+                                    }
+                                } catch (refreshError) {
+                                    if (ctl.cancelled || refreshError && refreshError.name === 'AbortError') throw refreshError;
+                                }
+                            }
+                            await new Promise(resolve => setTimeout(resolve, 2000));
+                        }
                     }
                 }
+                if (!ok) throw lastErr || new Error('Download failed');
             }
-            if (!ok) throw lastErr || new Error('Download failed');
         }
+        if (!downloadedAny) throw new Error('No usable download files were returned by this host.');
 
         if (coverDownload) {
             await downloadWork.run(continuation, { type: 'cover-download', state: 'downloading' }, async work => {
@@ -4436,11 +5608,12 @@ ipcMain.handle('download-game', async (e, opts) => {
             // then delete the repack source so only the playable game remains.
             if (res.needsInstall && res.exePath && opts.autoInstall !== false) {
                 await downloadJobDirectories.setState(continuation, 'installing');
-                const installTarget = path.join(dir, '_game');
+                const installTarget = installerTargetForDownload(dir, res.exePath);
                 let polling = true;
                 (async function pollSize() {
                     while (polling) {
-                        let gb = 0; try { gb = dirSizeBytes(installTarget, 0) / (1024 * 1024 * 1024); } catch (e) {}
+                        let gb = 0;
+                        try { gb = await preparedDirectorySize(installTarget, null) / (1024 * 1024 * 1024); } catch (e) {}
                         wc.send('download-progress', {
                             id, state: 'installing', percent: 100,
                             label: gb > 0.01
@@ -4463,18 +5636,18 @@ ipcMain.handle('download-game', async (e, opts) => {
                         await waitForDirSettle(installTarget, ctl, (sz) => {
                             const gb = sz / (1024 * 1024 * 1024);
                             wc.send('download-progress', { id, state: 'installing', percent: 100, label: 'Finishing up… ' + gb.toFixed(2) + ' GB installed' });
-                        });
+                        }, work);
                         await work.checkpoint();
                         // The exe occasionally lands a beat after the final byte — retry a couple times.
-                        let found = findGameExe(installTarget, opts.gameName);
+                        let found = (await scanDownloadedPayload(installTarget, opts.gameName, work)).exePath;
                         for (let t = 0; !found && t < 3; t++) {
                             await new Promise(r => setTimeout(r, 3000));
                             await work.checkpoint();
-                            found = findGameExe(installTarget, opts.gameName);
+                            found = (await scanDownloadedPayload(installTarget, opts.gameName, work)).exePath;
                         }
                         if (found) {
                             await work.checkpoint();
-                            cleanRepackSource(dir, installTarget);
+                            await runDownloadPreparation('clean-repack-source', dir, work, { keepDir: installTarget });
                         }
                         return found;
                     });
@@ -4509,11 +5682,7 @@ ipcMain.handle('download-game', async (e, opts) => {
                 });
                 await retainDownloadJobError(continuation);
             } else {
-                if (res.installFailed) {
-                    res.warning = 'Downloaded, but auto-install didn\'t complete'
-                        + (res.installError ? ' (' + res.installError + ')' : '')
-                        + '. Open the folder and run setup.exe manually.';
-                }
+                applyInstallerCompletionPolicy(res, opts);
                 // Never persist a guessed path that no longer exists. Some pre-installed
                 // archives (notably SteamGG) add a provider suffix to their root folder,
                 // e.g. "Discounty - SteamGG.NET". Re-scan the final on-disk tree here so
@@ -4521,25 +5690,22 @@ ipcMain.handle('download-game', async (e, opts) => {
                 if (res.exePath && !fs.existsSync(res.exePath)) res.exePath = '';
                 if (!res.exePath && !res.installFailed) {
                     const finalRoot = (res.folder && fs.existsSync(res.folder)) ? res.folder : dir;
-                    res.exePath = findGameExe(finalRoot, opts.gameName) || (finalRoot !== dir ? findGameExe(dir, opts.gameName) : '') || '';
+                    try { res.exePath = (await scanDownloadedPayload(finalRoot, opts.gameName, null)).exePath || ''; } catch (e) {}
+                    if (!res.exePath && finalRoot !== dir) {
+                        try { res.exePath = (await scanDownloadedPayload(dir, opts.gameName, null)).exePath || ''; } catch (e) {}
+                    }
                 }
                 if (ctl.cancelled) throw new Error('Cancelled');
-                const completed = await finishDownloadJob(continuation, res);
+                const completed = await finishDownloadJob(continuation, res, steamMetadataPromise);
                 wc.send('download-complete', Object.assign({ id }, completed));
             }
         } catch (perr) {
             if (ctl.cancelled || /cancelled/i.test(perr.message)) throw perr;
-            try {
-                const fallback = await finishDownloadJob(continuation, {
-                    gameName: opts.gameName, folder: dir, exePath: '', cover: '', usable: true,
-                    warning: 'Saved, but extraction failed: ' + perr.message,
-                    autoAdd: opts.autoAdd !== false, sourceId: opts.sourceId
-                });
-                wc.send('download-complete', Object.assign({ id }, fallback));
-            } catch (completionError) {
-                await retainDownloadJobError(continuation);
-                wc.send('download-error', { id, error: 'The download finished, but Sail could not safely publish its staging directory.' });
-            }
+            await retainDownloadJobError(continuation);
+            wc.send('download-error', {
+                id,
+                error: 'The downloaded bytes could not be validated or prepared: ' + String(perr && perr.message || 'Unknown processing error')
+            });
         }
         return { success: true };
     } catch (err) {
@@ -4554,15 +5720,16 @@ ipcMain.handle('download-game', async (e, opts) => {
             return { success: false, paused: true };
         }
         if (ctl.cancelled || /cancelled/i.test(err.message)) return { success: false, cancelled: true };
-        // PixelDrain's Worker proxy can drop the FIRST request while it cold-starts, so the
-        // initial click 4xx/5xx's but a retry succeeds against the now-warm worker. We can't
-        // reliably pre-warm it, so give the user a clear, actionable nudge instead of a raw error.
-        let errMsg = err.message;
-        if (/pixeldrain/i.test(opts.url || '')) {
-            errMsg = 'PixelDrain didn\'t respond on this attempt (its proxy worker was warming up). Just click Download again — the second try almost always works.';
-        }
+        const errMsg = err.message;
         await retainDownloadJobError(continuation || job);
-        wc.send('download-error', { id, error: errMsg, url: opts.url, needsBrowser: !!err.needsBrowser });
+        const failedUrl = err.downloadUrl || opts.url || (opts.links && opts.links[0] && opts.links[0].url) || '';
+        wc.send('download-error', {
+            id,
+            error: errMsg,
+            url: failedUrl,
+            needsBrowser: !!err.needsBrowser,
+            linkHealth: err.linkHealth === HEALTH_STATES.DOWN ? HEALTH_STATES.DOWN : ''
+        });
         return { success: false, error: errMsg };
     }
 });
@@ -4668,11 +5835,14 @@ if (!gotTheLock) app.quit();
 else {
     app.setAppUserModelId("com.aseoriy.saillauncher");
 
-    // Register custom protocol for one-click installs from Sail Hub
-    if (process.defaultApp) {
-        app.setAsDefaultProtocolClient('sail-launcher', process.execPath, [path.resolve(process.argv[1])]);
-    } else {
-        app.setAsDefaultProtocolClient('sail-launcher');
+    // Isolated verification instances must not replace the installed launcher's
+    // sail-launcher:// registration while a source build is under test.
+    if (!allowMultiInstance) {
+        if (process.defaultApp) {
+            app.setAsDefaultProtocolClient('sail-launcher', process.execPath, [path.resolve(process.argv[1])]);
+        } else {
+            app.setAsDefaultProtocolClient('sail-launcher');
+        }
     }
 
     app.on('second-instance', (e, commandLine) => {

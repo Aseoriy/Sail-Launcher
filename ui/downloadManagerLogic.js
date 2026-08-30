@@ -3,6 +3,7 @@
 const ACTIVE_DOWNLOAD_STATES = Object.freeze([
     'queued',
     'resolving',
+    'starting',
     'downloading',
     'processing',
     'installing'

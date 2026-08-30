@@ -5,7 +5,10 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { QUARANTINE_DIRECTORY_NAME } = require('./downloadQuarantine');
 
-const STAGING_DIRECTORY_NAME = '.sail-staging';
+// Installer payloads can contain extremely deep asset paths and legacy unpackers still
+// enforce MAX_PATH. Keep new staging names compact while retaining strong local opacity.
+const STAGING_DIRECTORY_NAME = '.s';
+const JOB_DIRECTORY_BYTES = 10;
 const JOB_STATES = Object.freeze({
     CREATED: 'created',
     WAITING_BROWSER: 'waiting_browser',
@@ -16,6 +19,7 @@ const JOB_STATES = Object.freeze({
     READY_TO_INSTALL: 'ready_to_install',
     LAUNCHING_INSTALLER: 'launching_installer',
     INSTALLER_RUNNING: 'installer_running',
+    RETRYABLE_ERROR: 'retryable_error',
     PUBLISHING: 'publishing',
     CANCEL_REQUESTED: 'cancel_requested',
     CANCELLATION_PENDING: 'cancellation_pending',
@@ -30,7 +34,7 @@ const NONTERMINAL_STATES = new Set([
     JOB_STATES.CREATED, JOB_STATES.WAITING_BROWSER, JOB_STATES.PREPARING,
     JOB_STATES.DOWNLOADING, JOB_STATES.PAUSED, JOB_STATES.POST_PROCESSING,
     JOB_STATES.READY_TO_INSTALL, JOB_STATES.LAUNCHING_INSTALLER,
-    JOB_STATES.INSTALLER_RUNNING, JOB_STATES.PUBLISHING
+    JOB_STATES.INSTALLER_RUNNING, JOB_STATES.RETRYABLE_ERROR, JOB_STATES.PUBLISHING
 ]);
 const CANCELLATION_STATES = new Set([
     JOB_STATES.CANCEL_REQUESTED,
@@ -49,7 +53,7 @@ const STATE_ALIASES = Object.freeze({
     installing: JOB_STATES.READY_TO_INSTALL,
     published: JOB_STATES.COMPLETED,
     complete: JOB_STATES.COMPLETED,
-    error: JOB_STATES.FAILED_TERMINAL,
+    error: JOB_STATES.RETRYABLE_ERROR,
     cancelled: JOB_STATES.CANCEL_REQUESTED,
     'cancelled-clean': JOB_STATES.CANCELLED_CLEAN,
     'cancelled-quarantined': JOB_STATES.CANCELLED_QUARANTINED,
@@ -180,6 +184,12 @@ class DownloadJobDirectoryRegistry {
         return `${prefix}-${this.randomBytes(24).toString('hex')}`;
     }
 
+    jobDirectoryName() {
+        const random = Buffer.from(this.randomBytes(JOB_DIRECTORY_BYTES));
+        if (random.length < JOB_DIRECTORY_BYTES) throw new Error('The staging identity source returned too few bytes.');
+        return random.subarray(0, JOB_DIRECTORY_BYTES).toString('hex');
+    }
+
     begin(id, input = {}) {
         const key = jobKey(id);
         const gameName = text(input.gameName);
@@ -222,7 +232,7 @@ class DownloadJobDirectoryRegistry {
         if (!isStrictChildPath(root, finalDirectory)) throw new Error('The final download directory must be a strict child of its root.');
         if (this.fs.existsSync(finalDirectory)) throw new Error('The selected game directory already exists and will not be adopted.');
 
-        const directory = path.join(stagingRoot, this.opaqueName('job'));
+        const directory = path.join(stagingRoot, this.jobDirectoryName());
         if (!isStrictChildPath(stagingRoot, directory)) throw new Error('The staging directory is invalid.');
         const job = {
             id: key,

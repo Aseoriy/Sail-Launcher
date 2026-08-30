@@ -94,6 +94,72 @@ test('production quarantine IPC opens only a current opaque canonical-root token
     assert.deepEqual(opened, [fs.realpathSync.native(job.quarantineRoot)]);
 });
 
+test('explicit quarantine cleanup removes only verified opaque items and preserves the catalog root', async t => {
+    const env = fixture(t);
+    const job = env.registry.begin('clear-retained', { gameName: 'Clear Retained', defaultRoot: env.downloadRoot });
+    await env.registry.ensureDirectory(job);
+    await env.registry.setState(job, 'downloading');
+    fs.writeFileSync(path.join(job.directory, 'partial.bin'), Buffer.alloc(513));
+    await cancellationHandler(env.registry)({}, job.id);
+
+    const before = env.catalog.summarize();
+    assert.equal(before.itemCount, 1);
+    const cleared = env.catalog.clear();
+    assert.deepEqual(cleared, {
+        status: 'cleared',
+        removedItemCount: 1,
+        removedBytes: 513,
+        failedItemCount: 0,
+        partial: false
+    });
+    assert.equal(fs.existsSync(job.quarantinePath), false);
+    assert.equal(fs.existsSync(job.quarantineRoot), true);
+    assert.equal(env.catalog.summarize().itemCount, 0);
+});
+
+test('quarantine cleanup refuses an item containing a reparse entry', async t => {
+    const env = fixture(t);
+    const quarantineRoot = path.join(env.downloadRoot, '.sail-staging', 'quarantine');
+    fs.mkdirSync(quarantineRoot, { recursive: true });
+    const item = path.join(quarantineRoot, `quarantine-${'b'.repeat(48)}`);
+    fs.mkdirSync(item, { recursive: true });
+    fs.writeFileSync(path.join(item, 'keep.bin'), 'keep');
+    let linkCreated = false;
+    try {
+        fs.symlinkSync(env.root, path.join(item, 'outside'), 'junction');
+        linkCreated = true;
+    } catch (_) {}
+    if (!linkCreated) return;
+    const catalog = new DownloadQuarantineCatalog({ catalogPath: env.catalogPath });
+    catalog.recordRoot(quarantineRoot);
+    const result = catalog.clear();
+    assert.equal(result.status, 'clear_refused');
+    assert.equal(result.removedItemCount, 0);
+    assert.equal(result.failedItemCount, 1);
+    assert.equal(fs.existsSync(item), true);
+    assert.equal(fs.existsSync(path.join(env.root, 'outside')), false);
+});
+
+test('production quarantine IPC exposes cleanup without accepting renderer paths', async t => {
+    const env = fixture(t);
+    const job = env.registry.begin('clear-ipc', { gameName: 'Clear IPC', defaultRoot: env.downloadRoot });
+    await env.registry.ensureDirectory(job);
+    await env.registry.setState(job, 'paused');
+    fs.writeFileSync(path.join(job.directory, 'partial.bin'), Buffer.alloc(9));
+    await cancellationHandler(env.registry)({}, job.id);
+
+    const handlers = new Map();
+    registerDownloadQuarantineIpc({ handle: (channel, handler) => handlers.set(channel, handler) }, {
+        catalog: env.catalog,
+        shell: { openPath: async () => '' }
+    });
+    assert.equal(typeof handlers.get('clear-download-quarantine'), 'function');
+    const result = await handlers.get('clear-download-quarantine')({ bogusPath: env.root }, env.root);
+    assert.equal(result.status, 'cleared');
+    assert.equal(result.removedItemCount, 1);
+    assert.equal(fs.existsSync(job.quarantinePath), false);
+});
+
 test('bounded quarantine enumeration tolerates inaccessible entries and never follows links', t => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sail-quarantine-bounded-'));
     t.after(() => fs.rmSync(root, { recursive: true, force: true }));

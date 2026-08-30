@@ -1858,6 +1858,7 @@ class ProfileStore {
         if (!name) fail('SAIL_PROFILE_INVALID', 'The downloaded game name is invalid.');
         const gameId = makeId();
         const current = this.loadActiveSnapshot();
+        const steamAppId = /^[1-9]\d{0,9}$/.test(String(input.steamAppId || '')) ? String(input.steamAppId) : '';
         const game = {
             id: gameId,
             name,
@@ -1868,12 +1869,17 @@ class ProfileStore {
             lastPlayed: null,
             playtimeSessionIds: [],
             configSyncEntries: [],
-            platform: 'custom',
+            platform: steamAppId ? 'steam' : 'custom',
             source: 'sail-download',
-            sourceIdentifier: /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(String(input.sourceId || '')) ? String(input.sourceId) : 'download',
+            sourceIdentifier: steamAppId || (/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(String(input.sourceId || '')) ? String(input.sourceId) : 'download'),
             sourceTitle: name,
             installedAt: new Date().toISOString()
         };
+        if (steamAppId) {
+            game.steamAppId = steamAppId;
+            game.steamImageUrl = `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${steamAppId}/header.jpg`;
+            game.steamHeroUrl = `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${steamAppId}/library_hero.jpg`;
+        }
         const coverPath = typeof input.coverPath === 'string' && path.isAbsolute(input.coverPath) && fs.existsSync(input.coverPath)
             ? path.normalize(input.coverPath)
             : '';

@@ -5,6 +5,8 @@ function createRemoteDataClient(ipcRenderer) {
         throw new TypeError('Remote data access requires an IPC renderer.');
     }
 
+    const inFlight = new Map();
+
     async function invoke(payload) {
         const result = await ipcRenderer.invoke('remote-data', payload);
         if (!result || result.ok !== true) {
@@ -13,6 +15,16 @@ function createRemoteDataClient(ipcRenderer) {
                 : 'The remote data request failed.');
         }
         return result;
+    }
+
+    function invokeCoalesced(key, payload) {
+        const existing = inFlight.get(key);
+        if (existing) return existing;
+        const pending = invoke(payload).finally(() => {
+            if (inFlight.get(key) === pending) inFlight.delete(key);
+        });
+        inFlight.set(key, pending);
+        return pending;
     }
 
     return Object.freeze({
@@ -31,8 +43,15 @@ function createRemoteDataClient(ipcRenderer) {
         async searchSteamStore(query) {
             return (await invoke({ operation: 'steam.storeSearch', query })).data;
         },
-        async searchDownloadSource(source, query) {
-            return invoke({ operation: 'source.search', source, query });
+        async searchDownloadSource(source, query, page) {
+            const payload = { operation: 'source.search', source, query };
+            if (page !== undefined) payload.page = page;
+            return invokeCoalesced(`source.search\n${source}\n${query}\n${page || 1}`, payload);
+        },
+        async getFitGirlSearchCovers(query, page) {
+            const payload = { operation: 'source.fitgirlCovers', query };
+            if (page !== undefined) payload.page = page;
+            return invokeCoalesced(`source.fitgirlCovers\n${query}\n${page || 1}`, payload);
         },
         async getDownloadSourceDetail(reference) {
             return invoke({ operation: 'source.detail', reference });

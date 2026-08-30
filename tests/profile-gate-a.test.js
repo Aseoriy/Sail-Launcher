@@ -153,6 +153,51 @@ test('legacy local data migrates to V3 metadata and immediately usable main-owne
     assert.equal(restarted.authorityStatus('game-local').execution.capabilityId, status.execution.capabilityId);
 });
 
+test('downloaded Steam metadata persists while the local executable remains launch authority', t => {
+    const f = makeFixture(t);
+    const store = new ProfileStore(f.root);
+    store.initialize();
+    const added = store.registerDownloadedGameProposal({
+        gameName: 'Supermarket Chaos',
+        executablePath: f.executablePath,
+        folderPath: f.local,
+        sourceId: 'steamrip',
+        steamAppId: '4800590'
+    });
+    const game = added.snapshot.myGames.find(item => item.id === added.gameId);
+    assert.equal(game.platform, 'steam');
+    assert.equal(game.steamAppId, '4800590');
+    assert.equal(game.sourceIdentifier, '4800590');
+    assert.match(game.steamImageUrl, /\/4800590\/header\.jpg$/);
+    assert.match(game.steamHeroUrl, /\/4800590\/library_hero\.jpg$/);
+
+    const authority = store.authorityStatus(added.gameId);
+    assert.equal(authority.execution.state, 'active');
+    const resolved = store.resolveExecutionCapability({
+        gameId: added.gameId,
+        capabilityId: authority.execution.capabilityId,
+        expectedRevision: authority.execution.revision,
+        operation: 'launch'
+    });
+    assert.equal(resolved.details.executablePath, f.executablePath);
+    assert.equal(resolved.details.steamAppId, '');
+
+    const restarted = new ProfileStore(f.root);
+    restarted.initialize();
+    const persisted = restarted.loadActiveSnapshot().myGames.find(item => item.id === added.gameId);
+    assert.equal(persisted.platform, 'steam');
+    assert.equal(persisted.steamAppId, '4800590');
+
+    const custom = restarted.registerDownloadedGameProposal({
+        gameName: 'Unknown Local Game',
+        executablePath: f.executablePath,
+        sourceId: 'steamrip',
+        steamAppId: 'invalid'
+    }).snapshot.myGames.find(item => item.name === 'Unknown Local Game');
+    assert.equal(custom.platform, 'custom');
+    assert.equal(custom.steamAppId, undefined);
+});
+
 test('local backup round-trips local paths without exporting protected settings', t => {
     const f = makeFixture(t);
     writeLegacy(f);

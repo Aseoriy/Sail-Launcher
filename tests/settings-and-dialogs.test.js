@@ -43,8 +43,41 @@ test('removed download providers are absent from the source registry and IPC sur
     const main = fs.readFileSync(path.join(root, 'main.js'), 'utf8');
     assert.doesNotMatch(index, /\bonlinefix\s*:\s*\{/i);
     assert.doesNotMatch(index, /\bdodi\s*:\s*\{/i);
-    assert.match(index, /const dlEnabled = \{ steamgg: true, fitgirl: true, steamrip: false \}/);
+    assert.match(index, /const dlEnabled = \{ steamgg: true, fitgirl: true, steamrip: true \}/);
     assert.doesNotMatch(main, /ipcMain\.handle\(['"]resolve-onlinefix['"]/i);
+});
+
+test('SteamRIP stays available when no debrid service is connected', () => {
+    const root = path.join(__dirname, '..');
+    const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+    const sourceStart = index.indexOf('steamrip: {');
+    const sourceEnd = index.indexOf('const dlEnabled', sourceStart);
+    const steamripSource = index.slice(sourceStart, sourceEnd);
+
+    assert.ok(sourceStart >= 0 && sourceEnd > sourceStart);
+    assert.doesNotMatch(steamripSource, /requiresDebrid/);
+    assert.doesNotMatch(index, /dlEnabled\.steamrip\s*=\s*false/);
+    assert.doesNotMatch(index, /steamripLockHint|SteamRIP\s+requires a connected debrid service/i);
+    assert.match(index, /<b>SteamRIP works without debrid\.<\/b>/);
+    assert.match(index, /const eligible = id => !!DL_SOURCES\[id\]/);
+});
+
+test('game executable Browse opens immediately and Save applies its opaque selection', () => {
+    const root = path.join(__dirname, '..');
+    const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+    const browseStart = index.indexOf("document.getElementById('browseExeBtn').addEventListener");
+    const browseEnd = index.indexOf("document.getElementById('browseShortcutIconBtn')", browseStart);
+    const browseBinding = index.slice(browseStart, browseEnd);
+    const saveStart = index.indexOf("document.getElementById('saveBtn').addEventListener");
+    const saveEnd = index.indexOf('window.editGame = function', saveStart);
+    const saveBinding = index.slice(saveStart, saveEnd);
+
+    assert.ok(browseStart >= 0 && browseEnd > browseStart);
+    assert.match(browseBinding, /invokeAccount\('authority-select-executable', \{\}\)/);
+    assert.match(browseBinding, /localAuthorityDraft\.executableSelectionId = selection\.selectionId/);
+    assert.doesNotMatch(browseBinding, /Selection requested for Save/);
+    assert.match(saveBinding, /isSteam && !localAuthorityDraft\.executableSelectionId/);
+    assert.match(saveBinding, /baseSelectionId: localAuthorityDraft\.executableSelectionId/);
 });
 
 test('accent outline affects interactive states without overriding resting buttons', () => {
@@ -79,11 +112,11 @@ test('switching themes cannot retain previous canvas-editor appearance overrides
     assert.match(index, /body\.glassmorphic-mode\.disable-translucency \{ background: ' \+ appBg \+ ' !important;/);
 });
 
-test('v5.4.1 sidebar, announcements, and forced reinstall wiring are present', () => {
+test('v5.5.0 sidebar, announcements, and forced reinstall wiring are present', () => {
     const root = path.join(__dirname, '..');
     const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
     const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
-    assert.equal(packageJson.version, '5.4.1');
+    assert.equal(packageJson.version, '5.5.0');
     assert.equal(packageJson.dependencies['@supabase/supabase-js'], '2.109.0');
     assert.match(index, /grid-template-columns:\s*280px 1fr/);
     assert.match(index, /<div class="settings-tabs">/);

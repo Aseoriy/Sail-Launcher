@@ -6,6 +6,7 @@ const path = require('node:path');
 
 const QUARANTINE_DIRECTORY_NAME = 'quarantine';
 const QUARANTINE_ITEM_PATTERN = /^quarantine-[a-f0-9]{48}$/;
+const SAIL_STAGING_DIRECTORY_NAMES = new Set(['.s', '.sail-staging']);
 const DEFAULT_LIMITS = Object.freeze({
     maxRoots: 32,
     maxItems: 200,
@@ -44,7 +45,7 @@ function validateQuarantineRoot(fsImpl, candidate) {
         const requested = path.resolve(String(candidate || ''));
         if (path.basename(requested).toLowerCase() !== QUARANTINE_DIRECTORY_NAME) return null;
         const stagingRoot = path.dirname(requested);
-        if (path.basename(stagingRoot).toLowerCase() !== '.sail-staging') return null;
+        if (!SAIL_STAGING_DIRECTORY_NAMES.has(path.basename(stagingRoot).toLowerCase())) return null;
         if (!ordinaryDirectory(fsImpl, stagingRoot) || !ordinaryDirectory(fsImpl, requested)) return null;
         const canonicalStaging = realpath(fsImpl, stagingRoot);
         const canonicalRoot = realpath(fsImpl, requested);
@@ -250,6 +251,92 @@ class DownloadQuarantineCatalog {
         return summary;
     }
 
+    // Remove only opaque quarantine directories that were discovered beneath a
+    // recorded, canonical Sail staging root.  This deliberately uses lstat and
+    // per-entry identity checks instead of a recursive pathname delete so a
+    // junction, symlink, or replacement path can never broaden the target.
+    clear() {
+        const result = {
+            status: 'cleared',
+            removedItemCount: 0,
+            removedBytes: 0,
+            failedItemCount: 0,
+            partial: false
+        };
+        const budget = { entries: 0, truncated: false };
+        for (const recorded of [...this.knownRoots].slice(0, this.maxRoots)) {
+            const root = validateQuarantineRoot(this.fs, recorded);
+            if (!root) {
+                result.partial = true;
+                continue;
+            }
+            let listing;
+            try { listing = readNamesBounded(this.fs, root, this.maxItems); } catch (_) {
+                result.partial = true;
+                continue;
+            }
+            if (listing.truncated) result.partial = true;
+            for (const name of listing.names.filter(value => QUARANTINE_ITEM_PATTERN.test(value))) {
+                if (result.removedItemCount + result.failedItemCount >= this.maxItems) {
+                    result.partial = true;
+                    break;
+                }
+                const itemPath = path.join(root, name);
+                let item;
+                let canonicalItem;
+                try {
+                    if (!ordinaryDirectory(this.fs, itemPath)) throw new Error('not-directory');
+                    canonicalItem = realpath(this.fs, itemPath);
+                    if (!sameCanonicalPath(itemPath, canonicalItem) || !isStrictChildPath(root, canonicalItem)) {
+                        throw new Error('identity-mismatch');
+                    }
+                    item = this.inspectItem(canonicalItem, budget);
+                    if (item.partial || budget.truncated) throw new Error('unsafe-item');
+                    // Enumeration and deletion have separate bounded budgets. Reusing the
+                    // inspection budget here could exhaust it halfway through a completely
+                    // validated item and leave an avoidable partial cleanup.
+                    const removalBudget = { entries: 0, truncated: false };
+                    this.removeVerifiedTree(root, canonicalItem, removalBudget);
+                    result.removedItemCount += 1;
+                    result.removedBytes = Math.min(Number.MAX_SAFE_INTEGER, result.removedBytes + item.totalBytes);
+                } catch (_) {
+                    result.failedItemCount += 1;
+                    result.partial = true;
+                }
+            }
+            if (budget.truncated) result.partial = true;
+        }
+        if (result.failedItemCount || result.partial) {
+            result.status = result.removedItemCount ? 'partially_cleared' : 'clear_refused';
+        }
+        return result;
+    }
+
+    removeVerifiedTree(root, target, budget) {
+        if (++budget.entries > this.maxEntries) {
+            budget.truncated = true;
+            throw new Error('entry-limit');
+        }
+        let stats;
+        try { stats = this.fs.lstatSync(target, { bigint: true }); } catch (_) { throw new Error('missing-entry'); }
+        if (stats.isSymbolicLink()) throw new Error('reparse-entry');
+        if (stats.isDirectory()) {
+            const canonical = realpath(this.fs, target);
+            if (!sameCanonicalPath(target, canonical) || !isStrictChildPath(root, canonical)) throw new Error('directory-identity-mismatch');
+            let listing;
+            try { listing = readNamesBounded(this.fs, target, this.maxEntries - budget.entries); } catch (_) { throw new Error('cannot-list'); }
+            if (listing.truncated) {
+                budget.truncated = true;
+                throw new Error('entry-limit');
+            }
+            for (const name of listing.names) this.removeVerifiedTree(root, path.join(target, name), budget);
+            this.fs.rmdirSync(target);
+            return;
+        }
+        if (!stats.isFile()) throw new Error('unsupported-entry');
+        this.fs.unlinkSync(target);
+    }
+
     async openRoot(id, openPath) {
         if (typeof id !== 'string' || !/^[a-f0-9]{48}$/.test(id) || typeof openPath !== 'function') {
             return { status: 'open_refused' };
@@ -274,6 +361,7 @@ function registerDownloadQuarantineIpc(ipcMain, options = {}) {
         throw new TypeError('Download quarantine IPC requires the production catalog and shell boundary.');
     }
     ipcMain.handle('get-download-quarantine-summary', async () => catalog.summarize());
+    ipcMain.handle('clear-download-quarantine', async () => catalog.clear());
     ipcMain.handle('open-download-quarantine', async (_event, id) => catalog.openRoot(id, target => shell.openPath(target)));
 }
 

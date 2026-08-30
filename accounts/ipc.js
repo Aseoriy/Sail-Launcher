@@ -4,6 +4,7 @@ const { serializePortableArtifact } = require('../sync/portableArtifactV3');
 const crypto = require('crypto');
 const fs = require('fs-extra');
 const path = require('path');
+const { fileIdentity, identityMatches, parseArgumentString } = require('../security/capabilityStore');
 
 function messageOf(error) {
     return error && error.message ? error.message : String(error || 'Unknown error');
@@ -40,6 +41,51 @@ function registerAccountIpc({ app, ipcMain, safeStorage, authorizeIpcEvent, dial
     }
     const accountService = new AccountService({ app, safeStorage });
     const profileStore = new ProfileStore(app.getPath('userData'));
+    const pendingExecutionSelections = new Map();
+    const executionSelectionTtlMs = 30 * 60 * 1000;
+    const maxPendingExecutionSelections = 32;
+
+    const executionSelectionError = message => {
+        const error = new Error(message);
+        error.code = 'SAIL_GATE_A_INVALID_PAYLOAD';
+        return error;
+    };
+    const executionSelectionSenderId = event => {
+        const senderId = Number(event && event.sender && event.sender.id);
+        if (!Number.isSafeInteger(senderId) || senderId < 0) {
+            throw executionSelectionError('The executable selection is not bound to a trusted window.');
+        }
+        return senderId;
+    };
+    const pruneExecutionSelections = () => {
+        const cutoff = Date.now() - executionSelectionTtlMs;
+        for (const [selectionId, selection] of pendingExecutionSelections) {
+            if (!selection || selection.createdAt < cutoff) pendingExecutionSelections.delete(selectionId);
+        }
+        while (pendingExecutionSelections.size >= maxPendingExecutionSelections) {
+            const oldest = pendingExecutionSelections.keys().next().value;
+            if (!oldest) break;
+            pendingExecutionSelections.delete(oldest);
+        }
+    };
+    const consumeExecutionSelection = (event, selectionIdInput) => {
+        const selectionId = String(selectionIdInput || '');
+        if (!/^[0-9a-f-]{36}$/i.test(selectionId)) {
+            throw executionSelectionError('The executable selection reference is invalid.');
+        }
+        pruneExecutionSelections();
+        const selection = pendingExecutionSelections.get(selectionId);
+        if (!selection || selection.senderId !== executionSelectionSenderId(event)) {
+            throw executionSelectionError('The executable selection is no longer available. Choose it again.');
+        }
+        const currentIdentity = fileIdentity(selection.selectedPath, 'file');
+        if (!identityMatches(selection.selectedIdentity, currentIdentity)) {
+            pendingExecutionSelections.delete(selectionId);
+            throw executionSelectionError('The selected executable changed. Choose it again.');
+        }
+        pendingExecutionSelections.delete(selectionId);
+        return selection.selectedPath;
+    };
     const protectedSettingsStorage = new SafeStorageAdapter(
         path.join(app.getPath('userData'), 'sail_local_settings.json'),
         safeStorage
@@ -444,25 +490,45 @@ function registerAccountIpc({ app, ipcMain, safeStorage, authorizeIpcEvent, dial
         const input = exactPayload(payload, ['gameId'], 'Authority status');
         return profileStore.authorityStatus(input.gameId);
     }));
-    ipcMain.handle('authority-configure-execution', guarded('authority-configure-execution', async (_event, payload) => {
+    ipcMain.handle('authority-select-executable', guarded('authority-select-executable', async (event, payload) => {
+        exactPayload(payload || {}, [], 'Executable selection');
+        const selectedPath = await chooseFile(dialog, {
+            title: 'Choose this game’s local executable',
+            filters: [{ name: 'Executables and shortcuts', extensions: ['exe', 'lnk', 'bat', 'cmd'] }]
+        });
+        if (!selectedPath) return { canceled: true };
+        pruneExecutionSelections();
+        const selectionId = crypto.randomUUID();
+        pendingExecutionSelections.set(selectionId, {
+            senderId: executionSelectionSenderId(event),
+            selectedPath,
+            selectedIdentity: fileIdentity(selectedPath, 'file'),
+            createdAt: Date.now()
+        });
+        return { canceled: false, selectionId, label: 'Executable selected' };
+    }));
+    ipcMain.handle('authority-configure-execution', guarded('authority-configure-execution', async (event, payload) => {
         const input = exactPayload(payload, [
             'gameId', 'argumentProposal', 'requestPreLaunchScript', 'requestPostLaunchScript',
             'requestCompanion', 'requestElevation', 'requestHighPriority', 'requestTrackingExecutable',
-            'requestRom', 'useSteamInstallation'
+            'requestRom', 'useSteamInstallation', 'baseSelectionId'
         ], 'Execution setup');
         const metadata = profileStore.activeGameMetadata(input.gameId);
         let steamAppId = '';
         let executablePath = '';
         if (input.useSteamInstallation) {
+            if (input.baseSelectionId) throw executionSelectionError('A local executable selection cannot be combined with Steam installation setup.');
             steamAppId = String(metadata.steamAppId || '');
             if (!steamAppId || typeof validateSteamAppId !== 'function' || !await validateSteamAppId(steamAppId)) {
                 throw new Error('This Steam game is not installed in a locally detected Steam library.');
             }
         } else {
-            executablePath = await chooseFile(dialog, {
-                title: input.requestRom ? 'Choose the local emulator executable' : 'Choose this game’s local executable',
-                filters: [{ name: 'Executables and shortcuts', extensions: ['exe', 'lnk', 'bat', 'cmd'] }]
-            });
+            executablePath = input.baseSelectionId
+                ? consumeExecutionSelection(event, input.baseSelectionId)
+                : await chooseFile(dialog, {
+                    title: input.requestRom ? 'Choose the local emulator executable' : 'Choose this game’s local executable',
+                    filters: [{ name: 'Executables and shortcuts', extensions: ['exe', 'lnk', 'bat', 'cmd'] }]
+                });
             if (!executablePath) return { canceled: true };
         }
         const romPath = input.requestRom ? await chooseFile(dialog, { title: 'Choose the local ROM image' }) : '';
@@ -470,7 +536,6 @@ function registerAccountIpc({ app, ipcMain, safeStorage, authorizeIpcEvent, dial
         let argv = [];
         const argumentProposal = String(input.argumentProposal || '').slice(0, 8192);
         if (argumentProposal) {
-            const { parseArgumentString } = require('../security/capabilityStore');
             argv = parseArgumentString(argumentProposal);
         }
         if (input.requestRom) {

@@ -33,6 +33,18 @@ test('restart and Sail Hub download IPC handlers are registered once', () => {
     assert.match(main, /\.part`/);
 });
 
+test('main-window lifecycle listeners register before packaged navigation starts', () => {
+    const start = main.indexOf('function createWindow()');
+    const end = main.indexOf('// Restart App Hook', start);
+    assert.ok(start >= 0 && end > start);
+    const createWindow = main.slice(start, end);
+    const loadIndex = createWindow.indexOf("win.loadFile('index.html')");
+    assert.ok(loadIndex > 0);
+    assert.ok(createWindow.indexOf("win.webContents.on('did-finish-load'") < loadIndex);
+    assert.ok(createWindow.indexOf("win.webContents.on('render-process-gone'") < loadIndex);
+    assert.equal((createWindow.match(/win\.loadFile\('index\.html'\)/g) || []).length, 1);
+});
+
 test('cloud archive IPC uses directory creation supported by node fs', () => {
     assert.doesNotMatch(main, /fs\.ensureDirSync/);
     assert.match(main, /fs\.mkdirSync\(path\.dirname\(zipPath\), \{ recursive: true \}\)/);
@@ -57,9 +69,48 @@ test('plugin archive IPC delegates to the safe shared extractor', () => {
     assert.match(extractor, /runOwnedChildProcess\('powershell', \['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', cmd\], work\)/);
 });
 
+test('game extraction and recursive preparation stay off Electron main thread', () => {
+    const rarStart = main.indexOf('async function extractRar(');
+    const rarEnd = main.indexOf('async function extractArchive(', rarStart);
+    const rar = main.slice(rarStart, rarEnd);
+    assert.match(rar, /runOwnedWorker\(ARCHIVE_EXTRACT_WORKER,/);
+    assert.doesNotMatch(rar, /extractor\.extract\(|for \(const _f of result\.files\)/);
+
+    const postStart = main.indexOf('async function postProcessDownloadBody(');
+    const postEnd = main.indexOf('// Generic repair bundles', postStart);
+    const post = main.slice(postStart, postEnd);
+    assert.match(post, /runDownloadPreparation\('normalize-archives'/);
+    assert.match(post, /await scanDownloadedPayload\(dir, opts\.gameName, work\)/);
+    assert.match(post, /await preparedDirectorySize\(extractTo, work\)/);
+    assert.match(post, /runDownloadPreparation\('clean-extracted-junk'/);
+    assert.match(post, /runDownloadPreparation\('delete-archive-sources'/);
+    assert.doesNotMatch(post, /normalizeArchiveExtensions\(dir, 0\)|findArchives\(dir\)|dirSizeBytes\(extractTo/);
+
+    const capturedStart = main.indexOf('async function finishCapturedGameDownload(');
+    const capturedEnd = main.indexOf('async function captureBrowserDownload(', capturedStart);
+    const captured = main.slice(capturedStart, capturedEnd);
+    assert.match(captured, /await preparedDirectorySize\(installTarget, null\)/);
+    assert.match(captured, /await scanDownloadedPayload\(installTarget, opts\.gameName, work\)/);
+    assert.doesNotMatch(captured, /dirSizeBytes\(|findGameExe\(|cleanRepackSource\(/);
+});
+
 test('aria2 downloads keep HTTPS certificate validation enabled', () => {
     assert.match(main, /--check-certificate=true/);
     assert.doesNotMatch(main, /--check-certificate=false/);
+});
+
+test('legacy Rutor links are upgraded narrowly while the HTTPS download gate stays closed', () => {
+    const start = main.indexOf('function boundedDownloadText(');
+    const end = main.indexOf('function normalizeDownloadRequest(', start);
+    assert.ok(start >= 0 && end > start);
+    const typedDownloadUrl = vm.runInNewContext(`(() => { ${main.slice(start, end)}; return typedDownloadUrl; })()`, { URL });
+    assert.equal(
+        typedDownloadUrl('http://rutor.info/torrent/1018701/example', 'Download URL'),
+        'https://rutor.info/torrent/1018701/example'
+    );
+    assert.throws(() => typedDownloadUrl('http://example.com/file.zip', 'Download URL'), /credential-free HTTPS/);
+    assert.throws(() => typedDownloadUrl('http://rutor.info.evil.example/file.zip', 'Download URL'), /credential-free HTTPS/);
+    assert.match(main, /magnet\[1\]\.replace\(\/&amp;\/gi, '&'\)/);
 });
 
 test('legacy OAuth connections bind callbacks to a one-time state value', () => {

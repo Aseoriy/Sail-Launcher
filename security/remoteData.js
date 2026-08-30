@@ -18,6 +18,7 @@ const REFERENCE_TTL_MS = 15 * 60 * 1000;
 const MAX_REFERENCES = 600;
 const MAX_ACTIVE_DECODE_WORKERS = 4;
 const FITGIRL_GAME_CATEGORY_ID = '5';
+const MAX_SOURCE_PAGE = 1000;
 
 const STEAM_LANGUAGES = new Set([
     'arabic', 'brazilian', 'bulgarian', 'czech', 'danish', 'dutch', 'english',
@@ -103,6 +104,12 @@ function queryText(value) {
     return query;
 }
 
+function sourcePage(value) {
+    if (value === undefined) return 1;
+    if (!Number.isInteger(value) || value < 1 || value > MAX_SOURCE_PAGE) fail('INVALID_PAGE');
+    return value;
+}
+
 function hexReference(value) {
     const reference = boundedText(value, 'REFERENCE', 64);
     if (!/^[a-f0-9]{48}$/.test(reference)) fail('INVALID_REFERENCE');
@@ -139,7 +146,8 @@ function createContext(operation, url, options = {}) {
         allowedPathnames,
         allowedSearches,
         expectedType: options.expectedType || 'json',
-        source: options.source || null
+        source: options.source || null,
+        page: options.page || 1
     });
 }
 
@@ -158,7 +166,7 @@ function isOperationUrlAllowed(context, rawUrl) {
 }
 
 function buildOperationContext(payload, getReference) {
-    assertExactKeys(payload, ['operation'], ['query', 'appId', 'language', 'apiKey', 'steamId', 'steamIds', 'source', 'reference']);
+    assertExactKeys(payload, ['operation'], ['query', 'appId', 'language', 'apiKey', 'steamId', 'steamIds', 'source', 'reference', 'page']);
     const operation = boundedText(payload.operation, 'OPERATION', 40);
     let url;
 
@@ -201,27 +209,49 @@ function buildOperationContext(payload, getReference) {
             return createContext(operation, url);
         }
         case 'source.search': {
-            assertExactKeys(payload, ['operation', 'source', 'query']);
+            assertExactKeys(payload, ['operation', 'source', 'query'], ['page']);
             const source = sourceId(payload.source);
             const query = queryText(payload.query);
+            const page = sourcePage(payload.page);
             if (source === 'steamgg') {
                 url = parseStrictUrl('https://steamgg.net/wp-json/wp/v2/posts');
                 url.searchParams.set('search', query);
                 url.searchParams.set('per_page', '12');
                 url.searchParams.set('_embed', '1');
-                return createContext(operation, url, { expectedType: 'json', source });
+                if (page > 1) url.searchParams.set('page', page);
+                return createContext(operation, url, { expectedType: 'json', source, page });
             }
             if (source === 'fitgirl') {
                 url = parseStrictUrl('https://fitgirl-repacks.site/wp-json/wp/v2/posts');
                 url.searchParams.set('search', query);
+                // FitGirl posts contain long descriptions, so WordPress' default full-post
+                // search turns a specific title into hundreds of weak matches and can make
+                // the endpoint time out. The site's REST API supports title-only search.
+                url.searchParams.append('search_columns[]', 'post_title');
                 url.searchParams.set('categories', FITGIRL_GAME_CATEGORY_ID);
                 url.searchParams.set('per_page', '12');
-                url.searchParams.set('_fields', 'id,type,link,title,content,categories');
-                return createContext(operation, url, { expectedType: 'json', source });
+                // Keep the blocking search response lean. Full post bodies are fetched by
+                // source.fitgirlCovers after cards are already usable in the renderer.
+                url.searchParams.set('_fields', 'id,type,link,title,categories');
+                if (page > 1) url.searchParams.set('page', page);
+                return createContext(operation, url, { expectedType: 'json', source, page });
             }
-            url = parseStrictUrl(`https://${SOURCE_HOSTS[source]}/`);
+            url = parseStrictUrl(`https://${SOURCE_HOSTS[source]}${page > 1 ? `/page/${page}/` : '/'}`);
             url.searchParams.set('s', query);
-            return createContext(operation, url, { expectedType: 'html', source });
+            return createContext(operation, url, { expectedType: 'html', source, page });
+        }
+        case 'source.fitgirlCovers': {
+            assertExactKeys(payload, ['operation', 'query'], ['page']);
+            const query = queryText(payload.query);
+            const page = sourcePage(payload.page);
+            url = parseStrictUrl('https://fitgirl-repacks.site/wp-json/wp/v2/posts');
+            url.searchParams.set('search', query);
+            url.searchParams.append('search_columns[]', 'post_title');
+            url.searchParams.set('categories', FITGIRL_GAME_CATEGORY_ID);
+            url.searchParams.set('per_page', '12');
+            url.searchParams.set('_fields', 'id,link,content');
+            if (page > 1) url.searchParams.set('page', page);
+            return createContext(operation, url, { expectedType: 'json', source: 'fitgirl', page });
         }
         case 'source.detail': {
             assertExactKeys(payload, ['operation', 'reference']);
@@ -428,7 +458,10 @@ function requestOnce(url, context, address, options) {
         }
 
         totalTimer = setTimeout(() => abort(request, 'TIMEOUT'), options.totalTimeoutMs);
-        request.setTimeout(options.connectTimeoutMs, () => abort(request, 'TIMEOUT'));
+        // The socket timer below is connection-only and is cleared after TLS. Do not also
+        // use request.setTimeout here: Node keeps that as a post-connect inactivity timer,
+        // which used to kill a valid but temporarily quiet response after eight seconds even
+        // though the operation still had time left on its absolute deadline.
         request.on('socket', socket => {
             connectTimer = setTimeout(() => abort(request, 'TIMEOUT'), options.connectTimeoutMs);
             const verifyPeer = () => {
@@ -571,6 +604,7 @@ function publicError(error) {
         case 'INVALID_API_KEY':
         case 'INVALID_LANGUAGE':
         case 'INVALID_SOURCE':
+        case 'INVALID_PAGE':
         case 'INVALID_REFERENCE': return 'This remote-data request is not allowed.';
         default: return 'The remote data request failed.';
     }
@@ -631,6 +665,22 @@ function createRemoteDataService(options = {}) {
         return found;
     }
 
+    function responsePagination(context, response) {
+        const headerNumber = name => {
+            const raw = response && response.headers && response.headers[name];
+            const value = Array.isArray(raw) ? raw[0] : raw;
+            const parsed = Number.parseInt(String(value || ''), 10);
+            return Number.isInteger(parsed) && parsed >= 0 ? parsed : 0;
+        };
+        const totalPages = Math.min(MAX_SOURCE_PAGE, headerNumber('x-wp-totalpages'));
+        const totalItems = headerNumber('x-wp-total');
+        return {
+            page: context.page || 1,
+            totalPages: Math.max(context.page || 1, totalPages || 1),
+            totalItems
+        };
+    }
+
     async function execute(payload) {
         const deadline = Date.now() + limits.totalTimeoutMs;
         const context = buildOperationContext(payload, getReference);
@@ -640,8 +690,9 @@ function createRemoteDataService(options = {}) {
         if (Date.now() >= deadline) fail('TIMEOUT');
         if (context.expectedType === 'json') {
             const data = decoded.data;
-            const response = { data };
-            if (['steamgg', 'fitgirl'].includes(context.source) && Array.isArray(data)) {
+            const response = { data, pagination: responsePagination(context, fetched) };
+            if (context.operation === 'source.search'
+                && ['steamgg', 'fitgirl'].includes(context.source) && Array.isArray(data)) {
                 response.references = [];
                 for (const post of data) {
                     if (Date.now() >= deadline) fail('TIMEOUT');
@@ -657,7 +708,17 @@ function createRemoteDataService(options = {}) {
             if (Date.now() >= deadline) fail('TIMEOUT');
             return response;
         }
-        const response = { html: decoded.html, references: referencesFromHtml(context, decoded.html) };
+        const response = {
+            html: decoded.html,
+            // Search cards need opaque references so the renderer can open their detail
+            // pages. Detail HTML does not: issuing another ~200 references for every
+            // opened game quickly evicted the still-visible search-card references from
+            // the bounded store, making subsequent cards fail until the launcher reloaded.
+            references: context.operation === 'source.search'
+                ? referencesFromHtml(context, decoded.html)
+                : [],
+            pagination: responsePagination(context, fetched)
+        };
         if (Date.now() >= deadline) fail('TIMEOUT');
         return response;
     }

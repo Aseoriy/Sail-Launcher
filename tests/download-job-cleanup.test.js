@@ -8,6 +8,7 @@ const test = require('node:test');
 const { CANCELLATION_STATUSES, createDownloadCancellationHandler, registerDownloadCancellationIpc } = require('../runtime/downloadIpc');
 const {
     DownloadJobDirectoryRegistry,
+    JOB_STATES,
     STAGING_DIRECTORY_NAME,
     resolveSafeDeletionTarget,
     sanitizeDownloadDirectoryName
@@ -123,6 +124,22 @@ test('stale resolving continuation after cancellation cannot create or publish s
     assert.equal(fs.existsSync(job.directory), false);
 });
 
+test('retryable download errors retain ownership and allow a fresh attempt', async t => {
+    const env = fixture(t);
+    const job = env.registry.begin('retryable-error', { gameName: 'Retryable Error', defaultRoot: env.defaultRoot });
+    const first = await env.registry.beginAttempt(job);
+    await env.registry.ensureDirectory(first);
+    await env.registry.setState(first, 'error');
+    assert.equal(job.state, JOB_STATES.RETRYABLE_ERROR);
+
+    const sameJob = env.registry.begin('retryable-error', { gameName: 'Retryable Error', defaultRoot: env.defaultRoot });
+    assert.equal(sameJob, job);
+    const retry = await env.registry.beginAttempt(sameJob);
+    await assert.rejects(env.registry.setState(first, 'downloading'), /older attempt/i);
+    await env.registry.setState(retry, 'resolving');
+    assert.equal(job.state, JOB_STATES.PREPARING);
+});
+
 test('stale continuation cannot act on a newer generation using the same external job ID', async t => {
     const env = fixture(t);
     const oldJob = await beginOwned(env, 'reused-id', 'Old Game', 'processing');
@@ -222,7 +239,7 @@ test('pre-existing final and opaque staging targets are rejected rather than ado
 
     const deterministic = new DownloadJobDirectoryRegistry({ randomBytes: () => Buffer.alloc(24, 0xaa) });
     const otherRoot = path.join(env.root, 'deterministic');
-    const occupied = path.join(otherRoot, STAGING_DIRECTORY_NAME, `job-${'aa'.repeat(24)}`);
+    const occupied = path.join(otherRoot, STAGING_DIRECTORY_NAME, 'aa'.repeat(10));
     fs.mkdirSync(occupied, { recursive: true });
     fs.writeFileSync(path.join(occupied, 'sentinel.txt'), 'keep');
     const job = deterministic.begin('occupied', { gameName: 'New Game', installDir: otherRoot, defaultRoot: env.defaultRoot });
@@ -238,7 +255,7 @@ test('provider names cannot influence opaque staging identity', async t => {
         const job = env.registry.begin(`name-${index}`, { gameName: names[index], defaultRoot: env.defaultRoot });
         await env.registry.ensureDirectory(job);
         stagingNames.push(path.basename(job.directory));
-        assert.match(path.basename(job.directory), /^job-[a-f0-9]{48}$/);
+        assert.match(path.basename(job.directory), /^[a-f0-9]{20}$/);
         assert.equal(path.dirname(job.directory), fs.realpathSync.native(path.join(env.defaultRoot, STAGING_DIRECTORY_NAME)));
     }
     assert.equal(new Set(stagingNames).size, names.length);
@@ -246,6 +263,25 @@ test('provider names cannot influence opaque staging identity', async t => {
         assert.throws(() => env.registry.begin(`dot-${name}`, { gameName: name, defaultRoot: env.defaultRoot }), /empty or dot/i);
     }
     assert.equal(sanitizeDownloadDirectoryName('CON'), '_CON');
+});
+
+test('compact staging keeps the reproduced FitGirl asset below the legacy Windows path limit', () => {
+    const deterministic = new DownloadJobDirectoryRegistry({ randomBytes: () => Buffer.alloc(24, 0xaa) });
+    const defaultRoot = 'C:\\Users\\aliss\\AppData\\Roaming\\Sail Launcher\\SailDownloads';
+    const stagingName = deterministic.jobDirectoryName();
+    const internalAsset = path.win32.join(
+        'Shop Simulator - Supermarket_Data',
+        'StreamingAssets',
+        'Mods',
+        'realistic-supermarket',
+        'd69b0421d1da22dd08a6f35ecfc64d37_unitybuiltinshaders_ea58a62fe723ffc8cb504bfe150625ab.bundle'
+    );
+    const attemptedPath = path.win32.join(defaultRoot, STAGING_DIRECTORY_NAME, stagingName, 'i', internalAsset);
+    const legacyPath = path.win32.join(defaultRoot, '.sail-staging', `job-${'a'.repeat(48)}`, '_installed', internalAsset);
+
+    assert.ok(legacyPath.length > 260, `legacy path unexpectedly measured ${legacyPath.length}`);
+    assert.ok(attemptedPath.length < 260, `compact path measured ${attemptedPath.length}`);
+    assert.equal(stagingName.length, 20);
 });
 
 test('unknown mismatched completed and restart-stale jobs fail before sensitive side effects', async t => {

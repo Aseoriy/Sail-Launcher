@@ -27,6 +27,7 @@ function fixture(t, options = {}) {
     const openQueue = [];
     const saveQueue = [];
     const messageQueue = [];
+    const sender = { id: 42 };
     const ipcMain = { handle: (channel, handler) => handlers.set(channel, handler) };
     const dialog = {
         showOpenDialog: async () => openQueue.shift() || { canceled: true, filePaths: [] },
@@ -45,7 +46,7 @@ function fixture(t, options = {}) {
         dialog,
         validateSteamAppId: async () => false
     });
-    const invoke = async (channel, payload) => handlers.get(channel)({ sender: {} }, payload);
+    const invoke = async (channel, payload) => handlers.get(channel)({ sender }, payload);
     return { root, paths, handlers, openQueue, saveQueue, messageQueue, services, invoke };
 }
 
@@ -174,7 +175,13 @@ test('protected local settings reload when Windows encryption becomes available 
 test('production picker handler mints execution and filesystem authority without exposing local paths', async t => {
     const f = fixture(t);
     await bootstrapGame(f);
-    for (const selected of [f.paths.executable, f.paths.pre, f.paths.post, f.paths.companion]) {
+    f.openQueue.push({ canceled: false, filePaths: [f.paths.executable] });
+    const selection = await f.invoke('authority-select-executable', {});
+    assert.equal(selection.success, true);
+    assert.equal(selection.data.canceled, false);
+    assert.match(selection.data.selectionId, /^[0-9a-f-]{36}$/i);
+    assert.equal(JSON.stringify(selection.data).includes(f.root), false);
+    for (const selected of [f.paths.pre, f.paths.post, f.paths.companion]) {
         f.openQueue.push({ canceled: false, filePaths: [selected] });
     }
     f.messageQueue.push(0, 0);
@@ -188,7 +195,8 @@ test('production picker handler mints execution and filesystem authority without
         requestHighPriority: false,
         requestTrackingExecutable: false,
         requestRom: false,
-        useSteamInstallation: false
+        useSteamInstallation: false,
+        baseSelectionId: selection.data.selectionId
     });
     assert.equal(created.success, true);
     assert.match(created.data.capabilityId, /^[0-9a-f-]{36}$/i);
@@ -205,6 +213,15 @@ test('production picker handler mints execution and filesystem authority without
     assert.equal(resolved.details.postLaunchScript, f.paths.post);
     assert.equal(resolved.details.companionPath, f.paths.companion);
     assert.equal(resolved.details.runAsAdmin, true);
+
+    const replayedSelection = await f.invoke('authority-configure-execution', {
+        gameId: 'game-ipc', argumentProposal: '', requestPreLaunchScript: false,
+        requestPostLaunchScript: false, requestCompanion: false, requestElevation: false,
+        requestHighPriority: false, requestTrackingExecutable: false, requestRom: false,
+        useSteamInstallation: false, baseSelectionId: selection.data.selectionId
+    });
+    assert.equal(replayedSelection.success, false);
+    assert.equal(replayedSelection.code, 'SAIL_GATE_A_INVALID_PAYLOAD');
 
     const injected = await f.invoke('authority-configure-execution', {
         gameId: 'game-ipc',

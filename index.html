@@ -4370,7 +4370,6 @@
                             <span style="font-size: 11px; opacity: 0.5; font-weight: bold; text-transform: uppercase; margin-right: 4px;">Sources:</span>
                             <!-- source chips injected here -->
                         </div>
-                        <div id="steamripLockHint" style="display:none;font-size:11px;opacity:0.7;line-height:1.5;color:#f59e0b;"><span class="app-ic" data-ic="lock" aria-hidden="true"></span> <b>SteamRIP</b> requires a connected debrid service. <a href="#" onclick="openDownloadSettings();return false;" style="color:var(--accent);text-decoration:underline;">Connect one in Download Settings</a> to unlock it.</div>
                     </div>
 
                     <div style="background: var(--card-bg); border-radius: 12px; border: 1px solid var(--border-color); padding: 24px; box-sizing: border-box; width: 100%; min-height: 300px; flex-grow: 1; display: flex; flex-direction: column;">
@@ -4379,6 +4378,8 @@
                         <div id="downloadResults" class="game-grid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 20px; width: 100%;">
                             <!-- result cards injected here -->
                         </div>
+
+                        <nav id="downloadPagination" aria-label="Download search result pages" hidden></nav>
 
                         <div id="downloadEmptyState" style="display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; margin: auto; max-width: 460px; opacity: 0.7; padding: 40px 0;">
                             <div class="download-empty-icon" aria-hidden="true"><span class="app-ic" data-ic="skull"></span></div>
@@ -4390,17 +4391,17 @@
 
                 <!-- Full Game Detail Panel (Steam store style) -->
                 <div id="downloadDetailPanel" style="display: none; flex-direction: column; width: 100%;">
-                    <div style="position: sticky; top: 0; z-index: 20; background: var(--bg-color); padding: 10px 0 10px 0; margin-bottom: 8px;">
-                        <button class="outline" onclick="closeDownloadDetail()" style="align-self: flex-start; padding: 8px 16px; border-radius: 8px;"><span class="app-ic" data-ic="arrow-left" aria-hidden="true"></span> Back to results</button>
+                    <div class="download-detail-backbar">
+                        <button id="downloadDetailBackButton" type="button" class="outline download-detail-back-button" onclick="closeDownloadDetail()"><span class="app-ic" data-ic="arrow-left" aria-hidden="true"></span> Back to results</button>
                     </div>
 
                     <div style="position: relative; width: 100%; border-radius: 14px; overflow: hidden; border: 1px solid var(--border-color); margin-bottom: 22px;">
-                        <img id="ddpHero" src="" style="width: 100%; max-height: 340px; object-fit: cover; display: block; background: #000;">
+                        <img id="ddpHero" src="" alt="" style="width: 100%; max-height: 340px; object-fit: cover; display: block; background: #000;">
                         <div style="position: absolute; inset: 0; background: linear-gradient(to top, rgba(0,0,0,0.92) 0%, rgba(0,0,0,0.2) 60%, rgba(0,0,0,0.4) 100%);"></div>
                         <div style="position: absolute; bottom: 0; left: 0; right: 0; padding: 24px 28px; display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; flex-wrap: wrap;">
                             <div style="min-width: 0;">
                                 <span id="ddpSource" style="font-size: 11px; font-weight: bold; padding: 4px 12px; border-radius: 99px; color: #fff;">Source</span>
-                                <h1 id="ddpTitle" style="margin: 10px 0 0 0; font-size: 30px; color: #fff; text-shadow: 0 2px 8px rgba(0,0,0,0.6);">Game Title</h1>
+                                <h1 id="ddpTitle" style="margin: 10px 0 0 0; font-size: 30px; color: #fff; text-shadow: 0 2px 8px rgba(0,0,0,0.6); max-width: 100%; overflow-wrap: anywhere; word-break: break-word;">Game Title</h1>
                             </div>
                         </div>
                     </div>
@@ -4601,11 +4602,10 @@
                 <input type="checkbox" id="dlAdBlockToggle"><div class="toggle-switch"></div>
                 <span style="font-size: 14px;">Block ads &amp; pop-ups in the in-app browser</span>
             </label>
-            <label class="toggle-label" style="display: flex; align-items: center; gap: 10px; margin-bottom: 6px;">
-                <input type="checkbox" id="dlRestrictedDownloadsToggle"><div class="toggle-switch"></div>
-                <span style="font-size: 14px;">Enable restricted downloads</span>
-            </label>
-            <p style="font-size: 11px; opacity: 0.55; margin: 0 0 14px 34px; line-height: 1.5;">Shows interactive hosts such as BuzzHeavier and routes restricted-host buttons to Sail's built-in browser so you can complete their verification or final download step yourself.</p>
+            <!-- Retain the persisted legacy field for profile compatibility. Managed hosts now
+                 always use Sail's one-click resolver and keep the game-page Open action as the
+                 explicit manual fallback. -->
+            <input type="checkbox" id="dlRestrictedDownloadsToggle" hidden aria-hidden="true">
             <label class="toggle-label" style="display: flex; align-items: center; gap: 10px; margin-bottom: 6px;">
                 <input type="checkbox" id="dlCaptureBrowserDownloadsToggle"><div class="toggle-switch"></div>
                 <span style="font-size: 14px;">Capture downloads started in the built-in browser</span>
@@ -4613,12 +4613,12 @@
             <p style="font-size: 11px; opacity: 0.55; margin: 0 0 16px 34px; line-height: 1.5;">Sail takes over files started from the browser, shows their progress and speed in Downloads, then extracts archives and prepares them like any other game download.</p>
             <div style="height:1px;background:var(--border-color);margin:4px 0 16px 0;opacity:0.5;"></div>
             <label style="font-size: 12px; font-weight: bold; text-transform: uppercase; opacity: 0.6;">Debrid Services</label>
-            <p style="font-size: 11px; opacity: 0.55; margin: 6px 0 12px 0; line-height: 1.5;">Connect a debrid account to unlock premium filehosts (GoFile, 1Fichier, Rapidgator…) and the <b>SteamRIP</b> source. When connected, downloads automatically resolve through the service. Paste an API key and it validates instantly.</p>
+            <p style="font-size: 11px; opacity: 0.55; margin: 6px 0 12px 0; line-height: 1.5;"><b>SteamRIP works without debrid.</b> Connect an optional debrid account to unlock additional premium or restricted filehosts and improve mirror compatibility. When connected, supported downloads automatically resolve through the service. Paste an API key and it validates instantly.</p>
             <div id="debridServiceList" style="display:flex;flex-direction:column;gap:10px;margin-bottom:18px;"></div>
 
             <div style="height:1px;background:var(--border-color);margin:4px 0 16px 0;opacity:0.5;"></div>
             <label style="font-size: 12px; font-weight: bold; text-transform: uppercase; opacity: 0.6;">PixelDrain Proxy Workers</label>
-            <p style="font-size: 11px; opacity: 0.55; margin: 6px 0 8px 0; line-height: 1.5;">One Cloudflare Worker URL per line. PixelDrain downloads are routed through a random worker to bypass the 10&nbsp;GB/day per-IP limit (it falls back to another worker, then to a direct download, automatically). Leave empty to download directly. A ready-to-deploy worker ships in <code>cloudflare-worker/pixeldrain-proxy.js</code> — deploy it free on Cloudflare and paste the URL here.</p>
+            <p style="font-size: 11px; opacity: 0.55; margin: 6px 0 8px 0; line-height: 1.5;">Optional custom HTTPS Worker URLs, one per line. Sail checks PixelDrain directly first, then tries these Workers one at a time only if the direct route is limited or unavailable. Failed Workers are skipped for the rest of a list. The retired built-in Workers are ignored because PixelDrain now rejects them as hotlinking.</p>
             <textarea id="dlPixeldrainProxies" rows="3" placeholder="https://your-worker.workers.dev" style="width:100%;padding:10px 12px;margin:0 0 18px 0;background:var(--bg-color);border:1px solid var(--border-color);color:var(--text-color);border-radius:8px;box-sizing:border-box;font-family:monospace;font-size:12px;resize:vertical;"></textarea>
 
             <label style="font-size: 12px; font-weight: bold; text-transform: uppercase; opacity: 0.6;">Max Concurrent Downloads</label>
@@ -4646,6 +4646,14 @@
             <div style="display:flex;align-items:center;gap:12px;margin-bottom:4px;">
                 <button class="outline" id="dlClearCacheBtn" onclick="clearDownloadCache()" style="padding: 10px 16px; border-radius: 8px;">🧹 Clear Cache</button>
                 <span id="dlCacheSizeIndicator" style="font-size:12px;opacity:0.65;">Calculating storage…</span>
+            </div>
+
+            <div style="height:1px;background:var(--border-color);margin:16px 0;opacity:0.5;"></div>
+            <label style="font-size: 12px; font-weight: bold; text-transform: uppercase; opacity: 0.6;">Cancelled download files</label>
+            <p style="font-size: 11px; opacity: 0.55; margin: 6px 0 8px 0; line-height: 1.5;">Cancelled downloads are kept in a protected quarantine so interrupted files cannot be mistaken for completed games. Delete those retained temporary files here when you no longer need them.</p>
+            <div style="display:flex;align-items:center;gap:12px;margin-bottom:4px;">
+                <button class="outline" id="dlClearQuarantineBtn" onclick="clearCancelledDownloadFiles()" style="padding: 10px 16px; border-radius: 8px;">🗑 Delete temporary files</button>
+                <span id="dlQuarantineSizeIndicator" style="font-size:12px;opacity:0.65;">Checking retained files…</span>
             </div>
 
             <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 10px;">
@@ -7189,7 +7197,7 @@
         let accountStateRefreshInFlight = null;
         let accountVerificationCountdown = null;
         let gameConfigEntriesDraft = [];
-        let localAuthorityDraft = { execution: false, save: false, tracking: false, companion: false };
+        let localAuthorityDraft = { execution: false, save: false, tracking: false, companion: false, executableSelectionId: '' };
 
         let editingIndex = -1;
         let editingThemeId = null;
@@ -9552,6 +9560,7 @@
             launcherProfileState = result.state;
             const snapshot = result.snapshot || {};
             myGames = Array.isArray(snapshot.myGames) ? snapshot.myGames : [];
+            myGames.forEach(game => DownloadSourceLogic.repairDownloadedSteamGameMetadata(game));
             customSections = Array.isArray(snapshot.customSections) ? snapshot.customSections : [];
             globalSettings = Object.assign({}, globalSettings, snapshot.globalSettings || {});
             sessionStartTimes = {};
@@ -12181,7 +12190,7 @@
             renderAddModalQuickPaths();
             document.querySelectorAll('.game-tag-cb').forEach(cb => cb.checked = false);
             gameConfigEntriesDraft = [];
-            localAuthorityDraft = { execution: false, save: false, tracking: false, companion: false };
+            localAuthorityDraft = { execution: false, save: false, tracking: false, companion: false, executableSelectionId: '' };
             renderGameConfigEntriesEditor();
             editingIndex = -1; document.getElementById('modalTitle').innerText = dict[globalSettings.language || 'english'].addGame || "Add Game";
         }
@@ -14293,8 +14302,11 @@
             }
         };
 
-        window.openSourcesBrowser = function(url, openInSystemBrowser) {
+        window.openSourcesBrowser = function(url, openInSystemBrowser, options = {}) {
             const safeUrl = SafeDom.safeExternalUrl(url, { allowAnyHost: true });
+            const safeReferrer = options && options.referrer
+                ? SafeDom.safeExternalUrl(options.referrer, { allowAnyHost: true })
+                : '';
             if (!safeUrl) {
                 alert('This source URL is not allowed.');
                 return;
@@ -14307,9 +14319,16 @@
             document.getElementById('sourcesMainPanel').style.display = 'none';
             const browserPanel = document.getElementById('sourcesBrowserPanel');
             browserPanel.style.display = 'flex';
-            
+
             const webview = document.getElementById('sourceWebview');
-            webview.src = safeUrl;
+            if (typeof webview.loadURL === 'function') {
+                const loadOptions = safeReferrer ? { httpReferrer: safeReferrer } : undefined;
+                Promise.resolve(webview.loadURL(safeUrl, loadOptions)).catch(() => {
+                    webview.src = safeUrl;
+                });
+            } else {
+                webview.src = safeUrl;
+            }
             document.getElementById('sourcesWebviewAddress').value = safeUrl;
         };
 
@@ -15520,13 +15539,16 @@
                 await invokeAccount('profiles-capture-active', { myGames, customSections, globalSettings });
                 try {
                     if (executionRequested) {
-                        if (isSteam) {
+                        if (isSteam && !localAuthorityDraft.executableSelectionId) {
                             await invokeAccount('authority-configure-steam', { gameId: gameData.id, steamAppId });
                         } else {
                             await invokeAccount('authority-configure-execution', {
                                 gameId: gameData.id,
                                 argumentProposal: isRom ? (document.getElementById('romArgs').value || '"%rom%"') : '',
+                                ...(localAuthorityDraft.executableSelectionId
+                                    ? { baseSelectionId: localAuthorityDraft.executableSelectionId } : {}),
                                 requestRom: isRom,
+                                useSteamInstallation: false,
                                 requestPreLaunchScript: false,
                                 requestPostLaunchScript: false,
                                 requestCompanion: localAuthorityDraft.companion,
@@ -15558,7 +15580,7 @@
 
         window.editGame = function (index) {
             editingIndex = index; const game = myGames[index];
-            localAuthorityDraft = { execution: false, save: false, tracking: false, companion: false };
+            localAuthorityDraft = { execution: false, save: false, tracking: false, companion: false, executableSelectionId: '' };
             document.getElementById('modalTitle').innerText = dict[globalSettings.language || 'english'].edit || "Edit Game";
             if (typeof iconizeElement === 'function') iconizeElement(document.getElementById('modalTitle'));
             document.getElementById('gameName').value = game.name;
@@ -17576,10 +17598,24 @@
 
         document.getElementById('addGameBtn').addEventListener('click', () => { resetAddForm(); openModal('addModal'); });
         document.getElementById('settingsBtn').addEventListener('click', () => { updateThemeSelect(); openModal('settingsModal'); document.getElementById('tab-appearance').click(); });
-        document.getElementById('browseExeBtn').addEventListener('click', () => {
-            localAuthorityDraft.execution = true;
-            document.getElementById('gamePath').value = 'Selection requested for Save';
-            document.getElementById('quickPathGameBtn').style.display = 'none';
+        document.getElementById('browseExeBtn').addEventListener('click', async () => {
+            const button = document.getElementById('browseExeBtn');
+            const gamePath = document.getElementById('gamePath');
+            button.disabled = true;
+            button.setAttribute('aria-busy', 'true');
+            try {
+                const selection = await invokeAccount('authority-select-executable', {});
+                if (!selection || selection.canceled || !selection.selectionId) return;
+                localAuthorityDraft.execution = true;
+                localAuthorityDraft.executableSelectionId = selection.selectionId;
+                gamePath.value = 'Executable selected — Save to apply';
+                document.getElementById('quickPathGameBtn').style.display = 'none';
+            } catch (error) {
+                console.error('Executable selection failed:', error);
+            } finally {
+                button.disabled = false;
+                button.removeAttribute('aria-busy');
+            }
         });
         document.getElementById('browseShortcutIconBtn').addEventListener('click', async () => { const p = await ipcRenderer.invoke('dialog-select-icon'); if (p) document.getElementById('shortcutIconPath').value = p; });
         document.getElementById('browseBannerBtn').addEventListener('click', async () => { const p = await ipcRenderer.invoke('dialog-select-image'); if (p) document.getElementById('customBannerPath').value = p; });
@@ -18158,11 +18194,101 @@
         @keyframes dlDockIn { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: none; } }
         @keyframes dlDockOut { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(30px) scale(0.98); } }
         /* Smooth collapse/expand of the download popup body (issue #4). */
-        #dockBody { max-height: 56vh; transition: max-height .3s cubic-bezier(.22,1,.36,1), opacity .22s ease, padding-top .3s ease, padding-bottom .3s ease; }
+        #dockHeader {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 11px 14px;
+            font-size: 13px;
+            font-weight: 700;
+            cursor: pointer;
+            user-select: none;
+            border-bottom: 1px solid color-mix(in srgb, var(--border-color) 78%, transparent);
+            background: color-mix(in srgb, var(--text-color) 5%, transparent);
+        }
+        #dockBody {
+            max-height: 56vh;
+            padding: 10px;
+            overflow-x: hidden;
+            overflow-y: auto;
+            transition: max-height .3s cubic-bezier(.22,1,.36,1), opacity .22s ease, padding-top .3s ease, padding-bottom .3s ease;
+        }
         #dockBody.dock-collapsed { max-height: 0 !important; opacity: 0; padding-top: 0 !important; padding-bottom: 0 !important; overflow: hidden !important; }
         #dockToggle { transition: transform .25s ease; }
         #dockToggle.collapsed { transform: rotate(-90deg); }
+        .dl-dock-row {
+            min-width: 0;
+            padding: 10px;
+            border: 1px solid color-mix(in srgb, var(--border-color) 82%, transparent);
+            border-radius: 9px;
+            background: color-mix(in srgb, var(--text-color) 3%, transparent);
+        }
+        .dl-dock-row + .dl-dock-row { margin-top: 8px; }
+        .dl-dock-top {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            min-width: 0;
+        }
+        .dl-dock-name {
+            display: block;
+            flex: 1;
+            min-width: 0;
+            overflow: hidden;
+            color: var(--text-color);
+            font-size: 12.5px;
+            font-weight: 650;
+            line-height: 1.35;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .dl-cat-badge {
+            display: inline-flex;
+            align-items: center;
+            margin-left: 7px;
+            padding: 2px 6px;
+            border-radius: 999px;
+            background: color-mix(in srgb, var(--accent) 16%, transparent);
+            color: color-mix(in srgb, var(--accent) 70%, var(--text-color));
+            font-size: 9px;
+            font-weight: 700;
+            line-height: 1.2;
+            vertical-align: 1px;
+        }
+        .dl-dock-actions {
+            display: flex;
+            flex-shrink: 0;
+            gap: 5px;
+        }
+        .dl-dock-actions button {
+            padding: 5px 9px;
+            border-radius: 7px;
+            font-size: 10.5px;
+            white-space: nowrap;
+        }
+        .dl-dock-track {
+            height: 6px;
+            margin: 9px 0 7px;
+            overflow: hidden;
+            border-radius: 999px;
+            background: color-mix(in srgb, var(--text-color) 10%, transparent);
+        }
+        .dl-bar-inner {
+            height: 100%;
+            border-radius: inherit;
+            transition: width .25s ease;
+        }
+        .dl-dock-row > .dl-state-text {
+            overflow: hidden;
+            opacity: .68;
+            font-size: 10.5px;
+            line-height: 1.35;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
         @keyframes dlShimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+        @keyframes dlIndeterminate { 0% { transform: translateX(-130%); } 100% { transform: translateX(340%); } }
         @keyframes dlSpin { to { transform: rotate(360deg); } }
 
         #downloadResults .dl-card {
@@ -18182,6 +18308,89 @@
             transform: translateY(-6px);
             box-shadow: 0 14px 34px rgba(0, 0, 0, 0.45);
         }
+        #downloadResults .dl-card:focus-visible {
+            outline: 3px solid color-mix(in srgb, var(--accent) 72%, #fff);
+            outline-offset: 3px;
+            transform: translateY(-3px);
+            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.4);
+        }
+        #downloadResults {
+            transition: opacity 0.18s ease, transform 0.18s ease;
+        }
+        #downloadResults.dl-page-loading {
+            opacity: 0.42;
+            pointer-events: none;
+            transform: translateY(7px);
+        }
+        #downloadResults.dl-page-next .dl-card { animation-name: dlPageInNext; }
+        #downloadResults.dl-page-previous .dl-card { animation-name: dlPageInPrevious; }
+        @keyframes dlPageInNext {
+            from { opacity: 0; transform: translateX(18px) translateY(5px); }
+            to { opacity: 1; transform: none; }
+        }
+        @keyframes dlPageInPrevious {
+            from { opacity: 0; transform: translateX(-18px) translateY(5px); }
+            to { opacity: 1; transform: none; }
+        }
+        #downloadPagination {
+            align-items: center;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 7px;
+            margin-top: 25px;
+            padding-top: 20px;
+            border-top: 1px solid color-mix(in srgb, var(--border-color) 72%, transparent);
+            animation: dlPaginationIn 0.28s cubic-bezier(.22, 1, .36, 1);
+        }
+        #downloadPagination:not([hidden]) { display: flex; }
+        #downloadPagination button {
+            min-width: 36px;
+            height: 36px;
+            padding: 0 11px;
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            background: color-mix(in srgb, var(--card-bg) 78%, var(--bg-color));
+            color: var(--text-color);
+            font-size: 12px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: transform 0.16s ease, border-color 0.16s ease, background 0.16s ease, opacity 0.16s ease;
+        }
+        #downloadPagination button:hover:not(:disabled) {
+            transform: translateY(-2px);
+            border-color: var(--accent);
+        }
+        #downloadPagination button[aria-current="page"] {
+            border-color: var(--accent);
+            background: var(--accent);
+            color: #fff;
+            box-shadow: 0 6px 18px color-mix(in srgb, var(--accent) 28%, transparent);
+        }
+        #downloadPagination button:disabled { cursor: default; opacity: 0.38; }
+        #downloadPagination .dl-page-ellipsis {
+            min-width: 20px;
+            text-align: center;
+            opacity: 0.5;
+            font-weight: 700;
+        }
+        #downloadPagination .dl-page-summary {
+            width: 100%;
+            margin-top: 4px;
+            text-align: center;
+            font-size: 10.5px;
+            opacity: 0.55;
+        }
+        @keyframes dlPaginationIn {
+            from { opacity: 0; transform: translateY(7px); }
+            to { opacity: 1; transform: none; }
+        }
+        body.less-animations #downloadResults .dl-card,
+        body.less-animations #downloadPagination,
+        body.less-animations #downloadDetailPanel,
+        body.less-animations .dl-screenshot-viewer { animation: none !important; }
+        body.less-animations #downloadResults.dl-page-loading { transform: none; }
+        body.less-animations #ddpScreens img,
+        body.less-animations .dl-screenshot-viewer img { transition: none !important; }
         .download-empty-icon {
             display: inline-flex;
             align-items: center;
@@ -18219,13 +18428,19 @@
             position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
             opacity: 0; transition: opacity 0.28s ease; pointer-events: none;
         }
-        .dl-card .dl-play span {
+        .dl-card .dl-play > span {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
             background: rgba(0,0,0,0.55); border: 1.5px solid rgba(255,255,255,0.85);
             color: #fff; padding: 8px 18px; border-radius: 99px; font-size: 13px; font-weight: 700;
             transform: translateY(8px); transition: transform 0.28s cubic-bezier(0.22,1,0.36,1); backdrop-filter: blur(3px);
         }
-        .dl-card:hover .dl-play { opacity: 1; }
-        .dl-card:hover .dl-play span { transform: translateY(0); }
+        .dl-card .dl-play .app-ic { width: 14px; height: 14px; }
+        .dl-card:hover .dl-play,
+        .dl-card:focus-visible .dl-play { opacity: 1; }
+        .dl-card:hover .dl-play > span,
+        .dl-card:focus-visible .dl-play > span { transform: translateY(0); }
         .dl-card .dl-title { margin: 0; font-size: 13.5px; font-weight: 600; line-height: 1.35; padding: 12px 14px 14px; height: 62px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 
         .dl-chip { box-shadow: 0 2px 6px rgba(0,0,0,0.15); }
@@ -18236,8 +18451,119 @@
         #downloadSearchInput:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px rgba(124, 92, 255, 0.18); }
 
         #downloadDetailPanel { animation: dlPanelIn 0.4s cubic-bezier(0.22, 1, 0.36, 1); }
+        .download-detail-backbar {
+            align-self: flex-start;
+            width: max-content;
+            max-width: 100%;
+            padding: 8px 0 4px;
+            margin-bottom: 8px;
+            background: transparent;
+        }
+        .download-detail-back-button {
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            max-width: 100%;
+            padding: 8px 14px;
+            border-radius: 10px;
+            background: color-mix(in srgb, var(--card-bg) 92%, transparent) !important;
+            box-shadow: 0 5px 16px rgba(0,0,0,0.22);
+            backdrop-filter: blur(12px);
+        }
+        .download-detail-back-button .app-ic { width: 15px; height: 15px; flex-shrink: 0; }
+        .download-meta-row {
+            display: grid;
+            grid-template-columns: minmax(92px, auto) minmax(0, 1fr);
+            align-items: baseline;
+            column-gap: 12px;
+            min-width: 0;
+        }
+        .download-meta-row > span:first-child {
+            opacity: 0.62;
+            font-weight: 600;
+        }
+        .download-meta-row > span:last-child {
+            min-width: 0;
+            text-align: right;
+            overflow-wrap: anywhere;
+        }
+        .download-option-row {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+            padding: 10px 12px;
+            margin-bottom: 8px;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            background: var(--bg-color);
+        }
+        .download-option-icon { font-size: 18px; line-height: 1; flex-shrink: 0; }
+        .download-option-copy {
+            flex: 1 1 116px;
+            min-width: 0;
+            line-height: 1.25;
+            overflow-wrap: anywhere;
+        }
+        .download-option-copy > div:not(:first-child) {
+            margin-top: 2px;
+            font-size: 10.5px;
+            opacity: 0.58;
+        }
+        .download-option-actions {
+            display: flex;
+            justify-content: flex-end;
+            flex: 0 1 auto;
+            flex-wrap: wrap;
+            gap: 5px;
+            margin-left: auto;
+        }
+        .dl-ddl-btn {
+            width: 100%;
+            padding: 14px;
+            margin-bottom: 12px;
+            border: 0;
+            border-radius: 10px;
+            background: var(--accent);
+            color: #fff;
+            font-size: 15px;
+            font-weight: bold;
+            line-height: 1.35;
+            white-space: normal;
+            overflow-wrap: anywhere;
+        }
+        .download-link-health {
+            display: block;
+            width: 100%;
+            margin: -5px 0 11px;
+            font-size: 11px;
+            font-weight: 600;
+            line-height: 1.35;
+        }
+        .download-option-copy .download-link-health {
+            width: auto;
+            margin: 4px 0 0;
+            opacity: 1;
+        }
+        .download-link-health[data-download-health-status="checking"],
+        .download-link-health[data-download-health-status="unknown"] { color: color-mix(in srgb, var(--text-color) 62%, transparent); }
+        .download-link-health[data-download-health-status="available"] { color: #57d79b; }
+        .download-link-health[data-download-health-status="verification-required"] { color: #f4c75b; }
+        .download-link-health[data-download-health-status="down"] { color: #ff7c8c; }
+        button[data-download-health-disabled="true"] {
+            cursor: not-allowed;
+            filter: saturate(0.35) brightness(0.72);
+            box-shadow: none !important;
+            transform: none !important;
+        }
         #ddpScreens img { transition: transform 0.25s ease, box-shadow 0.25s ease; }
         #ddpScreens img:hover { transform: scale(1.03); box-shadow: 0 8px 20px rgba(0,0,0,0.4); }
+        #ddpScreens img:focus-visible {
+            outline: 3px solid var(--accent);
+            outline-offset: 3px;
+            transform: scale(1.02);
+            box-shadow: 0 8px 20px rgba(0,0,0,0.4);
+        }
         .dl-screenshot-viewer {
             position: fixed;
             inset: 0;
@@ -18245,6 +18571,7 @@
             display: flex;
             align-items: center;
             justify-content: center;
+            box-sizing: border-box;
             padding: 54px;
             background: rgba(2, 6, 18, 0.92);
             backdrop-filter: blur(12px);
@@ -18264,18 +18591,32 @@
             position: absolute;
             top: 16px;
             right: 18px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            box-sizing: border-box;
             width: 42px;
             height: 42px;
+            padding: 0;
             border-radius: 12px;
             border: 1px solid rgba(255,255,255,0.22);
             background: rgba(10,15,28,0.82);
             color: #fff;
             font-size: 24px;
+            line-height: 1;
+            appearance: none;
             cursor: pointer;
+        }
+        .dl-screenshot-viewer-close:hover,
+        .dl-screenshot-viewer-close:active { transform: none; }
+        .dl-screenshot-viewer-close:focus-visible {
+            outline: 3px solid color-mix(in srgb, var(--accent) 72%, #fff);
+            outline-offset: 3px;
         }
 
         #downloadDock { animation: dlDockIn 0.35s cubic-bezier(0.22, 1, 0.36, 1); }
         .dl-progress-bar { background: linear-gradient(90deg, var(--accent), color-mix(in srgb, var(--accent) 55%, #fff)) !important; background-size: 200% 100% !important; animation: dlShimmer 1.6s linear infinite; }
+        .dl-progress-indeterminate { width: 30% !important; animation: dlShimmer 1.6s linear infinite, dlIndeterminate 1.35s ease-in-out infinite; }
         .dl-ddl-btn { transition: transform 0.18s ease, box-shadow 0.18s ease, filter 0.18s ease; }
         .dl-ddl-btn:hover { transform: translateY(-2px); box-shadow: 0 8px 22px rgba(124,92,255,0.4); filter: brightness(1.05); }
         .dl-spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid rgba(128,128,128,0.3); border-top-color: var(--accent); border-radius: 50%; animation: dlSpin 0.7s linear infinite; vertical-align: middle; }
@@ -18288,7 +18629,17 @@
             '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="225"><rect fill="#18181b" width="400" height="225"/><text fill="#a1a1aa" font-family="sans-serif" font-size="16" x="50%" y="50%" text-anchor="middle" dominant-baseline="middle">No Image</text></svg>'
         );
 
-        const DL_HOSTS = /magnet:|megadb|gofile|datanodes|1fichier|pixeldrain|akirabox|filekeeper|filecrypt|mediafire|mega\.nz|qiwi|multiup|fuckingfast|buzzheavier|bzzhr|bowfile|hexload|vikingfile|rootz|1337x|torrent|\.torrent/i;
+        const DL_HOSTS = DownloadSourceLogic.STEAMRIP_DOWNLOAD_HOST_RE;
+
+        function dlKnownDownloadUrl(value) {
+            const raw = String(value || '');
+            if (/^magnet:\?xt=urn:btih:[A-Za-z0-9]{32,64}(?:&|$)/i.test(raw)) return true;
+            let parsed;
+            try { parsed = new URL(raw); } catch (_) { return false; }
+            return parsed.protocol === 'https:' && !parsed.username && !parsed.password
+                && (!parsed.port || parsed.port === '443')
+                && (DL_HOSTS.test(parsed.hostname) || /\.torrent$/i.test(parsed.pathname));
+        }
 
         // Decode HTML entities (REST API titles come with &#8217; &amp; etc.)
         function dlDecodeEntities(s) {
@@ -18424,16 +18775,17 @@
                 searchUrl: q => `https://steamgg.net/?s=${encodeURIComponent(q)}`,
                 // SteamGG's search page is JS-rendered, but it's WordPress — its REST API
                 // returns clean JSON, so we search through that instead of scraping HTML.
-                searchFn: async (query) => {
-                    const res = await remoteData.searchDownloadSource('steamgg', query);
+                searchFn: async (query, page) => {
+                    const res = await remoteData.searchDownloadSource('steamgg', query, page);
                     const arr = res && res.data;
-                    if (!Array.isArray(arr)) return [];
-                    return arr.map(p => {
+                    if (!Array.isArray(arr)) return { items: [], totalPages: page };
+                    const items = arr.map(p => {
                         let image = DL_PLACEHOLDER;
                         try { image = p._embedded['wp:featuredmedia'][0].source_url || image; } catch (e) {}
                         const name = dlClean(dlDecodeEntities((p.title && p.title.rendered) || ''));
                         return { name, url: p.link, image, reference: p.sailReference || '' };
                     }).filter(x => x.name && x.url && x.reference);
+                    return { items, totalPages: (res.pagination && res.pagination.totalPages) || page };
                 },
                 // Game pages render the host buttons (Pixeldrain/Datanode/Akira/Buzzheavier)
                 // server-side as real <a> links — grab every known-host link.
@@ -18446,7 +18798,7 @@
                     const scope = doc.querySelector('.entry-content, .post-content, article, main') || doc;
                     scope.querySelectorAll('a[href]').forEach(a => {
                         let href = dlAbs(a.getAttribute('href') || '', base);
-                        if (!href || href.startsWith('magnet:') || !DL_HOSTS.test(href) || seen.has(href)) return;
+                        if (!href || href.startsWith('magnet:') || !dlKnownDownloadUrl(href) || seen.has(href)) return;
                         seen.add(href);
                         links.push({ label: dlHostLabel(href), type: 'web', url: href });
                     });
@@ -18458,56 +18810,55 @@
                 searchUrl: q => `https://fitgirl-repacks.site/?s=${encodeURIComponent(q)}`,
                 // Search through the game-only WordPress category. The public search HTML
                 // has no cover art and can include Updates Digest/page entries.
-                searchFn: async (query) => {
-                    const res = await remoteData.searchDownloadSource('fitgirl', query);
-                    return DownloadSourceLogic.normalizeFitGirlPosts(res && res.data).map(item => ({
+                searchFn: async (query, page) => {
+                    const res = await remoteData.searchDownloadSource('fitgirl', query, page);
+                    const items = DownloadSourceLogic.normalizeFitGirlPosts(res && res.data).map(item => ({
                         ...item,
                         name: dlClean(dlDecodeEntities(item.name))
                     })).filter(item => item.name && item.url && item.reference);
+                    // Covers are the expensive part of FitGirl's WordPress response. Fetch them
+                    // separately so cards appear from the lean result set immediately; a slow or
+                    // failed enrichment never turns valid search results into an error card.
+                    const coverPromise = remoteData.getFitGirlSearchCovers(query, page)
+                        .then(result => DownloadSourceLogic.normalizeFitGirlPostCovers(result && result.data))
+                        .catch(() => []);
+                    return { items, coverPromise, totalPages: (res && res.pagination && res.pagination.totalPages) || page };
                 },
                 detail: wpDetail
             },
             steamrip: {
-                name: 'SteamRIP', color: '#3b82f6', requiresDebrid: true, renderOnly: true,
+                name: 'SteamRIP', color: '#3b82f6', renderOnly: true,
                 searchUrl: q => `https://steamrip.com/?s=${encodeURIComponent(q)}`,
                 // Only inspect the real result grid. Popular Games uses similar cards in the
                 // sidebar and must never be mixed into the user's search results.
-                results: (doc, query) => {
-                    const base = 'https://steamrip.com';
-                    const out = [], seen = new Set();
-                    const grid = doc.querySelector('.main-content #masonry-grid');
-                    if (!grid) return out;
-                    Array.from(grid.children).filter(card => card.classList.contains('post-element')).forEach(card => {
-                        const link = card.querySelector('h2.thumb-title a[href], a.all-over-thumb-link[href]');
-                        if (!link) return;
-                        let href = dlAbs(link.getAttribute('href') || '', base);
-                        let parsed; try { parsed = new URL(href); } catch (e) { return; }
-                        if (!/(^|\.)steamrip\.com$/i.test(parsed.hostname)) return;
-                        if (!/free-download[^/]*\/?$/i.test(parsed.pathname)) return;
-                        href = href.split('#')[0].split('?')[0];
-                        if (seen.has(href)) return;
-                        const title = card.querySelector('h2.thumb-title a[href], h2.the-post-title, .screen-reader-text');
-                        let name = title ? dlClean(title.textContent) : '';
-                        if (!name || name.length < 2) return;
-                        seen.add(href);
-                        name = name.replace(/\s*free\s*download.*/i, '').trim() || name;
-                        out.push({ name, url: href, image: dlContainerImage(card, base) });
+                results: (doc) => {
+                    // SteamRIP ranks matches using more than the visible title, so preserve its
+                    // site-ranked main-grid results (for example, related genre/tag matches).
+                    return DownloadSourceLogic.parseSteamRipResults(doc, {
+                        baseUrl: 'https://steamrip.com',
+                        cleanText: dlClean,
+                        imageForCard: dlContainerImage
                     });
-                    return DownloadSourceLogic.filterSearchResultsByTitle(out, query).slice(0, 12);
                 },
-                // Detail pages list premium-filehost links (MegaDB / 1Fichier / GoFile /
-                // Buzzheavier / Rapidgator / …). A connected debrid service unlocks them.
-                detail: (doc, base) => {
-                    const HOST = /(^|\.)(megadb|gofile|datanodes|1fichier|pixeldrain|filecrypt|mediafire|rapidgator|nitroflare|turbobit|katfile|hexload|filekeeper|vikingfile|akirabox|buzzheavier|fuckingfast|mega)\.(io|com|net|nz|cc|co|to)$/i;
-                    const links = [], seen = new Set();
-                    const scope = doc.querySelector('.entry-content, .post-content, .article-content, article, main') || doc;
-                    scope.querySelectorAll('a, button, [data-url], [data-href], [data-link], [data-download], [onclick]').forEach(a => {
-                        const href = dlElementHostUrl(a, base, HOST);
-                        if (!href || seen.has(href)) return;
-                        seen.add(href);
-                        links.push({ label: dlHostLabel(href), type: 'web', url: href });
+                pageCount: (doc, currentPage) => {
+                    const nav = doc.querySelector('.main-content .pages-nav');
+                    if (!nav) return currentPage;
+                    let total = currentPage;
+                    nav.querySelectorAll('.page-numbers').forEach(node => {
+                        const labelPage = Number.parseInt(String(node.textContent || '').trim(), 10);
+                        if (Number.isInteger(labelPage)) total = Math.max(total, labelPage);
+                        const match = String(node.getAttribute('href') || '').match(/(?:^|\/)(?:page\/)?(\d+)\/(?:\?|$)/i);
+                        if (match) total = Math.max(total, Number.parseInt(match[1], 10));
                     });
-                    return links;
+                    return Math.max(1, Math.min(1000, total));
+                },
+                // Keep only actual file-host destinations. Intermediary containers are omitted,
+                // and language-pack links stay separate from the main game files.
+                detail: (doc, base) => {
+                    return DownloadSourceLogic.parseSteamRipDownloadLinks(doc, {
+                        baseUrl: base,
+                        elementHostUrl: (element, baseUrl, hostRe) => dlElementHostUrl(element, baseUrl, hostRe)
+                    });
                 }
             }
         };
@@ -18524,27 +18875,36 @@
             });
             doc.querySelectorAll('.entry-content a, .su-spoiler-content a, ul li a').forEach(a => {
                 let href = dlAbs(a.getAttribute('href') || '', base);
-                if (!href || href.startsWith('magnet:') || !DL_HOSTS.test(href) || seen.has(href)) return;
+                if (!href || href.startsWith('magnet:') || !dlKnownDownloadUrl(href) || seen.has(href)) return;
                 seen.add(href);
                 links.push({ label: dlHostLabel(href), type: 'web', url: href });
             });
             return links;
         }
 
-        const dlEnabled = { steamgg: true, fitgirl: true, steamrip: false };
+        const dlEnabled = { steamgg: true, fitgirl: true, steamrip: true };
         let dlSearchToken = 0;
+        let dlSearchBusy = false;
+        const dlSearchState = {
+            query: '',
+            page: 1,
+            totalPages: 1,
+            active: [],
+            sourcePages: Object.create(null)
+        };
 
-        // Default PixelDrain Worker proxy pool — ships working out of the box. Users can
-        // add/replace these in Download Settings. An EXPLICITLY saved empty list ([]) is
-        // respected as "download directly"; only an unset value falls back to the default.
-        const DL_DEFAULT_PD_PROXIES = [
+        // PixelDrain retired the old public proxy path by rejecting it as hotlinking.
+        // Keep custom Workers supported while migrating the obsolete built-ins out of
+        // existing settings so they cannot multiply quota requests.
+        const DL_RETIRED_PD_PROXIES = new Set([
             'https://saillauncher.alissatorz.workers.dev',
             'https://saillauncher2.alissatorz.workers.dev',
             'https://saillauncher3.alissatorz.workers.dev',
             'https://saillauncher4.alissatorz.workers.dev'
-        ];
+        ]);
         window.getPixeldrainProxies = function getPixeldrainProxies() {
-            return Array.isArray(globalSettings.dlPixeldrainProxies) ? globalSettings.dlPixeldrainProxies : DL_DEFAULT_PD_PROXIES.slice();
+            const configured = Array.isArray(globalSettings.dlPixeldrainProxies) ? globalSettings.dlPixeldrainProxies : [];
+            return configured.filter(value => !DL_RETIRED_PD_PROXIES.has(String(value || '').replace(/\/$/, '')));
         };
 
         function saveDetectionSourceLabel(source) {
@@ -18621,8 +18981,6 @@
             if (s.enabledSources) {
                 Object.keys(dlEnabled).forEach(k => { if (typeof s.enabledSources[k] === 'boolean') dlEnabled[k] = s.enabledSources[k]; });
             }
-            // SteamRIP is locked unless a debrid service is connected & validated
-            if (!window.debridConnected || !window.debridConnected()) dlEnabled.steamrip = false;
             // sync ad-block + debrid + pixeldrain-proxy preferences with main once at load
             if (!dlAdBlockSynced && window.sailDownloadBridge) {
                 dlAdBlockSynced = true;
@@ -18638,25 +18996,19 @@
             loadDlEnabledFromSettings();
             const wrap = document.getElementById('downloadSourceToggles');
             if (!wrap) return;
-            // A debrid-gated source (SteamRIP) is locked until a service is connected.
-            const isLocked = (id) => !!(DL_SOURCES[id].requiresDebrid && !(window.debridConnected && window.debridConnected()));
             const styleChip = (chip, id) => {
                 const src = DL_SOURCES[id];
-                const locked = isLocked(id);
-                const on = !locked && dlEnabled[id];
-                chip.textContent = `${locked ? '🔒 ' : ''}${src.name}`;
+                const on = !!dlEnabled[id];
+                chip.textContent = src.name;
                 const color = SafeDom.safeCssColor(src.color, '#888888');
                 chip.style.background = on ? color : 'transparent';
                 chip.style.color = on ? '#fff' : color;
-                chip.style.opacity = locked ? '0.45' : (on ? '1' : '0.7');
-                chip.style.cursor = locked ? 'not-allowed' : 'pointer';
-                chip.title = locked ? 'Requires a connected debrid service' : '';
+                chip.style.opacity = on ? '1' : '0.7';
+                chip.style.cursor = 'pointer';
+                chip.setAttribute('aria-pressed', String(on));
             };
-            // Show/hide the persistent SteamRIP lock hint
-            const hint = document.getElementById('steamripLockHint');
-            if (hint) hint.style.display = isLocked('steamrip') ? 'block' : 'none';
             if (wrap.querySelector('.dl-chip')) {
-                // already built — just sync opt-in visibility + chip states
+                // already built — just sync the saved source states
                 wrap.querySelectorAll('.dl-chip').forEach(chip => {
                     const id = chip.dataset.id;
                     styleChip(chip, id);
@@ -18666,17 +19018,13 @@
             Object.keys(DL_SOURCES).forEach(id => {
                 const src = DL_SOURCES[id];
                 const chip = document.createElement('button');
+                chip.type = 'button';
                 chip.className = 'dl-chip';
                 chip.dataset.id = id;
                 chip.style.cssText = 'padding:6px 14px;border-radius:99px;font-size:12px;font-weight:bold;cursor:pointer;border:1px solid;transition:opacity .15s;';
                 chip.style.borderColor = SafeDom.safeCssColor(src.color, '#888888');
                 styleChip(chip, id);
                 chip.onclick = () => {
-                    if (isLocked(id)) {
-                        alert(src.name + ' requires a connected debrid service.\n\nConnect one in Download Settings → Debrid Services to unlock it.');
-                        openDownloadSettings();
-                        return;
-                    }
                     dlEnabled[id] = !dlEnabled[id];
                     styleChip(chip, id);
                     if (window.sailDownloadBridge) window.sailDownloadBridge.saveEnabledSources(Object.assign({}, dlEnabled));
@@ -18699,71 +19047,203 @@
         async function dlFetchDoc(request) {
             const res = request && request.reference
                 ? await remoteData.getDownloadSourceDetail(request.reference)
-                : await remoteData.searchDownloadSource(request.source, request.query);
-            if (!res || !res.html) return { doc: null, references: [], error: (res && res.error) || 'Request failed' };
+                : await remoteData.searchDownloadSource(request.source, request.query, request.page);
+            if (!res || !res.html) return { doc: null, references: [], pagination: null, error: (res && res.error) || 'Request failed' };
             if (DL_CHALLENGE.test(res.html) && res.html.length < 60000) {
-                return { doc: null, references: [], error: 'The source requires browser verification' };
+                return { doc: null, references: [], pagination: res.pagination || null, error: 'The source requires browser verification' };
             }
             const doc = new DOMParser().parseFromString(res.html, 'text/html');
-            return { doc, references: res.references || [], error: null };
+            return { doc, references: res.references || [], pagination: res.pagination || null, error: null };
         }
 
-        window.runDownloadSearch = async function () {
-            const query = document.getElementById('downloadSearchInput').value.trim();
+        function renderDownloadPagination(disabled) {
+            const pagination = document.getElementById('downloadPagination');
+            pagination.replaceChildren();
+            if (dlSearchState.totalPages <= 1) {
+                pagination.hidden = true;
+                return;
+            }
+
+            const addButton = (label, page, options = {}) => {
+                const button = SafeDom.element(document, 'button', { text: label });
+                button.type = 'button';
+                button.disabled = !!disabled || !!options.disabled;
+                button.setAttribute('aria-label', options.ariaLabel || `Page ${page}`);
+                if (page === dlSearchState.page && options.number) button.setAttribute('aria-current', 'page');
+                button.onclick = () => window.goToDownloadSearchPage(page);
+                pagination.appendChild(button);
+            };
+
+            addButton('‹ Previous', dlSearchState.page - 1, {
+                disabled: dlSearchState.page <= 1,
+                ariaLabel: 'Previous results page'
+            });
+            DownloadSourceLogic.paginationWindow(dlSearchState.page, dlSearchState.totalPages).forEach(page => {
+                if (page === null) {
+                    pagination.appendChild(SafeDom.element(document, 'span', { className: 'dl-page-ellipsis', text: '…' }));
+                } else {
+                    addButton(String(page), page, { number: true });
+                }
+            });
+            addButton('Next ›', dlSearchState.page + 1, {
+                disabled: dlSearchState.page >= dlSearchState.totalPages,
+                ariaLabel: 'Next results page'
+            });
+            pagination.appendChild(SafeDom.element(document, 'span', {
+                className: 'dl-page-summary',
+                text: `Page ${dlSearchState.page} of ${dlSearchState.totalPages}`
+            }));
+            pagination.hidden = false;
+        }
+
+        window.goToDownloadSearchPage = function (page) {
+            const requested = Math.trunc(Number(page));
+            if (dlSearchBusy || !Number.isInteger(requested) || requested < 1
+                || requested > dlSearchState.totalPages || requested === dlSearchState.page) return;
+            window.runDownloadSearch({ pagination: true, page: requested });
+        };
+
+        window.runDownloadSearch = async function (options = {}) {
+            const pageNavigation = !!(options && options.pagination);
+            if (dlSearchBusy) return;
+            const input = document.getElementById('downloadSearchInput');
+            const query = pageNavigation ? dlSearchState.query : input.value.trim();
             const resultsEl = document.getElementById('downloadResults');
             const statusEl = document.getElementById('downloadStatus');
             const emptyEl = document.getElementById('downloadEmptyState');
-            if (!query) { document.getElementById('downloadSearchInput').focus(); return; }
+            if (!query) { input.focus(); return; }
 
-            const debridOk = !!(window.debridConnected && window.debridConnected());
-            const active = Object.keys(dlEnabled).filter(id => dlEnabled[id] && !(DL_SOURCES[id].requiresDebrid && !debridOk));
+            const eligible = id => !!DL_SOURCES[id];
+            const active = pageNavigation
+                ? dlSearchState.active.filter(eligible)
+                : Object.keys(dlEnabled).filter(id => dlEnabled[id] && eligible(id));
             if (active.length === 0) { alert('Enable at least one source first.'); return; }
 
+            const previousPage = dlSearchState.page;
+            const page = pageNavigation
+                ? Math.max(1, Math.min(dlSearchState.totalPages, Math.trunc(Number(options.page) || 1)))
+                : 1;
+            if (!pageNavigation) {
+                dlSearchState.query = query;
+                dlSearchState.active = active.slice();
+                dlSearchState.sourcePages = Object.create(null);
+                dlSearchState.totalPages = 1;
+                dlSearchState.page = 1;
+                document.getElementById('downloadPagination').hidden = true;
+            }
+
             const token = ++dlSearchToken;
-            resultsEl.replaceChildren();
-            dlCardIndex = 0;
+            dlSearchBusy = true;
+            const searchButton = document.getElementById('downloadSearchBtn');
+            if (searchButton) {
+                searchButton.disabled = true;
+                searchButton.setAttribute('aria-busy', 'true');
+            }
+            try {
+            if (pageNavigation) {
+                resultsEl.classList.add('dl-page-loading');
+                renderDownloadPagination(true);
+            } else {
+                resultsEl.replaceChildren();
+                resultsEl.classList.remove('dl-page-loading', 'dl-page-next', 'dl-page-previous');
+            }
             emptyEl.style.display = 'none';
             statusEl.style.display = 'block';
             statusEl.replaceChildren(
                 SafeDom.element(document, 'span', { className: 'dl-spinner' }),
-                document.createTextNode(` Searching ${active.length} source${active.length > 1 ? 's' : ''}…`)
+                document.createTextNode(` ${pageNavigation ? `Loading page ${page}` : 'Searching'} across ${active.length} source${active.length > 1 ? 's' : ''}…`)
             );
 
-            let total = 0;
-            let done = 0;
-            await Promise.all(active.map(async id => {
+            const batches = await Promise.all(active.map(async id => {
                 const src = DL_SOURCES[id];
+                const knownPages = dlSearchState.sourcePages[id];
+                if (pageNavigation && Number.isInteger(knownPages) && page > knownPages) {
+                    return { id, items: [], totalPages: knownPages, skipped: true };
+                }
                 try {
                     // Sources with a custom search (e.g. SteamGG's REST API) bypass HTML scraping.
                     if (src.searchFn) {
-                        const items = await src.searchFn(query) || [];
-                        if (token !== dlSearchToken) return;
-                        if (!items.length) renderSourceFallback(id, query, 'No results');
-                        else items.forEach(it => { renderDownloadCard(id, it); total++; });
-                        return; // finally{} still runs (done++ + status)
+                        const response = await src.searchFn(query, page) || {};
+                        return {
+                            id,
+                            items: Array.isArray(response.items) ? response.items : [],
+                            coverPromise: response.coverPromise,
+                            totalPages: Math.max(page, Math.min(1000, Number(response.totalPages) || page))
+                        };
                     }
-                    const { doc, references, error } = await dlFetchDoc({ source: id, query });
-                    if (token !== dlSearchToken) return;
-                    if (error || !doc) { renderSourceFallback(id, query, error || 'blocked'); done++; return; }
+                    const { doc, references, pagination, error } = await dlFetchDoc({ source: id, query, page });
+                    if (error || !doc) return { id, items: [], totalPages: knownPages || page, error: error || 'blocked' };
                     const items = src.results(doc, query) || [];
                     items.forEach(item => { item.reference = referenceForSourceUrl(references, item.url); });
-                    if (items.length === 0) { renderSourceFallback(id, query, 'No results'); }
-                    items.filter(item => item.reference).forEach(it => { renderDownloadCard(id, it); total++; });
+                    const totalPages = src.pageCount
+                        ? src.pageCount(doc, page)
+                        : ((pagination && pagination.totalPages) || page);
+                    return {
+                        id,
+                        items: items.filter(item => item.reference),
+                        totalPages: Math.max(page, Math.min(1000, Number(totalPages) || page))
+                    };
                 } catch (e) {
-                    if (token === dlSearchToken) renderSourceFallback(id, query, e.message);
-                } finally {
-                    done++;
-                    if (token === dlSearchToken) {
-                        statusEl.textContent = done < active.length
-                            ? `Searching... (${done}/${active.length} sources, ${total} results)`
-                            : `Found ${total} result${total === 1 ? '' : 's'} across ${active.length} source${active.length > 1 ? 's' : ''}.`;
-                    }
+                    return { id, items: [], totalPages: knownPages || page, error: e.message };
                 }
             }));
-            if (token === dlSearchToken && total === 0 && !resultsEl.children.length) {
+
+            if (token !== dlSearchToken) return;
+            batches.forEach(batch => {
+                if (Number.isInteger(batch.totalPages)) dlSearchState.sourcePages[batch.id] = batch.totalPages;
+            });
+            dlSearchState.page = page;
+            dlSearchState.totalPages = Math.max(1, ...active.map(id => dlSearchState.sourcePages[id] || 1));
+            resultsEl.replaceChildren();
+            resultsEl.classList.remove('dl-page-loading', 'dl-page-next', 'dl-page-previous');
+            if (pageNavigation) resultsEl.classList.add(page > previousPage ? 'dl-page-next' : 'dl-page-previous');
+            dlCardIndex = 0;
+
+            let total = 0;
+            batches.forEach(batch => {
+                if (batch.error) {
+                    renderSourceFallback(batch.id, query, batch.error);
+                } else if (!batch.skipped && batch.items.length === 0 && page === 1) {
+                    renderSourceFallback(batch.id, query, 'No results');
+                } else {
+                    batch.renderedCards = batch.items.map(item => {
+                        total++;
+                        return { item, card: renderDownloadCard(batch.id, item) };
+                    });
+                }
+            });
+            statusEl.textContent = `Found ${total} result${total === 1 ? '' : 's'} across ${active.length} source${active.length > 1 ? 's' : ''} · Page ${page} of ${dlSearchState.totalPages}.`;
+            renderDownloadPagination(false);
+
+            if (total === 0 && !resultsEl.children.length) {
                 emptyEl.style.display = 'flex';
-                emptyEl.querySelector('h3').textContent = 'No results found';
-                statusEl.style.display = 'none';
+                emptyEl.querySelector('h3').textContent = page > 1 ? 'No results on this page' : 'No results found';
+            }
+            if (pageNavigation) {
+                const reduceMotion = document.body.classList.contains('less-animations') || document.body.classList.contains('reduce-motion');
+                requestAnimationFrame(() => resultsEl.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' }));
+            }
+            batches.forEach(batch => {
+                if (!batch.coverPromise || !Array.isArray(batch.renderedCards)) return;
+                Promise.resolve(batch.coverPromise).then(covers => {
+                    if (token !== dlSearchToken || page !== dlSearchState.page || query !== dlSearchState.query) return;
+                    const byUrl = new Map((Array.isArray(covers) ? covers : []).map(cover => [cover.url, cover.image]));
+                    batch.renderedCards.forEach(({ item, card }) => {
+                        const image = byUrl.get(item.url);
+                        if (!image || !card || typeof card.updateImage !== 'function') return;
+                        item.image = image;
+                        card.updateImage(image);
+                    });
+                }).catch(() => {});
+            });
+            } finally {
+                if (token === dlSearchToken) {
+                    dlSearchBusy = false;
+                    if (searchButton) {
+                        searchButton.disabled = false;
+                        searchButton.removeAttribute('aria-busy');
+                    }
+                }
             }
         };
 
@@ -18793,9 +19273,20 @@
             const src = DL_SOURCES[id];
             const resultsEl = document.getElementById('downloadResults');
             const card = document.createElement('div');
+            const itemName = String(item.name || '').slice(0, 512);
             card.className = 'dl-card';
+            card.tabIndex = 0;
+            card.setAttribute('role', 'button');
+            card.setAttribute('aria-label', `View ${itemName || 'game'} from ${src.name}`);
             card.style.animationDelay = Math.min(dlCardIndex++ * 35, 500) + 'ms';
-            card.onclick = () => openDownloadDetail(id, item);
+            const activate = () => openDownloadDetail(id, item, card);
+            card.onclick = activate;
+            card.onkeydown = event => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    activate();
+                }
+            };
 
             const cover = document.createElement('div');
             cover.className = 'dl-cover-wrap';
@@ -18815,28 +19306,47 @@
             img.onerror = showMissingCover;
             const grad = document.createElement('div'); grad.className = 'dl-cover-grad';
             const badge = document.createElement('span'); badge.className = 'dl-badge'; badge.style.background = SafeDom.safeCssColor(src.color, '#888888'); badge.textContent = src.name;
-            const play = document.createElement('div'); play.className = 'dl-play'; play.append(SafeDom.element(document, 'span', { text: '▶ View' }));
+            const play = document.createElement('div');
+            play.className = 'dl-play';
+            const playPill = SafeDom.element(document, 'span');
+            const playIcon = SafeDom.element(document, 'span', { className: 'app-ic' });
+            playIcon.dataset.ic = 'play';
+            playIcon.setAttribute('aria-hidden', 'true');
+            playPill.append(playIcon, document.createTextNode('View'));
+            play.append(playPill);
             cover.appendChild(img); cover.appendChild(grad); cover.appendChild(badge); cover.appendChild(play);
 
             const title = document.createElement('h4');
             title.className = 'dl-title';
-            title.textContent = String(item.name || '').slice(0, 512);
+            title.textContent = itemName;
 
             card.appendChild(cover);
             card.appendChild(title);
             resultsEl.appendChild(card);
+            return {
+                updateImage(image) {
+                    img.hidden = false;
+                    cover.classList.remove('dl-cover-missing');
+                    img.onerror = showMissingCover;
+                    if (!SafeDom.setImageSource(img, image, { allowAnyHost: true, hideInvalid: false })) showMissingCover();
+                }
+            };
         }
 
-        window.openDownloadInAppBrowser = function (url) {
+        window.openDownloadInAppBrowser = function (url, referrer = '') {
             // Reuse the in-app webview browser (formerly the Sources tab)
             Promise.resolve(window.switchMainTab && window.switchMainTab('sources')).then(() => {
-                if (window.openSourcesBrowser) window.openSourcesBrowser(url, false);
+                if (window.openSourcesBrowser) window.openSourcesBrowser(url, false, { referrer });
             });
         };
 
         window.startRestrictedBrowserDownload = function (item, set, sourceId) {
             const part = set && set.parts && set.parts[0];
             if (!part || !part.url) return;
+            if (isExternalBrowserOnlyHost(set && set.host)) {
+                if (window.openSourcesBrowser) window.openSourcesBrowser(part.url, true, { referrer: item.url });
+                return;
+            }
             const settings = (window.sailDownloadBridge && window.sailDownloadBridge.getSettings()) || {};
             Promise.resolve(window.switchMainTab && window.switchMainTab('sources')).then(async () => {
                 const webview = document.getElementById('sourceWebview');
@@ -18857,25 +19367,32 @@
                         const id = prepared.jobId;
                         dlQueue.set(id, {
                             id, name: item.name, image: item.image, sourceId, category: 'game',
-                            url: part.url, percent: 0, state: 'waiting-browser',
+                            url: part.url, referrer: item.url, percent: 0, state: 'waiting-browser',
                             label: 'Waiting for you to start the download in the browser...',
                             browserCapture: true
                         });
                         renderDock();
-                        if (settings.autoSwitchDownloads) switchMainTab('downloads');
                     } catch (e) {}
                 }
-                if (window.openSourcesBrowser) window.openSourcesBrowser(part.url, false);
+                if (window.openSourcesBrowser) window.openSourcesBrowser(part.url, false, { referrer: item.url });
             });
         };
 
         // ---- Full game detail page (Steam-store style) -------------------
         let dlCurrent = null;
         let dlDetailToken = 0; // bumps each time a detail page opens; kills stale async writes
+        let dlDetailReturnFocus = null;
 
         window.closeDownloadDetail = function () {
+            ++dlDetailToken;
             document.getElementById('downloadDetailPanel').style.display = 'none';
             document.getElementById('downloadSearchPanel').style.display = 'flex';
+            const fallback = document.getElementById('downloadSearchInput');
+            const focusTarget = dlDetailReturnFocus && dlDetailReturnFocus.isConnected ? dlDetailReturnFocus : fallback;
+            dlDetailReturnFocus = null;
+            if (focusTarget && typeof focusTarget.focus === 'function') {
+                requestAnimationFrame(() => focusTarget.focus({ preventScroll: true }));
+            }
         };
 
         let dlScreenshotViewer = null;
@@ -18931,7 +19448,22 @@
         }
 
         document.addEventListener('keydown', event => {
-            if (event.key === 'Escape' && dlScreenshotViewer && !dlScreenshotViewer.hidden) closeDownloadScreenshot();
+            const screenshotOpen = dlScreenshotViewer && !dlScreenshotViewer.hidden;
+            if (screenshotOpen) {
+                if (event.key === 'Escape') {
+                    event.preventDefault();
+                    closeDownloadScreenshot();
+                } else if (event.key === 'Tab') {
+                    event.preventDefault();
+                    dlScreenshotViewer.querySelector('button').focus();
+                }
+                return;
+            }
+            const detailPanel = document.getElementById('downloadDetailPanel');
+            if (event.key === 'Escape' && detailPanel && detailPanel.style.display !== 'none') {
+                event.preventDefault();
+                closeDownloadDetail();
+            }
         });
 
         function screenshotImages(scope) {
@@ -19031,19 +19563,14 @@
             return m ? parseInt(m[1], 10) : 0;
         }
         // Higher = better host for the auto 1-click (aria2-friendly, no captcha/token wall).
-        // Hosts behind Cloudflare's interactive human-check — without help we can't get a
-        // direct link, so the download button becomes "Browse". BUT a connected debrid service
-        // resolves these server-side (it bypasses the Cloudflare/download wall), so when debrid
-        // is connected DataNodes / AkiraBox / BuzzHeavier become normal 1-click downloads.
-        // 1337x is a torrent *index* page (not a direct file link) so debrid can't help — it
-        // stays browse-only regardless.
+        // All supported hosts enter the same one-click resolver pipeline. If a host serves
+        // an interactive challenge, the main process handles it in an isolated browser and
+        // captures only the validated provider download URL.
+        function isExternalBrowserOnlyHost(host) {
+            return /(^|\.)akirabox\.(?:com|to)$/i.test(String(host || ''));
+        }
         function isCFBlockedHost(host) {
-            host = host || '';
-            if (/1337x/i.test(host)) return true;
-            if (/datanodes|akirabox/i.test(host)) {
-                return !(window.debridConnected && window.debridConnected());
-            }
-            return false;
+            return isExternalBrowserOnlyHost(host);
         }
 
         function restrictedDownloadsEnabled() {
@@ -19051,21 +19578,25 @@
             return !!s.restrictedDownloads;
         }
         function isRestrictedHost(host) {
-            return /gofile|buzzheavier|bzzhr|datanodes|akirabox|1337x/i.test(host || '');
+            // These providers are handled by the main-process direct/managed resolver. A stale
+            // legacy compatibility setting must never downgrade them to a browser-only button.
+            return false;
         }
 
         function dlHostScore(host) {
             if (host === 'magnet') return 30;
             // ordered by how reliably our HTTP scrapers resolve each host
             if (/pixeldrain/i.test(host)) return 100;
-            if (/fuckingfast/i.test(host)) return 95;
             if (/filekeeper/i.test(host)) return 92;  // XFS op=download2 → signed CDN link, no captcha
             if (/gofile/i.test(host)) return 90;   // computed-token API, multi-part folders
+            if (/fileditch/i.test(host)) return 86; // credential-free redirect to the real file
+            if (/buzzheavier|bzzhr/i.test(host)) return 82; // token endpoint + managed browser session fallback
+            if (/fuckingfast/i.test(host)) return 80;
+            if (/datanodes/i.test(host)) return 76;
+            if (/akirabox/i.test(host)) return 72;
             if (/mediafire/i.test(host)) return 70;
+            if (/1337x/i.test(host)) return 60;
             if (/1fichier|hexload|vikingfile|rootz|multiup|bowfile|mega/i.test(host)) return 45;
-            // datanodes, akirabox & 1337x are behind a manual Cloudflare human-check
-            // → can't auto-download; keep them last so 1-click only falls back to them.
-            if (/datanodes|akirabox|1337x/i.test(host)) return 20;
             return 40;
         }
         // Group raw links into downloadable "sets": one set per file-host (all its
@@ -19074,50 +19605,145 @@
         // parts that need setup.exe + the whole set), so we make it the default —
         // matching how Black-Pearl handles FitGirl.
         function groupDownloadSets(links, sourceId) {
-            const magnets = [], byHost = {};
-            (links || []).forEach(l => {
-                if (l.type === 'page') return;
-                // BuzzHeavier is interactive and only appears when restricted downloads
-                // are enabled; it is then handed to the built-in browser.
-                if (/buzzheavier|bzzhr/i.test(l.url || '') && !restrictedDownloadsEnabled()) return;
-                if (l.type === 'magnet') { magnets.push(l); return; }
-                if (DL_SKIP_FILE_RE.test((l.label || '') + ' ' + (l.url || ''))) return;
-                const h = dlHostOf(l.url);
-                if (!h) return;
-                (byHost[h] = byHost[h] || []).push(l);
+            return DownloadSourceLogic.groupDownloadSets(links, sourceId, {
+                scoreHost: dlHostScore,
+                shouldSplitRestrictedMultipart: host =>
+                    /fuckingfast/i.test(host) && isCFBlockedHost(host)
             });
-            const sets = [];
-            Object.keys(byHost).forEach(h => {
-                // de-dupe by url, sort parts by detected part number
-                const seen = new Set();
-                const parts = byHost[h].filter(p => !seen.has(p.url) && seen.add(p.url))
-                    .sort((a, b) => dlPartNum(a.label || a.url) - dlPartNum(b.label || b.url));
-                sets.push({ host: h, kind: 'http', parts, score: dlHostScore(h) });
-            });
-            if (magnets.length) sets.push({ host: 'Magnet / Torrent', kind: 'magnet', parts: [magnets[0]], score: dlHostScore('magnet') });
-            const repack = sourceId === 'fitgirl';
-            const rank = (s) => s.score + (s.parts.length > 1 ? 8 : 0) + (repack && s.kind === 'magnet' ? 1000 : 0);
-            sets.sort((a, b) => rank(b) - rank(a));
-            return sets;
         }
 
-        // Mirror URLs to race the chosen download against: other hosts carrying the SAME
-        // game. Only single-file http sets are interchangeable mirrors — multi-part sets
-        // and magnets are not — and Cloudflare-walled hosts can't auto-resolve, so skip them.
-        function mirrorUrlsFor(sets, chosen) {
-            if (!chosen || chosen.kind !== 'http' || chosen.parts.length !== 1) return [];
-            return (sets || [])
-                .filter(s => s !== chosen && s.kind === 'http' && s.parts.length === 1 && !isCFBlockedHost(s.host) && !(restrictedDownloadsEnabled() && isRestrictedHost(s.host)))
-                .map(s => s.parts[0].url);
+        function dlSetHostLabel(set) {
+            const first = set && Array.isArray(set.parts) && set.parts[0];
+            return String(first && first.label || set && set.host || 'Download').slice(0, 256);
         }
 
-        window.openDownloadDetail = async function (id, item) {
+        const downloadLinkHealthState = new Map();
+        const downloadLinkHealthRequests = new Map();
+
+        function downloadLinkHealthKey(url, sourceId) {
+            return String(sourceId || '').toLowerCase() + '\n' + String(url || '');
+        }
+
+        function downloadSetHealthTargets(set, sourceId) {
+            if (!set || set.kind === 'magnet' || !Array.isArray(set.parts)) return [];
+            const seen = new Set();
+            const targets = [];
+            for (const part of set.parts) {
+                const url = String(part && part.url || '');
+                const key = downloadLinkHealthKey(url, sourceId);
+                if (!url || seen.has(key)) continue;
+                seen.add(key);
+                targets.push({ key, url, sourceId: String(sourceId || '') });
+                // Multipart mirrors normally share one health state. Four bounded
+                // checks are enough to catch a missing part without hammering a host.
+                if (targets.length >= 4) break;
+            }
+            return targets;
+        }
+
+        function downloadHealthPresentation(indicator) {
+            const values = (indicator._downloadHealthKeys || [])
+                .map(key => downloadLinkHealthState.get(key))
+                .filter(Boolean);
+            const expected = (indicator._downloadHealthKeys || []).length;
+            if (!expected || values.length < expected) return { status: 'checking', text: '● Checking link status…' };
+            const down = values.find(value => value.status === 'down');
+            if (down) return { status: 'down', text: '● Offline — choose another mirror' };
+            const verification = values.find(value => value.status === 'verification-required');
+            if (verification) return { status: 'verification-required', text: '● Verification may be needed' };
+            if (values.every(value => value.status === 'available')) return { status: 'available', text: '● Link available' };
+            if (values.every(value => value.reason === 'unsupported-health-target')) return { status: 'unsupported', text: '' };
+            return { status: 'unknown', text: '● Link status could not be confirmed' };
+        }
+
+        function renderDownloadHealthIndicator(indicator) {
+            if (!indicator) return;
+            const presentation = downloadHealthPresentation(indicator);
+            const button = indicator._downloadHealthButton;
+            indicator.hidden = presentation.status === 'unsupported';
+            indicator.textContent = presentation.text;
+            indicator.dataset.downloadHealthStatus = presentation.status;
+            indicator.title = presentation.status === 'down'
+                ? 'This host reports that the selected file is no longer online.'
+                : presentation.text.replace(/^●\s*/, '');
+            if (!button) return;
+            if (presentation.status === 'down') {
+                button.dataset.downloadHealthDisabled = 'true';
+                button.disabled = true;
+                button.title = 'This download is offline. Choose another mirror.';
+            } else if (button.dataset.downloadHealthDisabled === 'true') {
+                delete button.dataset.downloadHealthDisabled;
+                button.disabled = false;
+                button.removeAttribute('title');
+            }
+        }
+
+        function updateDownloadLinkHealth(url, sourceId, value) {
+            const key = downloadLinkHealthKey(url, sourceId);
+            downloadLinkHealthState.set(key, {
+                status: ['available', 'down', 'verification-required', 'unknown'].includes(value && value.status)
+                    ? value.status
+                    : 'unknown',
+                reason: String(value && value.reason || 'unknown').slice(0, 160)
+            });
+            document.querySelectorAll('.download-link-health').forEach(indicator => {
+                if ((indicator._downloadHealthKeys || []).includes(key)) renderDownloadHealthIndicator(indicator);
+            });
+        }
+
+        function requestDownloadLinkHealth(target) {
+            if (downloadLinkHealthState.has(target.key)) return;
+            if (downloadLinkHealthRequests.has(target.key)) return;
+            const request = ipcRenderer.invoke('get-download-link-health', {
+                url: target.url,
+                sourceId: target.sourceId
+            }).then(value => updateDownloadLinkHealth(target.url, target.sourceId, value), () => {
+                updateDownloadLinkHealth(target.url, target.sourceId, { status: 'unknown', reason: 'health-check-failed' });
+            }).finally(() => downloadLinkHealthRequests.delete(target.key));
+            downloadLinkHealthRequests.set(target.key, request);
+        }
+
+        function buildDownloadHealthIndicator(set, sourceId, button) {
+            const targets = downloadSetHealthTargets(set, sourceId);
+            if (!targets.length) return null;
+            const indicator = document.createElement('span');
+            indicator.className = 'download-link-health';
+            indicator.setAttribute('role', 'status');
+            indicator.setAttribute('aria-live', 'polite');
+            indicator._downloadHealthKeys = targets.map(target => target.key);
+            indicator._downloadHealthButton = button || null;
+            renderDownloadHealthIndicator(indicator);
+            targets.forEach(requestDownloadLinkHealth);
+            return indicator;
+        }
+
+        function offlineDownloadTarget(parts, sourceId) {
+            for (const part of parts || []) {
+                const value = downloadLinkHealthState.get(downloadLinkHealthKey(part && part.url, sourceId));
+                if (value && value.status === 'down') return part;
+            }
+            return null;
+        }
+
+        function warnOfflineDownload(parts, sourceId) {
+            if (!offlineDownloadTarget(parts, sourceId)) return false;
+            void sailAlert('This download is offline or no longer exists. Choose another mirror.', {
+                title: 'Download unavailable',
+                tone: 'warning'
+            });
+            return true;
+        }
+
+        window.openDownloadDetail = async function (id, item, trigger = null) {
             const src = DL_SOURCES[id];
             const myToken = ++dlDetailToken; // anything async below must re-check this
+            dlDetailReturnFocus = trigger && typeof trigger.focus === 'function' ? trigger : document.activeElement;
             dlCurrent = { id, item, src };
             document.getElementById('downloadSearchPanel').style.display = 'none';
             document.getElementById('downloadDetailPanel').style.display = 'flex';
             document.getElementById('mainScroller').scrollTop = 0;
+            const backButton = document.getElementById('downloadDetailBackButton');
+            if (backButton) requestAnimationFrame(() => backButton.focus({ preventScroll: true }));
 
             const hero = document.getElementById('ddpHero');
             if (!SafeDom.setImageSource(hero, item.image, { allowAnyHost: true, hideInvalid: false })) hero.src = 'icon.ico';
@@ -19189,28 +19815,41 @@
             const sets = groupDownloadSets(links, id);
             if (sets.length) {
                 const best = sets[0];
+                const bestLabel = dlSetHostLabel(best);
+                const bestIsLanguages = best.group === 'languages';
                 const dlBtn = document.createElement('button');
+                dlBtn.type = 'button';
                 dlBtn.className = 'dl-ddl-btn';
-                dlBtn.style.cssText = 'width:100%;padding:14px;border-radius:10px;font-size:15px;font-weight:bold;margin-bottom:12px;background:var(--accent);border:none;color:#fff;cursor:pointer;';
                 if (restrictedDownloadsEnabled() && isRestrictedHost(best.host)) {
-                    dlBtn.textContent = '🌐 Open in Browser — ' + String(best.host || '').slice(0, 256);
+                    dlBtn.textContent = '🌐 Open ' + (bestIsLanguages ? 'Languages ' : '') + 'in Browser — ' + bestLabel;
                     dlBtn.onclick = () => startRestrictedBrowserDownload(item, best, id);
                 } else if (isCFBlockedHost(best.host)) {
-                    dlBtn.textContent = '🌐 Browse — ' + String(best.host || '').slice(0, 256) + ' (Cloudflare check required)';
-                    dlBtn.onclick = () => openDownloadInAppBrowser(best.parts[0].url || item.url);
+                    dlBtn.textContent = '🌐 Open ' + (bestIsLanguages ? 'Languages ' : '') + 'in Browser — ' + bestLabel + ' (provider check required)';
+                    dlBtn.onclick = () => startRestrictedBrowserDownload(item, best, id);
                 } else {
-                    const tag = best.kind === 'magnet' ? '' : ' — ' + best.host + (best.parts.length > 1 ? ' (' + best.parts.length + ' parts)' : '');
-                    dlBtn.textContent = (best.kind === 'magnet' ? '🧲 ' : '⬇️ ') + 'Download (1-Click)' + tag;
-                    dlBtn.onclick = () => startGameDownloadSet(item, best, id, mirrorUrlsFor(sets, best));
+                    const tag = best.kind === 'magnet' ? '' : ' — ' + bestLabel + (best.parts.length > 1 ? ' (' + best.parts.length + ' parts)' : '');
+                    dlBtn.textContent = (best.kind === 'magnet' ? '🧲 ' : '⬇️ ') + (bestIsLanguages ? 'Download Languages' : 'Download (1-Click)') + tag;
+                    dlBtn.onclick = () => startGameDownloadSet(item, best, id);
                 }
                 area.appendChild(dlBtn);
+                const primaryHealth = buildDownloadHealthIndicator(best, id, dlBtn);
+                if (primaryHealth) area.appendChild(primaryHealth);
 
-                if (sets.length > 1) {
+                const otherGameSets = sets.filter(set => set !== best && set.group !== 'languages');
+                const languageSets = sets.filter(set => set !== best && set.group === 'languages');
+                if (otherGameSets.length) {
                     const more = document.createElement('div');
                     more.style.cssText = 'font-size:11px;opacity:0.5;text-transform:uppercase;font-weight:bold;margin:10px 0 8px 0;';
                     more.textContent = 'Other download options';
                     area.appendChild(more);
-                    sets.slice(1).forEach(set => area.appendChild(buildSetRow(set, item, id, sets)));
+                    otherGameSets.forEach(set => area.appendChild(buildSetRow(set, item, id, sets)));
+                }
+                if (languageSets.length) {
+                    const languages = document.createElement('div');
+                    languages.style.cssText = 'font-size:11px;opacity:0.5;text-transform:uppercase;font-weight:bold;margin:10px 0 8px 0;';
+                    languages.textContent = 'Languages';
+                    area.appendChild(languages);
+                    languageSets.forEach(set => area.appendChild(buildSetRow(set, item, id, sets)));
                 }
             } else {
                 const p = document.createElement('p');
@@ -19224,34 +19863,38 @@
         // A grouped host set: one "Download all" action that grabs every part.
         function buildSetRow(set, item, sourceId, sets) {
             const row = document.createElement('div');
-            row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--bg-color);border:1px solid var(--border-color);border-radius:8px;margin-bottom:8px;';
+            row.className = 'download-option-row';
             const icon = document.createElement('span');
-            icon.style.cssText = 'font-size:18px;flex-shrink:0;';
+            icon.className = 'download-option-icon';
+            icon.setAttribute('aria-hidden', 'true');
             icon.textContent = set.kind === 'magnet' ? '🧲' : '⬇️';
             const label = document.createElement('div');
-            label.style.cssText = 'flex-grow:1;min-width:0;';
-            label.append(
-                SafeDom.element(document, 'div', { text: String(set.host || '').slice(0, 256) }),
-                SafeDom.element(document, 'div', { text: `${set.parts.length} file${set.parts.length > 1 ? 's' : ''}` })
-            );
+            label.className = 'download-option-copy';
+            label.append(SafeDom.element(document, 'div', { text: dlSetHostLabel(set) }));
+            if (set.partLabel) label.append(SafeDom.element(document, 'div', { text: set.partLabel }));
+            label.append(SafeDom.element(document, 'div', { text: `${set.parts.length} file${set.parts.length > 1 ? 's' : ''}` }));
             const actions = document.createElement('div');
-            actions.style.cssText = 'display:flex;gap:5px;flex-shrink:0;';
+            actions.className = 'download-option-actions';
             const b = document.createElement('button');
+            b.type = 'button';
             b.className = 'outline';
             b.style.cssText = 'padding:6px 10px;font-size:11px;border-radius:6px;white-space:nowrap;';
             if (restrictedDownloadsEnabled() && isRestrictedHost(set.host)) {
                 b.textContent = '🌐 Browser';
                 b.onclick = () => startRestrictedBrowserDownload(item, set, sourceId);
             } else if (isCFBlockedHost(set.host)) {
-                b.textContent = '🌐 Browse';
-                b.onclick = () => openDownloadInAppBrowser(set.parts[0].url || item.url);
+                b.textContent = '🌐 Open in Browser';
+                b.onclick = () => startRestrictedBrowserDownload(item, set, sourceId);
             } else {
                 b.textContent = set.parts.length > 1 ? '⬇️ Download all' : '⬇️ Download';
-                b.onclick = () => startGameDownloadSet(item, set, sourceId, mirrorUrlsFor(sets, set));
+                b.onclick = () => startGameDownloadSet(item, set, sourceId);
             }
+            const health = buildDownloadHealthIndicator(set, sourceId, b);
+            if (health) label.appendChild(health);
             actions.appendChild(b);
             if (set.kind === 'magnet') {
                 const c = document.createElement('button');
+                c.type = 'button';
                 c.className = 'outline';
                 c.style.cssText = 'padding:6px 10px;font-size:11px;border-radius:6px;';
                 c.textContent = '📋';
@@ -19262,6 +19905,49 @@
             return row;
         }
 
+        window.__sailProbeDownloadHostButtons = function () {
+            const clicks = [];
+            const browserOpens = [];
+            const previousStartSet = window.startGameDownloadSet;
+            const previousOpenSourcesBrowser = window.openSourcesBrowser;
+            const previousBridge = window.sailDownloadBridge;
+            window.startGameDownloadSet = (_item, set) => clicks.push({ host: set.host, partCount: set.parts.length });
+            window.openSourcesBrowser = (url, openInSystemBrowser) => browserOpens.push({
+                url,
+                system: openInSystemBrowser === true
+            });
+            window.sailDownloadBridge = Object.assign({}, previousBridge || {}, {
+                getSettings: () => Object.assign({}, previousBridge && previousBridge.getSettings
+                    ? previousBridge.getSettings()
+                    : {}, { restrictedDownloads: true })
+            });
+            try {
+                const sets = groupDownloadSets([
+                    { label: 'BuzzHeavier', type: 'web', url: 'https://bzzhr.to/probe-file' },
+                    { label: 'FileDitch', type: 'web', url: 'https://fileditchfiles.me/file.php?f=/probe-file.rar' },
+                    { label: 'GoFile', type: 'web', url: 'https://www.filecrypt.cc/Container/E779AE4ECB.html', resolverHost: 'gofile.io' },
+                    { label: 'DataNodes', type: 'web', url: 'https://datanodes.to/probe-file/game.rar' },
+                    { label: 'AkiraBox', type: 'web', url: 'https://akirabox.to/probe-file/game.rar' },
+                    { label: 'Rootz', type: 'web', url: 'https://www.rootz.so/d/probe-file' },
+                    { label: 'VikingFile', type: 'web', url: 'https://vikingfile.com/f/probe-file' },
+                    { label: '1337x', type: 'web', url: 'https://1337x.to/torrent/1/probe-game/' },
+                    { label: 'FuckingFast Part 1', type: 'web', url: 'https://fuckingfast.co/probe-part-1#game.part1.rar' },
+                    { label: 'FuckingFast Part 2', type: 'web', url: 'https://fuckingfast.com/probe-part-2#game.part2.rar' }
+                ], 'steamrip');
+                const buttons = sets.map(set => {
+                    const row = buildSetRow(set, { name: 'Host resolver probe', image: '' }, 'steamrip', sets);
+                    const button = row.querySelector('button');
+                    if (button) button.click();
+                    return { host: set.host, text: button && button.textContent || '' };
+                });
+                return { buttons, clicks, browserOpens };
+            } finally {
+                window.startGameDownloadSet = previousStartSet;
+                window.openSourcesBrowser = previousOpenSourcesBrowser;
+                window.sailDownloadBridge = previousBridge;
+            }
+        };
+
         function buildLinkRow(link, item, sourceId) {
             const rawLinkUrl = String(link && link.url || '');
             const safeUrl = link && link.type === 'magnet'
@@ -19270,29 +19956,30 @@
             if (!safeUrl) return SafeDom.element(document, 'div', { text: 'This download link was rejected by the URL policy.' });
             link = { ...link, url: safeUrl };
             const row = document.createElement('div');
-            row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--bg-color);border:1px solid var(--border-color);border-radius:8px;margin-bottom:8px;';
+            row.className = 'download-option-row';
             const icon = document.createElement('span');
-            icon.style.cssText = 'font-size:18px;flex-shrink:0;';
+            icon.className = 'download-option-icon';
+            icon.setAttribute('aria-hidden', 'true');
             icon.textContent = link.type === 'magnet' ? '🧲' : (link.type === 'page' ? '🌐' : '⬇️');
             const label = document.createElement('div');
-            label.style.cssText = 'flex-grow:1;min-width:0;';
-            label.append(
-                SafeDom.element(document, 'div', { text: String(link.label || '').slice(0, 512) }),
-                SafeDom.element(document, 'div', { text: String(link.url || '').slice(0, 4096) })
-            );
+            label.className = 'download-option-copy';
+            label.append(SafeDom.element(document, 'div', { text: String(link.label || '').slice(0, 512) }));
+            if (link.type !== 'page') {
+                label.append(SafeDom.element(document, 'div', { text: String(link.url || '').slice(0, 4096) }));
+            }
             const actions = document.createElement('div');
-            actions.style.cssText = 'display:flex;gap:5px;flex-shrink:0;';
-            const mk = (text, fn) => { const b = document.createElement('button'); b.className = 'outline'; b.style.cssText = 'padding:6px 10px;font-size:11px;border-radius:6px;white-space:nowrap;'; b.textContent = text; b.onclick = fn; return b; };
+            actions.className = 'download-option-actions';
+            const mk = (text, fn) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'outline'; b.style.cssText = 'padding:6px 10px;font-size:11px;border-radius:6px;white-space:nowrap;'; b.textContent = text; b.onclick = fn; return b; };
 
             if (link.type === 'magnet') {
                 actions.appendChild(mk('⬇️ Download', () => startGameDownload(item, link, sourceId)));
                 actions.appendChild(mk('📋', () => navigator.clipboard.writeText(link.url)));
             } else if (link.type === 'page') {
-                actions.appendChild(mk('Open Page', () => openDownloadInAppBrowser(link.url)));
+                actions.appendChild(mk('Open', () => openDownloadInAppBrowser(link.url, item.url)));
                 actions.appendChild(mk('Browser', () => ipcRenderer.invoke('open-url', link.url)));
             } else {
                 actions.appendChild(mk('⬇️ Download', () => startGameDownload(item, link, sourceId)));
-                actions.appendChild(mk('Open', () => openDownloadInAppBrowser(link.url)));
+                actions.appendChild(mk('Open', () => openDownloadInAppBrowser(link.url, item.url)));
                 actions.appendChild(mk('📋', () => navigator.clipboard.writeText(link.url)));
             }
             row.appendChild(icon); row.appendChild(label); row.appendChild(actions);
@@ -19301,6 +19988,69 @@
 
         // ---- Download manager + dock -------------------------------------
         const dlQueue = new Map();
+        const hostTransferProbeStates = new Map();
+
+        window.__sailStartHostTransferProbe = function (input) {
+            const label = String(input && input.label || 'Host transfer probe').slice(0, 120);
+            const url = SafeDom.safeExternalUrl(String(input && input.url || ''), { allowAnyHost: true });
+            if (!url) return { id: '', host: '', buttonText: '', error: 'The probe URL was rejected.' };
+            const sets = groupDownloadSets([{ label, type: 'web', url }], 'steamrip');
+            const set = sets[0];
+            if (!set) return { id: '', host: '', buttonText: '', error: 'No downloadable host set was created.' };
+
+            const row = buildSetRow(set, { name: label, image: '' }, 'steamrip', sets);
+            const button = row.querySelector('button');
+            if (!button) return { id: '', host: set.host, buttonText: '', error: 'No download button was created.' };
+
+            const bridge = window.sailDownloadBridge;
+            const previousGetSettings = bridge && bridge.getSettings;
+            const previousStartSet = window.startGameDownloadSet;
+            let id = '';
+            if (bridge && typeof previousGetSettings === 'function') {
+                bridge.getSettings = () => ({
+                    ...previousGetSettings.call(bridge),
+                    autoAdd: false,
+                    autoExtract: false,
+                    autoInstall: false,
+                    autoSwitchDownloads: false,
+                    notifyOnComplete: false,
+                    restrictedDownloads: false
+                });
+            }
+            window.startGameDownloadSet = (...args) => {
+                id = previousStartSet(...args) || '';
+                return id;
+            };
+            try {
+                button.click();
+            } finally {
+                window.startGameDownloadSet = previousStartSet;
+                if (bridge && typeof previousGetSettings === 'function') bridge.getSettings = previousGetSettings;
+            }
+            if (id) {
+                hostTransferProbeStates.set(id, {
+                    id,
+                    host: set.host,
+                    buttonText: button.textContent || '',
+                    sawDownloading: false,
+                    sawProcessing: false,
+                    completed: false,
+                    error: '',
+                    last: null
+                });
+            }
+            return { id, host: set.host, buttonText: button.textContent || '' };
+        };
+
+        window.__sailGetHostTransferProbeState = function (id) {
+            const state = hostTransferProbeStates.get(String(id || ''));
+            const queued = dlQueue.get(String(id || ''));
+            return state ? { ...state, queueState: queued && queued.state || '' } : null;
+        };
+
+        window.__sailCancelHostTransferProbe = function (id) {
+            return ipcRenderer.invoke('cancel-download', String(id || ''));
+        };
 
         function ensureDock() {
             let dock = document.getElementById('downloadDock');
@@ -19340,7 +20090,7 @@
 
         // Show the animated "working" bar for any active phase (download, extract, install)
         // so the user always knows something is happening — not just during the download.
-        function dlIsBusy(d) { return d.state === 'downloading' || d.state === 'installing' || d.state === 'processing' || d.state === 'cancellation_pending' || d.state === 'installer_running'; }
+        function dlIsBusy(d) { return d.state === 'resolving' || d.state === 'starting' || d.state === 'downloading' || d.state === 'installing' || d.state === 'processing' || d.state === 'cancellation_pending' || d.state === 'installer_running'; }
 
         // Human-readable phase label. Each download moves through distinct phases —
         // make it obvious which one we're in (downloading the game vs installing it)
@@ -19362,6 +20112,10 @@
             if (d.state === 'resolving') {
                 const sub = d.subLabel ? ` · ${String(d.subLabel).slice(0, 1024)}` : '';
                 return `${cachedBadge(d)}${String(d.label || 'Finding a direct download link…').slice(0, 1024)}${sub}`;
+            }
+            if (d.state === 'starting') {
+                const part = d.partCount > 1 ? ` · part ${d.part || 1}/${d.partCount}` : '';
+                return `${cachedBadge(d)}⏳ ${String(d.label || 'Connecting to the host and preparing the file…').slice(0, 1024)}${part}`;
             }
             if (d.state === 'downloading') {
                 const bits = ['⬇️ Downloading game', (d.percent || 0) + '%'];
@@ -19395,7 +20149,7 @@
             const d = dlQueue.get(id); if (!d || !d.resumeOpts) return;
             if (d.retrying || DownloadManagerLogic.isDownloadSlotActive(d)) return;
             if (d.needsBrowser && !d.browserCapture) {
-                if (d.url) openDownloadInAppBrowser(d.url);
+                if (d.url) openDownloadInAppBrowser(d.url, d.referrer);
                 return;
             }
             d.retrying = true;
@@ -19614,8 +20368,9 @@
                 button.addEventListener('click', handler);
                 actions.append(button);
             };
-            if (download.state === 'waiting-browser') add('Cancel', () => cancelDownload(download.id));
-            else if (['downloading', 'resolving', 'queued'].includes(download.state)) {
+            if (['waiting-browser', 'starting', 'resolving', 'queued'].includes(download.state)) {
+                add('Cancel', () => cancelDownload(download.id));
+            } else if (download.state === 'downloading') {
                 add('⏸ Pause', () => pauseDownload(download.id)); add('Cancel', () => cancelDownload(download.id));
             } else if (['processing', 'installing'].includes(download.state)) add('Cancel', () => cancelDownload(download.id));
             else if (download.state === 'paused') {
@@ -19629,7 +20384,7 @@
                 });
             } else if (download.state === 'error') {
                 if (download.resumeOpts) add('↻ Retry', () => resumeDownload(download.id));
-                if (download.needsBrowser) add('🌐 Open in Browser', () => openDownloadInAppBrowser(download.url));
+                if (download.needsBrowser) add('🌐 Open in Browser', () => openDownloadInAppBrowser(download.url, download.referrer));
                 add('✕ Clear', () => { dlQueue.delete(download.id); renderDock(); });
             }
             return actions;
@@ -19641,15 +20396,19 @@
             const row = SafeDom.element(document, 'div', { className: page ? 'dlpage-row' : 'dl-dock-row' });
             if (page) row.dataset.dlpId = String(download.id || '').slice(0, 128);
             else row.dataset.dlId = String(download.id || '').slice(0, 128);
-            const name = SafeDom.element(document, 'span', { className: page ? 'dlpage-name' : 'dl-dock-name', text: String(download.name || 'Download').slice(0, 512) });
+            const displayName = String(download.name || 'Download').slice(0, 512);
+            const name = SafeDom.element(document, 'span', { className: page ? 'dlpage-name' : 'dl-dock-name', text: displayName, title: displayName });
             name.append(downloadCategoryBadgeElement(download.category));
-            const fill = SafeDom.element(document, 'div', { className: `dl-bar-inner ${dlIsBusy(download) ? 'dl-progress-bar' : ''}` });
-            fill.style.width = `${pct}%`;
+            const indeterminate = download.state === 'resolving' || download.state === 'starting';
+            const fill = SafeDom.element(document, 'div', { className: `dl-bar-inner ${dlIsBusy(download) ? 'dl-progress-bar' : ''}${indeterminate ? ' dl-progress-indeterminate' : ''}` });
+            fill.style.width = indeterminate ? '30%' : `${pct}%`;
             fill.style.background = barColor;
             const track = SafeDom.element(document, 'div', { className: page ? 'dlpage-track' : 'dl-dock-track' }, [fill]);
+            const stateText = fmtState(download);
             const state = SafeDom.element(document, 'div', {
                 className: `dl-state-text${page ? ' dlpage-state' : ''}`,
-                text: fmtState(download)
+                text: stateText,
+                title: stateText
             });
             if (page) {
                 const cover = SafeDom.element(document, 'div', { className: 'dlpage-cover' });
@@ -19680,15 +20439,23 @@
             if (dockRow) {
                 const bar = dockRow.querySelector('.dl-bar-inner');
                 const st = dockRow.querySelector('.dl-state-text');
-                if (bar) bar.style.width = pct + '%';
-                if (st) st.textContent = fmtState(d);
+                if (bar) {
+                    const indeterminate = d.state === 'resolving' || d.state === 'starting';
+                    bar.classList.toggle('dl-progress-indeterminate', indeterminate);
+                    bar.style.width = indeterminate ? '30%' : pct + '%';
+                }
+                if (st) { st.textContent = fmtState(d); st.title = st.textContent; }
             }
             const pageRow = Array.from(document.querySelectorAll('[data-dlp-id]')).find(row => row.dataset.dlpId === String(id));
             if (pageRow) {
                 const bar = pageRow.querySelector('.dl-bar-inner');
                 const st = pageRow.querySelector('.dl-state-text');
-                if (bar) bar.style.width = pct + '%';
-                if (st) st.textContent = fmtState(d);
+                if (bar) {
+                    const indeterminate = d.state === 'resolving' || d.state === 'starting';
+                    bar.classList.toggle('dl-progress-indeterminate', indeterminate);
+                    bar.style.width = indeterminate ? '30%' : pct + '%';
+                }
+                if (st) { st.textContent = fmtState(d); st.title = st.textContent; }
             }
             if (!dockRow && !pageRow) renderDock(); // rows not created yet — fall back
         }
@@ -19929,12 +20696,13 @@
                 if (SafeDom.setImageSource(image, h.image, { allowAnyHost: true, allowFile: true, hideInvalid: true })) cover.append(image);
                 const name = SafeDom.element(document, 'span', { className: 'dlpage-name', text: String(h.name || 'Download').slice(0, 512) });
                 name.append(downloadCategoryBadgeElement(h.category));
+                const needsSetup = Boolean(h.warning);
                 const fill = SafeDom.element(document, 'div', { className: 'dl-history-fill' });
-                fill.style.width = '100%'; fill.style.background = '#10b981';
+                fill.style.width = '100%'; fill.style.background = needsSetup ? '#f59e0b' : '#10b981';
                 row.append(cover, SafeDom.element(document, 'div', { className: 'dlpage-main' }, [
                     SafeDom.element(document, 'div', { className: 'dlpage-top' }, [name]),
                     SafeDom.element(document, 'div', { className: 'dlpage-track' }, [fill]),
-                    SafeDom.element(document, 'div', { className: 'dlpage-state', text: `✓ Installed · ${ts}` })
+                    SafeDom.element(document, 'div', { className: 'dlpage-state', text: needsSetup ? `⚠ Saved · needs setup · ${ts}` : `✓ Installed · ${ts}` })
                 ]));
                 sec.appendChild(row);
             });
@@ -19958,18 +20726,18 @@
             return n ? ('Resolving via ' + n + '…') : 'Finding a direct download link…';
         }
 
-        window.startGameDownload = function (item, link, sourceId, mirrors) {
+        window.startGameDownload = function (item, link, sourceId) {
+            if (warnOfflineDownload([link], sourceId)) return '';
             const settings = (window.sailDownloadBridge && window.sailDownloadBridge.getSettings()) || {};
             const id = 'dl_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
             const opts = {
-                id, gameName: item.name, image: item.image, url: link.url, sourceId,
-                mirrors: Array.isArray(mirrors) ? mirrors : [],
+                id, gameName: item.name, image: item.image, url: link.url, sourceId, referrer: item.url,
                 maxSpeed: settings.maxSpeed, autoExtract: settings.autoExtract,
                 autoInstall: settings.autoInstall, skipRedist: settings.skipRedist, autoAdd: settings.autoAdd
             };
             // Show "Resolving…" immediately so the dock never looks frozen while the
             // debrid API / scraper works (main confirms with its own status moments later).
-            dlQueue.set(id, { id, name: item.name, image: item.image, sourceId, category: 'game', url: link.url, percent: 0, state: 'resolving', label: initialResolveLabel(), resumeOpts: opts });
+            dlQueue.set(id, { id, name: item.name, image: item.image, sourceId, category: 'game', url: link.url, referrer: item.url, percent: 0, state: 'resolving', label: initialResolveLabel(), resumeOpts: opts });
             renderDock();
             if (settings.autoSwitchDownloads) switchMainTab('downloads');
             invokeDownloadWithCurrentRoot(opts).catch(error => {
@@ -19979,25 +20747,25 @@
         };
 
         // Download an entire host set (all parts) as one job; main bundles & extracts.
-        window.startGameDownloadSet = function (item, set, sourceId, mirrors) {
+        window.startGameDownloadSet = function (item, set, sourceId) {
+            if (warnOfflineDownload(set && set.parts, sourceId)) return '';
             const settings = (window.sailDownloadBridge && window.sailDownloadBridge.getSettings()) || {};
             const id = 'dl_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
             const links = set.parts.map(p => ({ url: p.url, name: p.label || '' }));
             if (!links.length) return;
             const opts = {
-                id, gameName: item.name, image: item.image, links, sourceId,
-                // Only single-file sets have interchangeable mirrors to race; ignore otherwise.
-                mirrors: (set.parts.length === 1 && Array.isArray(mirrors)) ? mirrors : [],
+                id, gameName: item.name, image: item.image, links, sourceId, referrer: item.url,
                 maxSpeed: settings.maxSpeed, autoExtract: settings.autoExtract,
                 autoInstall: settings.autoInstall, skipRedist: settings.skipRedist, autoAdd: settings.autoAdd
             };
-            dlQueue.set(id, { id, name: item.name, image: item.image, sourceId, category: 'game', url: links[0].url, percent: 0, state: 'resolving', label: initialResolveLabel(), partCount: links.length, resumeOpts: opts });
+            dlQueue.set(id, { id, name: item.name, image: item.image, sourceId, category: 'game', url: links[0].url, referrer: item.url, percent: 0, state: 'resolving', label: initialResolveLabel(), partCount: links.length, resumeOpts: opts });
             renderDock();
             if (settings.autoSwitchDownloads) switchMainTab('downloads');
             invokeDownloadWithCurrentRoot(opts).catch(error => {
                 const download = dlQueue.get(id); if (!download) return;
                 download.state = 'error'; download.error = error && error.message || 'The download could not be started.'; renderDock();
             });
+            return id;
         };
 
         ipcRenderer.on('download-engine-status', (e, p) => { /* surfaced per-download below */ });
@@ -20024,6 +20792,12 @@
             const d = dlQueue.get(p.id); if (!d) return;
             const prevState = dlPrevState.get(p.id);
             Object.assign(d, p);
+            const probe = hostTransferProbeStates.get(p.id);
+            if (probe) {
+                probe.last = { ...p };
+                if (p.state === 'downloading') probe.sawDownloading = true;
+                if (p.state === 'processing') probe.sawProcessing = true;
+            }
             dlPrevState.set(p.id, d.state);
             // Pure progress tick while already downloading → targeted patch, no DOM rebuild.
             if (d.state === 'downloading' && prevState === 'downloading') {
@@ -20038,7 +20812,12 @@
         ipcRenderer.on('download-error', (e, p) => {
             const d = dlQueue.get(p.id); if (!d) return;
             d.retrying = false;
-            d.state = 'error'; d.error = p.error; d.needsBrowser = p.needsBrowser; d.url = p.url || d.url;
+            d.state = 'error'; d.error = p.error; d.needsBrowser = p.needsBrowser; d.url = p.url || d.url; d.linkHealth = p.linkHealth || '';
+            if (p.linkHealth === 'down' && p.url) {
+                updateDownloadLinkHealth(p.url, d.sourceId, { status: 'down', reason: 'download-reported-offline' });
+            }
+            const probe = hostTransferProbeStates.get(p.id);
+            if (probe) { probe.error = String(p.error || 'Download failed.'); probe.last = { ...p }; }
             renderDock();
             pumpBulkDownloadRetry();
         });
@@ -20051,25 +20830,13 @@
         // it. We only cut at a dash/bracket followed by a version-looking token, so real
         // numbers inside a title (e.g. "Borderlands 3", "Forza Horizon 5") are preserved.
         function cleanDownloadName(name) {
-            let s = String(name || '').trim();
-            s = s.replace(/\s*[-–—]\s*v\.?\s*\d[\d.]*.*$/i, '');                  // " - v1.1.0.0", "- v 2"
-            s = s.replace(/\s*[-–—]\s*\d+(\.\d+)+.*$/i, '');                      // " - 1.2.3"
-            s = s.replace(/\s*[-–—]\s*(version|build|update|hotfix|patch|repack|gog|fitgirl)\b.*$/i, '');
-            s = s.replace(/\s*[\(\[]\s*(v\.?\s*)?\d[\d.]*[^)\]]*[\)\]]\s*$/i, ''); // "(v1.2.3)", "[v2]"
-            return s.trim() || String(name || '').trim();
+            return DownloadSourceLogic.cleanDownloadedGameName(name);
         }
 
         async function resolveSteamMetaForDownload(name) {
             try {
                 const json = await remoteData.searchSteamStore(name);
-                const item = json && json.items && json.items[0];
-                if (!item || !item.id) return null;
-                const appId = String(item.id);
-                return {
-                    steamAppId: appId,
-                    steamImageUrl: `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${appId}/header.jpg`,
-                    steamHeroUrl: `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${appId}/library_hero.jpg`
-                };
+                return DownloadSourceLogic.steamStoreMetadataForDownloadedGame(name, json);
             } catch (e) { return null; }
         }
 
@@ -20077,6 +20844,8 @@
             const d = dlQueue.get(p.id); if (!d) return;
             d.retrying = false;
             d.state = 'done'; d.percent = 100; d.warning = p.warning;
+            const probe = hostTransferProbeStates.get(p.id);
+            if (probe) { probe.completed = true; probe.last = { ...p }; }
             d.gameId = p.gameId || '';
             d.location = p.location || null;
             d.localSetupStatus = p.localSetupStatus || 'local-setup-required';
@@ -20088,8 +20857,8 @@
                     const game = myGames.find(item => String(item.id) === String(p.gameId));
                     if (game) {
                         game.name = cleanName;
-                        const steamMeta = await resolveSteamMetaForDownload(cleanName);
-                        if (steamMeta) Object.assign(game, steamMeta);
+                        const steamMeta = game.steamAppId ? game : await resolveSteamMetaForDownload(cleanName);
+                        if (steamMeta) DownloadSourceLogic.applySteamMetadataToDownloadedGame(game, steamMeta);
                         saveToMemory();
                         renderSidebar();
                         renderGames();
@@ -20104,7 +20873,13 @@
             // Desktop notification — fire HERE (main signals completion via 'download-complete',
             // never a 'download-progress' with state 'done', so the dock handler never saw it).
             if (settings.notifyOnComplete) {
-                try { new Notification('Download complete', { body: (cleanName || d.name || 'Your download') + ' is ready to play.' }); } catch (e) {}
+                const displayName = cleanName || d.name || 'Your download';
+                const needsManualStep = Boolean(d.warning) || d.localSetupStatus !== 'active';
+                const title = needsManualStep ? 'Download saved' : 'Download complete';
+                const body = needsManualStep
+                    ? displayName + ' was saved, but needs a manual setup step.'
+                    : displayName + ' is ready to play.';
+                try { new Notification(title, { body }); } catch (e) {}
             }
             pumpBulkDownloadRetry();
         });
@@ -20160,7 +20935,7 @@
                 badge.style.display = 'none';
             }
         }
-        // After any debrid change: persist, push config, refresh badge + source chips (SteamRIP gate).
+        // After any debrid change: persist, push config, and refresh the badge/source states.
         function afterDebridChange() {
             recomputeDebridActive();
             saveToMemory();
@@ -20230,6 +21005,7 @@
             // even if the user flips them and closes the modal without pressing "Save".
             wireInstantToggle('dlAutoSwitchToggle', 'dlAutoSwitchDownloads');
             wireInstantToggle('dlNotifyCompleteToggle', 'dlNotifyComplete');
+            wireInstantToggle('dlSkipRedistToggle', 'dlSkipRedist');
             wireInstantToggle('dlRestrictedDownloadsToggle', 'dlRestrictedDownloads');
             wireInstantToggle('dlCaptureBrowserDownloadsToggle', 'dlCaptureBrowserDownloads', () => {
                 const now = (window.sailDownloadBridge && window.sailDownloadBridge.getSettings()) || {};
@@ -20244,6 +21020,7 @@
             const pxBox = document.getElementById('dlPixeldrainProxies');
             if (pxBox) pxBox.value = window.getPixeldrainProxies().join('\n');
             refreshDownloadCacheSize();
+            refreshDownloadQuarantineSetting();
             window.openModal('downloadSettingsModal');
         };
 
@@ -20289,7 +21066,7 @@
             ipcRenderer.invoke('set-adblock', s.adBlock);
             // PixelDrain proxy pool: persist + push to the download resolver
             const pxBox = document.getElementById('dlPixeldrainProxies');
-            const proxies = pxBox ? pxBox.value.split('\n').map(x => x.trim()).filter(x => /^https?:\/\//i.test(x)) : [];
+            const proxies = pxBox ? pxBox.value.split('\n').map(x => x.trim()).filter(x => /^https:\/\//i.test(x)) : [];
             globalSettings.dlPixeldrainProxies = proxies;
             saveToMemory();
             try { ipcRenderer.send('set-pixeldrain-proxies', proxies); } catch (e) {}
@@ -20315,6 +21092,55 @@
                 el.textContent = 'Cache storage unavailable';
             }
         }
+
+        async function refreshDownloadQuarantineSetting() {
+            const indicator = document.getElementById('dlQuarantineSizeIndicator');
+            const button = document.getElementById('dlClearQuarantineBtn');
+            if (!indicator || !button) return;
+            indicator.textContent = 'Checking retained files…';
+            button.disabled = true;
+            try {
+                const summary = await ipcRenderer.invoke('get-download-quarantine-summary');
+                const count = Number(summary && summary.itemCount) || 0;
+                indicator.textContent = count
+                    ? `${count} retained item${count === 1 ? '' : 's'} · ${DownloadQuarantineUi.formatBytes(summary.totalBytes)}`
+                    : 'No retained temporary files';
+                button.disabled = count === 0;
+            } catch (_) {
+                indicator.textContent = 'Retained files unavailable';
+            }
+        }
+
+        window.clearCancelledDownloadFiles = async function () {
+            const button = document.getElementById('dlClearQuarantineBtn');
+            let summary;
+            try { summary = await ipcRenderer.invoke('get-download-quarantine-summary'); } catch (_) { summary = null; }
+            const count = Number(summary && summary.itemCount) || 0;
+            if (!count) {
+                await refreshDownloadQuarantineSetting();
+                return;
+            }
+            if (!await sailConfirm(`Delete ${count} retained cancelled-download item${count === 1 ? '' : 's'} (${DownloadQuarantineUi.formatBytes(summary.totalBytes)})? This cannot be undone.`)) return;
+            const original = button ? button.innerHTML : '';
+            if (button) { button.disabled = true; button.innerHTML = '⏳ Deleting…'; }
+            try {
+                const result = await ipcRenderer.invoke('clear-download-quarantine');
+                if (result && (result.status === 'cleared' || result.status === 'partially_cleared')) {
+                    const message = result.status === 'cleared'
+                        ? `Deleted ${result.removedItemCount} retained temporary item${result.removedItemCount === 1 ? '' : 's'}.`
+                        : `Deleted ${result.removedItemCount} item${result.removedItemCount === 1 ? '' : 's'}; ${result.failedItemCount} could not be removed safely.`;
+                    await sailAlert(message, { title: 'Temporary files', tone: result.status === 'cleared' ? 'success' : 'warning' });
+                } else {
+                    await sailAlert('Sail could not safely delete the retained temporary files. They were left untouched.', { title: 'Temporary files', tone: 'danger' });
+                }
+            } catch (_) {
+                await sailAlert('Sail could not safely delete the retained temporary files. They were left untouched.', { title: 'Temporary files', tone: 'danger' });
+            } finally {
+                if (button) button.innerHTML = original;
+                await refreshDownloadQuarantineSetting();
+                try { await refreshDownloadQuarantine(); } catch (_) {}
+            }
+        };
 
         // Clear Cache button — wipes resolved-link + in-app browser cache via main.
         window.clearDownloadCache = async function () {

@@ -6,11 +6,13 @@ const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
+const { EventEmitter } = require('node:events');
 const { BrowserDownloadIntentRegistry, INTENT_STATES, createBrowserWillDownloadHandler, createPrepareBrowserDownloadHandler } = require('../runtime/browserDownloadIntents');
 const { DownloadJobDirectoryRegistry, JOB_STATES } = require('../runtime/downloadJobCleanup');
 const { CANCELLATION_STATUSES, createDownloadCancellationHandler, registerDownloadCancellationIpc } = require('../runtime/downloadIpc');
 const { createDownloadWorkCoordinator } = require('../runtime/downloadWorkCoordinator');
 const { runOwnedChildProcess } = require('../runtime/ownedChildProcess');
+const { runOwnedWorker } = require('../runtime/ownedWorker');
 const { cancellationPresentation } = require('../ui/downloadQuarantine');
 
 function rendererFunctionSource(source, marker) {
@@ -253,6 +255,142 @@ test('cancellation waits for the exact production-owned child process before qua
     assert.equal(fs.existsSync(job.directory), false);
     assert.equal(fs.readFileSync(path.join(job.quarantinePath, 'sentinel.bin'), 'utf8'), 'owned');
     assert.equal(env.outcomes.at(-1).status, CANCELLATION_STATUSES.QUARANTINED);
+});
+
+test('owned archive worker clears its stop hook after a successful result', async () => {
+    let workerInstance;
+    class SuccessfulWorker extends EventEmitter {
+        constructor() {
+            super();
+            workerInstance = this;
+            queueMicrotask(() => this.emit('message', { ok: true, result: { count: 2 } }));
+        }
+        terminate() { this.terminated = true; return Promise.resolve(0); }
+    }
+    let stop;
+    const stops = [];
+    const result = await runOwnedWorker('archiveExtractWorker.js', { archivePath: 'archive.rar', targetPath: 'target' }, {
+        setStop(value) { stop = value; stops.push(value); }
+    }, { Worker: SuccessfulWorker });
+    assert.deepEqual(result, { count: 2 });
+    assert.equal(typeof stops[0], 'function');
+    assert.equal(stop, null);
+    assert.equal(stops.at(-1), null);
+    assert.equal(workerInstance.terminated, undefined);
+});
+
+test('owned archive worker terminates on cancellation and reports a resumable stop', async () => {
+    let workerInstance;
+    class CancellableWorker extends EventEmitter {
+        constructor() { super(); workerInstance = this; }
+        terminate() {
+            this.terminated = true;
+            queueMicrotask(() => this.emit('exit', 1));
+            return Promise.resolve(1);
+        }
+    }
+    let stop;
+    let clearCount = 0;
+    const pending = runOwnedWorker('archiveExtractWorker.js', { archivePath: 'archive.rar', targetPath: 'target' }, {
+        setStop(value) {
+            if (value) stop = value;
+            else clearCount += 1;
+        }
+    }, { Worker: CancellableWorker }).catch(error => error);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(typeof stop, 'function');
+    await stop();
+    const error = await pending;
+    assert.equal(error.message, 'Cancelled');
+    assert.equal(workerInstance.terminated, true);
+    assert.equal(clearCount, 1);
+});
+
+test('owned archive worker does not start before its cancellation hook is registered', async () => {
+    let releaseRegistration;
+    const registration = new Promise(resolve => { releaseRegistration = resolve; });
+    let stop;
+    let constructed = 0;
+    class GuardedWorker extends EventEmitter {
+        constructor() {
+            super();
+            constructed += 1;
+        }
+        terminate() { return Promise.resolve(0); }
+    }
+    const pending = runOwnedWorker('archiveExtractWorker.js', {}, {
+        setStop(value) {
+            if (value) {
+                stop = value;
+                return registration;
+            }
+        }
+    }, { Worker: GuardedWorker }).catch(error => error);
+
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(constructed, 0);
+    assert.equal(typeof stop, 'function');
+    stop();
+    releaseRegistration();
+    const error = await pending;
+    assert.equal(error.message, 'Cancelled');
+    assert.equal(constructed, 0);
+});
+
+test('preparation worker keeps archive normalization, payload discovery, and size reads off the caller', async t => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sail-preparation-worker-'));
+    t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+    const archiveBlob = path.join(root, 'opaque-payload');
+    fs.writeFileSync(archiveBlob, Buffer.concat([Buffer.from([0x50, 0x4B, 0x03, 0x04]), Buffer.alloc(1024)]));
+    const gameDir = path.join(root, 'Game');
+    fs.mkdirSync(gameDir);
+    fs.writeFileSync(path.join(gameDir, 'My Game.exe'), Buffer.alloc(32));
+    fs.writeFileSync(path.join(root, 'payload.zip'), 'zip');
+    const redistDir = path.join(gameDir, '_CommonRedist');
+    fs.mkdirSync(redistDir);
+    fs.writeFileSync(path.join(redistDir, 'vcredist.exe'), 'redist');
+    fs.writeFileSync(path.join(gameDir, 'read_me.txt'), 'remove');
+    fs.writeFileSync(path.join(gameDir, 'Visit SteamRIP.url'), 'remove');
+
+    const workerFile = path.join(__dirname, '..', 'runtime', 'downloadPreparationWorker.js');
+    await runOwnedWorker(workerFile, { operation: 'normalize-archives', dir: root }, { setStop() {} });
+    assert.equal(fs.existsSync(archiveBlob + '.zip'), true);
+
+    const scan = await runOwnedWorker(workerFile, { operation: 'scan-payload', dir: root, gameName: 'My Game' }, { setStop() {} });
+    assert.ok(scan.files.some(file => file.name === 'payload.zip'));
+    assert.ok(scan.archives.some(file => file.endsWith('payload.zip')));
+    assert.equal(scan.exePath, path.join(gameDir, 'My Game.exe'));
+
+    const size = await runOwnedWorker(workerFile, { operation: 'directory-size', dir: root }, { setStop() {} });
+    const expectedSize = [
+        archiveBlob + '.zip', path.join(gameDir, 'My Game.exe'), path.join(root, 'payload.zip'),
+        path.join(redistDir, 'vcredist.exe'), path.join(gameDir, 'read_me.txt'), path.join(gameDir, 'Visit SteamRIP.url')
+    ].reduce((total, file) => total + fs.statSync(file).size, 0);
+    assert.equal(size.bytes, expectedSize);
+
+    await runOwnedWorker(workerFile, { operation: 'clean-extracted-junk', dir: gameDir, skipRedist: true }, { setStop() {} });
+    assert.equal(fs.existsSync(redistDir), false);
+    assert.equal(fs.existsSync(path.join(gameDir, 'read_me.txt')), false);
+    assert.equal(fs.existsSync(path.join(gameDir, 'Visit SteamRIP.url')), false);
+
+    const cover = path.join(root, '_cover.jpg');
+    const nestedArchive = path.join(gameDir, 'nested.zip');
+    fs.writeFileSync(cover, 'keep');
+    fs.writeFileSync(nestedArchive, 'keep nested');
+    await runOwnedWorker(workerFile, { operation: 'delete-archive-sources', dir: root }, { setStop() {} });
+    assert.equal(fs.existsSync(path.join(root, 'payload.zip')), false);
+    assert.equal(fs.existsSync(archiveBlob + '.zip'), false);
+    assert.equal(fs.existsSync(cover), true);
+    assert.equal(fs.existsSync(nestedArchive), true);
+
+    const keepDir = path.join(root, '_game');
+    fs.mkdirSync(keepDir);
+    fs.writeFileSync(path.join(root, 'setup.exe'), 'remove');
+    await runOwnedWorker(workerFile, { operation: 'clean-repack-source', dir: root, keepDir }, { setStop() {} });
+    assert.equal(fs.existsSync(keepDir), true);
+    assert.equal(fs.existsSync(cover), true);
+    assert.equal(fs.existsSync(path.join(root, 'setup.exe')), false);
+    assert.equal(fs.existsSync(gameDir), false);
 });
 
 test('a delayed owned stop remains cancellation_pending and cannot quarantine early', async t => {
