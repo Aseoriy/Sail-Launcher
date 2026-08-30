@@ -11,6 +11,7 @@ const MEGADB_HOST_RE = /(^|\.)megadb\.(?:net|xyz)$/i;
 const PIXELDRAIN_HOST_RE = /(^|\.)pixeldrain\.(?:com|net|in|nl|biz|tech|dev)$/i;
 const FILEKEEPER_HOST_RE = /(^|\.)filekeeper\.(?:net|me|org|io)$/i;
 const FILEKEEPER_CDN_HOST_RE = /(^|\.)dlproxy\.uk$/i;
+const FILEKEEPER_ALT_PORT_HOST_RE = /^fs\d{1,3}\.filekeeper\.net$/i;
 const DATANODES_HOST_RE = /(^|\.)datanodes\.(?:to|net)$/i;
 const AKIRABOX_HOST_RE = /(^|\.)akirabox\.(?:com|to)$/i;
 const X1337_HOST_RE = /(^|\.)1337x\.(?:to|st|gd|is|tw|ws)$/i;
@@ -561,6 +562,21 @@ function fileKeeperHost(hostname, sourceHostname) {
         || FILEKEEPER_CDN_HOST_RE.test(String(hostname || '').toLowerCase());
 }
 
+function fileKeeperDownloadUrl(value, baseUrl, sourceHostname) {
+    const source = String(value || '').trim();
+    if (!source || source.length > 8192 || /[\u0000-\u001f\u007f\\]/.test(source)) return '';
+    let parsed;
+    try { parsed = new URL(source, baseUrl); } catch (_) { return ''; }
+    if (parsed.protocol !== 'https:' || parsed.username || parsed.password
+        || !fileKeeperHost(parsed.hostname, sourceHostname)) return '';
+    if (parsed.port && parsed.port !== '443') {
+        if (parsed.port !== '8443' || !FILEKEEPER_ALT_PORT_HOST_RE.test(parsed.hostname)
+            || !/^\/d\/[A-Za-z0-9_-]{16,512}\/[^/?#]{1,1024}$/i.test(parsed.pathname)) return '';
+    }
+    parsed.hash = '';
+    return parsed.href;
+}
+
 async function resolveFileKeeperUrl(rawUrl, dependencies = {}) {
     const request = dependencies.request;
     if (typeof request !== 'function') throw new TypeError('FileKeeper resolution requires a request function.');
@@ -594,7 +610,7 @@ async function resolveFileKeeperUrl(rawUrl, dependencies = {}) {
             candidates.push(String(match[2] || '').replace(/&amp;/gi, '&'));
         }
         for (const candidate of candidates) {
-            const direct = acceptedDirectUrl(candidate, source, url => fileKeeperHost(new URL(url).hostname, parsed.hostname));
+            const direct = fileKeeperDownloadUrl(candidate, source, parsed.hostname);
             if (!direct || samePageUrl(direct, source)) continue;
             const directName = fileNameFromUrl(direct);
             const dispositionName = fileNameFromDisposition(headerValue(response && response.headers, 'content-disposition'));
@@ -1562,6 +1578,7 @@ module.exports = {
     extractBuzzHeavierEndpoint,
     extractDataNodesBrowserDownload,
     extractFuckingFastBrowserDownload,
+    fileKeeperDownloadUrl,
     gofileDirectDownloadUrl,
     gofileShareDetails,
     gofileWebsiteToken,

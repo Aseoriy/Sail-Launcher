@@ -52,6 +52,7 @@ const {
     credentialFreeHttpsUrl,
     extractDataNodesBrowserDownload,
     extractFuckingFastBrowserDownload,
+    fileKeeperDownloadUrl,
     gofileShareDetails,
     managedHostTransferRequest,
     resolve1337xUrl,
@@ -4145,12 +4146,16 @@ function interceptDownload(url, timeoutMs = 55000, options = {}) {
 function managedHostUrlAllowed(provider, value, sourceUrl) {
     const raw = String(value || '');
     if (/^magnet:\?xt=urn:btih:[A-Za-z0-9]{32,64}(?:&|$)/i.test(raw)) return provider === '1337x';
+    if (provider === 'filekeeper') {
+        const source = credentialFreeHttpsUrl(sourceUrl);
+        if (!source || !FILEKEEPER_HOST_RE.test(new URL(source).hostname)) return false;
+        return !!fileKeeperDownloadUrl(raw, source, new URL(source).hostname);
+    }
     let parsed;
     try { parsed = new URL(raw); } catch (_) { return false; }
     if (parsed.protocol !== 'https:' || parsed.username || parsed.password
         || parsed.port && parsed.port !== '443') return false;
     const host = parsed.hostname.toLowerCase();
-    if (provider === 'filekeeper') return FILEKEEPER_HOST_RE.test(host) || /(^|\.)dlproxy\.uk$/i.test(host);
     if (provider === 'datanodes') return DATANODES_HOST_RE.test(host);
     if (provider === 'akirabox') return AKIRABOX_HOST_RE.test(host);
     if (provider === 'buzzheavier') return BUZZHEAVIER_HOST_RE.test(host);

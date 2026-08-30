@@ -14,6 +14,7 @@ const {
     extractBuzzHeavierEndpoint,
     extractDataNodesBrowserDownload,
     extractFuckingFastBrowserDownload,
+    fileKeeperDownloadUrl,
     gofileDirectDownloadUrl,
     gofileShareDetails,
     gofileWebsiteToken,
@@ -676,6 +677,25 @@ test('FileKeeper resolver accepts only a provider redirect', async () => {
         request: async () => ({ status: 302, headers: { location: 'https://tunnel3.dlproxy.uk/Abc12345' }, body: '' })
     });
     assert.equal(tunnel[0].name, 'Game.part1.rar');
+    const current = await resolveFileKeeperUrl('https://filekeeper.net/Abc12345/Game.zip', {
+        request: async () => ({
+            status: 302,
+            headers: { location: 'https://fs2.filekeeper.net:8443/d/abcdefghijklmnopqrstuvwxyz123456/Game.zip' },
+            body: ''
+        })
+    });
+    assert.equal(current[0].url, 'https://fs2.filekeeper.net:8443/d/abcdefghijklmnopqrstuvwxyz123456/Game.zip');
+    assert.equal(current[0].name, 'Game.zip');
+    assert.equal(fileKeeperDownloadUrl(
+        'https://fs2.filekeeper.net:9443/d/abcdefghijklmnopqrstuvwxyz123456/Game.zip',
+        'https://filekeeper.net/Abc12345/Game.zip',
+        'filekeeper.net'
+    ), '');
+    assert.equal(fileKeeperDownloadUrl(
+        'https://cdn.filekeeper.net:8443/d/abcdefghijklmnopqrstuvwxyz123456/Game.zip',
+        'https://filekeeper.net/Abc12345/Game.zip',
+        'filekeeper.net'
+    ), '');
     assert.equal(await resolveFileKeeperUrl('https://filekeeper.net/file/Abc12345', {
         request: async () => ({ status: 302, headers: { location: 'https://ads.example/payload.exe' }, body: '' })
     }), null);
@@ -1104,9 +1124,14 @@ test('managed browser fallback stays provider-scoped while AkiraBox uses the wor
         PIXELDRAIN_HOST_RE: /(^|\.)pixeldrain\.(?:com|net|in|nl|biz|tech|dev)$/i,
         ROOTZ_HOST_RE: /^(?:www\.)?rootz\.so$/i,
         VIKINGFILE_HOST_RE: /^(?:www\.)?(?:vikingfile\.com|vik1ngfile\.site)$/i,
-        X1337_HOST_RE: /(^|\.)1337x\.(?:to|st|gd|is|tw|ws)$/i
+        X1337_HOST_RE: /(^|\.)1337x\.(?:to|st|gd|is|tw|ws)$/i,
+        credentialFreeHttpsUrl,
+        fileKeeperDownloadUrl
     });
     assert.equal(allowed('filekeeper', 'https://tunnel3.dlproxy.uk/token', 'https://filekeeper.net/code/file.rar'), true);
+    assert.equal(allowed('filekeeper', 'https://fs2.filekeeper.net:8443/d/abcdefghijklmnopqrstuvwxyz123456/Game.zip', 'https://filekeeper.net/code/file.rar'), true);
+    assert.equal(allowed('filekeeper', 'https://fs2.filekeeper.net:9443/d/abcdefghijklmnopqrstuvwxyz123456/Game.zip', 'https://filekeeper.net/code/file.rar'), false);
+    assert.equal(allowed('filekeeper', 'https://cdn.filekeeper.net:8443/d/abcdefghijklmnopqrstuvwxyz123456/Game.zip', 'https://filekeeper.net/code/file.rar'), false);
     assert.equal(allowed('filekeeper', 'https://ads.example/token', 'https://filekeeper.net/code/file.rar'), false);
     assert.equal(allowed('datanodes', 'https://cdn.datanodes.to/file.rar', 'https://datanodes.to/code'), true);
     assert.equal(allowed('akirabox', 'https://akirabox.com/code/file?download=1', 'https://akirabox.to/code/file'), true);
