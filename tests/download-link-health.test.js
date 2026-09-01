@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const vm = require('node:vm');
 const {
     HEALTH_STATES,
     classifyFileCryptResponse,
@@ -217,6 +218,124 @@ test('HTML landing pages and challenge bodies are not treated as files', async (
     assert.equal(challenge.status, HEALTH_STATES.VERIFICATION_REQUIRED);
 });
 
+test('BuzzHeavier lost-file pages are down while active token pages are available', async () => {
+    const lost = await checkDownloadLinkHealth('https://buzzheavier.com/5bcb8b3od5f', {
+        sourceId: 'steamgg',
+        request: async (method, url, options) => {
+            assert.equal(method, 'GET');
+            assert.equal(url, 'https://buzzheavier.com/5bcb8b3od5f');
+            assert.equal(options.headers.Range, 'bytes=0-0');
+            return response(200,
+                '<main><p>Whatever lived here has returned to the void.</p><p>Every file is given time. This one\'s ran out.</p></main>');
+        }
+    });
+    assert.equal(lost.status, HEALTH_STATES.DOWN);
+    assert.equal(lost.reason, 'buzzheavier-page-reports-down');
+
+    const active = await checkDownloadLinkHealth('https://bzzhr.to/u33dxmmaozb6', {
+        sourceId: 'steamrip',
+        request: async () => response(200,
+            '<button hx-get="/u33dxmmaozb6/download?t=signed-token">Download</button>')
+    });
+    assert.equal(active.status, HEALTH_STATES.AVAILABLE);
+    assert.equal(active.reason, 'buzzheavier-token-available');
+
+    let browserChecks = 0;
+    const challengedLost = await checkDownloadLinkHealth('https://buzzheavier.com/tesckhb3od5f', {
+        sourceId: 'steamgg',
+        request: async () => response(403, '<title>Just a moment...</title>'),
+        buzzHeavierBrowserCheck: async url => {
+            browserChecks++;
+            assert.equal(url, 'https://buzzheavier.com/tesckhb3od5f');
+            return { status: HEALTH_STATES.DOWN, reason: 'buzzheavier-page-reports-down' };
+        }
+    });
+    assert.equal(challengedLost.status, HEALTH_STATES.DOWN);
+    assert.equal(challengedLost.reason, 'buzzheavier-page-reports-down');
+    assert.equal(browserChecks, 1);
+});
+
+test('BuzzHeavier off-screen browser health script recognizes lost and active pages', () => {
+    const main = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8');
+    const scriptMatch = main.match(/const BUZZHEAVIER_BROWSER_HEALTH_JS = `([\s\S]*?)`;/);
+    assert.ok(scriptMatch);
+    const browserScript = vm.runInNewContext(`(() => { ${scriptMatch[0]} return BUZZHEAVIER_BROWSER_HEALTH_JS; })()`);
+    const evaluate = (text, controls = []) => vm.runInNewContext(browserScript, {
+        document: {
+            body: { innerText: text },
+            querySelectorAll: selector => selector === '[hx-get]' ? controls : []
+        }
+    });
+
+    const lost = evaluate('Whatever lived here has returned to the void.');
+    assert.equal(lost.status, HEALTH_STATES.DOWN);
+    assert.equal(lost.reason, 'buzzheavier-page-reports-down');
+    const active = evaluate('Ready', [{
+        getAttribute: name => name === 'hx-get' ? '/u33dxmmaozb6/download?t=signed-token' : ''
+    }]);
+    assert.equal(active.status, HEALTH_STATES.AVAILABLE);
+    assert.equal(active.reason, 'buzzheavier-token-available');
+});
+
+test('DataNodes follows its provider redirect and detects the not-found page', async () => {
+    const calls = [];
+    const value = await checkDownloadLinkHealth('https://datanodes.to/Expired123', {
+        sourceId: 'steamgg',
+        request: async (method, url, options) => {
+            calls.push({ method, url, options });
+            return calls.length === 1
+                ? response(302, '', { location: '/download', 'set-cookie': ['file_code=Expired123; Path=/'] })
+                : response(200, '<h1>File Not Found</h1><p>The file you were looking for could not be found.</p><li>The file expired</li>');
+        }
+    });
+    assert.equal(value.status, HEALTH_STATES.DOWN);
+    assert.equal(value.reason, 'datanodes-page-reports-down');
+    assert.deepEqual(calls.map(call => `${call.method} ${call.url}`), [
+        'GET https://datanodes.to/Expired123',
+        'GET https://datanodes.to/download'
+    ]);
+    assert.equal(calls[1].options.headers.Cookie, 'file_code=Expired123');
+
+    const active = await checkDownloadLinkHealth('https://datanodes.to/Active123', {
+        sourceId: 'steamgg',
+        request: async () => response(200, '<download-countdown code="Active123"></download-countdown>')
+    });
+    assert.equal(active.status, HEALTH_STATES.AVAILABLE);
+    assert.equal(active.reason, 'datanodes-download-page-active');
+
+    const challenged = await checkDownloadLinkHealth('https://datanodes.to/Expired123', {
+        sourceId: 'steamgg',
+        request: async () => response(403, '<title>Just a moment...</title>'),
+        dataNodesBrowserCheck: async () => ({
+            status: HEALTH_STATES.DOWN,
+            reason: 'datanodes-page-reports-down'
+        })
+    });
+    assert.equal(challenged.status, HEALTH_STATES.DOWN);
+});
+
+test('DataNodes off-screen health and managed click scripts stop on lost files', () => {
+    const main = fs.readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8');
+    const extractScript = name => {
+        const marker = `const ${name} = \``;
+        const start = main.indexOf(marker);
+        const end = main.indexOf('`;', start + marker.length);
+        assert.ok(start >= 0 && end > start, name);
+        const declaration = main.slice(start, end + 2);
+        return vm.runInNewContext(`(() => { ${declaration} return ${name}; })()`);
+    };
+    const document = {
+        body: { innerText: 'File Not Found. The file you were looking for could not be found. The file expired.' },
+        querySelector: () => null,
+        querySelectorAll: () => []
+    };
+    for (const name of ['DATANODES_BROWSER_HEALTH_JS', 'DATANODES_SYSTEM_BROWSER_CLICK_JS']) {
+        const value = vm.runInNewContext(extractScript(name), { document });
+        assert.equal(value.status || value.linkHealth, HEALTH_STATES.DOWN);
+        assert.equal(value.reason || value.healthReason, 'datanodes-page-reports-down');
+    }
+});
+
 test('unsafe provider redirects fail closed', async () => {
     const value = await checkDownloadLinkHealth('https://fileditch.com/file/abc/archive.rar', {
         request: async () => response(302, '', { location: 'https://evil.example/archive.rar' })
@@ -270,6 +389,9 @@ test('production download flow reports and blocks confirmed offline links', () =
     assert.match(main, /throw buildLinkDownError\(containerUrl, containerHealth\.reason\)/);
     assert.match(main, /e\.aria2Code === 3[\s\S]{0,240}e\.linkHealth = HEALTH_STATES\.DOWN/);
     assert.match(main, /linkHealth: err\.linkHealth === HEALTH_STATES\.DOWN/);
+    assert.match(main, /buzzHeavierBrowserCheck:[\s\S]{0,220}checkBuzzheavierWithSystemBrowser/);
+    assert.match(main, /dataNodesBrowserCheck:[\s\S]{0,220}checkDatanodesWithSystemBrowser/);
+    assert.match(main, /captured && captured\.linkHealth === HEALTH_STATES\.DOWN/);
 
     assert.match(index, /ipcRenderer\.invoke\('get-download-link-health'/);
     assert.match(index, /Offline — choose another mirror/);

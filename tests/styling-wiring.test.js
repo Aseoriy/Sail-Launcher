@@ -66,6 +66,16 @@ test('download detail layout stays polished, responsive, and keyboard accessible
     assert.match(index, /\.download-option-row\s*\{[\s\S]{0,220}flex-wrap: wrap;/);
     assert.match(index, /\.download-option-copy\s*\{[\s\S]{0,240}overflow-wrap: anywhere;/);
     assert.match(index, /\.dl-screenshot-viewer-close\s*\{[\s\S]{0,300}display: inline-flex;[\s\S]{0,260}padding: 0;[\s\S]{0,260}line-height: 1;/);
+    assert.match(index, /\.dl-screenshot-stage\s*\{[\s\S]{0,220}position: relative;[\s\S]{0,220}width: min\(78vw, 1200px\)/);
+    assert.match(index, /\.dl-screenshot-viewer img\.enter-from-right/);
+    assert.match(index, /\.dl-screenshot-viewer img\.exit-to-left/);
+    assert.match(index, /\.dl-screenshot-viewer-nav\.previous\s*\{ left: -68px; \}/);
+    assert.match(index, /\.dl-screenshot-viewer-nav\s*\{[\s\S]{0,320}width: 42px;[\s\S]{0,100}height: 42px;[\s\S]{0,100}border-radius: 50% !important;/);
+    assert.match(index, /#downloadScreenshotViewer \.dl-screenshot-viewer-nav:hover\s*\{[\s\S]{0,180}translateY\(-50%\) !important;[\s\S]{0,180}filter: brightness/);
+    assert.doesNotMatch(index, /#downloadScreenshotViewer \.dl-screenshot-viewer-nav:hover\s*\{[^}]*scale\(/);
+    assert.match(index, /image\.className = 'dl-screenshot-image';/);
+    assert.match(index, /viewer\.id = 'downloadScreenshotViewer';/);
+    assert.match(index, /body\.reduce-motion \.dl-screenshot-viewer img/);
     assert.match(index, /id="ddpTitle"[^>]+overflow-wrap: anywhere/);
     assert.match(index, /card\.tabIndex = 0;[\s\S]{0,120}card\.setAttribute\('role', 'button'\)/);
     assert.match(index, /card\.onkeydown = event => \{[\s\S]{0,220}event\.key === 'Enter' \|\| event\.key === ' '/);

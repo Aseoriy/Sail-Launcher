@@ -8,8 +8,10 @@ const vm = require('node:vm');
 const {
     DATANODES_BROWSER_TRANSFER_AUTHORITY,
     buzzHeavierPageCandidates,
+    buzzHeavierPageReportsDown,
     createGofileResolver,
     credentialFreeHttpsUrl,
+    dataNodesPageReportsDown,
     extractGofileWebsiteTokenSecret,
     extractBuzzHeavierEndpoint,
     extractDataNodesBrowserDownload,
@@ -290,6 +292,29 @@ test('BuzzHeavier page candidates preserve the file id and endpoint parser keeps
         extractBuzzHeavierEndpoint('<a hx-get="/u33dxmmaozb6/download?t=abc123&amp;alt=false">Download</a>', 'https://bzzhr.to/u33dxmmaozb6'),
         'https://bzzhr.to/u33dxmmaozb6/download?t=abc123'
     );
+    assert.equal(buzzHeavierPageReportsDown('<p>Whatever lived here has returned to the void.</p>'), true);
+    assert.equal(buzzHeavierPageReportsDown('<p>Your file is ready to download.</p>'), false);
+});
+
+test('BuzzHeavier lost-file pages report down without opening browser verification', async () => {
+    let browserCalls = 0;
+    await assert.rejects(() => resolveBuzzHeavierUrl('https://buzzheavier.com/5bcb8b3od5f', {
+        request: async () => ({
+            status: 200,
+            headers: { 'content-type': 'text/html' },
+            body: '<main><p>Whatever lived here has returned to the void.</p><p>Every file is given time. This one\'s ran out.</p></main>'
+        }),
+        browserResolve: async () => { browserCalls++; return null; }
+    }), error => error && error.linkHealth === 'down' && error.healthReason === 'buzzheavier-page-reports-down');
+    assert.equal(browserCalls, 0);
+
+    await assert.rejects(() => resolveBuzzHeavierUrl('https://bzzhr.to/tesckhb3od5f', {
+        request: async () => ({ status: 403, headers: {}, body: '<title>Just a moment...</title>' }),
+        browserResolve: async () => ({
+            linkHealth: 'down',
+            healthReason: 'buzzheavier-page-reports-down'
+        })
+    }), error => error && error.linkHealth === 'down' && error.healthReason === 'buzzheavier-page-reports-down');
 });
 
 test('BuzzHeavier legacy direct-download routes probe once, then use the managed session for HTML challenges', async () => {
@@ -755,6 +780,25 @@ test('DataNodes resolver accepts its signed off-site JSON handoff only after a b
     assert.equal(await resolveDataNodesUrl('https://datanodes.to/Abc12345', {
         request: async () => ({ status: 200, headers: { 'content-type': 'text/html' }, body: '<img src="https://datanodes.to/images/logo.png">' })
     }), null);
+    assert.equal(dataNodesPageReportsDown('<h1>File Not Found</h1><p>The file you were looking for could not be found.</p>'), true);
+    assert.equal(dataNodesPageReportsDown('<h1>Download File</h1><p>Your file is ready.</p>'), false);
+});
+
+test('DataNodes resolver reports its redirected not-found page as down', async () => {
+    let calls = 0;
+    await assert.rejects(() => resolveDataNodesUrl('https://datanodes.to/Expired123', {
+        request: async () => {
+            calls++;
+            return calls === 1
+                ? { status: 302, headers: { location: '/download', 'set-cookie': ['file_code=Expired123; Path=/'] }, body: '' }
+                : {
+                    status: 200,
+                    headers: { 'content-type': 'text/html' },
+                    body: '<h1>File Not Found</h1><p>The file you were looking for could not be found, sorry for any inconvenience.</p><li>The file expired</li>'
+                };
+        }
+    }), error => error && error.linkHealth === 'down' && error.healthReason === 'datanodes-page-reports-down');
+    assert.equal(calls, 2);
 });
 
 test('DataNodes managed-browser response tags only the provider download JSON as transfer authority', () => {

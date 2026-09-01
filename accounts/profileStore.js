@@ -17,6 +17,7 @@ const { legacyLocalArtifactStem } = require('../security/archiveDataBinding');
 
 const PROFILE_SCHEMA_VERSION = 3;
 const DEVICE_OVERLAY_SCHEMA_VERSION = 1;
+const RETAINED_GAMES_SCHEMA_VERSION = 1;
 const MIGRATION_SCHEMA_VERSION = 1;
 const LOCAL_BACKUP_SCHEMA = 'sail.local-backup/v1';
 const LOCAL_BACKUP_LIMIT = 16 * 1024 * 1024;
@@ -411,7 +412,7 @@ function validateLocalBackupAuthorities(value) {
         }
         for (const item of record.filesystems) {
             if (!isPlainObject(item) || Object.keys(item).some(key => !['kind', 'entryId', 'rootPath'].includes(key))
-                || !['save', 'config', 'download-root', 'install-root', 'archive-root', 'achievement-file', 'achievement-folder'].includes(item.kind)
+                || !['save', 'config', 'download-root', 'install-root', 'game-install', 'archive-root', 'achievement-file', 'achievement-folder'].includes(item.kind)
                 || typeof item.entryId !== 'string' || item.entryId && cleanId(item.entryId, '') !== item.entryId
                 || typeof item.rootPath !== 'string' || item.rootPath.length > 32767 || !path.isAbsolute(item.rootPath)) {
                 fail('SAIL_LOCAL_BACKUP_INVALID', `A local backup filesystem entry for ${gameId} is invalid.`);
@@ -552,6 +553,10 @@ class ProfileStore {
 
     overlayPath(profileId, libraryId, root = this.root) {
         return path.join(root, 'profiles', profileId, 'device-local', `${libraryId}.json`);
+    }
+
+    retainedGamesPath(profileId, libraryId, root = this.root) {
+        return path.join(root, 'profiles', profileId, 'device-local', `${libraryId}.retained-games.json`);
     }
 
     profilePath(profileId) {
@@ -980,6 +985,77 @@ class ProfileStore {
         overlay.sections = isPlainObject(overlay.sections) ? overlay.sections : {};
         overlay.storageAliases = validateStorageAliases(overlay.storageAliases === undefined ? {} : overlay.storageAliases);
         return overlay;
+    }
+
+    retainedPortableGame(game, profileId, libraryId) {
+        const profile = this.state.profiles.find(item => item.id === profileId);
+        const library = profile && profile.libraries.find(item => item.id === libraryId);
+        const preset = profile && profile.presets.find(item => item.id === this.state.activePresetId) || profile && profile.presets[0];
+        if (!profile || !library || !preset) fail('SAIL_PROFILE_INVALID', 'Retained game data has no matching profile library.');
+        const projected = createPortableSnapshot({
+            myGames: [clone(game)],
+            customSections: [],
+            globalSettings: {}
+        }, {
+            profileId: profile.id,
+            profileName: profile.name,
+            libraryId: library.id,
+            libraryName: library.name,
+            presetId: preset.id,
+            presetName: preset.name,
+            conflictMode: profile.conflictMode
+        });
+        const normalized = projected.artifact.libraries[0].games[0];
+        if (!normalized || normalized.id !== game.id) fail('SAIL_PROFILE_INVALID', 'Retained game data is invalid.');
+        return normalized;
+    }
+
+    readRetainedGames(profileId, libraryId) {
+        const retainedPath = this.retainedGamesPath(profileId, libraryId);
+        if (!fs.existsSync(retainedPath)) return { schemaVersion: RETAINED_GAMES_SCHEMA_VERSION, games: {} };
+        const document = fsExtra.readJsonSync(retainedPath);
+        assertExactObject(document, new Set(['schemaVersion', 'games']), 'retained games');
+        if (document.schemaVersion !== RETAINED_GAMES_SCHEMA_VERSION || !isPlainObject(document.games)
+            || Object.keys(document.games).length > 10000) {
+            fail('SAIL_PROFILE_INVALID', 'Retained game data is invalid.');
+        }
+        const games = {};
+        for (const [gameId, record] of Object.entries(document.games)) {
+            if (cleanId(gameId, '') !== gameId) fail('SAIL_PROFILE_INVALID', 'A retained game ID is invalid.');
+            assertExactObject(record, new Set(['retainedAt', 'game']), `retained game ${gameId}`);
+            if (typeof record.retainedAt !== 'string' || !Number.isFinite(Date.parse(record.retainedAt))
+                || !isPlainObject(record.game) || record.game.id !== gameId) {
+                fail('SAIL_PROFILE_INVALID', `Retained game ${gameId} is invalid.`);
+            }
+            games[gameId] = {
+                retainedAt: record.retainedAt,
+                game: this.retainedPortableGame(record.game, profileId, libraryId)
+            };
+        }
+        return { schemaVersion: RETAINED_GAMES_SCHEMA_VERSION, games };
+    }
+
+    writeRetainedGames(profileId, libraryId, retained) {
+        this.atomicWrite(this.retainedGamesPath(profileId, libraryId), {
+            schemaVersion: RETAINED_GAMES_SCHEMA_VERSION,
+            games: clone(retained.games)
+        });
+    }
+
+    matchingRetainedDownloadedGame(profileId, libraryId, identity = {}) {
+        const retained = this.readRetainedGames(profileId, libraryId);
+        const steamAppId = /^[1-9]\d{0,9}$/.test(String(identity.steamAppId || '')) ? String(identity.steamAppId) : '';
+        const sourceIdentifier = String(identity.sourceIdentifier || '');
+        const sourceTitle = String(identity.sourceTitle || '').trim().toLocaleLowerCase('en-US');
+        const records = Object.values(retained.games).sort((left, right) => Date.parse(right.retainedAt) - Date.parse(left.retainedAt));
+        const match = records.find(record => {
+            const game = record.game;
+            if (game.source !== 'sail-download') return false;
+            if (steamAppId && String(game.steamAppId || '') === steamAppId) return true;
+            return !!sourceIdentifier && String(game.sourceIdentifier || '') === sourceIdentifier
+                && String(game.sourceTitle || game.name || '').trim().toLocaleLowerCase('en-US') === sourceTitle;
+        });
+        return match ? { retained, record: match } : { retained, record: null };
     }
 
     recoverMissingLegacyOverlay() {
@@ -1647,6 +1723,54 @@ class ProfileStore {
         return this.capabilityStore.status(this.authorityScope(gameId));
     }
 
+    downloadedGameUninstallStatus(gameId) {
+        const metadata = this.activeGameMetadata(gameId);
+        if (metadata.source !== 'sail-download') {
+            return { available: false, reason: 'not-sail-download', capability: null };
+        }
+        try {
+            const capability = this.capabilityStore.adoptDownloadedInstallFromHistory(this.authorityScope(gameId));
+            return capability
+                ? { available: true, reason: '', capability }
+                : { available: false, reason: 'install-ownership-unavailable', capability: null };
+        } catch (_) {
+            return { available: false, reason: 'install-folder-changed', capability: null };
+        }
+    }
+
+    removeGameFromActiveLibrary(gameId, options = {}) {
+        const scope = this.authorityScope(gameId);
+        const current = this.loadActiveSnapshot();
+        const index = current.myGames.findIndex(game => String(game && game.id || '') === scope.gameId);
+        if (index < 0) fail('SAIL_PROFILE_GAME_NOT_FOUND', 'Game was not found in the active library.');
+        const removedGame = current.myGames[index];
+        const retained = this.readRetainedGames(scope.profileId, scope.libraryId);
+        if (options.keepSailData === true) {
+            retained.games[scope.gameId] = {
+                retainedAt: new Date().toISOString(),
+                game: this.retainedPortableGame(this.activeGameMetadata(scope.gameId), scope.profileId, scope.libraryId)
+            };
+        } else {
+            delete retained.games[scope.gameId];
+        }
+        this.writeRetainedGames(scope.profileId, scope.libraryId, retained);
+        current.myGames.splice(index, 1);
+        this.captureActiveSnapshot(current);
+        const overlay = this.readOverlay(scope.profileId, scope.libraryId);
+        delete overlay.games[scope.gameId];
+        delete overlay.warnings[scope.gameId];
+        delete overlay.storageAliases[scope.gameId];
+        this.atomicWrite(this.overlayPath(scope.profileId, scope.libraryId), overlay);
+        const revoked = this.capabilityStore.revokeScope(scope, 'game-removed');
+        return {
+            removedGame: clone(removedGame),
+            keptSailData: options.keepSailData === true,
+            revoked,
+            state: this.getState(),
+            snapshot: this.loadActiveSnapshot()
+        };
+    }
+
     createExecutionCapability(gameId, details) {
         return this.capabilityStore.createApprovedExecution(this.authorityScope(gameId), details, 'local-selection');
     }
@@ -1856,29 +1980,40 @@ class ProfileStore {
         this.ensureReady();
         const name = String(input.gameName || '').trim().replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 160);
         if (!name) fail('SAIL_PROFILE_INVALID', 'The downloaded game name is invalid.');
-        const gameId = makeId();
         const current = this.loadActiveSnapshot();
         const steamAppId = /^[1-9]\d{0,9}$/.test(String(input.steamAppId || '')) ? String(input.steamAppId) : '';
+        const sourceIdentifier = steamAppId || (/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(String(input.sourceId || '')) ? String(input.sourceId) : 'download');
+        const retainedMatch = this.matchingRetainedDownloadedGame(
+            this.state.activeProfileId,
+            this.state.activeLibraryId,
+            { steamAppId, sourceIdentifier, sourceTitle: name }
+        );
+        const retainedGame = retainedMatch.record && !current.myGames.some(item => item.id === retainedMatch.record.game.id)
+            ? clone(retainedMatch.record.game)
+            : null;
+        const gameId = retainedGame ? retainedGame.id : makeId();
+        const effectiveSteamAppId = steamAppId || retainedGame && retainedGame.steamAppId || '';
         const game = {
+            ...(retainedGame || {}),
             id: gameId,
             name,
-            tags: [],
-            isFavorite: false,
-            addedAt: Date.now(),
-            playtime: 0,
-            lastPlayed: null,
-            playtimeSessionIds: [],
-            configSyncEntries: [],
-            platform: steamAppId ? 'steam' : 'custom',
+            tags: retainedGame && retainedGame.tags || [],
+            isFavorite: retainedGame ? retainedGame.isFavorite : false,
+            addedAt: retainedGame ? retainedGame.addedAt : Date.now(),
+            playtime: retainedGame ? retainedGame.playtime : 0,
+            lastPlayed: retainedGame ? retainedGame.lastPlayed : null,
+            playtimeSessionIds: retainedGame && retainedGame.playtimeSessionIds || [],
+            configSyncEntries: retainedGame && retainedGame.configSyncEntries || [],
+            platform: effectiveSteamAppId ? 'steam' : 'custom',
             source: 'sail-download',
-            sourceIdentifier: steamAppId || (/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(String(input.sourceId || '')) ? String(input.sourceId) : 'download'),
+            sourceIdentifier,
             sourceTitle: name,
             installedAt: new Date().toISOString()
         };
-        if (steamAppId) {
-            game.steamAppId = steamAppId;
-            game.steamImageUrl = `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${steamAppId}/header.jpg`;
-            game.steamHeroUrl = `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${steamAppId}/library_hero.jpg`;
+        if (effectiveSteamAppId) {
+            game.steamAppId = effectiveSteamAppId;
+            game.steamImageUrl = `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${effectiveSteamAppId}/header.jpg`;
+            game.steamHeroUrl = `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${effectiveSteamAppId}/library_hero.jpg`;
         }
         const coverPath = typeof input.coverPath === 'string' && path.isAbsolute(input.coverPath) && fs.existsSync(input.coverPath)
             ? path.normalize(input.coverPath)
@@ -1886,6 +2021,10 @@ class ProfileStore {
         if (coverPath) game.customBannerPath = coverPath;
         current.myGames.push(game);
         this.captureActiveSnapshot(current);
+        if (retainedGame) {
+            delete retainedMatch.retained.games[retainedGame.id];
+            this.writeRetainedGames(this.state.activeProfileId, this.state.activeLibraryId, retainedMatch.retained);
+        }
         const scope = this.authorityScope(gameId);
         let execution = null;
         const executablePath = typeof input.executablePath === 'string' && path.isAbsolute(input.executablePath) && fs.existsSync(input.executablePath)
@@ -1895,10 +2034,14 @@ class ProfileStore {
         const folderPath = typeof input.folderPath === 'string' && path.isAbsolute(input.folderPath) && fs.existsSync(input.folderPath)
             ? path.normalize(input.folderPath)
             : '';
+        const uninstall = folderPath
+            ? this.capabilityStore.adoptTrustedLocalFilesystem(scope, 'game-install', folderPath, '', 'download-result')
+            : null;
         const location = folderPath ? this.capabilityStore.createDirectoryCapability(scope, folderPath, 'folder-open', { source: 'download-result' }) : null;
         return {
             gameId,
             execution,
+            uninstall,
             location,
             state: this.getState(),
             snapshot: this.loadActiveSnapshot()

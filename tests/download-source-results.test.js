@@ -328,6 +328,12 @@ test('download source wiring stays within real result and screenshot sections', 
     assert.match(index, /find\(node => \/\\bscreenshots\?\\b\/i/);
     assert.match(index, /fullScreenshotImageUrl/);
     assert.match(index, /className = 'dl-screenshot-viewer'/);
+    assert.match(index, /className = 'dl-screenshot-viewer-nav previous'/);
+    assert.match(index, /className = 'dl-screenshot-viewer-nav next'/);
+    assert.match(index, /event\.key === 'ArrowLeft'[\s\S]{0,180}moveDownloadScreenshot\(-1\)/);
+    assert.match(index, /event\.key === 'ArrowRight'[\s\S]{0,180}moveDownloadScreenshot\(1\)/);
+    assert.match(index, /dlScreenshotItems\.forEach\(\(screenshot, index\)/);
+    assert.match(index, /openDownloadScreenshot\(index, im\)/);
     assert.match(main, /resolveSteamMetadataForDownload\(opts\.gameName, opts\.sourceId\)/);
     assert.match(main, /steamAppId: steamMetadata && steamMetadata\.steamAppId/);
     assert.match(index, /myGames\.forEach\(game => DownloadSourceLogic\.repairDownloadedSteamGameMetadata\(game\)\)/);

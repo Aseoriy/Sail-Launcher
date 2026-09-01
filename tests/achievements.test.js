@@ -834,3 +834,39 @@ test('disabling achievement tracking closes watchers and blocks manual scans wit
         fs.rmSync(root, { recursive: true, force: true });
     }
 });
+
+test('per-game suspension releases achievement watchers and resumes them after a failed uninstall', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sail-achievement-uninstall-'));
+    const sourcePath = path.join(root, 'achievements.json');
+    fs.writeFileSync(sourcePath, JSON.stringify({ achievements: { WATCHED: { achieved: true } } }));
+    const service = new AchievementService({
+        app: { getAppPath: () => root },
+        BrowserWindow: { getAllWindows: () => [] },
+        dialog: {},
+        steamRoot: ''
+    });
+    try {
+        await service.setLibrary({
+            libraryKey: 'local:default',
+            trackingEnabled: true,
+            forceScan: true,
+            games: [{
+                id: 'uninstall-game',
+                name: 'Uninstall Game',
+                approvedRoots: [{ path: root, kind: 'directory' }],
+                achievementSources: [{ id: 'manual', kind: 'file', path: sourcePath, enabled: true }]
+            }]
+        });
+        assert.equal(service.watchers.has('uninstall-game'), true);
+        assert.equal(service.suspendGame('uninstall-game'), true);
+        assert.equal(service.watchers.has('uninstall-game'), false);
+        assert.equal(service.resumeGame('uninstall-game'), true);
+        assert.equal(service.watchers.has('uninstall-game'), true);
+        service.forgetGame('uninstall-game');
+        assert.equal(service.watchers.has('uninstall-game'), false);
+        assert.equal(service.games.has('uninstall-game'), false);
+    } finally {
+        service.dispose();
+        fs.rmSync(root, { recursive: true, force: true });
+    }
+});

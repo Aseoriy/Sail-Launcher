@@ -686,6 +686,18 @@ function managedHostTransferRequest(provider, value, rawUrl) {
         || /\.(?:zip|rar|7z|bin|iso|exe|msi|cab|torrent|\d{3}|part\d+|r\d{2}|z\d{2})(?:$|[?#])/i.test(candidate);
 }
 
+function dataNodesPageReportsDown(pageHtml) {
+    const text = String(pageHtml || '')
+        .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
+        .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/&(?:nbsp|#160);/gi, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    return /\bfile not found\b/i.test(text)
+        && /the file you were looking for could not be found|the file expired|the file was deleted/i.test(text);
+}
+
 function extractDataNodesBrowserDownload(response, rawUrl) {
     const source = credentialFreeHttpsUrl(rawUrl);
     if (!source || !dataNodesHost(new URL(source).hostname, new URL(source).hostname)) return null;
@@ -826,6 +838,9 @@ async function resolveDataNodesUrl(rawUrl, dependencies = {}) {
         if (page && [404, 410].includes(page.status)) {
             throw resolverDownError('DataNodes reports that this file was deleted or no longer exists.', 'datanodes-not-found');
         }
+        if (dataNodesPageReportsDown(page && page.body)) {
+            throw resolverDownError('DataNodes reports that this file was deleted or no longer exists.', 'datanodes-page-reports-down');
+        }
         let cookie = responseCookies(page && page.headers);
         const location = credentialFreeHttpsUrl(headerValue(page && page.headers, 'location'), source);
         if (location) {
@@ -837,6 +852,12 @@ async function resolveDataNodesUrl(rawUrl, dependencies = {}) {
                 timeoutMs: 10000
             });
             cookie = mergeCookieHeaders(cookie, responseCookies(page && page.headers));
+            if (page && [404, 410].includes(page.status)) {
+                throw resolverDownError('DataNodes reports that this file was deleted or no longer exists.', 'datanodes-not-found');
+            }
+            if (dataNodesPageReportsDown(page && page.body)) {
+                throw resolverDownError('DataNodes reports that this file was deleted or no longer exists.', 'datanodes-page-reports-down');
+            }
         }
         if (!page || page.status < 200 || page.status >= 300) return null;
         const body = String(page.body || '');
@@ -1074,6 +1095,18 @@ function buzzHeavierPageCandidates(rawUrl) {
     if (!pathInfo) return [];
     const origins = [parsed.origin, ...BUZZHEAVIER_MIRRORS];
     return [...new Set(origins)].map(origin => origin + pathInfo.path);
+}
+
+function buzzHeavierPageReportsDown(pageHtml) {
+    const text = String(pageHtml || '')
+        .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
+        .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/&(?:nbsp|#160);/gi, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    return /whatever lived here has returned to the void/i.test(text)
+        || /every file is given time[\s\S]{0,160}this one(?:'s| has) ran out/i.test(text);
 }
 
 function decodeHtmlAttribute(value) {
@@ -1316,7 +1349,13 @@ async function resolveBuzzHeavierUrl(rawUrl, dependencies = {}) {
                 follow: false,
                 timeoutMs: 8000
             });
+            if (page && [404, 410].includes(page.status)) {
+                throw resolverDownError('BuzzHeavier reports that this file was deleted or no longer exists.', 'buzzheavier-not-found');
+            }
             if (!page || page.status < 200 || page.status >= 400) return null;
+            if (buzzHeavierPageReportsDown(page.body)) {
+                throw resolverDownError('BuzzHeavier reports that this file was deleted or no longer exists.', 'buzzheavier-page-reports-down');
+            }
             const pageCookie = responseCookies(page.headers);
             const endpoint = extractBuzzHeavierEndpoint(page.body, pageUrl);
             if (!endpoint) return null;
@@ -1346,7 +1385,10 @@ async function resolveBuzzHeavierUrl(rawUrl, dependencies = {}) {
                 maxConn: 1,
                 resumeAcrossFreshUrl: true
             });
-        } catch (_) { return null; }
+        } catch (error) {
+            if (error && error.linkHealth === 'down') throw error;
+            return null;
+        }
     };
 
     let resolved = null;
@@ -1369,6 +1411,9 @@ async function resolveBuzzHeavierUrl(rawUrl, dependencies = {}) {
             const type = headerValue(response && response.headers, 'content-type');
             const disposition = headerValue(response && response.headers, 'content-disposition');
             const body = String(response && response.body || '').trimStart();
+            if (buzzHeavierPageReportsDown(body)) {
+                throw resolverDownError('BuzzHeavier reports that this file was deleted or no longer exists.', 'buzzheavier-page-reports-down');
+            }
             const location = acceptedDirectUrl(headerValue(response && response.headers, 'location'), legacyUrl, acceptBuzzDirect);
             const transferUrl = location && !samePageUrl(location, legacyUrl) ? location : legacyUrl;
             if (response && response.status >= 200 && response.status < 400
@@ -1406,6 +1451,10 @@ async function resolveBuzzHeavierUrl(rawUrl, dependencies = {}) {
     if (typeof dependencies.browserResolve !== 'function') return null;
     try {
         const browserResult = await dependencies.browserResolve(candidates[0], sourceReferer);
+        if (browserResult && browserResult.linkHealth === 'down') {
+            throw resolverDownError('BuzzHeavier reports that this file was deleted or no longer exists.',
+                browserResult.healthReason || 'buzzheavier-page-reports-down');
+        }
         const rawDirect = typeof browserResult === 'string' ? browserResult : browserResult && browserResult.url;
         const pageUrl = browserResult && browserResult.pageUrl || candidates[0];
         const direct = acceptedDirectUrl(rawDirect, pageUrl, acceptBuzzDirect);
@@ -1416,7 +1465,10 @@ async function resolveBuzzHeavierUrl(rawUrl, dependencies = {}) {
             maxConn: 1,
             resumeAcrossFreshUrl: true
         });
-    } catch (_) { return null; }
+    } catch (error) {
+        if (error && error.linkHealth === 'down') throw error;
+        return null;
+    }
 }
 
 function megadbTokenDetails(pageHtml, pageUrl) {
@@ -1572,8 +1624,10 @@ module.exports = {
     VIKINGFILE_HOST_RE,
     X1337_HOST_RE,
     buzzHeavierPageCandidates,
+    buzzHeavierPageReportsDown,
     createGofileResolver,
     credentialFreeHttpsUrl,
+    dataNodesPageReportsDown,
     extractGofileWebsiteTokenSecret,
     extractBuzzHeavierEndpoint,
     extractDataNodesBrowserDownload,

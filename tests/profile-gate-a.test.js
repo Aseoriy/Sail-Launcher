@@ -173,6 +173,10 @@ test('downloaded Steam metadata persists while the local executable remains laun
 
     const authority = store.authorityStatus(added.gameId);
     assert.equal(authority.execution.state, 'active');
+    const installAuthority = authority.filesystems.find(item => item.kind === 'game-install');
+    assert.ok(installAuthority);
+    assert.deepEqual(installAuthority.operations, ['install-delete']);
+    assert.equal(store.downloadedGameUninstallStatus(added.gameId).available, true);
     const resolved = store.resolveExecutionCapability({
         gameId: added.gameId,
         capabilityId: authority.execution.capabilityId,
@@ -196,6 +200,80 @@ test('downloaded Steam metadata persists while the local executable remains laun
     }).snapshot.myGames.find(item => item.name === 'Unknown Local Game');
     assert.equal(custom.platform, 'custom');
     assert.equal(custom.steamAppId, undefined);
+});
+
+test('removing a game clears its portable row, device overlay, and local authorities', t => {
+    const f = makeFixture(t);
+    const store = new ProfileStore(f.root);
+    store.initialize();
+    const added = store.registerDownloadedGameProposal({
+        gameName: 'Disposable Download',
+        executablePath: f.executablePath,
+        folderPath: f.local,
+        sourceId: 'steamrip'
+    });
+    const result = store.removeGameFromActiveLibrary(added.gameId);
+    assert.equal(result.snapshot.myGames.some(game => game.id === added.gameId), false);
+    assert.ok(result.revoked.execution >= 1);
+    assert.ok(result.revoked.filesystem >= 1);
+    assert.throws(() => store.authorityStatus(added.gameId), /not found/i);
+    assert.deepEqual(store.readRetainedGames(result.state.activeProfileId, result.state.activeLibraryId).games, {});
+});
+
+test('kept Sail data restores playtime, achievements, and sync metadata on reinstall', t => {
+    const f = makeFixture(t);
+    const store = new ProfileStore(f.root);
+    store.initialize();
+    const added = store.registerDownloadedGameProposal({
+        gameName: 'Supermarket Simulator',
+        executablePath: f.executablePath,
+        folderPath: f.local,
+        sourceId: 'steamrip-supermarket-simulator',
+        steamAppId: '2670630'
+    });
+    const snapshot = added.snapshot;
+    const game = snapshot.myGames.find(item => item.id === added.gameId);
+    game.playtime = 9876;
+    game.lastPlayed = 1710000000000;
+    game.playtimeSessionIds = ['session-kept'];
+    game.configSyncEntries = [{
+        id: 'config-main', name: 'Settings', kind: 'file', enabled: true,
+        beforeLaunch: true, afterExit: true, intervalMinutes: 0
+    }];
+    game.achievementData = {
+        schemaVersion: 1, appId: '2670630', updatedAt: 1710000000000,
+        lastSteamRefreshAt: null, lastLocalScanAt: 1710000000000,
+        items: [{
+            id: 'ACH_KEEP', displayName: 'Still Here', description: '', hidden: false,
+            icon: null, iconGray: null, unlocked: true, unlockTime: 1710000000000,
+            source: 'local'
+        }]
+    };
+    store.captureActiveSnapshot(snapshot);
+
+    const removed = store.removeGameFromActiveLibrary(added.gameId, { keepSailData: true });
+    assert.equal(removed.keptSailData, true);
+    assert.equal(removed.snapshot.myGames.some(item => item.id === added.gameId), false);
+    const retained = store.readRetainedGames(removed.state.activeProfileId, removed.state.activeLibraryId);
+    assert.equal(retained.games[added.gameId].game.playtime, 9876);
+    assert.equal(retained.games[added.gameId].game.achievementData.items[0].id, 'ACH_KEEP');
+
+    const restarted = new ProfileStore(f.root);
+    restarted.initialize();
+    const restored = restarted.registerDownloadedGameProposal({
+        gameName: 'Supermarket Simulator',
+        executablePath: f.executablePath,
+        folderPath: f.local,
+        sourceId: 'steamrip-supermarket-simulator',
+        steamAppId: '2670630'
+    });
+    const restoredGame = restored.snapshot.myGames.find(item => item.id === restored.gameId);
+    assert.equal(restored.gameId, added.gameId);
+    assert.equal(restoredGame.playtime, 9876);
+    assert.deepEqual(restoredGame.playtimeSessionIds, ['session-kept']);
+    assert.equal(restoredGame.achievementData.items[0].id, 'ACH_KEEP');
+    assert.equal(restoredGame.configSyncEntries[0].id, 'config-main');
+    assert.deepEqual(restarted.readRetainedGames(removed.state.activeProfileId, removed.state.activeLibraryId).games, {});
 });
 
 test('local backup round-trips local paths without exporting protected settings', t => {

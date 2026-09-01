@@ -305,3 +305,36 @@ test('tampered persisted authority fails closed instead of becoming active', t =
     const restarted = new CapabilityStore(path.join(f.root, 'authority'), () => ({ ...f.active }));
     assertCode('SAIL_CAPABILITY_INVALID', () => restarted.initialize());
 });
+
+test('download install ownership is delete-only and rejects a replaced directory identity', t => {
+    const f = fixture();
+    t.after(() => fs.rmSync(f.root, { recursive: true, force: true }));
+    const install = path.join(f.root, 'installed-game');
+    fs.mkdirSync(install);
+    fs.writeFileSync(path.join(install, 'game.exe'), 'game');
+    const capability = f.store.createApprovedFilesystem(f.scope, 'game-install', install, '', 'download-result');
+
+    assertCode('SAIL_CAPABILITY_WRONG_OPERATION', () => f.store.validateFilesystem({
+        capabilityId: capability.capabilityId,
+        expectedRevision: capability.revision,
+        ...f.scope,
+        operation: 'folder-open'
+    }));
+    assert.equal(f.store.validateFilesystem({
+        capabilityId: capability.capabilityId,
+        expectedRevision: capability.revision,
+        ...f.scope,
+        operation: 'install-delete'
+    }).details.rootPath, install);
+
+    const moved = `${install}-old`;
+    fs.renameSync(install, moved);
+    fs.mkdirSync(install);
+    fs.writeFileSync(path.join(install, 'different.exe'), 'different');
+    assertCode('SAIL_CAPABILITY_PATH_CHANGED', () => f.store.validateFilesystem({
+        capabilityId: capability.capabilityId,
+        expectedRevision: capability.revision,
+        ...f.scope,
+        operation: 'install-delete'
+    }));
+});

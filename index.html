@@ -4784,10 +4784,48 @@
                     versions found. Saves will appear here after closing a game with save sync enabled.</p>
             </div>
 
+            <div id="uninstallGameSection"
+                style="display:none;margin-top:20px;border-top:1px solid var(--border-color);padding-top:20px;">
+                <button id="uninstallGameBtn" class="danger-outline" style="width:100%;">🗑️ Uninstall Game</button>
+                <p id="uninstallGameStatus" style="font-size:10px;opacity:.62;line-height:1.45;margin:8px 2px 0;"></p>
+            </div>
+
             <div
                 style="display: flex; gap: 10px; margin-top: 20px; border-top: 1px solid var(--border-color); padding-top: 20px;">
                 <button id="editFromPageBtn" style="flex-grow: 1;" data-i18n="edit">✏️ Edit Details</button>
-                <button id="deleteFromPageBtn" class="danger-outline" style="flex-grow: 1;">🗑️ Delete Game</button>
+                <button id="deleteFromPageBtn" class="danger-outline" style="flex-grow: 1;">🗑️ Remove Game from Library</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="uninstallGameModal" class="modal">
+        <div class="modal-content" style="width:460px;max-width:92vw;">
+            <button class="close-x" onclick="closeModal('uninstallGameModal')" aria-label="Close uninstall dialog">✕</button>
+            <h2 style="margin-top:0;">Uninstall Game</h2>
+            <p id="uninstallGamePrompt" style="font-size:13px;line-height:1.55;opacity:.82;"></p>
+            <div id="uninstallDataNotice" style="padding:14px;border:1px solid rgba(239,68,68,.38);background:rgba(239,68,68,.08);border-radius:10px;font-size:12px;line-height:1.5;">
+                All files inside the Sail-installed game folder will be permanently removed. The game will also be removed from your library, including its playtime, achievements, and sync setup.
+            </div>
+            <label class="toggle-label" style="margin-top:16px;align-items:flex-start;">
+                <input type="checkbox" id="uninstallRemoveSailData">
+                <div class="toggle-switch"></div>
+                <span>
+                    Remove the rest of this game’s Sail data
+                    <small style="display:block;opacity:.62;line-height:1.45;margin-top:3px;">Deletes Sail-managed backup archives, local save versions, and this game’s Sail Cloud save/config files. Your original save and config folders outside the install folder are not deleted.</small>
+                </span>
+            </label>
+            <label class="toggle-label" style="margin-top:14px;align-items:flex-start;">
+                <input type="checkbox" id="uninstallKeepSailData">
+                <div class="toggle-switch"></div>
+                <span>
+                    Keep this game’s Sail data for reinstalling later
+                    <small style="display:block;opacity:.62;line-height:1.45;margin-top:3px;">Keeps playtime, achievements, sync setup, Sail-managed backups, and Sail Cloud save/config files. Reinstalling the same built-in download restores the retained library data.</small>
+                </span>
+            </label>
+            <div id="uninstallGameProgress" style="min-height:18px;margin-top:12px;font-size:11px;opacity:.7;"></div>
+            <div style="display:flex;justify-content:flex-end;gap:10px;margin-top:12px;">
+                <button id="cancelUninstallGameBtn" class="outline">Cancel</button>
+                <button id="confirmUninstallGameBtn" class="danger-outline">Uninstall Game</button>
             </div>
         </div>
     </div>
@@ -11091,9 +11129,8 @@
             ipcRenderer.on('context-play-game', (e, idx) => launchGame(idx));
             ipcRenderer.on('context-edit-game', (e, idx) => editGame(idx));
             ipcRenderer.on('context-delete-game', async (e, idx) => {
-                if (await sailConfirm("Are you sure you want to remove this game?")) {
-                    if (viewingGameIndex === idx) closeGamePage();
-                    myGames.splice(idx, 1); saveToMemory(); renderSidebar(); renderGames();
+                if (await sailConfirm("Remove this game from your library?\n\nIts installed files will not be deleted.")) {
+                    await removeGameFromLibrary(idx);
                 }
             });
 
@@ -13084,9 +13121,129 @@
             }
         }
 
+        async function removeGameFromLibrary(index) {
+            const game = myGames[index];
+            if (!game) return false;
+            try {
+                const result = await invokeAccount('profiles-remove-game', { gameId: String(game.id) });
+                myGames = Array.isArray(result.snapshot && result.snapshot.myGames)
+                    ? result.snapshot.myGames
+                    : myGames.filter(item => String(item && item.id || '') !== String(game.id));
+                if (viewingGameIndex === index) closeGamePage();
+                saveToMemory();
+                renderSidebar();
+                renderGames();
+                return true;
+            } catch (error) {
+                await sailAlert(safeSyncErrorMessage(error));
+                return false;
+            }
+        }
+
+        function openDownloadedGameUninstallDialog(game, uninstallStatus) {
+            const prompt = document.getElementById('uninstallGamePrompt');
+            const removeSailData = document.getElementById('uninstallRemoveSailData');
+            const keepSailData = document.getElementById('uninstallKeepSailData');
+            const dataNotice = document.getElementById('uninstallDataNotice');
+            const progress = document.getElementById('uninstallGameProgress');
+            const confirm = document.getElementById('confirmUninstallGameBtn');
+            const cancel = document.getElementById('cancelUninstallGameBtn');
+            prompt.textContent = `Uninstall “${String(game.name || 'this game')}”?`;
+            removeSailData.checked = false;
+            keepSailData.checked = false;
+            removeSailData.disabled = false;
+            keepSailData.disabled = false;
+            const refreshDataChoices = () => {
+                if (keepSailData.checked) {
+                    removeSailData.checked = false;
+                    removeSailData.disabled = true;
+                    keepSailData.disabled = false;
+                    dataNotice.textContent = 'All files inside the Sail-installed game folder will be permanently removed. The library entry will be removed, while its playtime, achievements, sync setup, backups, and Sail Cloud files are kept for a later reinstall.';
+                } else if (removeSailData.checked) {
+                    keepSailData.checked = false;
+                    keepSailData.disabled = true;
+                    removeSailData.disabled = false;
+                    dataNotice.textContent = 'All files inside the Sail-installed game folder will be permanently removed. The library entry, playtime, achievements, sync setup, Sail-managed backups, and Sail Cloud save/config files will also be removed.';
+                } else {
+                    removeSailData.disabled = false;
+                    keepSailData.disabled = false;
+                    dataNotice.textContent = 'All files inside the Sail-installed game folder will be permanently removed. The game will also be removed from your library, including its playtime, achievements, and sync setup.';
+                }
+            };
+            removeSailData.onchange = refreshDataChoices;
+            keepSailData.onchange = refreshDataChoices;
+            refreshDataChoices();
+            progress.textContent = '';
+            confirm.disabled = false;
+            cancel.disabled = false;
+            cancel.onclick = () => closeModal('uninstallGameModal');
+            confirm.onclick = async () => {
+                const capability = uninstallStatus && uninstallStatus.capability;
+                if (!capability) return;
+                confirm.disabled = true;
+                cancel.disabled = true;
+                removeSailData.disabled = true;
+                keepSailData.disabled = true;
+                progress.textContent = 'Verifying and removing the Sail-installed game folder…';
+                try {
+                    const result = await ipcRenderer.invoke('uninstall-downloaded-game', {
+                        gameId: String(game.id),
+                        capabilityId: capability.capabilityId,
+                        expectedRevision: capability.revision,
+                        removeSailData: removeSailData.checked,
+                        keepSailData: keepSailData.checked
+                    });
+                    if (!result || result.success !== true) throw new Error('The uninstall did not finish.');
+                    myGames = Array.isArray(result.snapshot && result.snapshot.myGames)
+                        ? result.snapshot.myGames
+                        : myGames.filter(item => String(item && item.id || '') !== String(game.id));
+                    closeModal('uninstallGameModal');
+                    closeModal('gameSettingsModal');
+                    closeGamePage();
+                    saveToMemory();
+                    renderSidebar();
+                    renderGames();
+                    const extra = result.warning ? `\n\n${result.warning}` : '';
+                    const kept = result.keepSailData ? ' Its Sail data was kept for a later reinstall.' : '';
+                    await sailAlert(`“${result.gameName || game.name}” was uninstalled and removed from your library.${kept}${extra}`);
+                } catch (error) {
+                    const uninstallError = error && error.message
+                        ? error.message.replace(/^Error invoking remote method '[^']+':\s*Error:\s*/i, '')
+                        : error;
+                    progress.textContent = safeSyncErrorMessage(uninstallError);
+                    confirm.disabled = false;
+                    cancel.disabled = false;
+                } finally {
+                    refreshDataChoices();
+                }
+            };
+            openModal('uninstallGameModal');
+        }
+
         async function openGameSettings() {
             if (viewingGameIndex === null) return;
             const game = myGames[viewingGameIndex];
+            const uninstallSection = document.getElementById('uninstallGameSection');
+            const uninstallButton = document.getElementById('uninstallGameBtn');
+            const uninstallMessage = document.getElementById('uninstallGameStatus');
+            uninstallSection.style.display = game.source === 'sail-download' ? 'block' : 'none';
+            if (game.source === 'sail-download') {
+                uninstallButton.disabled = true;
+                uninstallMessage.textContent = 'Checking Sail’s install-folder ownership…';
+                try {
+                    const uninstallStatus = await invokeAccount('downloaded-game-uninstall-status', { gameId: String(game.id) });
+                    uninstallButton.disabled = !uninstallStatus.available;
+                    uninstallMessage.textContent = uninstallStatus.available
+                        ? 'Removes the game folder Sail created and then removes this library entry.'
+                        : 'Sail can’t verify ownership of this install folder, so its files must be removed manually.';
+                    uninstallButton.onclick = uninstallStatus.available
+                        ? () => openDownloadedGameUninstallDialog(game, uninstallStatus)
+                        : null;
+                } catch (error) {
+                    uninstallButton.disabled = true;
+                    uninstallMessage.textContent = safeSyncErrorMessage(error);
+                }
+            }
             const configSyncSection = document.getElementById('manualGameConfigSyncSection');
             const hasConfigEntries = Array.isArray(game.configSyncEntries)
                 && game.configSyncEntries.some(entry => entry && entry.enabled !== false && entry.localSetupStatus === 'active');
@@ -13190,7 +13347,11 @@
             };
 
             document.getElementById('deleteFromPageBtn').onclick = async () => {
-                if (await sailConfirm("Are you sure you want to remove this game?")) { closeModal('gameSettingsModal'); myGames.splice(viewingGameIndex, 1); saveToMemory(); renderSidebar(); closeGamePage(); }
+                if (await sailConfirm("Remove this game from your library?\n\nIts installed files will not be deleted.")) {
+                    const index = viewingGameIndex;
+                    closeModal('gameSettingsModal');
+                    await removeGameFromLibrary(index);
+                }
             };
 
             let backups = [];
@@ -18390,7 +18551,8 @@
         body.less-animations .dl-screenshot-viewer { animation: none !important; }
         body.less-animations #downloadResults.dl-page-loading { transform: none; }
         body.less-animations #ddpScreens img,
-        body.less-animations .dl-screenshot-viewer img { transition: none !important; }
+        body.less-animations .dl-screenshot-viewer img,
+        body.reduce-motion .dl-screenshot-viewer img { transition: none !important; }
         .download-empty-icon {
             display: inline-flex;
             align-items: center;
@@ -18578,19 +18740,84 @@
             -webkit-app-region: no-drag;
         }
         .dl-screenshot-viewer[hidden] { display: none; }
+        .dl-screenshot-stage {
+            position: relative;
+            width: min(78vw, 1200px);
+            height: min(78vh, 800px);
+            min-width: 260px;
+        }
         .dl-screenshot-viewer img {
+            position: absolute;
+            inset: 0;
             display: block;
-            max-width: 100%;
-            max-height: 100%;
+            width: 100%;
+            height: 100%;
             object-fit: contain;
             border-radius: 10px;
             box-shadow: 0 22px 70px rgba(0,0,0,0.65);
             background: #000;
+            opacity: 0;
+            transform: translateX(0) scale(0.985);
+            transition: opacity 0.24s ease, transform 0.24s cubic-bezier(0.22, 1, 0.36, 1);
+            pointer-events: none;
+        }
+        .dl-screenshot-viewer img.is-current { opacity: 1; transform: none; z-index: 2; }
+        .dl-screenshot-viewer img.enter-from-right { transform: translateX(7%) scale(0.985); }
+        .dl-screenshot-viewer img.enter-from-left { transform: translateX(-7%) scale(0.985); }
+        .dl-screenshot-viewer img.exit-to-left { opacity: 0; transform: translateX(-7%) scale(0.985); }
+        .dl-screenshot-viewer img.exit-to-right { opacity: 0; transform: translateX(7%) scale(0.985); }
+        body.less-animations .dl-screenshot-viewer img,
+        body.reduce-motion .dl-screenshot-viewer img { transform: none !important; }
+        .dl-screenshot-viewer-nav {
+            position: absolute;
+            top: 50%;
+            z-index: 5;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 42px;
+            height: 42px;
+            padding: 0;
+            border-radius: 50% !important;
+            border: 1px solid rgba(255,255,255,0.24);
+            background: rgba(10,15,28,0.84);
+            color: #fff;
+            font-size: 30px;
+            line-height: 1;
+            transform: translateY(-50%);
+            cursor: pointer;
+        }
+        .dl-screenshot-viewer-nav.previous { left: -68px; }
+        .dl-screenshot-viewer-nav.next { right: -68px; }
+        #downloadScreenshotViewer .dl-screenshot-viewer-nav:hover {
+            transform: translateY(-50%) !important;
+            filter: brightness(1.12);
+            box-shadow: 0 7px 22px color-mix(in srgb, var(--accent) 34%, transparent);
+        }
+        #downloadScreenshotViewer .dl-screenshot-viewer-nav:active { transform: translateY(-50%) !important; }
+        .dl-screenshot-viewer-nav:focus-visible,
+        .dl-screenshot-viewer-close:focus-visible {
+            outline: 3px solid color-mix(in srgb, var(--accent) 72%, #fff);
+            outline-offset: 3px;
+        }
+        .dl-screenshot-viewer-nav[hidden] { display: none; }
+        .dl-screenshot-viewer-count {
+            position: absolute;
+            left: 50%;
+            bottom: 12px;
+            z-index: 5;
+            transform: translateX(-50%);
+            padding: 5px 10px;
+            border-radius: 99px;
+            background: rgba(10,15,28,0.78);
+            color: #fff;
+            font-size: 12px;
         }
         .dl-screenshot-viewer-close {
             position: absolute;
-            top: 16px;
-            right: 18px;
+            z-index: 6;
+            top: 12px;
+            right: 12px;
             display: inline-flex;
             align-items: center;
             justify-content: center;
@@ -18609,9 +18836,11 @@
         }
         .dl-screenshot-viewer-close:hover,
         .dl-screenshot-viewer-close:active { transform: none; }
-        .dl-screenshot-viewer-close:focus-visible {
-            outline: 3px solid color-mix(in srgb, var(--accent) 72%, #fff);
-            outline-offset: 3px;
+        @media (max-width: 720px) {
+            .dl-screenshot-viewer { padding: 24px 14px; }
+            .dl-screenshot-stage { width: calc(100vw - 28px); height: 72vh; }
+            .dl-screenshot-viewer-nav.previous { left: 10px; }
+            .dl-screenshot-viewer-nav.next { right: 10px; }
         }
 
         #downloadDock { animation: dlDockIn 0.35s cubic-bezier(0.22, 1, 0.36, 1); }
@@ -19397,26 +19626,100 @@
 
         let dlScreenshotViewer = null;
         let dlScreenshotReturnFocus = null;
+        let dlScreenshotItems = [];
+        let dlScreenshotIndex = -1;
+        let dlScreenshotTransitionTimer = null;
 
         function closeDownloadScreenshot() {
             if (!dlScreenshotViewer) return;
             dlScreenshotViewer.hidden = true;
-            const image = dlScreenshotViewer.querySelector('img');
-            if (image) image.removeAttribute('src');
+            clearTimeout(dlScreenshotTransitionTimer);
+            dlScreenshotTransitionTimer = null;
+            dlScreenshotViewer.querySelectorAll('img').forEach(image => {
+                image.onerror = null;
+                image.removeAttribute('src');
+                image.className = 'dl-screenshot-image';
+            });
+            dlScreenshotIndex = -1;
             if (dlScreenshotReturnFocus && typeof dlScreenshotReturnFocus.focus === 'function') dlScreenshotReturnFocus.focus();
             dlScreenshotReturnFocus = null;
+        }
+
+        function screenshotViewerButtons() {
+            return dlScreenshotViewer
+                ? Array.from(dlScreenshotViewer.querySelectorAll('button')).filter(button => !button.hidden && !button.disabled)
+                : [];
+        }
+
+        function updateDownloadScreenshot(index, direction = 0) {
+            if (!dlScreenshotViewer || !dlScreenshotItems.length) return;
+            const nextIndex = (index + dlScreenshotItems.length) % dlScreenshotItems.length;
+            const record = dlScreenshotItems[nextIndex];
+            const images = Array.from(dlScreenshotViewer.querySelectorAll('.dl-screenshot-image'));
+            const current = images.find(image => image.classList.contains('is-current')) || null;
+            const incoming = current === images[0] ? images[1] : images[0];
+            const source = record.full || record.thumbnail;
+            if (!incoming || !source) return;
+            clearTimeout(dlScreenshotTransitionTimer);
+            incoming.onerror = () => {
+                if (record.thumbnail && incoming.src !== record.thumbnail) incoming.src = record.thumbnail;
+                else incoming.onerror = null;
+            };
+            incoming.className = `dl-screenshot-image ${direction < 0 ? 'enter-from-left' : 'enter-from-right'}`;
+            incoming.src = source;
+            incoming.alt = `Game screenshot ${nextIndex + 1} of ${dlScreenshotItems.length}`;
+            void incoming.offsetWidth;
+            if (current) current.className = `dl-screenshot-image ${direction < 0 ? 'exit-to-right' : 'exit-to-left'}`;
+            incoming.classList.remove('enter-from-left', 'enter-from-right');
+            incoming.classList.add('is-current');
+            dlScreenshotIndex = nextIndex;
+            const count = dlScreenshotViewer.querySelector('.dl-screenshot-viewer-count');
+            if (count) count.textContent = `${nextIndex + 1} / ${dlScreenshotItems.length}`;
+            dlScreenshotTransitionTimer = setTimeout(() => {
+                if (current && current !== incoming) {
+                    current.removeAttribute('src');
+                    current.className = 'dl-screenshot-image';
+                }
+            }, 260);
+        }
+
+        function moveDownloadScreenshot(direction) {
+            if (dlScreenshotIndex < 0 || dlScreenshotItems.length < 2) return;
+            updateDownloadScreenshot(dlScreenshotIndex + direction, direction);
         }
 
         function ensureDownloadScreenshotViewer() {
             if (dlScreenshotViewer) return dlScreenshotViewer;
             const viewer = document.createElement('div');
+            viewer.id = 'downloadScreenshotViewer';
             viewer.className = 'dl-screenshot-viewer';
             viewer.hidden = true;
             viewer.setAttribute('role', 'dialog');
             viewer.setAttribute('aria-modal', 'true');
             viewer.setAttribute('aria-label', 'Full screenshot preview');
-            const image = document.createElement('img');
-            image.alt = 'Full game screenshot';
+            const stage = document.createElement('div');
+            stage.className = 'dl-screenshot-stage';
+            const firstImage = document.createElement('img');
+            firstImage.className = 'dl-screenshot-image';
+            const secondImage = document.createElement('img');
+            secondImage.className = 'dl-screenshot-image';
+            const previous = document.createElement('button');
+            previous.type = 'button';
+            previous.className = 'dl-screenshot-viewer-nav previous';
+            previous.textContent = '‹';
+            previous.title = 'Previous screenshot';
+            previous.setAttribute('aria-label', 'Previous screenshot');
+            previous.onclick = () => moveDownloadScreenshot(-1);
+            const next = document.createElement('button');
+            next.type = 'button';
+            next.className = 'dl-screenshot-viewer-nav next';
+            next.textContent = '›';
+            next.title = 'Next screenshot';
+            next.setAttribute('aria-label', 'Next screenshot');
+            next.onclick = () => moveDownloadScreenshot(1);
+            const count = document.createElement('div');
+            count.className = 'dl-screenshot-viewer-count';
+            count.setAttribute('aria-live', 'polite');
             const close = document.createElement('button');
             close.type = 'button';
             close.className = 'dl-screenshot-viewer-close';
@@ -19425,26 +19728,22 @@
             close.setAttribute('aria-label', 'Close full screenshot');
             close.onclick = closeDownloadScreenshot;
             viewer.onclick = event => { if (event.target === viewer) closeDownloadScreenshot(); };
-            viewer.append(image, close);
+            stage.append(firstImage, secondImage, previous, next, count, close);
+            viewer.append(stage);
             document.body.appendChild(viewer);
             dlScreenshotViewer = viewer;
             return viewer;
         }
 
-        function openDownloadScreenshot(fullUrl, thumbnailUrl, trigger) {
+        function openDownloadScreenshot(index, trigger) {
             const viewer = ensureDownloadScreenshotViewer();
-            const image = viewer.querySelector('img');
-            const full = SafeDom.safeImageUrl(fullUrl, { allowAnyHost: true });
-            const thumbnail = SafeDom.safeImageUrl(thumbnailUrl, { allowAnyHost: true });
-            if (!full && !thumbnail) return;
+            if (!dlScreenshotItems[index]) return;
             dlScreenshotReturnFocus = trigger || document.activeElement;
-            image.onerror = () => {
-                image.onerror = null;
-                if (thumbnail && image.src !== thumbnail) image.src = thumbnail;
-            };
-            image.src = full || thumbnail;
+            const multiple = dlScreenshotItems.length > 1;
+            viewer.querySelectorAll('.dl-screenshot-viewer-nav').forEach(button => { button.hidden = !multiple; });
+            updateDownloadScreenshot(index, 0);
             viewer.hidden = false;
-            viewer.querySelector('button').focus();
+            viewer.querySelector('.dl-screenshot-viewer-close').focus();
         }
 
         document.addEventListener('keydown', event => {
@@ -19453,9 +19752,21 @@
                 if (event.key === 'Escape') {
                     event.preventDefault();
                     closeDownloadScreenshot();
-                } else if (event.key === 'Tab') {
+                } else if (event.key === 'ArrowLeft') {
                     event.preventDefault();
-                    dlScreenshotViewer.querySelector('button').focus();
+                    moveDownloadScreenshot(-1);
+                } else if (event.key === 'ArrowRight') {
+                    event.preventDefault();
+                    moveDownloadScreenshot(1);
+                } else if (event.key === 'Tab') {
+                    const buttons = screenshotViewerButtons();
+                    if (!buttons.length) return;
+                    const currentIndex = buttons.indexOf(document.activeElement);
+                    const nextIndex = event.shiftKey
+                        ? (currentIndex <= 0 ? buttons.length - 1 : currentIndex - 1)
+                        : (currentIndex + 1) % buttons.length;
+                    event.preventDefault();
+                    buttons[nextIndex].focus();
                 }
                 return;
             }
@@ -19755,6 +20066,7 @@
             document.getElementById('ddpDescription').textContent = 'Loading description...';
             document.getElementById('ddpScreensWrap').style.display = 'none';
             document.getElementById('ddpScreens').replaceChildren();
+            dlScreenshotItems = [];
             document.getElementById('ddpMeta').replaceChildren();
             document.getElementById('ddpDownloadArea').replaceChildren(SafeDom.element(document, 'div', { text: 'Loading download options…' }));
 
@@ -19776,21 +20088,24 @@
             if (meta.screenshots.length) {
                 const sc = document.getElementById('ddpScreens');
                 sc.replaceChildren();
-                meta.screenshots.forEach(screenshot => {
+                dlScreenshotItems = meta.screenshots.map(screenshot => ({
+                    thumbnail: SafeDom.safeImageUrl(screenshot.thumbnail, { allowAnyHost: true }),
+                    full: SafeDom.safeImageUrl(screenshot.full, { allowAnyHost: true })
+                })).filter(screenshot => !!screenshot.thumbnail);
+                dlScreenshotItems.forEach((screenshot, index) => {
                     const im = document.createElement('img');
-                    const thumbnail = SafeDom.safeImageUrl(screenshot.thumbnail, { allowAnyHost: true });
-                    const full = SafeDom.safeImageUrl(screenshot.full, { allowAnyHost: true });
+                    const thumbnail = screenshot.thumbnail;
                     if (!thumbnail) return;
                     im.src = thumbnail; im.loading = 'lazy'; im.alt = 'Open full game screenshot';
                     im.tabIndex = 0;
                     im.setAttribute('role', 'button');
                     im.style.cssText = 'width:100%;height:150px;object-fit:contain;border-radius:8px;cursor:pointer;background:#000;';
                     im.onerror = () => im.remove();
-                    im.onclick = () => openDownloadScreenshot(full || thumbnail, thumbnail, im);
+                    im.onclick = () => openDownloadScreenshot(index, im);
                     im.onkeydown = event => {
                         if (event.key === 'Enter' || event.key === ' ') {
                             event.preventDefault();
-                            openDownloadScreenshot(full || thumbnail, thumbnail, im);
+                            openDownloadScreenshot(index, im);
                         }
                     };
                     sc.appendChild(im);

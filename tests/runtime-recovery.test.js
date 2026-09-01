@@ -114,3 +114,23 @@ test('sessions with the same game ID stay isolated between launcher libraries', 
     assert.equal(event.libraryKey, 'profile-a:library');
     assert.equal(Object.keys(journal.snapshot().activeSessions).length, 1);
 });
+
+test('game purge removes completed and post-exit recovery data but refuses active sessions', t => {
+    const env = fixture(t);
+    const journal = env.journal();
+    const active = journal.startSession({
+        gameId: 'game-remove', libraryKey: 'profile:library', gameName: 'Remove Me',
+        startedAt: 1_720_000_000_000, needsSaveSync: true
+    });
+    assert.throws(() => journal.purgeGame({ gameId: 'game-remove', libraryKey: 'profile:library' }), /close the game/i);
+    env.setNow(1_720_000_005_000);
+    journal.finishSession({
+        gameId: 'game-remove', libraryKey: 'profile:library', sessionId: active.sessionId,
+        endedAt: 1_720_000_005_000
+    });
+    const removed = journal.purgeGame({ gameId: 'game-remove', libraryKey: 'profile:library' });
+    assert.equal(removed.completedSessions, 1);
+    assert.equal(removed.postExitJobs, 1);
+    assert.equal(journal.snapshot().completedSessions.length, 0);
+    assert.equal(journal.snapshot().postExitJobs.length, 0);
+});

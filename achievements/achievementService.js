@@ -261,6 +261,35 @@ class AchievementService {
         this.watchers.delete(gameId);
     }
 
+    suspendGame(gameId) {
+        const id = String(gameId || '');
+        const canResume = !this.disposed && this.trackingEnabled && this.games.has(id);
+        this.closeWatchers(id);
+        clearTimeout(this.refreshTimers.get(id));
+        this.refreshTimers.delete(id);
+        return canResume;
+    }
+
+    resumeGame(gameId) {
+        const id = String(gameId || '');
+        if (this.disposed || !this.trackingEnabled) return false;
+        const storedGame = this.games.get(id);
+        if (!storedGame) return false;
+        try {
+            this.installWatchers(this.resolveScanGame(storedGame));
+            return true;
+        } catch (_) {
+            this.invalidateLocalAuthority(id);
+            return false;
+        }
+    }
+
+    forgetGame(gameId) {
+        const id = String(gameId || '');
+        this.removeGame(id);
+        this.games.delete(id);
+    }
+
     invalidateLocalAuthority(gameId) {
         const id = String(gameId || '');
         this.closeWatchers(id);

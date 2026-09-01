@@ -37,6 +37,7 @@ const { createDownloadWorkCoordinator } = require('./runtime/downloadWorkCoordin
 const { runOwnedChildProcess } = require('./runtime/ownedChildProcess');
 const { runOwnedWorker } = require('./runtime/ownedWorker');
 const { DownloadQuarantineCatalog, registerDownloadQuarantineIpc } = require('./runtime/downloadQuarantine');
+const { removeOwnedInstallDirectory, strictChildPath } = require('./runtime/gameUninstall');
 const {
     AKIRABOX_HOST_RE,
     BUZZHEAVIER_HOST_RE,
@@ -121,6 +122,7 @@ if (launchArg) autoLaunchGameId = launchArg.split('=')[1].replace(/"/g, '');
 const startHidden = args.includes('--hidden');
 let activeBackupProcess = null;
 let backingUpZipPath = null;
+const uninstallingGameIds = new Set();
 let tray = null;
 let maintenanceService = null;
 let accountServices = null;
@@ -1190,7 +1192,7 @@ ipcMain.on('show-game-context', (e, index) => {
         { label: '▶️ Play Game', click: () => e.sender.send('context-play-game', index) },
         { type: 'separator' },
         { label: '✏️ Edit Game', click: () => e.sender.send('context-edit-game', index) },
-        { label: '🗑️ Delete Game', click: () => e.sender.send('context-delete-game', index) }
+        { label: '🗑️ Remove Game from Library', click: () => e.sender.send('context-delete-game', index) }
     ]);
     menu.popup(BrowserWindow.fromWebContents(e.sender));
 });
@@ -1208,6 +1210,175 @@ ipcMain.handle('runtime-post-exit-update', (_event, payload) => {
     const result = runtimeRecovery ? runtimeRecovery.updatePostExitJob(payload) : null;
     evaluateDeferredQuit();
     return result;
+});
+
+function matchingRuntimeGame(item, gameId, libraryKey) {
+    return item && item.gameId === gameId && (!libraryKey || item.libraryKey === libraryKey);
+}
+
+function removeSailManagedGameFiles(store, gameId, executablePath) {
+    const scope = store.authorityScope(gameId);
+    const legacyAlias = store.legacyStorageAlias(gameId);
+    const [safeName, legacyName = null] = scopedArtifactStems(scope, legacyAlias && legacyAlias.stem || '');
+    let removed = 0;
+    let failed = 0;
+    if (executablePath) {
+        const backupDir = path.dirname(path.dirname(executablePath));
+        if (fs.existsSync(backupDir)) {
+            let filenames = [];
+            try { filenames = fs.readdirSync(backupDir); } catch (_) { failed += 1; }
+            for (const filename of filenames) {
+                const owned = [safeName, legacyName].filter(Boolean).some(stem =>
+                    filename === `${stem} backup.zip`
+                    || filename.startsWith(`${stem}_backup_`) && filename.endsWith('.zip')
+                );
+                if (!owned) continue;
+                const candidate = path.join(backupDir, filename);
+                try {
+                    const stat = fs.lstatSync(candidate);
+                    if (!stat.isFile() || stat.isSymbolicLink()) continue;
+                    fs.unlinkSync(candidate);
+                    removed += 1;
+                } catch (_) { failed += 1; }
+            }
+        }
+    }
+    const saveRoot = path.join(os.homedir(), 'SailLauncherSaves');
+    for (const stem of [safeName, legacyName].filter(Boolean)) {
+        const candidate = path.join(saveRoot, stem);
+        if (!strictChildPath(saveRoot, candidate) || !fs.existsSync(candidate)) continue;
+        try {
+            const stat = fs.lstatSync(candidate);
+            if (!stat.isDirectory() || stat.isSymbolicLink()) continue;
+            fs.rmSync(candidate, { recursive: true, force: false, maxRetries: 3, retryDelay: 100 });
+            removed += 1;
+        } catch (_) { failed += 1; }
+    }
+    return {
+        removed,
+        warning: failed ? 'Some Sail-managed local backups could not be removed.' : ''
+    };
+}
+
+async function removeSailCloudGameArtifacts(gameId) {
+    if (!accountServices || !accountServices.accountService) return { removed: 0, warning: '' };
+    try {
+        const account = await accountServices.accountService.state();
+        if (!account || !account.signedIn) return { removed: 0, warning: '' };
+        const files = await accountServices.accountService.listCloudFiles();
+        const prefix = `game-config:${gameId}:`;
+        const owned = files.filter(file => file.logical_key === `game-save:${gameId}`
+            || file.artifact_type === 'game-config' && file.logical_key.startsWith(prefix));
+        for (const file of owned) await accountServices.accountService.deleteCloudFile(file.id);
+        return { removed: owned.length, warning: '' };
+    } catch (error) {
+        return {
+            removed: 0,
+            warning: `The game was uninstalled, but Sail Cloud cleanup did not finish: ${String(error && error.message || 'unknown error').slice(0, 240)}`
+        };
+    }
+}
+
+ipcMain.handle('uninstall-downloaded-game', async (_event, payload) => {
+    const input = exactGateAPayload(payload, [
+        'gameId', 'capabilityId', 'expectedRevision', 'removeSailData', 'keepSailData'
+    ], 'Downloaded game uninstall');
+    if (typeof input.removeSailData !== 'boolean' || typeof input.keepSailData !== 'boolean'
+        || input.removeSailData && input.keepSailData) {
+        throw new Error('The uninstall data choices are invalid.');
+    }
+    const uninstallGameId = String(input.gameId || '');
+    if (uninstallingGameIds.has(uninstallGameId)) throw new Error('This game is already being uninstalled.');
+    uninstallingGameIds.add(uninstallGameId);
+    try {
+        const store = gateAProfileStore();
+        const metadata = store.activeGameMetadata(input.gameId);
+        if (metadata.source !== 'sail-download') throw new Error('Only games installed by Sail can be uninstalled here.');
+        const scope = store.authorityScope(input.gameId);
+        const libraryKey = `${scope.profileId}:${scope.libraryId}`;
+        const install = store.validateFilesystemCapability({
+            gameId: input.gameId,
+            capabilityId: input.capabilityId,
+            expectedRevision: input.expectedRevision,
+            operation: 'install-delete'
+        });
+        const runtimeState = runtimeRecovery ? runtimeRecovery.snapshot() : { activeSessions: {}, postExitJobs: [] };
+        if (Object.values(runtimeState.activeSessions || {}).some(item => matchingRuntimeGame(item, input.gameId, libraryKey))) {
+            throw new Error('Close the game before uninstalling it.');
+        }
+        if ((runtimeState.postExitJobs || []).some(item => matchingRuntimeGame(item, input.gameId, libraryKey)
+            && [item.save, item.config].some(operation => operation && operation.status === 'running'))) {
+            throw new Error('Wait for the game’s current sync operation to finish before uninstalling it.');
+        }
+        if (activeBackupProcess !== null) throw new Error('Wait for the current game backup to finish before uninstalling.');
+
+        let executablePath = '';
+        const authority = store.authorityStatus(input.gameId);
+        if (authority.execution && authority.execution.state === 'active') {
+            try {
+                const execution = store.validateExecutionCapability({
+                    gameId: input.gameId,
+                    capabilityId: authority.execution.capabilityId,
+                    expectedRevision: authority.execution.revision,
+                    operation: 'reveal'
+                });
+                executablePath = execution.details.executablePath || '';
+                if (executablePath && !strictChildPath(install.details.rootPath, executablePath)) {
+                    throw new Error('The approved game executable is no longer inside the Sail-installed folder.');
+                }
+                if (executablePath) {
+                    const running = await getRunningProcessSnapshot();
+                    if (running.names.has(path.basename(executablePath).toLowerCase())) {
+                        throw new Error('Close the game before uninstalling it.');
+                    }
+                }
+            } catch (error) {
+                if (/no longer inside|close the game/i.test(String(error && error.message || ''))) throw error;
+            }
+        }
+
+        const resumeAchievementTracking = achievementService
+            && typeof achievementService.suspendGame === 'function'
+            && achievementService.suspendGame(input.gameId);
+        try {
+            await removeOwnedInstallDirectory(install.details.rootPath, {
+                protectedRoots: [app.getPath('userData'), app.getAppPath(), os.homedir()]
+            });
+        } catch (error) {
+            if (resumeAchievementTracking && achievementService
+                && typeof achievementService.resumeGame === 'function') {
+                achievementService.resumeGame(input.gameId);
+            }
+            throw error;
+        }
+        if (achievementService && typeof achievementService.forgetGame === 'function') {
+            achievementService.forgetGame(input.gameId);
+        }
+        const runtimeRemoved = runtimeRecovery
+            ? runtimeRecovery.purgeGame({ gameId: input.gameId, libraryKey })
+            : { completedSessions: 0, postExitJobs: 0 };
+        const managed = input.removeSailData
+            ? removeSailManagedGameFiles(store, input.gameId, executablePath)
+            : { removed: 0, warning: '' };
+        const profileResult = store.removeGameFromActiveLibrary(input.gameId, { keepSailData: input.keepSailData });
+        const cloud = input.removeSailData
+            ? await removeSailCloudGameArtifacts(input.gameId)
+            : { removed: 0, warning: '' };
+        return {
+            success: true,
+            gameName: metadata.name,
+            removeSailData: input.removeSailData,
+            keepSailData: input.keepSailData,
+            runtimeRemoved,
+            managedFilesRemoved: managed.removed,
+            cloudFilesRemoved: cloud.removed,
+            warning: [managed.warning, cloud.warning].filter(Boolean).join(' '),
+            state: profileResult.state,
+            snapshot: profileResult.snapshot
+        };
+    } finally {
+        uninstallingGameIds.delete(uninstallGameId);
+    }
 });
 
 ipcMain.handle('check-backup-running', () => activeBackupProcess !== null);
@@ -2330,6 +2501,7 @@ ipcMain.handle('launch-game', async (e, payload) => {
         'capabilityId', 'expectedRevision', 'gameId',
         'needsSaveSync', 'needsGameConfigSync'
     ], 'Launch request');
+    if (uninstallingGameIds.has(String(input.gameId || ''))) throw new Error('This game is currently being uninstalled.');
     if (!accountServices || !accountServices.profileStore) throw new Error('Local game authority is not ready.');
     const gameMetadata = accountServices.profileStore.activeGameMetadata(input.gameId);
     const resolved = accountServices.profileStore.resolveExecutionCapability({
@@ -2985,6 +3157,11 @@ async function scrapeDatanodes(rawUrl, referer) {
     });
 }
 const BUZZHEAVIER_BROWSER_RESOLVE_JS = `(async function () {
+    var text = String(document.body && document.body.innerText || '').replace(/\\s+/g, ' ');
+    if (/whatever lived here has returned to the void/i.test(text)
+        || /every file is given time.{0,160}this one(?:'s| has) ran out/i.test(text)) {
+        return { linkHealth: 'down', healthReason: 'buzzheavier-page-reports-down' };
+    }
     var controls = [].slice.call(document.querySelectorAll('[hx-get]'));
     var control = controls.find(function (node) { return /\\/download\\?t=/i.test(node.getAttribute('hx-get') || ''); });
     if (!control) return null;
@@ -3007,6 +3184,62 @@ const BUZZHEAVIER_BROWSER_RESOLVE_JS = `(async function () {
     } catch (error) { return null; }
 })();`;
 
+const BUZZHEAVIER_BROWSER_HEALTH_JS = `(function () {
+    var text = String(document.body && document.body.innerText || '').replace(/\\s+/g, ' ');
+    if (/whatever lived here has returned to the void/i.test(text)
+        || /every file is given time.{0,160}this one(?:'s| has) ran out/i.test(text)) {
+        return { status: 'down', reason: 'buzzheavier-page-reports-down' };
+    }
+    var control = [].slice.call(document.querySelectorAll('[hx-get]')).find(function (node) {
+        return /\\/download\\?t=/i.test(node.getAttribute('hx-get') || '');
+    });
+    return control ? { status: 'available', reason: 'buzzheavier-token-available' } : null;
+})();`;
+
+async function checkBuzzheavierWithSystemBrowser(rawUrl, timeoutMs = 8000, sourceReferer = '') {
+    const executablePath = findSystemChromiumExecutable();
+    if (!executablePath) return null;
+    try {
+        return await resolveWithSystemChromium(rawUrl, BUZZHEAVIER_BROWSER_HEALTH_JS, {
+            executablePath,
+            tempRoot: path.join(app.getPath('temp'), 'SailLauncherHostHealth'),
+            timeoutMs,
+            navigationReferrer: sourceReferer,
+            isAllowedUrl: parsed => BUZZHEAVIER_HOST_RE.test(parsed.hostname),
+            acceptResult: value => value && [HEALTH_STATES.AVAILABLE, HEALTH_STATES.DOWN].includes(value.status)
+        });
+    } catch (_) {
+        return null;
+    }
+}
+
+const DATANODES_BROWSER_HEALTH_JS = `(function () {
+    var text = String(document.body && document.body.innerText || '').replace(/\\s+/g, ' ');
+    if (/\\bfile not found\\b/i.test(text)
+        && /the file you were looking for could not be found|the file expired|the file was deleted/i.test(text)) {
+        return { status: 'down', reason: 'datanodes-page-reports-down' };
+    }
+    var active = document.querySelector('download-countdown,#downloadForm,form[action*="/download"]');
+    return active ? { status: 'available', reason: 'datanodes-download-page-active' } : null;
+})();`;
+
+async function checkDatanodesWithSystemBrowser(rawUrl, timeoutMs = 8000, sourceReferer = '') {
+    const executablePath = findSystemChromiumExecutable();
+    if (!executablePath) return null;
+    try {
+        return await resolveWithSystemChromium(rawUrl, DATANODES_BROWSER_HEALTH_JS, {
+            executablePath,
+            tempRoot: path.join(app.getPath('temp'), 'SailLauncherHostHealth'),
+            timeoutMs,
+            navigationReferrer: sourceReferer,
+            isAllowedUrl: parsed => DATANODES_HOST_RE.test(parsed.hostname),
+            acceptResult: value => value && [HEALTH_STATES.AVAILABLE, HEALTH_STATES.DOWN].includes(value.status)
+        });
+    } catch (_) {
+        return null;
+    }
+}
+
 async function resolveBuzzheavierWithSystemBrowser(rawUrl, timeoutMs = 20000, sourceReferer = '') {
     const executablePath = findSystemChromiumExecutable();
     if (!executablePath) return null;
@@ -3017,8 +3250,12 @@ async function resolveBuzzheavierWithSystemBrowser(rawUrl, timeoutMs = 20000, so
             timeoutMs,
             navigationReferrer: sourceReferer,
             isAllowedUrl: parsed => BUZZHEAVIER_HOST_RE.test(parsed.hostname),
-            acceptResult: value => value && typeof value.url === 'string' && /^https:\/\//i.test(value.url)
+            acceptResult: value => value && (value.linkHealth === HEALTH_STATES.DOWN
+                || typeof value.url === 'string' && /^https:\/\//i.test(value.url))
         });
+        if (result && result.linkHealth === HEALTH_STATES.DOWN) {
+            return { linkHealth: HEALTH_STATES.DOWN, healthReason: result.healthReason || 'buzzheavier-page-reports-down' };
+        }
         if (!result || !result.url) return null;
         let pageUrl = rawUrl;
         try {
@@ -3136,6 +3373,10 @@ function resolveBuzzheavierWithElectronBrowser(rawUrl, timeoutMs = 15000, source
             if (done || !win || win.isDestroyed() || win.webContents.isLoadingMainFrame()) return;
             win.webContents.executeJavaScript(BUZZHEAVIER_BROWSER_RESOLVE_JS, true)
                 .then(async result => {
+                    if (result && result.linkHealth === HEALTH_STATES.DOWN) {
+                        finish({ linkHealth: HEALTH_STATES.DOWN, healthReason: result.healthReason || 'buzzheavier-page-reports-down' });
+                        return;
+                    }
                     if (result && result.url) {
                         result.headers = await browserHeaders(result.pageUrl || rawUrl);
                         finish(result);
@@ -3396,7 +3637,17 @@ const SOURCE_REFERER = {
 
 const downloadLinkHealthChecker = createDownloadLinkHealthChecker({
     request: dlRequest,
-    ttlMs: 60 * 1000
+    ttlMs: 60 * 1000,
+    buzzHeavierBrowserCheck: (url, options = {}) => checkBuzzheavierWithSystemBrowser(
+        url,
+        8000,
+        options.referer || ''
+    ),
+    dataNodesBrowserCheck: (url, options = {}) => checkDatanodesWithSystemBrowser(
+        url,
+        8000,
+        options.referer || ''
+    )
 });
 
 async function inspectDownloadLinkHealth(rawUrl, sourceId) {
@@ -3407,6 +3658,7 @@ async function inspectDownloadLinkHealth(rawUrl, sourceId) {
     const referer = SOURCE_REFERER[normalizedSource] || '';
     const value = await downloadLinkHealthChecker(rawUrl, {
         sourceId: normalizedSource,
+        referer,
         headers: {
             'User-Agent': CHROME_UA,
             ...(referer ? { Referer: referer } : {})
@@ -3841,6 +4093,8 @@ const FUCKINGFAST_SYSTEM_BROWSER_CLICK_JS = `(function(){
 // DataNodes uses one-time form state. Submit the legacy first step once, then
 // activate each distinct step-two label once as the provider replaces controls.
 const DATANODES_SYSTEM_BROWSER_CLICK_JS = `(function(){
+    var pageText=String(document.body&&document.body.innerText||'').replace(/\\s+/g,' ');
+    if(/\\bfile not found\\b/i.test(pageText)&&/the file you were looking for could not be found|the file expired|the file was deleted/i.test(pageText))return {linkHealth:'down',healthReason:'datanodes-page-reports-down'};
     function vis(el){try{if(!el)return false;var r=typeof el.getBoundingClientRect==='function'?el.getBoundingClientRect():null;return r?Number(r.width)>0&&Number(r.height)>0:el.offsetParent!==null&&el.getClientRects().length>0;}catch(e){return false;}}
     function label(el){return String((el&&el.innerText||el&&el.textContent||'')+' '+(el&&el.value||'')).toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();}
     function enabled(el){if(!vis(el)||el.disabled||String(el.getAttribute&&el.getAttribute('aria-disabled')||'').toLowerCase()==='true')return false;try{var s=getComputedStyle(el);return s.pointerEvents!=='none'&&s.visibility!=='hidden'&&s.display!=='none'&&s.opacity!=='0';}catch(e){return true;}}
@@ -4039,6 +4293,7 @@ function interceptDownload(url, timeoutMs = 55000, options = {}) {
             if (done || !win || win.isDestroyed()) return;
             const clickExpression = String(options.clickExpression || INTERCEPT_CLICK_JS);
             win.webContents.executeJavaScript(clickExpression, true).then(result => {
+                if (result && result.linkHealth === HEALTH_STATES.DOWN) return finish(result, 'provider-down');
                 const activated = result === true || !!(result && result.postVerificationControlActivated === true);
                 if (activated && humanVerification && verificationReported
                     && options.hideOnVerification === true && win && !win.isDestroyed() && win.isVisible()) {
@@ -4304,7 +4559,8 @@ async function resolveWithManagedHostBrowser(rawUrl, provider, referer, onProgre
                     // request before Chromium sends it so aria2 gets the first and
                     // only transfer attempt instead of an already-consumed token.
                     interceptTransferRequests: provider === 'fuckingfast',
-                    acceptResult: value => value && managedHostUrlAllowed(provider, value.url, rawUrl),
+                    acceptResult: value => value && (value.linkHealth === HEALTH_STATES.DOWN
+                        || managedHostUrlAllowed(provider, value.url, rawUrl)),
                     ...managedHostVerificationOptions(provider),
                     ...managedHostResponseCapture(provider, rawUrl),
                     signal: ownedSignal
@@ -4341,6 +4597,9 @@ async function resolveWithManagedHostBrowser(rawUrl, provider, referer, onProgre
             signal: ownedSignal
         });
     }, { signal });
+    if (captured && captured.linkHealth === HEALTH_STATES.DOWN) {
+        throw buildLinkDownError(rawUrl, captured.healthReason || `${provider}-page-reports-down`);
+    }
     if (provider === 'datanodes' && captured
         && captured.transferAuthority === DATANODES_BROWSER_TRANSFER_AUTHORITY) {
         reportProgress('DataNodes returned a file link — confirming the transfer…');

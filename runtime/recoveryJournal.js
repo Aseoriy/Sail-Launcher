@@ -344,6 +344,27 @@ class RecoveryJournal {
         return this.state.completedSessions.length !== before;
     }
 
+    purgeGame(input = {}) {
+        const gameId = cleanText(input.gameId, 160);
+        if (!gameId) throw new Error('A game ID is required to clear runtime recovery data.');
+        const libraryKey = cleanText(input.libraryKey, 240);
+        const matches = item => item && item.gameId === gameId && (!libraryKey || item.libraryKey === libraryKey);
+        const activeKeys = Object.entries(this.state.activeSessions)
+            .filter(([, session]) => matches(session))
+            .map(([key]) => key);
+        if (activeKeys.length) throw new Error('Close the game before uninstalling it.');
+        const beforeCompleted = this.state.completedSessions.length;
+        const beforeJobs = this.state.postExitJobs.length;
+        this.state.completedSessions = this.state.completedSessions.filter(item => !matches(item));
+        this.state.postExitJobs = this.state.postExitJobs.filter(item => !matches(item));
+        const removed = {
+            completedSessions: beforeCompleted - this.state.completedSessions.length,
+            postExitJobs: beforeJobs - this.state.postExitJobs.length
+        };
+        if (removed.completedSessions || removed.postExitJobs) this.persist();
+        return removed;
+    }
+
     updatePostExitJob(input = {}) {
         const job = this.state.postExitJobs.find(item => item.id === cleanText(input.jobId, 180));
         if (!job) return null;

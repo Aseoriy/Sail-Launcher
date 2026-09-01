@@ -386,6 +386,10 @@ function registerAccountIpc({ app, ipcMain, safeStorage, authorizeIpcEvent, dial
         await saveProtectedSettings(snapshot && snapshot.globalSettings || {});
         return withProtectedSettings(profileStore.captureActiveSnapshot(snapshot || {}));
     }));
+    ipcMain.handle('profiles-remove-game', profileGuarded('profiles-remove-game', (_event, payload) => {
+        const input = exactPayload(payload, ['gameId'], 'Remove game from library');
+        return withProtectedSettings(profileStore.removeGameFromActiveLibrary(input.gameId));
+    }));
     ipcMain.handle('profiles-clear-protected-settings', profileGuarded('profiles-clear-protected-settings', () => clearProtectedSettings()));
     ipcMain.handle('profiles-export-control-plane', profileGuarded('profiles-export-control-plane', () => profileStore.exportControlPlane()));
     ipcMain.handle('profiles-merge-control-plane', profileGuarded('profiles-merge-control-plane', (_event, payload) => withProtectedSettings(
@@ -489,6 +493,10 @@ function registerAccountIpc({ app, ipcMain, safeStorage, authorizeIpcEvent, dial
     ipcMain.handle('authority-get-game-status', guarded('authority-get-game-status', (_event, payload) => {
         const input = exactPayload(payload, ['gameId'], 'Authority status');
         return profileStore.authorityStatus(input.gameId);
+    }));
+    ipcMain.handle('downloaded-game-uninstall-status', guarded('downloaded-game-uninstall-status', (_event, payload) => {
+        const input = exactPayload(payload, ['gameId'], 'Downloaded game uninstall status');
+        return profileStore.downloadedGameUninstallStatus(input.gameId);
     }));
     ipcMain.handle('authority-select-executable', guarded('authority-select-executable', async (event, payload) => {
         exactPayload(payload || {}, [], 'Executable selection');

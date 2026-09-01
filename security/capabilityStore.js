@@ -17,13 +17,14 @@ const FILESYSTEM_OPERATIONS = Object.freeze([
     'backup-read', 'backup-write', 'backup-delete', 'backup-open',
     'transfer-read', 'transfer-write', 'folder-open',
     'download-write', 'install-write', 'archive-read', 'archive-write',
-    'achievement-read'
+    'achievement-read', 'install-delete'
 ]);
 const FILESYSTEM_KIND_OPERATIONS = Object.freeze({
     save: ['save-read', 'save-write', 'backup-read', 'backup-write'],
     config: ['config-read', 'config-write'],
     'download-root': ['download-write'],
     'install-root': ['install-write'],
+    'game-install': ['install-delete'],
     'archive-root': ['archive-read', 'archive-write'],
     'achievement-file': ['achievement-read'],
     'achievement-folder': ['achievement-read']
@@ -806,6 +807,51 @@ class CapabilityStore {
         }
     }
 
+    adoptDownloadedInstallFromHistory(scopeInput) {
+        this.initialize();
+        const scope = scopeValue(scopeInput);
+        const active = this.filesystem.records
+            .filter(record => record.state === 'active' && sameScope(record, scope)
+                && record.details.kind === 'game-install')
+            .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt))[0];
+        if (active) {
+            this.validateCurrentIdentity(active);
+            return this.publicRecord(active);
+        }
+        const historical = this.filesystem.records
+            .filter(record => sameScope(record, scope)
+                && record.details.kind === 'directory-reference'
+                && record.source === 'download-result')
+            .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt));
+        for (const record of historical) {
+            try {
+                const current = fileIdentity(record.details.rootPath, 'directory');
+                if (!identityMatches(record.details.rootIdentity, current)) continue;
+                return this.createApprovedFilesystem(scope, 'game-install', record.details.rootPath, '', 'download-result');
+            } catch (_) {}
+        }
+        return null;
+    }
+
+    revokeScope(scopeInput, reason = 'game-removed') {
+        this.initialize();
+        const scope = scopeValue(scopeInput);
+        const revoked = { execution: 0, filesystem: 0 };
+        for (const [type, store] of [['execution', this.execution], ['filesystem', this.filesystem]]) {
+            for (const record of store.records) {
+                if (record.state === 'revoked' || !sameScope(record, scope)) continue;
+                record.state = 'revoked';
+                record.revokedReason = boundedString(String(reason || 'game-removed'), 'revocation reason', {
+                    min: 1, max: 40, pattern: /^[A-Za-z0-9._-]+$/
+                });
+                record.updatedAt = new Date().toISOString();
+                revoked[type] += 1;
+            }
+            if (revoked[type]) this.persist(type);
+        }
+        return revoked;
+    }
+
     promoteTrustedLocalPending(sourceInputs = []) {
         this.initialize();
         const sources = new Set(sourceInputs.map(value => String(value)));
@@ -1082,7 +1128,7 @@ class CapabilityStore {
             else compare(path.dirname(details.targetPath), details.parentIdentity, 'directory');
         } else {
             compare(details.rootPath, details.rootIdentity, details.rootIdentity && details.rootIdentity.kind, {
-                comparePathOnly: true
+                comparePathOnly: details.kind !== 'game-install'
             });
         }
     }
