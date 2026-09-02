@@ -1,5 +1,7 @@
 <div align="center">
-
+  
+# *linux coming soon btw*
+  
 # Sail Launcher
 
 ### A customizable Windows launcher for games, applications, emulators, saves, mods, and more.
