@@ -3865,12 +3865,14 @@ const DEBRID = {
                 const timer = setTimeout(finish, Math.max(1000, Math.min(60000, Number(delayMs) || 5000)));
                 if (options.signal) options.signal.addEventListener('abort', cancel, { once: true });
             });
-            const torboxError = (message, code = '') => Object.assign(new Error(message), {
+            const torboxError = (message, code = '', debridRejected = false) => Object.assign(new Error(message), {
                 debridResolutionFatal: true,
+                debridRejected,
                 torboxCode: safeTorboxText(code).toUpperCase()
             });
-            const torboxTransientError = (message, retryDelayMs = 5000, code = '') => Object.assign(new Error(message), {
+            const torboxTransientError = (message, retryDelayMs = 5000, code = '', debridRejected = false) => Object.assign(new Error(message), {
                 torboxTransient: true,
+                debridRejected,
                 retryDelayMs,
                 torboxCode: safeTorboxText(code).toUpperCase()
             });
@@ -3905,7 +3907,7 @@ const DEBRID = {
                     ? code.replace(/_/g, ' ').toLowerCase()
                     : (status ? 'HTTP ' + status : 'unknown response'));
                 if (status === 401 || status === 403 || /^(?:AUTH_ERROR|BAD_TOKEN|NO_AUTH)$/.test(code)) {
-                    throw torboxError('TorBox rejected the connected API key. Reconnect it in Download settings and try again.', code);
+                    throw torboxError('TorBox rejected the connected API key. Reconnect it in Download settings and try again.', code, true);
                 }
                 const message = 'TorBox could not ' + action + ': ' + reason + (/[.!?]$/.test(reason) ? '' : '.');
                 if (status === 408 || status === 425 || status === 429 || status >= 500
@@ -3913,10 +3915,11 @@ const DEBRID = {
                     throw torboxTransientError(
                         message,
                         retryDelayFor(response),
-                        code
+                        code,
+                        true
                     );
                 }
-                throw torboxError(message, code);
+                throw torboxError(message, code, true);
             };
             // Keep the original hoster link so Retry continues an accepted job.
             const pendingKey = String(link);
@@ -3946,7 +3949,7 @@ const DEBRID = {
                     this.pendingDownloads.set(pendingKey, { id, createdAt: Date.now() });
                 } catch (e) {
                     if (e && (e.name === 'AbortError' || e.debridResolutionFatal)) throw e;
-                    if (e && e.torboxTransient) throw torboxError(e.message, e.torboxCode);
+                    if (e && e.torboxTransient) throw torboxError(e.message, e.torboxCode, e.debridRejected === true);
                     const reason = safeTorboxText(e && e.message);
                     if (reason === 'timeout') {
                         throw torboxError('TorBox did not finish checking the source link within three minutes. Check the TorBox dashboard before retrying.');
@@ -4077,6 +4080,7 @@ function debridCachePut(link, res) {
 // instantly). Used to flag a download as "cached" in the UI before resolution starts.
 function debridCacheHas(link) { return !!debridCacheGet(link); }
 async function debridUnrestrict(link, options) {
+    if (options && options.skipDebrid === true) return null;
     if (!debridActive()) return null;
     options = options || {};
     const serviceId = debridService;
@@ -4093,7 +4097,12 @@ async function debridUnrestrict(link, options) {
             debridServiceId: serviceId
         }) : r;
     } catch (e) {
-        if (e && (e.name === 'AbortError' || e.debridResolutionFatal)) throw e;
+        if (e && e.name === 'AbortError') throw e;
+        if (e && e.debridResolutionFatal) {
+            e.debridFailure = true;
+            e.failedDebridService = serviceName;
+            throw e;
+        }
         return null;
     }
 }
@@ -4128,6 +4137,7 @@ ipcMain.handle('debrid-validate', async (e, payload) => {
 const resolveDebridTorrent = createDebridTorrentResolver({ request: dlRequest });
 
 async function resolveTorrentDownloads(files, options) {
+    if (options && options.skipDebrid === true) return files;
     if (!files || !files.length || !debridActive()) return files;
     const serviceId = debridService;
     const serviceKey = debridKey;
@@ -4175,7 +4185,7 @@ async function resolveDirectUrl(rawUrl, opts) {
             return await scrapeSteamRipGofileContainer(gofileContainer, referer, async gofileUrl => {
                 // The catalog labels this as GoFile, but its stored URL is a FileCrypt
                 // container. TorBox needs the revealed GoFile share, not the container.
-                if (debridActive()) {
+                if (opts.skipDebrid !== true && debridActive()) {
                     const dr = await debridUnrestrict(gofileUrl, opts);
                     if (dr && dr.url) return [{
                         url: dr.url,
@@ -4198,7 +4208,7 @@ async function resolveDirectUrl(rawUrl, opts) {
     // Send the original hoster share to the connected provider. DataNodes' signed
     // storage URL is a different host and cannot select TorBox's DataNodes handler.
     // Fatal provider errors must surface instead of silently starting a direct transfer.
-    if (!torrentPage && debridActive() && /^https?:/i.test(rawUrl)) {
+    if (!torrentPage && opts.skipDebrid !== true && debridActive() && /^https?:/i.test(rawUrl)) {
         const dr = await debridUnrestrict(rawUrl, opts);
         if (dr && dr.url) return [{
             url: dr.url,
@@ -5540,10 +5550,10 @@ function runAria2Download(aria2, file, dir, opts, ctl, onProgress) {
         const args = [
             file.url, '--dir=' + (torrentTarget ? torrentTarget.directory : dir), '--summary-interval=1', '--console-log-level=warn',
             '--allow-overwrite=true', '--auto-file-renaming=false', '--continue=true',
-            // Large sparse/preallocated files can look frozen at 0% for minutes on
-            // Windows. Allocate as bytes arrive so the transfer becomes visible
-            // immediately and cancellation stays responsive.
-            '--file-allocation=none',
+            // Mark NTFS files sparse before parallel segments write at high offsets.
+            // With 'none', Windows fills the gaps with zeros, which can block aria2
+            // (including progress and cancellation) while a large file grows.
+            '--file-allocation=trunc',
             '--max-connection-per-server=' + conns, '--split=' + conns, '--min-split-size=1M', '--check-certificate=true',
             '--max-tries=3', '--retry-wait=3', '--connect-timeout=30', '--timeout=60',
             '--user-agent=' + DL_UA
@@ -5909,7 +5919,7 @@ function typedDownloadUrl(value, label, { allowMagnet = true } = {}) {
 function normalizeDownloadRequest(value) {
     const input = exactGateAPayload(value, [
         'id', 'gameName', 'image', 'url', 'links', 'sourceId', 'mirrors', 'maxSpeed',
-        'autoExtract', 'autoInstall', 'skipRedist', 'autoAdd', 'referrer',
+        'autoExtract', 'autoInstall', 'skipRedist', 'autoAdd', 'referrer', 'skipDebrid',
         'rootCapabilityId', 'rootExpectedRevision', 'reportedDownloadBytes', 'approvedDownloadSizeBytes'
     ], 'Download request');
     const output = {
@@ -5925,6 +5935,8 @@ function normalizeDownloadRequest(value) {
         skipRedist: input.skipRedist !== false,
         autoAdd: input.autoAdd !== false
     };
+    if (input.skipDebrid !== undefined && typeof input.skipDebrid !== 'boolean') throw new Error('The download debrid preference is invalid.');
+    output.skipDebrid = input.skipDebrid === true;
     for (const field of ['reportedDownloadBytes', 'approvedDownloadSizeBytes']) {
         if (input[field] === undefined || input[field] === null) continue;
         if (!Number.isSafeInteger(input[field]) || input[field] <= 0) throw new Error('The download size warning reference is invalid.');
@@ -5993,16 +6005,19 @@ ipcMain.handle('download-game', async (e, opts) => {
         // the resolution (debrid API / scraper) — BEFORE aria2 setup and cover-art fetch —
         // so that round-trip overlaps with everything else instead of queuing behind it.
         activeDownloads.set(id, ctl);
-        const svcName = debridServiceName();
+        const svcName = opts.skipDebrid ? '' : debridServiceName();
         const resolveLabel = svcName ? ('Resolving via ' + svcName + '…') : 'Resolving download links…';
         // "Cached" = this source link already has a fresh resolved direct URL, so resolution
         // is instant. Flag it through every progress event so the UI can badge the download.
-        const isCached = debridActive() && links.some(l => debridCacheHas(l.url));
+        const isCached = !opts.skipDebrid && debridActive() && links.some(l => debridCacheHas(l.url));
         wc.send('download-progress', {
             id,
             state: 'resolving',
             label: resolveLabel,
             cached: isCached,
+            debridFailure: false,
+            debridRejected: false,
+            failedDebridService: '',
             debridService: isCached ? svcName : ''
         });
         // If resolution drags on (an uncached file-host job that has to be prepared),
@@ -6060,6 +6075,7 @@ ipcMain.handle('download-game', async (e, opts) => {
                 subLabel: ''
             });
             const resolved = await runOwnedLinkResolution(signal => resolveDirectUrl(sourceLink.url, {
+                skipDebrid: opts.skipDebrid,
                 name: sourceLink.name,
                 sourceId: opts.sourceId,
                 referer: opts.referer,
@@ -6149,6 +6165,7 @@ ipcMain.handle('download-game', async (e, opts) => {
                             let managed = null;
                             try {
                                 managed = await runOwnedLinkResolution(signal => resolveDirectUrl(file.origin, {
+                                    skipDebrid: opts.skipDebrid,
                                     name: sourceLink.name,
                                     sourceId: opts.sourceId,
                                     referer: opts.referer,
@@ -6186,6 +6203,7 @@ ipcMain.handle('download-game', async (e, opts) => {
                             if (file.origin) {
                                 try {
                                     const refreshed = await runOwnedLinkResolution(signal => resolveDirectUrl(file.origin, {
+                                        skipDebrid: opts.skipDebrid,
                                         name: sourceLink.name,
                                         sourceId: opts.sourceId,
                                         referer: opts.referer,
@@ -6361,6 +6379,9 @@ ipcMain.handle('download-game', async (e, opts) => {
             error: errMsg,
             url: failedUrl,
             needsBrowser: !!err.needsBrowser,
+            debridFailure: !opts.skipDebrid && err.debridFailure === true,
+            debridRejected: err.debridRejected === true,
+            failedDebridService: err.debridFailure === true ? String(err.failedDebridService || '').slice(0, 80) : '',
             linkHealth: err.linkHealth === HEALTH_STATES.DOWN ? HEALTH_STATES.DOWN : ''
         });
         return { success: false, error: errMsg };

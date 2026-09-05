@@ -25,7 +25,28 @@ function isBulkRetryableDownload(download) {
         && !!download.resumeOpts
         && !download.browserCapture
         && !download.needsBrowser
+        && !download._debridRetryPending
         && !download.requiresUserAction;
+}
+
+function canRetryWithoutDebrid(download) {
+    if (!download || download.state !== 'error' || download.debridFailure !== true
+        || download.retrying || download._debridRetryPending || download.browserCapture
+        || !download.resumeOpts || download.resumeOpts.skipDebrid === true) return false;
+    const options = download.resumeOpts;
+    const links = Array.isArray(options.links) && options.links.length ? options.links : [{ url: options.url || download.url }];
+    return links.length > 0 && links.every(link => /^https?:\/\//i.test(String(link.url || ''))
+        && !/\.torrent(?:[?#]|$)/i.test(String(link.url || ''))
+        && !/\.torrent$/i.test(String(link.name || '').trim())
+        && !/^https?:\/\/(?:www\.)?(?:1337x\.|(?:d\.)?rutor\.)/i.test(String(link.url || '')));
+}
+
+function debridRetryMessage(download) {
+    const service = String(download && download.failedDebridService || 'The debrid service').replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 80);
+    const reason = download && download.debridRejected === true
+        ? `${service} rejected this download. This error came from the debrid service, not Sail's downloader.`
+        : `Sail couldn't complete the request to ${service}. The cause may be the service or the connection to it.`;
+    return reason + '\n\nRetry directly from the file host without debrid? Your device will connect to the host directly, and its speed limits or browser checks may apply.\n\nThis applies only to this download. Your debrid connection stays enabled for other downloads.';
 }
 
 function countActiveDownloadSlots(downloads) {
@@ -104,6 +125,8 @@ function downloadErrorNextStep(download) {
 
 module.exports = {
     ACTIVE_DOWNLOAD_STATES,
+    canRetryWithoutDebrid,
+    debridRetryMessage,
     clearCompletedHistory,
     countActiveDownloadSlots,
     downloadErrorNextStep,

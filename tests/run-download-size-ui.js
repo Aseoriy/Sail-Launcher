@@ -55,6 +55,7 @@ function extractFunction(source, name) {
 const rendererSource = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
 const rendererFunctions = ['scrapeMeta', 'estTime', 'downloadSetSizeInfo', 'downloadSetSourceSize', 'downloadSetSizeText', 'buildDownloadSizeIndicator', 'renderDownloadSetSize', 'renderDownloadSizeMeta', 'selectDownloadSizeSet', 'downloadLinkHealthKey', 'downloadSetHealthTargets', 'checkDownloadHealthTarget', 'pumpDownloadLinkHealthQueue', 'requestDownloadLinkHealth', 'updateDownloadLinkHealth', 'downloadHealthPresentation', 'renderDownloadHealthIndicator', 'buildDownloadHealthIndicator', 'configurePrimaryDownloadButton', 'refreshPrimaryDownloadChoice', 'buildSetRow', 'groupDownloadSets', 'dlHostScore', 'cachedBadge', 'fmtState', 'dlIsIndeterminate', 'formatCacheBytes', 'downloadSizeWarning', 'renderDownloadSizeWarning', 'refreshDownloadSizeWarnings', 'buildDownloadRow', 'buildDownloadActions', 'patchActiveRow', 'dlIsBusy', 'handleDownloadSizeWarning'];
 const extracted = Object.fromEntries(rendererFunctions.map(name => [name, extractFunction(rendererSource, name)]));
+extracted.retryDownloadWithoutDebrid = extractFunction(rendererSource, 'retryDownloadWithoutDebrid');
 const dialogsSource = fs.readFileSync(path.join(__dirname, '..', 'ui', 'dialogs.js'), 'utf8');
 const openDetailStart = rendererSource.indexOf('window.openDownloadDetail = async function (');
 const openDetailEnd = rendererSource.indexOf('// A grouped host set:', openDetailStart);
@@ -137,6 +138,7 @@ async function main() {
             ${extracted.renderDownloadSizeWarning}
             ${extracted.refreshDownloadSizeWarnings}
             ${extracted.buildDownloadRow}
+            ${extracted.retryDownloadWithoutDebrid}
             ${extracted.buildDownloadActions}
             ${extracted.patchActiveRow}
             ${extracted.dlIsBusy}
@@ -478,6 +480,42 @@ async function main() {
             assert.ok(filekeeperRow.querySelector('.download-link-health').textContent.includes('1/259 checked'));
             assert.equal(fitgirlPrimary.disabled, false);
             assert.equal(dlCurrent.primarySet.parts[0].url, magnet);
+            // Exercise the real direct-retry button and themed confirmation in both views.
+            const failed = {
+                id: 'debrid-retry-fixture', name: 'A long game name for the compact download box', state: 'error',
+                error: 'TorBox could not accept this file: The file size could not be determined.',
+                debridFailure: true, debridRejected: true, failedDebridService: 'TorBox',
+                resumeOpts: { id: 'debrid-retry-fixture', url: 'https://gofile.io/d/fixture' }
+            };
+            dlQueue.set(failed.id, failed);
+            const originalOptions = failed.resumeOpts;
+            const directDock = buildDownloadRow(failed);
+            const directPage = buildDownloadRow(failed, true);
+            document.body.replaceChildren(directDock, directPage);
+            directDock.style.width = '300px';
+            const directButton = directDock.querySelector('.dl-debrid-retry');
+            assert.equal(directButton.textContent, 'Retry without debrid');
+            assert.ok(directPage.querySelector('.dlpage-main .dl-debrid-retry'));
+            assert.ok(directButton.getBoundingClientRect().right <= directDock.getBoundingClientRect().right, 'button fits compact dock');
+            resumeCalls.length = 0;
+            directButton.click();
+            for (let i = 0; i < 20 && !document.querySelector('.sail-dialog-layer'); i++) await new Promise(resolve => setTimeout(resolve, 0));
+            let directDialog = document.querySelector('.sail-dialog-layer');
+            assert.ok(directDialog.textContent.includes("not Sail's downloader"));
+            assert.equal(directDialog.querySelector('.sail-dialog-primary').textContent, 'Retry without debrid');
+            directDialog.querySelector('.sail-dialog-cancel').click();
+            for (let i = 0; i < 100 && failed._debridRetryPending; i++) await new Promise(resolve => setTimeout(resolve, 5));
+            assert.equal(failed.resumeOpts, originalOptions);
+            assert.equal(resumeCalls.length, 0);
+            directButton.click();
+            for (let i = 0; i < 20 && !document.querySelector('.sail-dialog-layer'); i++) await new Promise(resolve => setTimeout(resolve, 0));
+            directDialog = document.querySelector('.sail-dialog-layer');
+            directDialog.querySelector('.sail-dialog-primary').click();
+            for (let i = 0; i < 100 && failed._debridRetryPending; i++) await new Promise(resolve => setTimeout(resolve, 5));
+            assert.deepEqual(resumeCalls, [failed.id]);
+            assert.equal(failed.resumeOpts.skipDebrid, true);
+            assert.equal(originalOptions.skipDebrid, undefined);
+            assert.equal(buildDownloadRow(failed).querySelector('.dl-debrid-retry'), null);
             return 'ok';
         })()`);
         assert.equal(result, 'ok');

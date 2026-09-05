@@ -117,7 +117,7 @@ test('v5.5.3 sidebar, announcements, and forced reinstall wiring are present', (
     const root = path.join(__dirname, '..');
     const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
     const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
-    assert.equal(packageJson.version, '5.5.3');
+    assert.equal(packageJson.version, '5.5.4');
     assert.equal(packageJson.dependencies['@supabase/supabase-js'], '2.109.0');
     assert.match(index, /grid-template-columns:\s*280px 1fr/);
     assert.match(index, /<div class="settings-tabs">/);

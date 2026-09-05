@@ -18620,6 +18620,12 @@
             font-size: 10.5px;
             white-space: nowrap;
         }
+        .dl-debrid-retry {
+            width: 100%;
+            margin-top: 9px;
+            padding: 7px 9px;
+            white-space: normal;
+        }
         .dl-dock-track {
             height: 6px;
             margin: 9px 0 7px;
@@ -19408,8 +19414,12 @@
             } catch (e) {}
             const download = dlQueue.get(options.id);
             if (download) {
-                download.requestedDebridService = activeDebridName();
+                download.requestedDebridService = options.skipDebrid ? '' : activeDebridName();
                 download.debridService = '';
+                download.debridFailure = false;
+                download.debridRejected = false;
+                download.failedDebridService = '';
+                download.cached = false;
                 refreshDownloadSizeWarnings();
             }
             const root = await currentDownloadRootReference();
@@ -20891,7 +20901,7 @@
         };
         window.resumeDownload = function (id) {
             const d = dlQueue.get(id); if (!d || !d.resumeOpts) return;
-            if (d._sizeWarningPending) return;
+            if (d._sizeWarningPending || d._debridRetryPending) return;
             if (d.retrying || DownloadManagerLogic.isDownloadSlotActive(d)) return;
             if (d.needsBrowser && !d.browserCapture) {
                 if (d.url) openDownloadInAppBrowser(d.url, d.referrer);
@@ -20907,7 +20917,7 @@
                 });
                 return;
             }
-            d.state = 'resolving'; d.label = initialResolveLabel(); d.error = '';
+            d.state = 'resolving'; d.label = d.resumeOpts.skipDebrid ? 'Resolving directly from the file host…' : initialResolveLabel(); d.error = '';
             renderDock();
             invokeDownloadWithCurrentRoot(d.resumeOpts).catch(error => {
                 d.retrying = false;
@@ -20939,6 +20949,34 @@
                 });
             });
         };
+
+        async function retryDownloadWithoutDebrid(id) {
+            const download = dlQueue.get(id);
+            if (!DownloadManagerLogic.canRetryWithoutDebrid(download)) return;
+            const previousOptions = download.resumeOpts;
+            const previousError = download.error;
+            download._debridRetryPending = true;
+            renderDock();
+            let confirmed = false;
+            try {
+                confirmed = await sailConfirm(DownloadManagerLogic.debridRetryMessage(download), {
+                    title: 'Retry without debrid?',
+                    confirmText: 'Retry without debrid',
+                    cancelText: 'Keep current download',
+                    tone: 'warning'
+                });
+            } finally {
+                download._debridRetryPending = false;
+                renderDock();
+            }
+            if (!confirmed || dlQueue.get(id) !== download || download.resumeOpts !== previousOptions
+                || download.error !== previousError || !DownloadManagerLogic.canRetryWithoutDebrid(download)) return;
+            download.resumeOpts = { ...previousOptions, skipDebrid: true };
+            download.cached = false;
+            download.debridService = '';
+            download.requestedDebridService = '';
+            window.resumeDownload(id);
+        }
 
         function applyDownloadCancellationOutcome(id, result) {
             const status = result && result.status;
@@ -21206,6 +21244,15 @@
                     sizeWarning
                 );
             }
+            if (DownloadManagerLogic.canRetryWithoutDebrid(download)) {
+                const retry = SafeDom.element(document, 'button', {
+                    className: 'outline dl-debrid-retry',
+                    text: 'Retry without debrid',
+                    title: 'Retry this download directly from the file host'
+                });
+                retry.addEventListener('click', () => { void retryDownloadWithoutDebrid(download.id); });
+                (page ? row.querySelector('.dlpage-main') : row).append(retry);
+            }
             return row;
         }
 
@@ -21314,7 +21361,7 @@
             if (!DownloadManagerLogic.isBulkRetryableDownload(d) || d.retrying || DownloadManagerLogic.isDownloadSlotActive(d)) return false;
             d.retrying = true;
             d.state = 'resolving';
-            d.label = initialResolveLabel();
+            d.label = d.resumeOpts.skipDebrid ? 'Resolving directly from the file host…' : initialResolveLabel();
             d.error = '';
             renderDock();
             invokeDownloadWithCurrentRoot(d.resumeOpts).catch(error => {
@@ -21639,6 +21686,9 @@
             const d = dlQueue.get(p.id); if (!d) return;
             d.retrying = false;
             d.state = 'error'; d.error = p.error; d.needsBrowser = p.needsBrowser; d.url = p.url || d.url; d.linkHealth = p.linkHealth || '';
+            d.debridFailure = p.debridFailure === true;
+            d.debridRejected = p.debridRejected === true;
+            d.failedDebridService = p.failedDebridService || '';
             if (p.linkHealth === 'down' && p.url) {
                 updateDownloadLinkHealth(p.url, d.sourceId, { status: 'down', reason: 'download-reported-offline' });
             }

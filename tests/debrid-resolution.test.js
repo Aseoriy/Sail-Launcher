@@ -588,6 +588,7 @@ test('TorBox reports structured create errors immediately without polling', asyn
             assert.match(error.message, /error scanning this link/i);
             assert.match(error.message, /download link could not be determined/i);
             assert.equal(error.torboxCode, 'DOWNLOAD_SERVER_ERROR');
+            assert.equal(error.debridRejected, true);
             assert.doesNotMatch(error.message, /stopped responding|timed out/i);
             assert.doesNotMatch(error.message, /could not accept this file: TorBox could not accept/i);
             return true;
@@ -722,6 +723,79 @@ test('TorBox waits for its source fetch to finish before requesting the CDN URL'
     assert.equal(calls.filter(call => call.url.includes('/webdl/requestdl?')).length, 1);
     assert.ok(labels.some(label => /50%/.test(label)));
     assert.ok(labels.some(label => /TorBox is ready/.test(label)));
+});
+
+test('direct retries bypass cached debrid links without changing another download', async () => {
+    const calls = [];
+    const harness = loadDebridCacheHarness({ torbox: {
+        name: 'TorBox',
+        async unrestrict(key, link) {
+            calls.push(link);
+            return { url: 'https://cdn.example/file.zip', name: 'file.zip' };
+        }
+    } });
+    harness.configure('torbox', 'fixture-key');
+    const link = 'https://gofile.io/d/example';
+    await harness.unrestrict(link);
+    assert.equal(await harness.unrestrict(link, { skipDebrid: true }), null);
+    assert.equal(await harness.unrestrict('https://gofile.io/d/uncached', { skipDebrid: true }), null);
+    assert.equal(calls.length, 1);
+    assert.equal((await harness.unrestrict(link)).cached, true);
+    await harness.unrestrict('https://gofile.io/d/other');
+    assert.equal(calls.length, 2);
+});
+
+test('provider rejections carry service identity while cancellation stays unmarked', async () => {
+    const failure = Object.assign(new Error('Provider rejected the link'), { debridResolutionFatal: true, debridRejected: true });
+    const harness = loadDebridCacheHarness({ torbox: {
+        name: 'TorBox', async unrestrict() { throw failure; }
+    } });
+    harness.configure('torbox', 'fixture-key');
+    await assert.rejects(harness.unrestrict('https://gofile.io/d/example'), error => {
+        assert.equal(error.debridFailure, true);
+        assert.equal(error.failedDebridService, 'TorBox');
+        assert.equal(error.debridRejected, true);
+        return true;
+    });
+    const abort = Object.assign(new Error('Cancelled'), { name: 'AbortError' });
+    const cancelled = loadDebridCacheHarness({ torbox: { name: 'TorBox', async unrestrict() { throw abort; } } });
+    cancelled.configure('torbox', 'fixture-key');
+    await assert.rejects(cancelled.unrestrict('https://gofile.io/d/example'), error => {
+        assert.equal(error.debridFailure, undefined);
+        return error === abort;
+    });
+});
+
+test('GoFile direct retries preserve host headers and size for shares and FileCrypt containers', async () => {
+    const share = 'https://gofile.io/d/example';
+    const container = 'https://www.filecrypt.cc/Container/ABCDEF1234.html';
+    const direct = [{ url: 'https://store.gofile.io/download/fixture/game.zip', name: 'game.zip', kind: 'http', sizeBytes: 123456,
+        headers: ['Cookie: accountToken=fixture-only'] }];
+    const calls = [];
+    const resolve = loadResolveDirectUrl({
+        SOURCE_REFERER: {},
+        normalizeFileCryptContainerUrl: url => url === container ? container : '',
+        inspectDownloadLinkHealth: async () => ({ status: 'available' }),
+        HEALTH_STATES: { DOWN: 'down' },
+        scrapeSteamRipGofileContainer: async (url, referer, callback) => callback(share),
+        debridActive: () => true,
+        debridUnrestrict: () => { throw new Error('Direct retry contacted debrid'); },
+        DL_KNOWN_HOST: /gofile/i,
+        scrapeGofile: async url => { calls.push(url); return direct; }
+    });
+    for (const url of [share, container]) {
+        assert.equal(await resolve(url, { skipDebrid: true, sourceId: 'steamrip' }), direct);
+    }
+    assert.deepEqual(calls, [share, share]);
+});
+
+test('unreadable create responses do not claim the provider explicitly rejected the link', async () => {
+    const services = loadDebridServices({ dlRequest: async () => ({ status: 502, body: '<html>Gateway unavailable</html>' }), setTimeout });
+    await assert.rejects(services.torbox.unrestrict('fixture-key', 'https://gofile.io/d/example'), error => {
+        assert.equal(error.debridRejected, false);
+        assert.match(error.message, /unreadable response/);
+        return true;
+    });
 });
 
 test('repeat debrid resolutions keep the cached TorBox link and identify its provider', async () => {
