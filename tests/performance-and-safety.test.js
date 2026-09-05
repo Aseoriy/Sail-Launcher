@@ -81,7 +81,6 @@ test('game extraction and recursive preparation stay off Electron main thread', 
     const post = main.slice(postStart, postEnd);
     assert.match(post, /runDownloadPreparation\('normalize-archives'/);
     assert.match(post, /await scanDownloadedPayload\(dir, opts\.gameName, work\)/);
-    assert.match(post, /await preparedDirectorySize\(extractTo, work\)/);
     assert.match(post, /runDownloadPreparation\('clean-extracted-junk'/);
     assert.match(post, /runDownloadPreparation\('delete-archive-sources'/);
     assert.doesNotMatch(post, /normalizeArchiveExtensions\(dir, 0\)|findArchives\(dir\)|dirSizeBytes\(extractTo/);

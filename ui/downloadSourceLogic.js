@@ -233,6 +233,18 @@ function downloadPartNumber(value) {
     return match ? Number.parseInt(match[1], 10) : 0;
 }
 
+function isTorrentDownloadSet(set) {
+    if (!set || !Array.isArray(set.parts) || set.parts.length !== 1) return false;
+    if (set.kind === 'magnet' || set.kind === 'torrent') return true;
+    try {
+        const url = new URL(set.parts[0].url);
+        return url.protocol === 'https:' && !url.username && !url.password
+            && (/\.torrent$/i.test(url.pathname)
+                || /(^|\.)(?:1337x\.(?:to|st|gd|is|tw|ws)|rutor\.info)$/i.test(url.hostname)
+                    && /^\/(?:torrent|download)\//i.test(url.pathname));
+    } catch (_) { return false; }
+}
+
 /**
  * Group source links into host/file sets for the detail download modal.
  * `shouldSplitRestrictedMultipart` preserves the renderer's browser-only
@@ -246,6 +258,7 @@ function groupDownloadSets(links, sourceId, options = {}) {
         : () => false;
     const source = String(sourceId || '').trim().toLowerCase();
     const magnets = [];
+    const torrents = [];
     const bySet = new Map();
 
     (links || []).forEach(link => {
@@ -264,8 +277,13 @@ function groupDownloadSets(links, sourceId, options = {}) {
         const resolverHost = normalizeDownloadSetHost(link.resolverHost);
         const approvedContainer = /^(?:www\.)?filecrypt\.cc$/i.test(parsed.hostname)
             && resolverHost === 'gofile.io';
-        if (!STEAMRIP_DOWNLOAD_HOST_RE.test(parsed.hostname) && !approvedContainer) return;
+        const fitGirlTorrent = source === 'fitgirl' && group === 'game' && isTorrentDownloadSet({ parts: [link] });
+        if (!STEAMRIP_DOWNLOAD_HOST_RE.test(parsed.hostname) && !approvedContainer && !fitGirlTorrent) return;
         if (DOWNLOAD_SKIP_FILE_RE.test(`${link.label || ''} ${link.url || ''}`)) return;
+        if (fitGirlTorrent) {
+            torrents.push(link);
+            return;
+        }
         const host = resolverHost || normalizeDownloadSetHost(link.url);
         if (!host) return;
         const key = `${group}\n${host}`;
@@ -312,14 +330,49 @@ function groupDownloadSets(links, sourceId, options = {}) {
             parts: [magnets[0]],
             score: scoreHost('magnet')
         });
+    } else if (torrents.length) {
+        // Torrent mirrors are alternatives for the same payload, never parts.
+        sets.push({ host: 'Magnet / Torrent', group: 'game', kind: 'torrent', parts: [torrents[0]], score: scoreHost('magnet') });
     }
 
     const repack = source === 'fitgirl';
     const rank = set => set.score + (set.parts.length > 1 ? 8 : 0)
-        + (repack && set.kind === 'magnet' ? 1000 : 0)
+        + (repack && isTorrentDownloadSet(set) ? 1000 : 0)
         - (set.group === 'languages' ? 500 : 0);
     sets.sort((a, b) => rank(b) - rank(a));
     return sets;
+}
+
+function downloadSetAvailability(set, getHealth) {
+    if (!set || set.kind === 'magnet' || !Array.isArray(set.parts) || !set.parts.length) return 'unknown';
+    const values = set.parts.map(part => getHealth(part.url));
+    if (values.some(value => value && value.status === 'down')) return 'down';
+    if (values.some(value => !value)) return 'checking';
+    if (values.every(value => value.status === 'available')) return 'available';
+    if (values.some(value => value.status === 'verification-required')) return 'verification-required';
+    return 'unknown';
+}
+
+function preferredDownloadSet(sets, getAvailability, currentSet, canAutoStart = () => true, options = {}) {
+    if (String(options.sourceId || '').toLowerCase() === 'fitgirl') {
+        const torrents = (sets || []).filter(set => set && set.group !== 'languages' && isTorrentDownloadSet(set));
+        const torrent = torrents.find(set => set.kind === 'magnet') || torrents[0];
+        return torrent ? { set: torrent, status: 'unconfirmed' } : { set: null, status: 'no-torrent' };
+    }
+    // AkiraBox stays a manual option, even when it is the only available mirror.
+    const gameSets = (sets || []).filter(set => set && set.group !== 'languages' && !set.partLabel
+        && !/(^|\.)akirabox\.(?:com|to)$/i.test(normalizeDownloadSetHost(set.host)));
+    const automatic = gameSets.filter(canAutoStart);
+    const candidates = automatic.length ? automatic : gameSets;
+    const directAvailable = automatic.filter(set => getAvailability(set) === 'available');
+    const available = directAvailable.length ? directAvailable : gameSets.filter(set => getAvailability(set) === 'available');
+    // Keep a working choice stable while slower checks finish. Never promote a
+    // partially checked multipart mirror or a separate language/patch download.
+    if (available.length) return { set: available.includes(currentSet) ? currentSet : available[0], status: 'available' };
+    if (candidates.some(set => getAvailability(set) === 'checking')) return { set: null, status: 'checking' };
+    const fallback = candidates.find(set => getAvailability(set) !== 'down');
+    if (fallback) return { set: fallback, status: 'unconfirmed' };
+    return { set: null, status: candidates.length ? 'down' : 'none' };
 }
 
 function paginationWindow(currentPage, totalPages) {
@@ -415,6 +468,9 @@ module.exports = {
     normalizeDownloadSetHost,
     downloadPartNumber,
     groupDownloadSets,
+    downloadSetAvailability,
+    preferredDownloadSet,
+    isTorrentDownloadSet,
     parseSteamRipDownloadLinks,
     parseSteamRipResults,
     paginationWindow,

@@ -97,6 +97,12 @@ test('download search and error guidance avoid exposing private links or credent
         error: 'GET https://private.example/file?access_token=secret failed at C:\\Users\\Me\\file.zip; Authorization: Bearer another-secret'
     });
     assert.doesNotMatch(error, /private\.example|secret|C:\\Users/i);
+
+    const torboxError = safeDownloadErrorMessage({
+        error: 'TorBox could not accept this file: network timeout.'
+    });
+    assert.match(torboxError, /^TorBox could not accept this file:/);
+    assert.doesNotMatch(torboxError, /^The connection was interrupted/);
 });
 
 test('cloud save compression waits for the 7-Zip callback before checking the archive', () => {

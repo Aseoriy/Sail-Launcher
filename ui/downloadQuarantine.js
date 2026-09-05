@@ -1,5 +1,6 @@
 'use strict';
 
+const DownloadSizeLogic = require('./downloadSizeLogic');
 const CANCELLATION_MESSAGES = Object.freeze({
     cancelled_clean: 'Download cancelled. No temporary files were created.',
     cancelled_quarantined: 'Download cancelled. Temporary files were retained in quarantine for safety.',
@@ -35,16 +36,7 @@ function cancellationPresentation(result) {
 }
 
 function formatBytes(value) {
-    const bytes = Number.isFinite(Number(value)) && Number(value) > 0 ? Number(value) : 0;
-    if (bytes < 1024) return `${Math.round(bytes)} B`;
-    const units = ['KB', 'MB', 'GB', 'TB'];
-    let amount = bytes / 1024;
-    let unit = 0;
-    while (amount >= 1024 && unit < units.length - 1) {
-        amount /= 1024;
-        unit += 1;
-    }
-    return `${amount >= 10 ? amount.toFixed(1) : amount.toFixed(2)} ${units[unit]}`;
+    return DownloadSizeLogic.formatBytes(value);
 }
 
 function formatQuarantineDate(value) {

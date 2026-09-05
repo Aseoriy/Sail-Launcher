@@ -300,7 +300,8 @@ function createGofileResolver(defaultDependencies = {}) {
             const data = payload.data;
             if (data.type === 'file') {
                 const url = gofileDirectDownloadUrl(data.link);
-                if (url) output.push({ url, name: cleanDownloadName(data.name), kind: 'http' });
+                if (url) output.push({ url, name: cleanDownloadName(data.name), kind: 'http',
+                    ...(Number.isSafeInteger(data.size) && data.size > 0 ? { sizeBytes: data.size } : {}) });
                 continue;
             }
             if (data.type !== 'folder') continue;
@@ -308,7 +309,8 @@ function createGofileResolver(defaultDependencies = {}) {
                 if (!child || child.canAccess === false || output.length >= 512) continue;
                 if (child.type === 'file') {
                     const url = gofileDirectDownloadUrl(child.link);
-                    if (url) output.push({ url, name: cleanDownloadName(child.name), kind: 'http' });
+                    if (url) output.push({ url, name: cleanDownloadName(child.name), kind: 'http',
+                        ...(Number.isSafeInteger(child.size) && child.size > 0 ? { sizeBytes: child.size } : {}) });
                 } else if (child.type === 'folder' && child.id) {
                     await collectContent(String(child.id), token, dependencies, output, visited);
                 }

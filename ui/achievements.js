@@ -229,11 +229,17 @@
         try { return new Date(value).toLocaleDateString(); } catch (_) { return ''; }
     }
 
-    function achievementGlyphElement(unlocked) {
-        const glyph = document.createElement('span');
+    function themedIconElement(name, ownerDocument = document) {
+        const glyph = ownerDocument.createElement('span');
+        glyph.className = 'app-ic';
+        glyph.dataset.ic = name;
         glyph.setAttribute('aria-hidden', 'true');
-        glyph.textContent = unlocked ? '🏆' : '🔒';
+        if (typeof window.paintIcons === 'function') window.paintIcons(glyph);
         return glyph;
+    }
+
+    function achievementGlyphElement(unlocked) {
+        return themedIconElement(unlocked ? 'trophy' : 'lock');
     }
 
     function itemImageElement(item, game) {
@@ -798,9 +804,7 @@
         const badge = document.createElement('span');
         badge.className = 'achievement-card-badge';
         badge.title = `${summary.unlocked} of ${summary.total} achievements unlocked`;
-        const marker = document.createElement('span');
-        marker.setAttribute('aria-hidden', 'true');
-        marker.textContent = '🏆';
+        const marker = themedIconElement('trophy', document);
         const count = document.createElement('span');
         count.textContent = `${summary.unlocked}/${summary.total}`;
         badge.append(marker, count);

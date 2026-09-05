@@ -5,8 +5,10 @@ const {
     buzzHeavierPageReportsDown,
     dataNodesPageReportsDown,
     extractBuzzHeavierEndpoint,
+    fileKeeperDownloadUrl,
     rootzPageDetails
 } = require('./downloadHostResolvers');
+const { parseSize } = require('../ui/downloadSizeLogic');
 
 // Health checks are deliberately conservative. A host returning a challenge,
 // rate-limit, redirect, or an HTML page is not the same thing as a dead file.
@@ -41,8 +43,19 @@ const PROVIDER_HOSTS = Object.freeze({
 const PROVIDER_BY_HOST = Object.freeze(Object.keys(PROVIDER_HOSTS));
 const HTML_CONTENT_TYPE = /(?:text\/html|application\/xhtml\+xml)/i;
 const CHALLENGE_BODY = /(?:just a moment|checking your browser|attention required|cf-browser-verification|challenge-platform|enable javascript and cookies|verifying you are human|ddos-guard|captcha|verification failed)/i;
-const EXPLICIT_DEAD_BODY = /(?:\b0\s+online\b|\b(?:offline|dead|removed|deleted|not\s+found|file\s+unavailable)\b)/i;
-const EXPLICIT_ONLINE_BODY = /\b(?:online|available|active)\b/i;
+const EXPLICIT_DEAD_BODY = /\b(?:(?:file|mirror|link|container)(?:\s+(?:is|was|has\s+been))?\s+(?:offline|dead|removed|deleted|not\s+found|unavailable)|status\s*:\s*(?:offline|dead|removed|deleted|not\s+found|unavailable))\b/i;
+const ONLINE_COUNT = /\b(\d+)\s+online\b/gi;
+
+function fileCryptVisibleText(body) {
+    return String(body || '')
+        .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
+        .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/&(?:nbsp|#160|#xA0);/gi, ' ')
+        .replace(/&amp;/gi, '&')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
 
 function safeUrl(value) {
     let parsed;
@@ -88,6 +101,110 @@ function header(response, name) {
     return Array.isArray(value) ? String(value[0] || '') : String(value || '');
 }
 
+function positiveSafeInteger(value) {
+    if (typeof value !== 'string' && typeof value !== 'number') return null;
+    if (typeof value === 'string' && !/^\d+$/.test(value.trim())) return null;
+    const number = typeof value === 'number' ? value : Number(value);
+    return Number.isSafeInteger(number) && number > 0 ? number : null;
+}
+
+function fileSizeExtra(response, contentType = '', body = '') {
+    if (HTML_CONTENT_TYPE.test(contentType) || /^\s*</.test(body) || CHALLENGE_BODY.test(body)) return {};
+    const status = Number(response && response.status) || 0;
+    if (status !== 200 && status !== 206) return {};
+    const fileType = /^(?:application\/(?:octet-stream|zip|x-7z-compressed|x-rar(?:-compressed)?|vnd\.rar|x-tar|gzip|x-gzip|x-download|force-download)|audio\/|video\/|image\/)/i;
+    if (!fileType.test(contentType) && !/\battachment\b/i.test(header(response, 'content-disposition'))) return {};
+    let sizeBytes = null;
+    const range = header(response, 'content-range').match(/^bytes\s+(\d+)-(\d+)\/(\d+)$/i);
+    if (range && Number(range[1]) <= Number(range[2]) && Number(range[2]) < Number(range[3])) {
+        sizeBytes = positiveSafeInteger(range[3]);
+    }
+    if (!sizeBytes && status !== 206) sizeBytes = positiveSafeInteger(header(response, 'content-length'));
+    return sizeBytes ? { sizeBytes } : {};
+}
+
+function browserMetadata(browser, status) {
+    if (!browser || status !== HEALTH_STATES.AVAILABLE) return {};
+    const extra = {};
+    const sizeBytes = positiveSafeInteger(browser.sizeBytes);
+    if (sizeBytes) extra.sizeBytes = sizeBytes;
+    if (typeof browser.sizeLabel === 'string' && browser.sizeLabel.trim().length <= 64) {
+        const parsed = parseSize(browser.sizeLabel.trim().replace(/\s+/g, ' '));
+        if (parsed) extra.sizeLabel = parsed.label;
+    }
+    return extra;
+}
+
+function dataNodesSizeLabel(body) {
+    const meta = body.match(/<meta\b[^>]*property=["']og:title["'][^>]*content=["']([^"']+)["'][^>]*>/i)
+        || body.match(/<meta\b[^>]*content=["']([^"']+)["'][^>]*property=["']og:title["'][^>]*>/i);
+    if (!meta) return '';
+    const suffix = meta[1].match(/\(\s*([0-9][0-9,]*(?:\.[0-9]+)?\s*(?:B|KB|MB|GB|TB|KiB|MiB|GiB|TiB))\s*\)\s*$/i);
+    return suffix ? suffix[1].replace(/\s+/g, ' ').trim() : '';
+}
+
+function hostPageSizeLabel(body) {
+    const text = String(body || '').replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
+        .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
+        .replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    const match = text.match(/\bDownload\s+File\s+((?:[0-9]{1,3}(?:,[0-9]{3})*|[0-9]+(?:\.[0-9]+)?)\s*(?:B|KB|MB|GB|TB|KiB|MiB|GiB|TiB))\b/i)
+        || text.match(/\bSize:\s*((?:[0-9]{1,3}(?:,[0-9]{3})*|[0-9]+(?:\.[0-9]+)?)\s*(?:B|KB|MB|GB|TB|KiB|MiB|GiB|TiB))\s*\|\s*Downloads:/i);
+    if (!match) return '';
+    const parsed = parseSize(match[1].replace(/\s+/g, ' ').trim());
+    return parsed ? parsed.label : '';
+}
+
+function pixeldrainMetadataTarget(parsed) {
+    const parts = parsed.pathname.split('/').filter(Boolean);
+    if (parts.length === 2 && /^u$/i.test(parts[0]) && /^[A-Za-z0-9]{4,128}$/.test(parts[1])) {
+        return { kind: 'file', id: parts[1] };
+    }
+    if (parts.length === 2 && /^l$/i.test(parts[0]) && /^[A-Za-z0-9]{4,128}$/.test(parts[1])) {
+        return { kind: 'list', id: parts[1] };
+    }
+    return null;
+}
+
+async function checkPixeldrainMetadata(parsed, options, fallback) {
+    const target = pixeldrainMetadataTarget(parsed);
+    if (!target || options.metadataOnly !== true) return fallback;
+    const endpoint = target.kind === 'file'
+        ? `${parsed.origin}/api/file/${encodeURIComponent(target.id)}/info`
+        : `${parsed.origin}/api/list/${encodeURIComponent(target.id)}`;
+    let response;
+    try {
+        response = await options.request('GET', endpoint, {
+            headers: Object.assign({ Accept: 'application/json' }, options.headers || {}),
+            follow: false,
+            timeoutMs: requestTimeout(options),
+            metadataOnly: true,
+            maxBodyBytes: Math.max(16 * 1024, Math.min(256 * 1024, Number(options.maxBodyBytes) || 128 * 1024))
+        });
+    } catch (_) { return fallback; }
+    const status = Number(response && response.status) || 0;
+    if (status === 404 || status === 410) return result(HEALTH_STATES.DOWN, 'pixeldrain-metadata-not-found', response);
+    if (status < 200 || status >= 300 || HTML_CONTENT_TYPE.test(header(response, 'content-type'))) return fallback;
+    let payload;
+    try { payload = JSON.parse(bodyText(response)); } catch (_) { return fallback; }
+    if (!payload || payload.success === false) return fallback;
+    const state = fallback.status === HEALTH_STATES.VERIFICATION_REQUIRED ? fallback.status : HEALTH_STATES.AVAILABLE;
+    if (target.kind === 'file') {
+        if (String(payload.id || '') !== target.id) return fallback;
+        const sizeBytes = positiveSafeInteger(payload.size);
+        return sizeBytes
+            ? result(state, 'pixeldrain-metadata-active', response, { sizeBytes })
+            : fallback;
+    }
+    const files = Array.isArray(payload.files) ? payload.files : [];
+    if (String(payload.id || '') !== target.id || !files.length) return fallback;
+    const sizes = files.map(file => positiveSafeInteger(file && file.size));
+    if (sizes.some(size => !size)) return fallback;
+    const total = sizes.reduce((sum, size) => sum + size, 0);
+    return Number.isSafeInteger(total) && total > 0
+        ? result(state, 'pixeldrain-metadata-active', response, { sizeBytes: total })
+        : fallback;
+}
+
 function result(status, reason, response, extra = {}) {
     return Object.freeze(Object.assign({
         status,
@@ -103,14 +220,19 @@ function classifyFileCryptResponse(response) {
     if (status < 200 || status >= 300) return result(HEALTH_STATES.UNKNOWN, 'container-http-' + status, response);
 
     const body = bodyText(response);
+    const visibleText = fileCryptVisibleText(body);
     // FileCrypt renders provider rows such as "0 Online" when its mirror is
     // unavailable. This is the one case safe enough to call down before any
     // resolver/browser work; generic HTML and ads remain unknown.
-    if (EXPLICIT_DEAD_BODY.test(body) && /(?:online|file|download|mirror|gofile|buzzheavier|datanodes)/i.test(body)) {
+    if (CHALLENGE_BODY.test(body)) return result(HEALTH_STATES.VERIFICATION_REQUIRED, 'container-challenge', response);
+    const onlineCounts = [...visibleText.matchAll(ONLINE_COUNT)].map(match => Number(match[1]));
+    if (onlineCounts.includes(0) && onlineCounts.some(count => count > 0)) {
+        return result(HEALTH_STATES.UNKNOWN, 'container-status-conflicted', response);
+    }
+    if (onlineCounts.includes(0) || EXPLICIT_DEAD_BODY.test(visibleText)) {
         return result(HEALTH_STATES.DOWN, 'container-reports-no-online-mirror', response);
     }
-    if (CHALLENGE_BODY.test(body)) return result(HEALTH_STATES.VERIFICATION_REQUIRED, 'container-challenge', response);
-    if (EXPLICIT_ONLINE_BODY.test(body)) return result(HEALTH_STATES.AVAILABLE, 'container-online', response);
+    if (onlineCounts.some(count => count > 0)) return result(HEALTH_STATES.AVAILABLE, 'container-online', response);
     return result(HEALTH_STATES.UNKNOWN, 'container-status-not-disclosed', response);
 }
 
@@ -132,7 +254,8 @@ function classifyResponse(response, provider, options = {}) {
             CHALLENGE_BODY.test(body) ? 'provider-challenge' : 'provider-page', response);
     }
     if (options.requireFile && !contentType && !body) return result(HEALTH_STATES.UNKNOWN, 'empty-response', response);
-    return result(HEALTH_STATES.AVAILABLE, 'http-' + status, response);
+    return result(HEALTH_STATES.AVAILABLE, 'http-' + status, response,
+        fileSizeExtra(response, contentType, body));
 }
 
 function validateResponseUrl(response, target, provider) {
@@ -145,6 +268,62 @@ function validateResponseUrl(response, target, provider) {
 
 function requestTimeout(options) {
     return Math.max(1000, Math.min(12000, Number(options.timeoutMs) || 8000));
+}
+
+function allowBrowserHealth(options) {
+    return String(options.sourceId || '').toLowerCase() !== 'fitgirl';
+}
+
+async function checkHostPageHealth(parsed, provider, options) {
+    let target = parsed;
+    let method = 'HEAD';
+    for (let attempt = 0; attempt < 4; attempt++) {
+        let response;
+        try {
+            response = await options.request(method, target.href, {
+                headers: Object.assign({ Accept: 'text/html,application/xhtml+xml,*/*' }, options.headers || {}),
+                follow: false,
+                metadataOnly: true,
+                timeoutMs: requestTimeout(options),
+                maxBodyBytes: 256 * 1024
+            });
+        } catch (_) { return result(HEALTH_STATES.UNKNOWN, 'health-request-failed'); }
+        const status = Number(response && response.status) || 0;
+        const location = header(response, 'location');
+        if (status >= 300 && status < 400 && location) {
+            const redirected = provider === 'filekeeper'
+                ? fileKeeperDownloadUrl(location, target.href, parsed.hostname)
+                : (() => { try { return safeUrl(new URL(location, target).href); } catch (_) { return null; } })();
+            if (!redirected || provider !== 'filekeeper' && !providerHostAllowed(redirected, provider)) {
+                return result(HEALTH_STATES.UNKNOWN, 'unsafe-provider-redirect', response);
+            }
+            target = new URL(String(redirected));
+            method = 'HEAD';
+            continue;
+        }
+        const classified = classifyResponse(response, provider, { requireFile: true });
+        if (classified.status === HEALTH_STATES.DOWN) return classified;
+        if (method === 'HEAD' && (status === 405 || classified.status !== HEALTH_STATES.AVAILABLE)) {
+            // Read only the landing-page metadata, never submit its download form.
+            method = 'GET';
+            continue;
+        }
+        const body = bodyText(response);
+        if (method !== 'GET' || status !== 200 || !HTML_CONTENT_TYPE.test(header(response, 'content-type'))) return classified;
+        const visible = fileCryptVisibleText(body);
+        if (CHALLENGE_BODY.test(body) || /(?:cf-turnstile|challenges\.cloudflare\.com)/i.test(body)) {
+            return result(HEALTH_STATES.VERIFICATION_REQUIRED, 'provider-challenge', response);
+        }
+        if (/\b(?:file (?:was |has been )?(?:deleted|removed)|file not found)(?=[.!?](?:\s|$)|\s|$)/i.test(visible)) {
+            return result(HEALTH_STATES.DOWN, 'provider-page-reports-down', response);
+        }
+        const sizeLabel = hostPageSizeLabel(body);
+        const active = provider === 'fuckingfast' && /\bhx-post=["'][^"']*\/go["']/i.test(body)
+            || provider === 'filekeeper' && /<input\b[^>]*name=["']op["'][^>]*value=["']download[12]["']/i.test(body);
+        return result(active ? HEALTH_STATES.AVAILABLE : classified.status,
+            active ? 'provider-download-page-active' : classified.reason, response, sizeLabel ? { sizeLabel } : {});
+    }
+    return result(HEALTH_STATES.UNKNOWN, 'provider-check-limit');
 }
 
 async function checkFileDitchHealth(parsed, options) {
@@ -367,7 +546,10 @@ async function checkVikingFileHealth(parsed, options) {
     if (/\b(?:file\s+(?:was\s+)?(?:deleted|removed|not\s+found)|404\s+not\s+found)\b/i.test(body)) {
         return result(HEALTH_STATES.DOWN, 'vikingfile-page-reports-down', response);
     }
-    if (!HTML_CONTENT_TYPE.test(contentType)) return result(HEALTH_STATES.AVAILABLE, 'vikingfile-direct-file', response);
+    if (!HTML_CONTENT_TYPE.test(contentType)) {
+        return result(HEALTH_STATES.AVAILABLE, 'vikingfile-direct-file', response,
+            fileSizeExtra(response, contentType, body));
+    }
     return result(HEALTH_STATES.UNKNOWN, 'vikingfile-page', response);
 }
 
@@ -395,11 +577,12 @@ async function checkBuzzHeavierHealth(parsed, options) {
         if (status === 404 || status === 410) return result(HEALTH_STATES.DOWN, 'buzzheavier-not-found', response);
         if ([401, 403, 429].includes(status) || CHALLENGE_BODY.test(bodyText(response))) {
             const fallback = result(HEALTH_STATES.VERIFICATION_REQUIRED, 'buzzheavier-verification-required', response);
-            if (typeof options.buzzHeavierBrowserCheck !== 'function') return fallback;
+            if (!allowBrowserHealth(options) || typeof options.buzzHeavierBrowserCheck !== 'function') return fallback;
             try {
                 const browser = await options.buzzHeavierBrowserCheck(parsed.href, { referer: options.referer || '' });
                 if (browser && [HEALTH_STATES.AVAILABLE, HEALTH_STATES.DOWN].includes(browser.status)) {
-                    return result(browser.status, browser.reason || `buzzheavier-browser-${browser.status}`, response);
+                    return result(browser.status, browser.reason || `buzzheavier-browser-${browser.status}`, response,
+                        browserMetadata(browser, browser.status));
                 }
             } catch (_) {}
             return fallback;
@@ -425,16 +608,20 @@ async function checkBuzzHeavierHealth(parsed, options) {
     }
     const contentType = header(response, 'content-type');
     if (!HTML_CONTENT_TYPE.test(contentType) && !/^\s*</.test(body)) {
-        return result(HEALTH_STATES.AVAILABLE, 'buzzheavier-direct-file', response);
+        return result(HEALTH_STATES.AVAILABLE, 'buzzheavier-direct-file', response,
+            fileSizeExtra(response, contentType, body));
     }
     if (extractBuzzHeavierEndpoint(body, target.href)) {
-        return result(HEALTH_STATES.AVAILABLE, 'buzzheavier-token-available', response);
+        const sizeLabel = hostPageSizeLabel(body);
+        return result(HEALTH_STATES.AVAILABLE, 'buzzheavier-token-available', response,
+            sizeLabel ? { sizeLabel } : {});
     }
-    if (typeof options.buzzHeavierBrowserCheck === 'function') {
+    if (allowBrowserHealth(options) && typeof options.buzzHeavierBrowserCheck === 'function') {
         try {
             const browser = await options.buzzHeavierBrowserCheck(parsed.href, { referer: options.referer || '' });
             if (browser && [HEALTH_STATES.AVAILABLE, HEALTH_STATES.DOWN].includes(browser.status)) {
-                return result(browser.status, browser.reason || `buzzheavier-browser-${browser.status}`, response);
+                return result(browser.status, browser.reason || `buzzheavier-browser-${browser.status}`, response,
+                    browserMetadata(browser, browser.status));
             }
         } catch (_) {}
     }
@@ -454,11 +641,15 @@ function responseCookieHeader(response) {
 }
 
 async function dataNodesBrowserHealth(parsed, options, fallback, response) {
-    if (typeof options.dataNodesBrowserCheck !== 'function') return fallback;
+    if (!allowBrowserHealth(options) || typeof options.dataNodesBrowserCheck !== 'function') return fallback;
     try {
         const browser = await options.dataNodesBrowserCheck(parsed.href, { referer: options.referer || '' });
         if (browser && [HEALTH_STATES.AVAILABLE, HEALTH_STATES.DOWN].includes(browser.status)) {
-            return result(browser.status, browser.reason || `datanodes-browser-${browser.status}`, response);
+            const extra = browser.status === HEALTH_STATES.AVAILABLE
+                ? Object.assign({}, fallback && fallback.sizeLabel ? { sizeLabel: fallback.sizeLabel } : {}, browserMetadata(browser, browser.status))
+                : {};
+            return result(browser.status, browser.reason || `datanodes-browser-${browser.status}`, response,
+                extra);
         }
     } catch (_) {}
     return fallback;
@@ -485,10 +676,14 @@ async function checkDataNodesHealth(parsed, options) {
         const status = Number(response && response.status) || 0;
         if (status === 404 || status === 410) return result(HEALTH_STATES.DOWN, 'datanodes-not-found', response);
         const body = bodyText(response);
+        const activePage = /<download-countdown\b/i.test(body) || /<form\b[^>]*action=["'][^"']*\/download/i.test(body);
+        const pageSizeLabel = activePage ? dataNodesSizeLabel(body) : '';
         if (dataNodesPageReportsDown(body)) return result(HEALTH_STATES.DOWN, 'datanodes-page-reports-down', response);
-        if ([401, 403, 429].includes(status) || CHALLENGE_BODY.test(body)) {
+        const challengeBody = body.replace(/:has-captcha\s*=\s*["']false["']/gi, '');
+        if ([401, 403, 429].includes(status) || CHALLENGE_BODY.test(challengeBody)) {
             return dataNodesBrowserHealth(parsed, options,
-                result(HEALTH_STATES.VERIFICATION_REQUIRED, 'datanodes-verification-required', response), response);
+                result(HEALTH_STATES.VERIFICATION_REQUIRED, 'datanodes-verification-required', response,
+                    status === 200 && pageSizeLabel ? { sizeLabel: pageSizeLabel } : {}), response);
         }
         if (status >= 500) return result(HEALTH_STATES.UNKNOWN, 'datanodes-http-' + status, response);
         const location = header(response, 'location');
@@ -512,11 +707,14 @@ async function checkDataNodesHealth(parsed, options) {
     const body = bodyText(response);
     if (dataNodesPageReportsDown(body)) return result(HEALTH_STATES.DOWN, 'datanodes-page-reports-down', response);
     if (/<download-countdown\b/i.test(body) || /<form\b[^>]*action=["'][^"']*\/download/i.test(body)) {
-        return result(HEALTH_STATES.AVAILABLE, 'datanodes-download-page-active', response);
+        const sizeLabel = dataNodesSizeLabel(body);
+        return result(HEALTH_STATES.AVAILABLE, 'datanodes-download-page-active', response,
+            sizeLabel ? { sizeLabel } : {});
     }
     const contentType = header(response, 'content-type');
     if (!HTML_CONTENT_TYPE.test(contentType) && !/^\s*</.test(body)) {
-        return result(HEALTH_STATES.AVAILABLE, 'datanodes-direct-file', response);
+        return result(HEALTH_STATES.AVAILABLE, 'datanodes-direct-file', response,
+            fileSizeExtra(response, contentType));
     }
     return dataNodesBrowserHealth(parsed, options,
         result(HEALTH_STATES.UNKNOWN, 'datanodes-page', response), response);
@@ -529,6 +727,10 @@ async function checkDownloadLinkHealth(rawUrl, options = {}) {
         return result(HEALTH_STATES.UNKNOWN, 'unsupported-health-target');
     }
     if (typeof options.request !== 'function') return result(HEALTH_STATES.UNKNOWN, 'health-request-unavailable');
+
+    if (options.metadataOnly === true && ['filekeeper', 'fuckingfast', 'megadb', 'multiup', 'gofile', 'x1337', 'rutor'].includes(provider)) {
+        return checkHostPageHealth(parsed, provider, options);
+    }
 
     if (provider === 'rootz') return checkRootzHealth(parsed, options);
     if (provider === 'vikingfile') return checkVikingFileHealth(parsed, options);
@@ -569,21 +771,54 @@ async function checkDownloadLinkHealth(rawUrl, options = {}) {
             classified = result(HEALTH_STATES.UNKNOWN, 'health-range-request-failed', response);
         }
     }
+    if (provider === 'pixeldrain') return checkPixeldrainMetadata(parsed, options, classified);
     return classified;
 }
 
 function createDownloadLinkHealthChecker(options = {}) {
     const cache = new Map();
+    const pending = new Map();
     const ttlMs = Math.max(1000, Math.min(10 * 60 * 1000, Number(options.ttlMs) || 60 * 1000));
     const now = typeof options.now === 'function' ? options.now : Date.now;
     return async (url, requestOptions = {}) => {
-        const key = String(url || '');
+        const combined = Object.assign({}, options, requestOptions);
+        const parsed = safeUrl(url);
+        if (!parsed || !isHealthTargetAllowed(parsed.href, combined.sourceId)) {
+            return result(HEALTH_STATES.UNKNOWN, 'unsupported-health-target');
+        }
+        const key = String(combined.sourceId || '').toLowerCase() + ':' + parsed.href;
         const cached = cache.get(key);
         const timestamp = now();
         if (cached && timestamp - cached.checkedAt < ttlMs) return cached.value;
-        const value = await checkDownloadLinkHealth(key, Object.assign({}, options, requestOptions));
-        cache.set(key, { checkedAt: timestamp, value });
-        return value;
+        if (pending.has(key)) return pending.get(key);
+        const controller = new AbortController();
+        const timeoutMs = Math.max(10, Math.min(30000, Number(combined.checkTimeoutMs) || 15000));
+        let timer;
+        const task = (async () => {
+            const request = combined.request;
+            const bounded = Object.assign({}, combined, {
+                request: typeof request === 'function' ? (method, target, config = {}) => {
+                    if (controller.signal.aborted) throw new Error('Health check expired');
+                    return request(method, target, Object.assign({}, config, { signal: controller.signal }));
+                } : request
+            });
+            try {
+                const timeout = new Promise(resolve => {
+                    timer = setTimeout(() => {
+                        resolve(result(HEALTH_STATES.UNKNOWN, 'health-check-timeout'));
+                        controller.abort();
+                    }, timeoutMs);
+                });
+                const value = await Promise.race([checkDownloadLinkHealth(parsed.href, bounded), timeout]);
+                cache.set(key, { checkedAt: now(), value });
+                return value;
+            } finally {
+                clearTimeout(timer);
+                pending.delete(key);
+            }
+        })();
+        pending.set(key, task);
+        return task;
     };
 }
 

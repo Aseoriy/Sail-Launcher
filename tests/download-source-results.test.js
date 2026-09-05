@@ -348,5 +348,6 @@ test('download source wiring stays within real result and screenshot sections', 
     assert.match(main, /const gofileContainer = normalizeFileCryptContainerUrl\(rawUrl\)/);
     assert.match(main, /if \(opts\.sourceId !== 'steamrip'\) return null/);
     assert.match(main, /captureResponseUrl:[\s\S]{0,500}captchasession/);
-    assert.match(main, /return scrapeGofile\(location\)/);
+    assert.match(main, /scrapeSteamRipGofileContainer\(gofileContainer, referer, async gofileUrl/);
+    assert.match(main, /return resolveGofileShare\(location\)/);
 });

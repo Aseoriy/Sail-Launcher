@@ -74,10 +74,6 @@ function safeDownloadErrorMessage(download) {
         return 'This host needs a browser step before the download can continue.';
     }
     const raw = download && download.error ? String(download.error) : '';
-    if (/not enough disk|disk space/i.test(raw)) return 'There is not enough disk space to finish this download.';
-    if (/404|file no longer exists|no longer has this file/i.test(raw)) return 'The file is no longer available on that host.';
-    if (/captcha|verification|cloudflare|browser/i.test(raw)) return 'This host needs a browser step before the download can continue.';
-    if (/timed? ?out|network|connection|ECONN|ENOTFOUND|EAI_AGAIN/i.test(raw)) return 'The connection was interrupted while downloading.';
     const sanitized = raw
         .replace(/https?:\/\/[^\s]+/gi, 'the remote host')
         .replace(/[A-Za-z]:[\\/][^\s,;)]*/g, 'a local file')
@@ -89,6 +85,13 @@ function safeDownloadErrorMessage(download) {
         .replace(/\s+/g, ' ')
         .trim()
         .slice(0, 220);
+    if (/not enough disk|disk space/i.test(raw)) return 'There is not enough disk space to finish this download.';
+    if (/404|file no longer exists|no longer has this file/i.test(raw)) return 'The file is no longer available on that host.';
+    if (/captcha|verification|cloudflare|browser/i.test(raw)) return 'This host needs a browser step before the download can continue.';
+    // TorBox already supplies a bounded, actionable provider error. Keep that context
+    // instead of collapsing a TorBox API timeout into the generic transfer message.
+    if (/^TorBox\b/i.test(sanitized)) return sanitized;
+    if (/timed? ?out|network|connection|ECONN|ENOTFOUND|EAI_AGAIN/i.test(raw)) return 'The connection was interrupted while downloading.';
     return sanitized || 'The download failed before it could finish.';
 }
 

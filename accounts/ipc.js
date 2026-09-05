@@ -68,7 +68,7 @@ function registerAccountIpc({ app, ipcMain, safeStorage, authorizeIpcEvent, dial
             pendingExecutionSelections.delete(oldest);
         }
     };
-    const consumeExecutionSelection = (event, selectionIdInput) => {
+    const consumeExecutionSelection = (event, selectionIdInput, expected = {}) => {
         const selectionId = String(selectionIdInput || '');
         if (!/^[0-9a-f-]{36}$/i.test(selectionId)) {
             throw executionSelectionError('The executable selection reference is invalid.');
@@ -78,7 +78,18 @@ function registerAccountIpc({ app, ipcMain, safeStorage, authorizeIpcEvent, dial
         if (!selection || selection.senderId !== executionSelectionSenderId(event)) {
             throw executionSelectionError('The executable selection is no longer available. Choose it again.');
         }
-        const currentIdentity = fileIdentity(selection.selectedPath, 'file');
+        if (expected.purpose && selection.purpose !== expected.purpose) {
+            throw executionSelectionError('That selection is for a different setup field. Choose it again.');
+        }
+        if (expected.gameId && selection.gameId && selection.gameId !== String(expected.gameId)) {
+            throw executionSelectionError('That selection belongs to a different game. Choose it again.');
+        }
+        const scope = expected.gameId ? profileStore.authorityScope(expected.gameId) : profileStore.activeScope();
+        if (selection.profileId !== scope.profileId || selection.libraryId !== scope.libraryId) {
+            throw executionSelectionError('That selection belongs to a different profile or library. Choose it again.');
+        }
+        const identityKind = selection.purpose === 'save' ? 'directory' : 'file';
+        const currentIdentity = fileIdentity(selection.selectedPath, identityKind);
         if (!identityMatches(selection.selectedIdentity, currentIdentity)) {
             pendingExecutionSelections.delete(selectionId);
             throw executionSelectionError('The selected executable changed. Choose it again.');
@@ -499,10 +510,13 @@ function registerAccountIpc({ app, ipcMain, safeStorage, authorizeIpcEvent, dial
         return profileStore.downloadedGameUninstallStatus(input.gameId);
     }));
     ipcMain.handle('authority-select-executable', guarded('authority-select-executable', async (event, payload) => {
-        exactPayload(payload || {}, [], 'Executable selection');
+        const input = exactPayload(payload || {}, ['purpose', 'gameId'], 'Executable selection');
+        const purpose = input.purpose === undefined ? 'base' : input.purpose;
+        if (!['base', 'tracking'].includes(purpose)) throw executionSelectionError('The executable selection purpose is invalid.');
+        const scope = input.gameId ? profileStore.authorityScope(input.gameId) : profileStore.activeScope();
         const selectedPath = await chooseFile(dialog, {
-            title: 'Choose this game’s local executable',
-            filters: [{ name: 'Executables and shortcuts', extensions: ['exe', 'lnk', 'bat', 'cmd'] }]
+            title: purpose === 'tracking' ? 'Choose a process tracking executable' : 'Choose this game’s local executable',
+            filters: [{ name: purpose === 'tracking' ? 'Executables' : 'Executables and shortcuts', extensions: purpose === 'tracking' ? ['exe'] : ['exe', 'lnk', 'bat', 'cmd'] }]
         });
         if (!selectedPath) return { canceled: true };
         pruneExecutionSelections();
@@ -511,9 +525,33 @@ function registerAccountIpc({ app, ipcMain, safeStorage, authorizeIpcEvent, dial
             senderId: executionSelectionSenderId(event),
             selectedPath,
             selectedIdentity: fileIdentity(selectedPath, 'file'),
+            purpose,
+            gameId: input.gameId ? String(input.gameId) : '',
+            profileId: scope && scope.profileId || '',
+            libraryId: scope && scope.libraryId || '',
             createdAt: Date.now()
         });
-        return { canceled: false, selectionId, label: 'Executable selected' };
+        const name = path.basename(selectedPath).slice(0, 160);
+        return { canceled: false, selectionId, label: purpose === 'tracking' ? `Play detection: ${name}` : 'Executable selected', name };
+    }));
+    ipcMain.handle('authority-select-filesystem', guarded('authority-select-filesystem', async (event, payload) => {
+        const input = exactPayload(payload || {}, ['kind', 'pathKind', 'gameId'], 'Filesystem selection');
+        if (input.kind !== 'save' || input.pathKind !== 'folder') {
+            throw executionSelectionError('Only game save-folder selection is supported.');
+        }
+        const scope = input.gameId ? profileStore.authorityScope(input.gameId) : profileStore.activeScope();
+        const selectedPath = await chooseDirectory(dialog, { title: 'Choose the local save folder' });
+        if (!selectedPath) return { canceled: true };
+        pruneExecutionSelections();
+        const selectionId = crypto.randomUUID();
+        pendingExecutionSelections.set(selectionId, {
+            senderId: executionSelectionSenderId(event), selectedPath,
+            selectedIdentity: fileIdentity(selectedPath, 'directory'), purpose: 'save',
+            gameId: input.gameId ? String(input.gameId) : '', profileId: scope.profileId, libraryId: scope.libraryId,
+            createdAt: Date.now()
+        });
+        const name = path.basename(selectedPath).slice(0, 160);
+        return { canceled: false, selectionId, label: `Save folder: ${name}`, name };
     }));
     ipcMain.handle('authority-configure-execution', guarded('authority-configure-execution', async (event, payload) => {
         const input = exactPayload(payload, [
@@ -532,7 +570,7 @@ function registerAccountIpc({ app, ipcMain, safeStorage, authorizeIpcEvent, dial
             }
         } else {
             executablePath = input.baseSelectionId
-                ? consumeExecutionSelection(event, input.baseSelectionId)
+                ? consumeExecutionSelection(event, input.baseSelectionId, { purpose: 'base', gameId: input.gameId })
                 : await chooseFile(dialog, {
                     title: input.requestRom ? 'Choose the local emulator executable' : 'Choose this game’s local executable',
                     filters: [{ name: 'Executables and shortcuts', extensions: ['exe', 'lnk', 'bat', 'cmd'] }]
@@ -660,13 +698,37 @@ function registerAccountIpc({ app, ipcMain, safeStorage, authorizeIpcEvent, dial
         });
     }));
     ipcMain.handle('authority-configure-filesystem', guarded('authority-configure-filesystem', async (_event, payload) => {
-        const input = exactPayload(payload, ['gameId', 'kind', 'entryId', 'pathKind'], 'Filesystem setup');
+        const input = exactPayload(payload, ['gameId', 'kind', 'entryId', 'pathKind', 'selectionId'], 'Filesystem setup');
         if (!['save', 'config'].includes(input.kind)) throw new Error('Unsupported filesystem capability kind.');
-        const selectedPath = input.kind === 'config' && input.pathKind === 'file'
-            ? await chooseFile(dialog, { title: 'Choose the local configuration file' })
-            : await chooseDirectory(dialog, { title: input.kind === 'save' ? 'Choose the local save folder' : 'Choose the local configuration folder' });
+        if (input.selectionId && (input.kind !== 'save' || input.pathKind !== 'folder')) {
+            throw executionSelectionError('A save-folder selection can only configure a save folder.');
+        }
+        const selectedPath = input.selectionId
+            ? consumeExecutionSelection(_event, input.selectionId, { purpose: 'save', gameId: input.gameId })
+            : input.kind === 'config' && input.pathKind === 'file'
+                ? await chooseFile(dialog, { title: 'Choose the local configuration file' })
+                : await chooseDirectory(dialog, { title: input.kind === 'save' ? 'Choose the local save folder' : 'Choose the local configuration folder' });
         if (!selectedPath) return { canceled: true };
         return profileStore.createFilesystemCapability(input.gameId, input.kind, selectedPath, input.entryId || '');
+    }));
+    ipcMain.handle('authority-configure-tracking', guarded('authority-configure-tracking', async (event, payload) => {
+        const input = exactPayload(payload, ['gameId', 'selectionId'], 'Tracking setup');
+        const authority = profileStore.authorityStatus(input.gameId).execution;
+        if (!authority || authority.state !== 'active' || !authority.capabilityId || !Number.isSafeInteger(authority.revision)) {
+            throw new Error('The game does not have active execution authority. Configure its executable first.');
+        }
+        const current = profileStore.validateExecutionCapability({
+            gameId: input.gameId, capabilityId: authority.capabilityId,
+            expectedRevision: authority.revision, operation: 'reveal'
+        }).details;
+        const selectedPath = consumeExecutionSelection(event, input.selectionId, { purpose: 'tracking', gameId: input.gameId });
+        return profileStore.createExecutionCapability(input.gameId, {
+            executablePath: current.executablePath || '', argv: Array.isArray(current.argv) ? current.argv : [],
+            workingDirectory: current.workingDirectory || '', preLaunchScript: current.preLaunchScript || '',
+            postLaunchScript: current.postLaunchScript || '', companionPath: current.companionPath || '',
+            runAsAdmin: current.runAsAdmin === true, highPriority: current.highPriority === true,
+            playDetectionPath: selectedPath, steamAppId: current.steamAppId || ''
+        });
     }));
     ipcMain.handle('authority-review-filesystem', guarded('authority-review-filesystem', async (_event, payload) => {
         const input = exactPayload(payload, ['gameId', 'capabilityId', 'expectedRevision'], 'Filesystem review');

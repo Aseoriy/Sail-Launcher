@@ -34,6 +34,8 @@ const {
     shouldPreservePartialForRetry
 } = require('./runtime/downloadResolutionLifecycle');
 const { createDownloadWorkCoordinator } = require('./runtime/downloadWorkCoordinator');
+const { createDebridTorrentResolver, isTorrentDownload } = require('./runtime/debridTorrents');
+const { torrentDownloadTarget } = require('./runtime/debridTorrentFiles');
 const { runOwnedChildProcess } = require('./runtime/ownedChildProcess');
 const { runOwnedWorker } = require('./runtime/ownedWorker');
 const { DownloadQuarantineCatalog, registerDownloadQuarantineIpc } = require('./runtime/downloadQuarantine');
@@ -89,6 +91,7 @@ const {
     verificationNeedsAttention
 } = require('./runtime/systemBrowserResolver');
 const DownloadSourceLogic = require('./ui/downloadSourceLogic');
+const DownloadSizeLogic = require('./ui/downloadSizeLogic');
 const ARCHIVE_EXTRACT_WORKER = path.join(__dirname, 'runtime', 'archiveExtractWorker.js');
 const DOWNLOAD_PREPARATION_WORKER = path.join(__dirname, 'runtime', 'downloadPreparationWorker.js');
 const { createAuthorizedIpcRegistrar, createTrustedFrameAuthorizer } = require('./security/ipcAuthorization');
@@ -2281,7 +2284,11 @@ ipcMain.handle('show-game-local-file', (e, payload) => {
 });
 ipcMain.handle('open-folder-capability', async (e, payload) => {
     const input = exactGateAPayload(payload, ['gameId', 'capabilityId', 'expectedRevision'], 'Open local folder');
-    const resolved = gateAProfileStore().resolveFilesystemCapability({
+    const store = gateAProfileStore();
+    // Completed downloads that still need local setup are intentionally scoped to
+    // the launcher device rather than an active library game. Keep resolving the
+    // opaque, main-minted capability through the launcher scope in that case.
+    const resolved = (input.gameId === 'launcher-device' ? store.resolveTransferCapability : store.resolveFilesystemCapability).call(store, {
         capabilityId: input.capabilityId,
         expectedRevision: input.expectedRevision,
         gameId: input.gameId,
@@ -2972,29 +2979,59 @@ async function retainDownloadJobError(jobRef) {
 
 // Generic HTTP request with optional body and redirect control. Returns
 // { status, headers, body }. follow:false lets callers read 3xx Location headers.
-function dlRequest(method, url, { headers, body, follow = true, timeoutMs = 25000, headersOnly = false } = {}, _depth = 0) {
+function dlRequest(method, url, { headers, body, follow = true, timeoutMs = 25000, headersOnly = false, metadataOnly = false, maxBodyBytes, responseType, signal } = {}, _depth = 0) {
     return new Promise((resolve, reject) => {
         if (_depth > 6) return reject(new Error('Too many redirects'));
         let u; try { u = new URL(url); } catch (e) { return reject(e); }
+        if (responseType === 'buffer' && (!/^https?:$/.test(u.protocol) || u.username || u.password)) {
+            return reject(new Error('Invalid torrent metadata URL'));
+        }
         const client = u.protocol === 'https:' ? https : http;
-        const opts = { method, headers: Object.assign({ 'User-Agent': DL_UA, 'Accept': '*/*' }, headers || {}) };
+        const opts = { method, signal, headers: Object.assign({ 'User-Agent': DL_UA, 'Accept': '*/*' }, headers || {}) };
         const req = client.request(u, opts, (res) => {
             if (follow && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
                 let loc = res.headers.location; try { loc = new URL(loc, url).href; } catch (e) {}
-                res.resume(); return resolve(dlRequest(method, loc, { headers, body, follow, timeoutMs, headersOnly }, _depth + 1));
+                // Torrent metadata can redirect to storage on another host. Do not
+                // carry browser credentials across that origin boundary.
+                let nextHeaders = headers;
+                if (responseType === 'buffer') {
+                    let nextUrl;
+                    try { nextUrl = new URL(loc); } catch (_) { res.resume(); return reject(new Error('Invalid torrent metadata redirect')); }
+                    if (nextUrl.origin !== u.origin) {
+                        nextHeaders = Object.fromEntries(Object.entries(headers || {}).filter(([name]) => !/^(cookie|authorization|proxy-authorization)$/i.test(name)));
+                    }
+                }
+                res.resume(); return resolve(dlRequest(method, loc, { headers: nextHeaders, body, follow, timeoutMs, headersOnly, metadataOnly, maxBodyBytes, responseType, signal }, _depth + 1));
             }
-            if (headersOnly) {
+            const contentType = String(res.headers['content-type'] || '');
+            if (headersOnly || metadataOnly && (!/^(?:text\/|application\/(?:json|[^;]+\+json|xhtml\+xml|javascript))/i.test(contentType)
+                || /\battachment\b/i.test(String(res.headers['content-disposition'] || '')))) {
                 const result = { status: res.statusCode, headers: res.headers, body: '' };
                 res.on('error', () => {});
                 res.destroy();
                 return resolve(result);
             }
-            let data = ''; res.setEncoding('utf8');
-            res.on('data', c => data += c);
-            res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: data }));
+            const bodyLimit = Number.isSafeInteger(maxBodyBytes) && maxBodyBytes > 0
+                ? maxBodyBytes : metadataOnly ? 512 * 1024 : Infinity;
+            let receivedBytes = 0;
+            const binary = responseType === 'buffer';
+            let data = binary ? [] : '';
+            if (!binary) res.setEncoding('utf8');
+            res.on('error', reject);
+            res.on('data', c => {
+                receivedBytes += Buffer.byteLength(c, 'utf8');
+                if (receivedBytes > bodyLimit) {
+                    res.destroy();
+                    reject(new Error('Metadata response exceeded the size limit'));
+                    return;
+                }
+                if (binary) data.push(Buffer.from(c));
+                else data += c;
+            });
+            res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: binary ? Buffer.concat(data) : data }));
         });
         req.on('error', reject);
-        req.setTimeout(Math.max(1000, Math.min(30000, Number(timeoutMs) || 25000)), () => req.destroy(new Error('timeout')));
+        req.setTimeout(Math.max(1000, Math.min(180000, Number(timeoutMs) || 25000)), () => req.destroy(new Error('timeout')));
         if (body) req.write(body);
         req.end();
     });
@@ -3048,9 +3085,10 @@ function mergeDownloadCookies(current, setCookie) {
     return [...cookies].map(([name, value]) => `${name}=${value}`).join('; ');
 }
 
-async function scrapeSteamRipGofileContainer(rawUrl, referer) {
+async function scrapeSteamRipGofileContainer(rawUrl, referer, onGofileShare) {
     const containerUrl = normalizeFileCryptContainerUrl(rawUrl);
     if (!containerUrl || !/^https:\/\/steamrip\.com\//i.test(String(referer || ''))) return null;
+    const resolveGofileShare = typeof onGofileShare === 'function' ? onGofileShare : scrapeGofile;
     let proofStarted = false;
     const browserResult = await resolveWithSystemChromium(containerUrl, FILECRYPT_CHALLENGE_EXPRESSION, {
         executablePath: findSystemChromiumExecutable(),
@@ -3097,7 +3135,7 @@ async function scrapeSteamRipGofileContainer(rawUrl, referer) {
 
     for (const link of browserResult.links || []) {
         const details = gofileShareDetails(link && link.href);
-        if (details && details.contentId) return scrapeGofile(link.href);
+        if (details && details.contentId) return resolveGofileShare(link.href);
     }
 
     const candidates = fileCryptLinkCandidates(browserResult.links, containerUrl);
@@ -3134,7 +3172,7 @@ async function scrapeSteamRipGofileContainer(rawUrl, referer) {
             }
             for (const location of locations) {
                 const details = gofileShareDetails(location);
-                if (details && details.contentId) return scrapeGofile(location);
+                if (details && details.contentId) return resolveGofileShare(location);
             }
         }
     }
@@ -3193,7 +3231,8 @@ const BUZZHEAVIER_BROWSER_HEALTH_JS = `(function () {
     var control = [].slice.call(document.querySelectorAll('[hx-get]')).find(function (node) {
         return /\\/download\\?t=/i.test(node.getAttribute('hx-get') || '');
     });
-    return control ? { status: 'available', reason: 'buzzheavier-token-available' } : null;
+    var size = text.match(/\\bDownload\\s+File\\s+([0-9][0-9,.]*\\s*(?:[KMGT]?i?B))\\b/i);
+    return control ? { status: 'available', reason: 'buzzheavier-token-available', sizeLabel: size ? size[1] : '' } : null;
 })();`;
 
 async function checkBuzzheavierWithSystemBrowser(rawUrl, timeoutMs = 8000, sourceReferer = '') {
@@ -3220,7 +3259,10 @@ const DATANODES_BROWSER_HEALTH_JS = `(function () {
         return { status: 'down', reason: 'datanodes-page-reports-down' };
     }
     var active = document.querySelector('download-countdown,#downloadForm,form[action*="/download"]');
-    return active ? { status: 'available', reason: 'datanodes-download-page-active' } : null;
+    var metadata = document.querySelector('meta[property="og:title"]');
+    var title = metadata && typeof metadata.getAttribute === 'function' ? metadata.getAttribute('content') || '' : '';
+    var size = title.match(/\\(\\s*([0-9][0-9,]*(?:\\.[0-9]+)?\\s*(?:[KMGT]?i?B))\\s*\\)\\s*$/i);
+    return active ? { status: 'available', reason: 'datanodes-download-page-active', sizeLabel: size ? size[1] : '' } : null;
 })();`;
 
 async function checkDatanodesWithSystemBrowser(rawUrl, timeoutMs = 8000, sourceReferer = '') {
@@ -3636,7 +3678,10 @@ const SOURCE_REFERER = {
 };
 
 const downloadLinkHealthChecker = createDownloadLinkHealthChecker({
-    request: dlRequest,
+    request: (method, url, options = {}) => dlRequest(method, url, {
+        ...options, metadataOnly: true, maxBodyBytes: options.maxBodyBytes || 512 * 1024
+    }),
+    metadataOnly: true,
     ttlMs: 60 * 1000,
     buzzHeavierBrowserCheck: (url, options = {}) => checkBuzzheavierWithSystemBrowser(
         url,
@@ -3667,7 +3712,11 @@ async function inspectDownloadLinkHealth(rawUrl, sourceId) {
     return {
         status: Object.values(HEALTH_STATES).includes(value && value.status) ? value.status : HEALTH_STATES.UNKNOWN,
         reason: String(value && value.reason || 'unknown').slice(0, 160),
-        httpStatus: Number.isInteger(value && value.httpStatus) ? value.httpStatus : 0
+        httpStatus: Number.isInteger(value && value.httpStatus) ? value.httpStatus : 0,
+        sizeBytes: value && value.status !== HEALTH_STATES.DOWN && Number.isSafeInteger(value.sizeBytes) && value.sizeBytes > 0
+            ? value.sizeBytes : null,
+        sizeLabel: value && value.status !== HEALTH_STATES.DOWN && DownloadSizeLogic.parseSize(value.sizeLabel)
+            ? DownloadSizeLogic.parseSize(value.sizeLabel).label.slice(0, 64) : ''
     };
 }
 
@@ -3768,39 +3817,231 @@ const DEBRID = {
     },
     torbox: {
         name: 'TorBox',
+        pendingDownloads: new Map(),
         async validate(key) {
             const r = await dlRequest('GET', 'https://api.torbox.app/v1/api/user/me', { headers: { Authorization: 'Bearer ' + key } });
             try { const j = JSON.parse(r.body); if (j.success) return { ok: true, user: (j.data && (j.data.email || j.data.username)) || '' }; } catch (e) {}
             return { ok: false };
         },
-        async unrestrict(key, link) {
-            // TorBox web-downloads are async: create the job, briefly poll for a ready
-            // link (cached hoster links resolve in seconds), then request the direct URL.
+        async unrestrict(key, link, options = {}) {
+            // TorBox web-downloads are async. Do not request the CDN URL until TorBox
+            // has fully fetched the source; otherwise aria2 can nearly finish the
+            // still-growing CDN response while TorBox itself is only partway done.
             const auth = { Authorization: 'Bearer ' + key };
-            let id = null;
-            try {
-                const c = await dlRequest('POST', 'https://api.torbox.app/v1/api/webdl/createwebdownload', { headers: Object.assign({ 'Content-Type': 'application/x-www-form-urlencoded' }, auth), body: 'link=' + encodeURIComponent(link) });
-                const j = JSON.parse(c.body); if (j.success && j.data) id = j.data.webdownload_id || j.data.id || j.data.hash;
-            } catch (e) {}
-            if (!id) return null;
-            for (let attempt = 0; attempt < 6; attempt++) {
+            const reportProgress = label => {
+                try { if (typeof options.onProgress === 'function') options.onProgress(label); } catch (e) {}
+            };
+            const safeTorboxText = value => String(value == null ? '' : value)
+                .replace(/[\u0000-\u001f\u007f]/g, ' ')
+                .replace(/https?:\/\/\S+/gi, '[link]')
+                .replace(/\s+/g, ' ')
+                .trim()
+                .slice(0, 240);
+            const torboxId = value => {
+                const text = String(value == null ? '' : value).trim();
+                return /^\d+$/.test(text) ? text : '';
+            };
+            const torboxFlag = value => value === true || value === 1 || String(value).toLowerCase() === 'true';
+            const throwIfCancelled = () => {
+                if (options.signal && options.signal.aborted) {
+                    throw Object.assign(new Error('Cancelled'), { name: 'AbortError' });
+                }
+            };
+            const waitForNextPoll = (delayMs = 5000) => new Promise((resolve, reject) => {
+                throwIfCancelled();
+                let settled = false;
+                const finish = () => {
+                    if (settled) return;
+                    settled = true;
+                    if (options.signal) options.signal.removeEventListener('abort', cancel);
+                    resolve();
+                };
+                const cancel = () => {
+                    if (settled) return;
+                    settled = true;
+                    clearTimeout(timer);
+                    reject(Object.assign(new Error('Cancelled'), { name: 'AbortError' }));
+                };
+                const timer = setTimeout(finish, Math.max(1000, Math.min(60000, Number(delayMs) || 5000)));
+                if (options.signal) options.signal.addEventListener('abort', cancel, { once: true });
+            });
+            const torboxError = (message, code = '') => Object.assign(new Error(message), {
+                debridResolutionFatal: true,
+                torboxCode: safeTorboxText(code).toUpperCase()
+            });
+            const torboxTransientError = (message, retryDelayMs = 5000, code = '') => Object.assign(new Error(message), {
+                torboxTransient: true,
+                retryDelayMs,
+                torboxCode: safeTorboxText(code).toUpperCase()
+            });
+            const retryDelayFor = response => {
+                const raw = response && response.headers && (response.headers['retry-after'] || response.headers['Retry-After']);
+                if (!raw) return 5000;
+                const seconds = Number(raw);
+                if (Number.isFinite(seconds) && seconds >= 0) return Math.min(60000, Math.max(1000, seconds * 1000));
+                const dateDelay = Date.parse(String(raw)) - Date.now();
+                return Number.isFinite(dateDelay) && dateDelay > 0
+                    ? Math.min(60000, Math.max(1000, dateDelay))
+                    : 5000;
+            };
+            const readTorboxResponse = (response, action, { itemNotFoundIsPending = false } = {}) => {
+                const status = Number(response && response.status) || 0;
+                let payload = null;
+                try { payload = JSON.parse(response && response.body || ''); } catch (e) {}
+                if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+                    throw torboxTransientError(
+                        'TorBox returned an unreadable response while trying to ' + action + '.',
+                        retryDelayFor(response)
+                    );
+                }
+                const code = safeTorboxText(payload.error).toUpperCase();
+                const detail = safeTorboxText(payload.detail);
+                const failed = status < 200 || status >= 300 || payload.success === false;
+                if (!failed) return { payload, code, detail, pending: false };
+                if (itemNotFoundIsPending && code === 'ITEM_NOT_FOUND') {
+                    return { payload, code, detail, pending: true };
+                }
+                const reason = detail || (code
+                    ? code.replace(/_/g, ' ').toLowerCase()
+                    : (status ? 'HTTP ' + status : 'unknown response'));
+                if (status === 401 || status === 403 || /^(?:AUTH_ERROR|BAD_TOKEN|NO_AUTH)$/.test(code)) {
+                    throw torboxError('TorBox rejected the connected API key. Reconnect it in Download settings and try again.', code);
+                }
+                const message = 'TorBox could not ' + action + ': ' + reason + (/[.!?]$/.test(reason) ? '' : '.');
+                if (status === 408 || status === 425 || status === 429 || status >= 500
+                    && /^(?:|DATABASE_ERROR|UNKNOWN_ERROR|DOWNLOAD_SERVER_ERROR|TEMPORARILY_DISABLED|TOO_MANY_REQUESTS|RATE_LIMITED)$/.test(code)) {
+                    throw torboxTransientError(
+                        message,
+                        retryDelayFor(response),
+                        code
+                    );
+                }
+                throw torboxError(message, code);
+            };
+            // Keep the original hoster link so Retry continues an accepted job.
+            const pendingKey = String(link);
+            const retained = this.pendingDownloads.get(pendingKey);
+            let id = retained && Date.now() - retained.createdAt < 6 * 60 * 60 * 1000
+                ? torboxId(retained.id)
+                : '';
+            if (!id) {
+                this.pendingDownloads.delete(pendingKey);
                 try {
-                    const l = await dlRequest('GET', 'https://api.torbox.app/v1/api/webdl/mylist?id=' + encodeURIComponent(id), { headers: auth });
-                    const j = JSON.parse(l.body);
-                    const item = j && j.data ? (Array.isArray(j.data) ? j.data[0] : j.data) : null;
-                    if (item && (item.download_present || item.download_finished || item.cached)) {
-                        const fileId = (item.files && item.files[0] && (item.files[0].id != null ? item.files[0].id : 0)) || 0;
-                        const dl = await dlRequest('GET', 'https://api.torbox.app/v1/api/webdl/requestdl?token=' + encodeURIComponent(key) + '&web_id=' + encodeURIComponent(id) + '&file_id=' + fileId, { headers: auth });
-                        const dj = JSON.parse(dl.body);
-                        if (dj.success && dj.data) {
-                            const url = typeof dj.data === 'string' ? dj.data : (dj.data.url || dj.data);
-                            if (typeof url === 'string') return { url, name: (item.files && item.files[0] && item.files[0].name) || item.name || '' };
-                        }
+                    throwIfCancelled();
+                    reportProgress('TorBox is checking the source link…');
+                    // Hoster extraction can outlast the ordinary 25-second HTTP timeout.
+                    // Keep the ID-returning request open; an async acknowledgement does
+                    // not prove that TorBox was able to create a download.
+                    const c = await dlRequest('POST', 'https://api.torbox.app/v1/api/webdl/createwebdownload', {
+                        headers: Object.assign({ 'Content-Type': 'application/x-www-form-urlencoded' }, auth),
+                        body: 'link=' + encodeURIComponent(link),
+                        timeoutMs: 180000,
+                        follow: false,
+                        signal: options.signal
+                    });
+                    const created = readTorboxResponse(c, 'accept this file');
+                    const data = created.payload.data;
+                    id = torboxId(data && (data.webdownload_id ?? data.webdownloadId ?? data.web_id ?? data.id));
+                    if (!id) throw torboxError('TorBox did not return a web download ID. No download could be confirmed. Check the TorBox dashboard before retrying.');
+                    this.pendingDownloads.set(pendingKey, { id, createdAt: Date.now() });
+                } catch (e) {
+                    if (e && (e.name === 'AbortError' || e.debridResolutionFatal)) throw e;
+                    if (e && e.torboxTransient) throw torboxError(e.message, e.torboxCode);
+                    const reason = safeTorboxText(e && e.message);
+                    if (reason === 'timeout') {
+                        throw torboxError('TorBox did not finish checking the source link within three minutes. Check the TorBox dashboard before retrying.');
                     }
-                } catch (e) {}
-                await new Promise(res => setTimeout(res, 1500));
+                    throw torboxError('TorBox could not accept this file' + (reason ? ': ' + reason : '') + '.');
+                }
+                reportProgress('TorBox accepted the file — preparing it…');
+            } else {
+                reportProgress('Continuing the existing TorBox preparation…');
             }
-            return null;
+            let consecutiveFailures = 0;
+            let missingTargetPolls = 0;
+            while (true) {
+                throwIfCancelled();
+                let nextPollDelayMs = 5000;
+                try {
+                    const listUrl = 'https://api.torbox.app/v1/api/webdl/mylist?id=' + encodeURIComponent(id) + '&bypass_cache=true';
+                    const l = await dlRequest('GET', listUrl, { headers: auth, follow: false, signal: options.signal });
+                    const listed = readTorboxResponse(l, 'check this file', { itemNotFoundIsPending: true });
+                    const data = listed.payload.data;
+                    const items = Array.isArray(data) ? data : (data && typeof data === 'object' ? [data] : []);
+                    const item = items.find(candidate => candidate && torboxId(
+                        candidate.id ?? candidate.webdownload_id ?? candidate.webdownloadId
+                    ) === id) || null;
+                    if (listed.pending || !item) {
+                        missingTargetPolls += 1;
+                        consecutiveFailures = 0;
+                        reportProgress('TorBox accepted the file — waiting for its job to appear…');
+                        if (missingTargetPolls >= 60) {
+                            this.pendingDownloads.delete(pendingKey);
+                            throw torboxError('TorBox accepted the file, but its download job did not appear after five minutes. Try again or check the TorBox dashboard.');
+                        }
+                        await waitForNextPoll();
+                        continue;
+                    }
+                    missingTargetPolls = 0;
+                    const state = safeTorboxText(item.download_state ?? item.downloadState);
+                    const itemError = safeTorboxText(item.error);
+                    if (itemError || /failed|expired|missing/i.test(state)) {
+                        this.pendingDownloads.delete(pendingKey);
+                        throw torboxError('TorBox could not finish preparing this file'
+                            + (itemError ? ': ' + itemError : (state ? ' (' + state + ')' : ''))
+                            + '. Try another mirror or remove the failed item from TorBox and retry.');
+                    }
+                    const ready = torboxFlag(item.download_finished ?? item.downloadFinished)
+                        && torboxFlag(item.download_present ?? item.downloadPresent);
+                    const rawProgress = Number(item.progress);
+                    if (Number.isFinite(rawProgress)) {
+                        const percent = Math.round(Math.max(0, Math.min(100, rawProgress <= 1 ? rawProgress * 100 : rawProgress)));
+                        reportProgress(!ready && percent >= 100
+                            ? 'TorBox finished fetching the file — finalizing it…'
+                            : 'TorBox is preparing the file… ' + percent + '%');
+                    } else {
+                        reportProgress('TorBox is preparing the file…');
+                    }
+                    if (ready) {
+                        const files = Array.isArray(item.files) ? item.files : [];
+                        const file = files.find(candidate => candidate && torboxId(candidate.id));
+                        if (!file) {
+                            consecutiveFailures = 0;
+                            reportProgress('TorBox finished fetching the file — finalizing it…');
+                            await waitForNextPoll();
+                            continue;
+                        }
+                        const fileId = torboxId(file.id);
+                        reportProgress('TorBox is ready — starting the download…');
+                        const dl = await dlRequest('GET', 'https://api.torbox.app/v1/api/webdl/requestdl?token=' + encodeURIComponent(key) + '&web_id=' + encodeURIComponent(id) + '&file_id=' + encodeURIComponent(fileId), { headers: auth, follow: false, signal: options.signal });
+                        const direct = readTorboxResponse(dl, 'create the download link');
+                        const directData = direct.payload.data;
+                        const url = typeof directData === 'string'
+                            ? directData
+                            : (directData && typeof directData.url === 'string' ? directData.url : '');
+                        if (/^https?:\/\//i.test(url)) {
+                            this.pendingDownloads.delete(pendingKey);
+                            return { url, name: file.name || item.name || '',
+                                ...(Number.isSafeInteger(file.size) && file.size > 0 ? { sizeBytes: file.size } : {}) };
+                        }
+                        consecutiveFailures = 0;
+                        reportProgress('TorBox finished fetching the file — finalizing its download link…');
+                    }
+                    consecutiveFailures = 0;
+                } catch (e) {
+                    if (e && (e.name === 'AbortError' || e.debridResolutionFatal)) throw e;
+                    consecutiveFailures += 1;
+                    nextPollDelayMs = (e && e.torboxTransient && e.retryDelayMs) || 5000;
+                    const reason = safeTorboxText(e && e.message);
+                    reportProgress('TorBox had a temporary API problem — retrying…');
+                    if (consecutiveFailures >= 12) {
+                        throw torboxError('TorBox could not be reached after repeated attempts'
+                            + (reason ? ': ' + reason : '')
+                            + ' Retry to continue the existing TorBox job.');
+                    }
+                }
+                await waitForNextPoll(nextPollDelayMs);
+            }
         }
     }
 };
@@ -3824,24 +4065,37 @@ function debridCacheGet(link) {
     const hit = debridCache.get(key);
     if (!hit) return null;
     if (Date.now() - hit.ts > DEBRID_CACHE_TTL) { debridCache.delete(key); return null; }
-    return { url: hit.url, name: hit.name || '' };
+    return { url: hit.url, name: hit.name || '', cached: true,
+        ...(Number.isSafeInteger(hit.sizeBytes) && hit.sizeBytes > 0 ? { sizeBytes: hit.sizeBytes } : {}) };
 }
 function debridCachePut(link, res) {
     if (!debridCacheEnabled) return;
-    if (res && res.url) debridCache.set(debridCacheKey(link), { url: res.url, name: res.name || '', ts: Date.now() });
+    if (res && res.url) debridCache.set(debridCacheKey(link), { url: res.url, name: res.name || '', ts: Date.now(),
+        ...(Number.isSafeInteger(res.sizeBytes) && res.sizeBytes > 0 ? { sizeBytes: res.sizeBytes } : {}) });
 }
 // True when this source link already has a fresh cached direct URL (i.e. it'll resolve
 // instantly). Used to flag a download as "cached" in the UI before resolution starts.
 function debridCacheHas(link) { return !!debridCacheGet(link); }
-async function debridUnrestrict(link) {
+async function debridUnrestrict(link, options) {
     if (!debridActive()) return null;
-    const cached = debridCacheGet(link);
-    if (cached) return cached;
+    options = options || {};
+    const serviceId = debridService;
+    const serviceName = debridServiceName();
+    const cacheLink = String(link);
+    const cached = debridCacheGet(cacheLink);
+    if (cached) return Object.assign(cached, { debridService: serviceName, debridServiceId: serviceId });
     try {
-        const r = await DEBRID[debridService].unrestrict(debridKey, link);
-        if (r && r.url) debridCachePut(link, r);
-        return r;
-    } catch (e) { return null; }
+        const r = await DEBRID[serviceId].unrestrict(debridKey, link, options);
+        if (r && r.url) debridCachePut(cacheLink, r);
+        return r && r.url ? Object.assign({}, r, {
+            cached: false,
+            debridService: serviceName,
+            debridServiceId: serviceId
+        }) : r;
+    } catch (e) {
+        if (e && (e.name === 'AbortError' || e.debridResolutionFatal)) throw e;
+        return null;
+    }
 }
 ipcMain.on('set-debrid-cache-enabled', (e, on) => {
     debridCacheEnabled = (on !== false);
@@ -3871,6 +4125,32 @@ ipcMain.handle('debrid-validate', async (e, payload) => {
     }
 });
 
+const resolveDebridTorrent = createDebridTorrentResolver({ request: dlRequest });
+
+async function resolveTorrentDownloads(files, options) {
+    if (!files || !files.length || !debridActive()) return files;
+    const serviceId = debridService;
+    const serviceKey = debridKey;
+    const serviceName = debridServiceName();
+    const resolved = [];
+    for (const file of files) {
+        if (!isTorrentDownload(file.url, file.name)) {
+            resolved.push(file);
+            continue;
+        }
+        const torrents = await resolveDebridTorrent(serviceId, serviceKey, file.url, {
+            ...options, torrentHeaders: file.headers
+        });
+        if (!Array.isArray(torrents) || !torrents.length) {
+            throw Object.assign(new Error(serviceName + ' did not return any torrent files. Retry or check the service dashboard.'), { debridResolutionFatal: true });
+        }
+        resolved.push(...torrents.map(item => ({
+            ...item, debridService: serviceName, debridServiceId: serviceId, debridCached: false, debridTorrent: true
+        })));
+    }
+    return resolved;
+}
+
 async function resolveDirectUrl(rawUrl, opts) {
     opts = opts || {};
     const throwIfCancelled = () => {
@@ -3882,28 +4162,53 @@ async function resolveDirectUrl(rawUrl, opts) {
     const referer = opts.referer || SOURCE_REFERER[opts.sourceId] || '';
     const forceManagedBrowser = opts.forceManagedBrowser === true;
     if (!rawUrl) return null;
-    if (rawUrl.startsWith('magnet:') || /\.torrent(\?|#|$)/i.test(rawUrl)) return [{ url: rawUrl, kind: rawUrl.startsWith('magnet:') ? 'magnet' : 'http' }];
+    if (isTorrentDownload(rawUrl, opts.name)) return resolveTorrentDownloads([{
+        url: rawUrl, name: opts.name || '', kind: /^magnet:/i.test(rawUrl) ? 'magnet' : 'http'
+    }], opts);
+    const torrentPage = /^https?:\/\/(?:www\.)?(?:1337x\.(?:to|st|gd|is|tw|ws)|(?:d\.)?rutor\.info)(?:\/|$)/i.test(rawUrl);
     const gofileContainer = normalizeFileCryptContainerUrl(rawUrl);
     if (gofileContainer) {
         if (opts.sourceId !== 'steamrip') return null;
         const health = await inspectDownloadLinkHealth(gofileContainer, opts.sourceId);
         if (health.status === HEALTH_STATES.DOWN) throw buildLinkDownError(gofileContainer, health.reason);
         try {
-            return await scrapeSteamRipGofileContainer(gofileContainer, referer);
+            return await scrapeSteamRipGofileContainer(gofileContainer, referer, async gofileUrl => {
+                // The catalog labels this as GoFile, but its stored URL is a FileCrypt
+                // container. TorBox needs the revealed GoFile share, not the container.
+                if (debridActive()) {
+                    const dr = await debridUnrestrict(gofileUrl, opts);
+                    if (dr && dr.url) return [{
+                        url: dr.url,
+                        kind: 'http',
+                        name: dr.name || '',
+                        ...(Number.isSafeInteger(dr.sizeBytes) && dr.sizeBytes > 0 ? { sizeBytes: dr.sizeBytes } : {}),
+                        debridService: dr.debridService || '',
+                        debridServiceId: dr.debridServiceId || '',
+                        debridCached: dr.cached === true
+                    }];
+                }
+                return scrapeGofile(gofileUrl);
+            });
         } catch (error) {
             if (error && error.linkHealth === HEALTH_STATES.DOWN) throw error;
+            if (error && (error.name === 'AbortError' || error.debridResolutionFatal)) throw error;
             return null;
         }
     }
-    // Debrid FIRST — before any host gives up. When a service is connected it unlocks the
-    // link server-side, which bypasses the Cloudflare / captcha / download restrictions on
-    // EVERY filehost (GoFile, 1Fichier, Rapidgator, AND CF-interactive ones like AkiraBox
-    // and DataNodes). So we try debrid on every http filehost link, not
-    // just ones we already know are "free". pixeldrain keeps its own Worker-proxy pool, and
-    // magnets/torrents are handled above. On any failure we fall through to the old behaviour.
-    if (debridActive() && /^https?:/i.test(rawUrl) && !/pixeldrain/i.test(rawUrl)) {
-        const dr = await debridUnrestrict(rawUrl);
-        if (dr && dr.url) return [{ url: dr.url, kind: 'http', name: dr.name || '' }];
+    // Send the original hoster share to the connected provider. DataNodes' signed
+    // storage URL is a different host and cannot select TorBox's DataNodes handler.
+    // Fatal provider errors must surface instead of silently starting a direct transfer.
+    if (!torrentPage && debridActive() && /^https?:/i.test(rawUrl)) {
+        const dr = await debridUnrestrict(rawUrl, opts);
+        if (dr && dr.url) return [{
+            url: dr.url,
+            kind: 'http',
+            name: dr.name || '',
+            ...(Number.isSafeInteger(dr.sizeBytes) && dr.sizeBytes > 0 ? { sizeBytes: dr.sizeBytes } : {}),
+            debridService: dr.debridService || '',
+            debridServiceId: dr.debridServiceId || '',
+            debridCached: dr.cached === true
+        }];
     }
     if (DL_KNOWN_HOST.test(rawUrl)) {
         let r = null;
@@ -3955,12 +4260,15 @@ async function resolveDirectUrl(rawUrl, opts) {
         } else if ((!r || !r.length) && /vikingfile\.com|vik1ngfile\.site/i.test(rawUrl)) {
             r = await resolveWithManagedHostBrowser(rawUrl, 'vikingfile', referer, opts.onProgress, opts.signal);
         }
-        return (r && r.length) ? r : null; // never fall through for a known host
+        return (r && r.length) ? resolveTorrentDownloads(r, opts) : null; // never fall through for a known host
     }
     // rutor.info — extract magnet/torrent link from the page. Falls through to the
     // browser interceptor if scraping fails.
     if (/rutor\.info/i.test(rawUrl)) {
-        try { const r = await scrapeRutor(rawUrl); if (r && r.length) return r; } catch (e) {}
+        let r = null;
+        try { r = await scrapeRutor(rawUrl); } catch (e) { if (e && e.name === 'AbortError') throw e; }
+        throwIfCancelled();
+        if (r && r.length) return resolveTorrentDownloads(r, opts);
     }
     // already a direct CDN archive / iso link
     if (/\.(zip|rar|7z|bin|iso)(\?|#|$)/i.test(rawUrl)) return [{ url: rawUrl, kind: 'http' }];
@@ -3968,7 +4276,7 @@ async function resolveDirectUrl(rawUrl, opts) {
     const intercepted = await interceptDownload(rawUrl, 55000, { signal: opts.signal });
     if (intercepted && intercepted.url) {
         const hdrs = (intercepted.headers && intercepted.headers.Cookie) ? ['Cookie: ' + intercepted.headers.Cookie] : null;
-        return [{ url: intercepted.url, kind: intercepted.url.startsWith('magnet:') ? 'magnet' : 'http', headers: hdrs, name: intercepted.name }];
+        return resolveTorrentDownloads([{ url: intercepted.url, kind: /^magnet:/i.test(intercepted.url) ? 'magnet' : 'http', headers: hdrs, name: intercepted.name }], opts);
     }
     return null;
 }
@@ -5088,10 +5396,10 @@ async function postProcessDownloadBody(dir, opts, work) {
     let archiveValidationFailed = false;
     if (opts.autoExtract !== false && archives.length) {
         const extractTo = path.join(dir, '_game');
-        let anyExtracted = false, extractErr = null;
+        let extractErr = null;
         for (const arc of archives) {
             await work.checkpoint();
-            try { await extractArchive(arc, extractTo, work); await work.checkpoint(); result.extracted = true; anyExtracted = true; }
+            try { await extractArchive(arc, extractTo, work); await work.checkpoint(); result.extracted = true; }
             catch (e) { await work.checkpoint(); extractErr = e; console.error('[postProcess] extraction failed for', arc, '-', e && e.message); /* leave archive in place */ }
         }
         // Strip SteamRIP/pre-installed filler (readme, .url shortcut, _CommonRedist) so the
@@ -5103,14 +5411,15 @@ async function postProcessDownloadBody(dir, opts, work) {
                 skipRedist: opts.skipRedist !== false
             });
         }
-        // Extraction was attempted but every archive failed → tell the user why instead of
-        // silently reporting success with the un-extracted archive sitting in the folder.
-        if (!anyExtracted && extractErr) {
+        // Any extraction error leaves the download incomplete. Even when another archive in a
+        // multi-part/multi-archive set extracted successfully, retain every source so the user
+        // can retry or recover the failed portion instead of silently reporting a partial game.
+        if (extractErr) {
             archiveValidationFailed = true;
             result.warning = 'Auto-extract failed: ' + extractErr.message + ' The archive is in the game folder — extract it manually.';
         }
         // CRITICAL: the file list above was captured BEFORE extraction, so it only knew about
-        // the archives (now deleted). A repack can ship setup.exe + fg-*.bin INSIDE that archive
+        // the archives in the source folder. A repack can ship setup.exe + fg-*.bin INSIDE that archive
         // (FitGirl sometimes wraps the installer in a .rar). Re-walk the extracted folder and
         // append its files so the installer detection below can see them — otherwise needsInstall
         // is never set and the auto-installer never runs.
@@ -5118,14 +5427,6 @@ async function postProcessDownloadBody(dir, opts, work) {
             const extractedScan = await scanDownloadedPayload(extractTo, opts.gameName, work);
             result.exePath = extractedScan.exePath || initialScan.exePath || '';
             allFiles.push(...extractedScan.files);
-        }
-        // Free the disk: once extraction succeeded and produced real content, delete the
-        // source archive(s) + their split-part siblings (e.g. SteamGG's leftover 18 GB zip).
-        let extractedSize = 0;
-        try { extractedSize = await preparedDirectorySize(extractTo, work); } catch (e) {}
-        await work.checkpoint();
-        if (anyExtracted && extractedSize > 5 * 1024 * 1024) {
-            await runDownloadPreparation('delete-archive-sources', dir, work);
         }
     }
     await work.checkpoint();
@@ -5136,13 +5437,13 @@ async function postProcessDownloadBody(dir, opts, work) {
     // user runs the installer. Scan recursively.
     const redist = /(unins|vc_?redist|vcredist|dxsetup|directx|dotnet|dotnetfx|oalinst|quicksfv)/i;
     const hasBin = allFiles.some(f => /\.bin$/i.test(f.name) || /^fg-/i.test(f.name));
-    const bigFile = allFiles.some(f => f.size > 50 * 1024 * 1024);
     // Locate the repack's real installer: a setup/install*.exe that isn't a redist/helper
     // and isn't tucked inside an MD5/checksum folder.
     const setupExe = allFiles.find(f => /(setup|install|installer)[^\\/]*\.exe$/i.test(f.name)
         && !redist.test(f.name) && !/[\\/]md5[\\/]/i.test(f.full));
-    const installer = setupExe
-        || allFiles.find(f => /\.exe$/i.test(f.name) && !redist.test(f.name) && !/[\\/]md5[\\/]/i.test(f.full));
+    // A setup-named executable is installer evidence. An arbitrary utility .exe in a website
+    // bundle is not; ordinary game executables are validated separately by findGameExe above.
+    const installer = setupExe;
     // SteamRIP (and similar "pre-installed" sources) ship the game ready to run inside the
     // zip — there is NO setup.exe to execute. They must be treated as extract-and-play: pick
     // the real game exe (findGameExe already skips setup/redist/uninstall exes) and never route
@@ -5166,12 +5467,23 @@ async function postProcessDownloadBody(dir, opts, work) {
     else if (setupExe && hasBin) { result.exePath = setupExe.full; result.needsInstall = true; }
     else if (!result.exePath && installer) { result.exePath = installer.full; result.needsInstall = true; }
 
-    // Did we actually end up with something playable/installable?
-    result.usable = !archiveValidationFailed && !!(result.extracted || result.exePath || archives.length || installer || hasBin || bigFile);
+    // Did we actually end up with something playable/installable? A valid archive or a large
+    // file alone is not evidence of a game: hosts can return website/brand bundles that extract
+    // cleanly but contain no executable. Keep archive-only completion exclusively for the
+    // explicit manual-extraction mode, where the user opted out of this automatic validation.
+    const hasValidatedPayload = !!result.exePath || !!installer || (opts.autoExtract === false && archives.length > 0);
+    result.usable = !archiveValidationFailed && hasValidatedPayload;
     if (!result.usable) {
         // common failure: the host served an ad/redirect HTML page saved as "download"
         result.junk = allFiles.length === 0 || allFiles.every(f => /^download(\.|$)/i.test(f.name) || /\.(html?|php|txt)$/i.test(f.name));
         if (!result.junk && allFiles.length === 1 && allFiles[0].size < 100 * 1024) result.junk = true;
+    }
+    // Only remove originals after extraction completed without errors AND the extracted tree
+    // contains validated game/installer evidence. This preserves archives for invalid content,
+    // partial extraction failures, and manual archive mode.
+    if (result.usable && opts.autoExtract !== false && result.extracted && !archiveValidationFailed) {
+        await work.checkpoint();
+        await runDownloadPreparation('delete-archive-sources', dir, work);
     }
     await work.checkpoint();
     return result;
@@ -5191,10 +5503,24 @@ function safeOutName(name) {
     return s.slice(0, 120);
 }
 
+function pauseForDownloadSize(ctl, opts, actualBytes) {
+    const warning = DownloadSizeLogic.downloadSizeMismatch(opts.reportedDownloadBytes, actualBytes, opts.approvedDownloadSizeBytes);
+    if (!warning || ctl.cancelled || ctl.paused) return false;
+    ctl.sizeWarning = warning;
+    ctl.paused = true;
+    try { if (ctl.proc) ctl.proc.kill(); } catch (_) {}
+    return true;
+}
+
 // Remove a partial file + aria2 control file so a retry starts fresh (needed when
 // a single-use token URL can no longer be resumed).
 function cleanPartial(dir, file) {
     try {
+        if (file.relativePath) {
+            const target = torrentDownloadTarget(dir, file.relativePath);
+            [target.path, target.path + '.aria2'].forEach(p => { try { fs.unlinkSync(p); } catch (e) {} });
+            return;
+        }
         let nm = file.name;
         if (!nm) { try { nm = decodeURIComponent(file.url.split('?')[0].split('/').pop() || ''); } catch (e) {} }
         nm = safeOutName(nm);
@@ -5207,11 +5533,12 @@ function cleanPartial(dir, file) {
 // `file` is { url, kind, headers?, name? }. `ctl` lets cancel() kill the process.
 function runAria2Download(aria2, file, dir, opts, ctl, onProgress) {
     return new Promise((resolve, reject) => {
+        const torrentTarget = file.relativePath ? torrentDownloadTarget(dir, file.relativePath, { createDirectories: true }) : null;
         // Some hosts hand out single-use token URLs (fuckingfast) — parallel
         // connections/resume break them, so cap connections for those.
         const conns = file.maxConn || 16;
         const args = [
-            file.url, '--dir=' + dir, '--summary-interval=1', '--console-log-level=warn',
+            file.url, '--dir=' + (torrentTarget ? torrentTarget.directory : dir), '--summary-interval=1', '--console-log-level=warn',
             '--allow-overwrite=true', '--auto-file-renaming=false', '--continue=true',
             // Large sparse/preallocated files can look frozen at 0% for minutes on
             // Windows. Allocate as bytes arrive so the transfer becomes visible
@@ -5233,7 +5560,8 @@ function runAria2Download(aria2, file, dir, opts, ctl, onProgress) {
         // uses the server's Content-Disposition filename (the real .bin/.rar).
         const VALID_EXT = /\.(zip|rar|7z|bin|iso|exe|msi|cab|pkg|001|002|003|004|005|part\d+|r\d{2}|z\d{2})$/i;
         const outName = safeOutName(file.name || '');
-        if (file.kind !== 'magnet' && outName && VALID_EXT.test(outName)) args.push('--out=' + outName);
+        if (torrentTarget) args.push('--out=' + torrentTarget.name);
+        else if (file.kind !== 'magnet' && outName && VALID_EXT.test(outName)) args.push('--out=' + outName);
         if (file.kind === 'magnet') { args.push('--seed-time=0', '--bt-stop-timeout=180', '--bt-max-peers=80'); }
         if (opts.maxSpeed && Number(opts.maxSpeed) > 0) args.push('--max-overall-download-limit=' + Math.round(Number(opts.maxSpeed)) + 'K');
         // per-host auth headers (array of "Key: Value" strings), or legacy {Cookie}
@@ -5273,6 +5601,9 @@ function runAria2Download(aria2, file, dir, opts, ctl, onProgress) {
                 if (mm) {
                     sawTransferProgress = true;
                     clearTimeout(slowStartTimer);
+                    // Stop the owned transfer before asking the renderer. The
+                    // paused close path cannot reach extraction or installation.
+                    if (opts.checkWholeDownloadSize && pauseForDownloadSize(ctl, opts, DownloadSizeLogic.downloadSizeBytes(mm[2]))) return;
                     onProgress({
                         phase: 'downloading',
                         downloaded: mm[1].replace(/\s/g, ''), total: mm[2].replace(/\s/g, ''),
@@ -5313,11 +5644,7 @@ function runAria2Download(aria2, file, dir, opts, ctl, onProgress) {
 }
 
 function browserBytes(n) {
-    n = Number(n) || 0;
-    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-    let i = 0;
-    while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
-    return (i === 0 ? Math.round(n) : n.toFixed(n >= 100 ? 0 : n >= 10 ? 1 : 2)) + units[i];
+    return DownloadSizeLogic.formatBytes(n);
 }
 
 function browserGameName(fileName) {
@@ -5339,15 +5666,15 @@ async function finishCapturedGameDownload(wc, id, dir, opts, ctl, job, steamMeta
     try {
         const res = await postProcessDownload(job, dir, opts);
         if (ctl.cancelled) throw new Error('Cancelled');
-        if (res.needsInstall && res.exePath && opts.autoInstall !== false) {
+        if (res.usable && res.needsInstall && res.exePath && opts.autoInstall !== false) {
             await downloadJobDirectories.setState(job, 'installing');
             const installTarget = installerTargetForDownload(dir, res.exePath);
             let polling = true;
             (async function pollSize() {
                 while (polling) {
-                    let gb = 0;
-                    try { gb = await preparedDirectorySize(installTarget, null) / (1024 * 1024 * 1024); } catch (e) {}
-                    wc.send('download-progress', { id, state: 'installing', percent: 100, label: gb > 0.01 ? 'Installing game... ' + gb.toFixed(2) + ' GB written' : 'Installing game... preparing files' });
+                    let bytes = 0;
+                    try { bytes = await preparedDirectorySize(installTarget, null); } catch (e) {}
+                    wc.send('download-progress', { id, state: 'installing', percent: 100, label: bytes > 0 ? 'Installing game... ' + browserBytes(bytes) + ' written' : 'Installing game... preparing files' });
                     await new Promise(r => setTimeout(r, 2500));
                 }
             })();
@@ -5383,7 +5710,8 @@ async function finishCapturedGameDownload(wc, id, dir, opts, ctl, job, steamMeta
         }
         if (ctl.cancelled) throw new Error('Cancelled');
         if (!res.usable) {
-            wc.send('download-error', { id, url: opts.url, needsBrowser: false, error: 'Browser download finished but no usable game files were found.' });
+            wc.send('download-error', { id, url: opts.url, needsBrowser: false,
+                error: res.warning || 'This download did not contain a playable game or supported installer. The source may point to the wrong file. Choose another mirror.' });
             await retainDownloadJobError(job);
             return;
         }
@@ -5582,7 +5910,7 @@ function normalizeDownloadRequest(value) {
     const input = exactGateAPayload(value, [
         'id', 'gameName', 'image', 'url', 'links', 'sourceId', 'mirrors', 'maxSpeed',
         'autoExtract', 'autoInstall', 'skipRedist', 'autoAdd', 'referrer',
-        'rootCapabilityId', 'rootExpectedRevision'
+        'rootCapabilityId', 'rootExpectedRevision', 'reportedDownloadBytes', 'approvedDownloadSizeBytes'
     ], 'Download request');
     const output = {
         id: boundedDownloadText(input.id, 'Download ID', 128, /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/),
@@ -5597,6 +5925,11 @@ function normalizeDownloadRequest(value) {
         skipRedist: input.skipRedist !== false,
         autoAdd: input.autoAdd !== false
     };
+    for (const field of ['reportedDownloadBytes', 'approvedDownloadSizeBytes']) {
+        if (input[field] === undefined || input[field] === null) continue;
+        if (!Number.isSafeInteger(input[field]) || input[field] <= 0) throw new Error('The download size warning reference is invalid.');
+        output[field] = input[field];
+    }
     if (input.referrer) output.referer = typedDownloadUrl(input.referrer, 'Download referrer', { allowMagnet: false });
     if (input.url) output.url = typedDownloadUrl(input.url, 'Download URL');
     if (input.links !== undefined) {
@@ -5665,7 +5998,13 @@ ipcMain.handle('download-game', async (e, opts) => {
         // "Cached" = this source link already has a fresh resolved direct URL, so resolution
         // is instant. Flag it through every progress event so the UI can badge the download.
         const isCached = debridActive() && links.some(l => debridCacheHas(l.url));
-        wc.send('download-progress', { id, state: 'resolving', label: resolveLabel, cached: isCached });
+        wc.send('download-progress', {
+            id,
+            state: 'resolving',
+            label: resolveLabel,
+            cached: isCached,
+            debridService: isCached ? svcName : ''
+        });
         // If resolution drags on (an uncached file-host job that has to be prepared),
         // reassure the user it isn't frozen rather than leaving a silent spinner.
         slowTimer = setTimeout(() => {
@@ -5721,6 +6060,7 @@ ipcMain.handle('download-game', async (e, opts) => {
                 subLabel: ''
             });
             const resolved = await runOwnedLinkResolution(signal => resolveDirectUrl(sourceLink.url, {
+                name: sourceLink.name,
                 sourceId: opts.sourceId,
                 referer: opts.referer,
                 onProgress: label => reportResolutionProgress((sourceLabel ? sourceLabel + ' — ' : '') + label),
@@ -5737,10 +6077,18 @@ ipcMain.handle('download-game', async (e, opts) => {
                 origin: sourceLink.url,
                 originIndex
             }, file));
-            const filtered = sourceFiles.filter(file => !DL_SKIP_FILE.test((file.name || '') + ' ' + (file.url || '')));
+            const filtered = sourceFiles.filter(file => file.debridTorrent || !DL_SKIP_FILE.test((file.name || '') + ' ' + (file.url || '')));
             if (filtered.length) sourceFiles = filtered;
-            sourceFiles = sourceFiles.filter(file => !seenUrl.has(file.url) && seenUrl.add(file.url));
+            sourceFiles = sourceFiles.filter(file => {
+                const identity = file.debridTorrent ? file.url + '\n' + file.relativePath : file.url;
+                return !seenUrl.has(identity) && seenUrl.add(identity);
+            });
             if (!sourceFiles.length) continue;
+
+            if (sourceTotal === 1 && sourceFiles.every(file => Number.isSafeInteger(file.sizeBytes) && file.sizeBytes > 0)) {
+                const actualBytes = sourceFiles.reduce((sum, file) => sum + file.sizeBytes, 0);
+                if (pauseForDownloadSize(ctl, opts, actualBytes)) throw new Error('Paused');
+            }
 
             await downloadJobDirectories.assertActive(continuation);
             await downloadJobDirectories.setState(continuation, 'downloading');
@@ -5757,15 +6105,21 @@ ipcMain.handle('download-game', async (e, opts) => {
                             type: 'payload-download',
                             state: 'downloading',
                             stop: () => { try { if (ctl.proc) ctl.proc.kill(); } catch (_) {} }
-                        }, () => runAria2Download(aria2, file, dir, opts, ctl, (p) => {
-                            const sourceFraction = (resolvedIndex + (p.percent || 0) / 100) / sourceFiles.length;
-                            const overall = Math.round(((sourceIndex + sourceFraction) / sourceTotal) * 100);
+                        }, () => runAria2Download(aria2, file, dir, {
+                            ...opts, checkWholeDownloadSize: sourceTotal === 1 && sourceFiles.length === 1
+                        }, ctl, (p) => {
                             const progressState = p.phase === 'starting' ? 'starting' : 'downloading';
                             const retryLabel = expandedLabel + (attempt > 1 ? ' (retry ' + (attempt - 1) + ')' : '');
                             wc.send('download-progress', {
-                                id, state: progressState, percent: overall, partPercent: p.percent,
+                                // These bytes and ETA belong to the active file. Later
+                                // links are unresolved, so no byte-weighted total exists yet.
+                                id, state: progressState, percent: p.percent, partPercent: p.percent,
+                                progressScope: sourceTotal > 1 || sourceFiles.length > 1 ? 'file' : 'download',
+                                file: resolvedIndex + 1, fileCount: sourceFiles.length,
                                 part: sourceIndex + 1, partCount: sourceTotal, downloaded: p.downloaded, total: p.total,
                                 speed: p.speed, eta: p.eta,
+                                cached: file.debridCached === true,
+                                debridService: file.debridService || '',
                                 label: p.label || retryLabel
                             });
                         }));
@@ -5795,6 +6149,7 @@ ipcMain.handle('download-game', async (e, opts) => {
                             let managed = null;
                             try {
                                 managed = await runOwnedLinkResolution(signal => resolveDirectUrl(file.origin, {
+                                    name: sourceLink.name,
                                     sourceId: opts.sourceId,
                                     referer: opts.referer,
                                     forceManagedBrowser: true,
@@ -5831,6 +6186,7 @@ ipcMain.handle('download-game', async (e, opts) => {
                             if (file.origin) {
                                 try {
                                     const refreshed = await runOwnedLinkResolution(signal => resolveDirectUrl(file.origin, {
+                                        name: sourceLink.name,
                                         sourceId: opts.sourceId,
                                         referer: opts.referer,
                                         onProgress: label => reportResolutionProgress((expandedLabel ? expandedLabel + ' — ' : '') + label),
@@ -5853,6 +6209,15 @@ ipcMain.handle('download-game', async (e, opts) => {
         }
         if (!downloadedAny) throw new Error('No usable download files were returned by this host.');
 
+        // Multi-part totals and very fast transfers may only be known once all
+        // selected files finish. Compare the complete payload before preparing it.
+        if (opts.reportedDownloadBytes) {
+            const completedScan = await downloadWork.run(continuation, { type: 'size-check', state: 'downloading' },
+                work => scanDownloadedPayload(dir, opts.gameName, work));
+            const actualBytes = completedScan.files.reduce((sum, file) => sum + (Number.isSafeInteger(file.size) && file.size > 0 ? file.size : 0), 0);
+            if (pauseForDownloadSize(ctl, opts, actualBytes)) throw new Error('Paused');
+        }
+
         if (coverDownload) {
             await downloadWork.run(continuation, { type: 'cover-download', state: 'downloading' }, async work => {
                 await dlHttpToFile(coverDownload.url, coverDownload.destination).catch(() => {});
@@ -5870,18 +6235,18 @@ ipcMain.handle('download-game', async (e, opts) => {
             // Auto-install: FitGirl repacks come as setup.exe + .bin parts. If the
             // user has auto-install on, run the installer unattended into a clean folder,
             // then delete the repack source so only the playable game remains.
-            if (res.needsInstall && res.exePath && opts.autoInstall !== false) {
+            if (res.usable && res.needsInstall && res.exePath && opts.autoInstall !== false) {
                 await downloadJobDirectories.setState(continuation, 'installing');
                 const installTarget = installerTargetForDownload(dir, res.exePath);
                 let polling = true;
                 (async function pollSize() {
                     while (polling) {
-                        let gb = 0;
-                        try { gb = await preparedDirectorySize(installTarget, null) / (1024 * 1024 * 1024); } catch (e) {}
+                        let bytes = 0;
+                        try { bytes = await preparedDirectorySize(installTarget, null); } catch (e) {}
                         wc.send('download-progress', {
                             id, state: 'installing', percent: 100,
-                            label: gb > 0.01
-                                ? 'Installing game… ' + gb.toFixed(2) + ' GB written (this can take several minutes — keep the launcher open)'
+                            label: bytes > 0
+                                ? 'Installing game… ' + browserBytes(bytes) + ' written (this can take several minutes — keep the launcher open)'
                                 : 'Installing game… preparing files (this can take several minutes — keep the launcher open)'
                         });
                         await new Promise(r => setTimeout(r, 2500));
@@ -5898,8 +6263,7 @@ ipcMain.handle('download-game', async (e, opts) => {
                         // A short settle catches any trailing writes (shortcuts, config) flushed in the
                         // last moment after the installer process exited.
                         await waitForDirSettle(installTarget, ctl, (sz) => {
-                            const gb = sz / (1024 * 1024 * 1024);
-                            wc.send('download-progress', { id, state: 'installing', percent: 100, label: 'Finishing up… ' + gb.toFixed(2) + ' GB installed' });
+                            wc.send('download-progress', { id, state: 'installing', percent: 100, label: 'Finishing up… ' + browserBytes(sz) + ' installed' });
                         }, work);
                         await work.checkpoint();
                         // The exe occasionally lands a beat after the final byte — retry a couple times.
@@ -5939,12 +6303,13 @@ ipcMain.handle('download-game', async (e, opts) => {
             if (ctl.cancelled) throw new Error('Cancelled');
             if (!res.usable) {
                 wc.send('download-error', {
-                    id, url: opts.url, needsBrowser: true,
-                    error: res.junk
-                        ? 'The host returned a web page instead of the game file. Use "Open game page" to grab it manually.'
-                        : 'Download finished but no game files were found.'
+                    id, url: opts.url, needsBrowser: false,
+                    error: res.warning || (res.junk
+                        ? 'The host returned a web page or unrelated files instead of a game. Choose another mirror.'
+                        : 'This download did not contain a playable game or supported installer. The source may point to the wrong file. Choose another mirror.')
                 });
                 await retainDownloadJobError(continuation);
+                return { success: false, payloadRejected: true };
             } else {
                 applyInstallerCompletionPolicy(res, opts);
                 // Never persist a guessed path that no longer exists. Some pre-installed
@@ -5980,7 +6345,11 @@ ipcMain.handle('download-game', async (e, opts) => {
         if (ctl.paused || /paused/i.test(err.message)) {
             try { if (continuation) await downloadJobDirectories.setState(continuation, 'paused'); }
             catch (_) { return { success: false, stale: true }; }
-            wc.send('download-progress', { id, state: 'paused', label: 'Paused' });
+            wc.send('download-progress', {
+                id, state: 'paused',
+                label: ctl.sizeWarning ? 'Waiting for small-download confirmation…' : 'Paused',
+                ...(ctl.sizeWarning ? { sizeWarning: ctl.sizeWarning } : {})
+            });
             return { success: false, paused: true };
         }
         if (ctl.cancelled || /cancelled/i.test(err.message)) return { success: false, cancelled: true };

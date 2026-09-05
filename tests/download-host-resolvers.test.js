@@ -114,7 +114,7 @@ test('Gofile resolver authenticates once, paginates folders, and keeps only trus
                     data: {
                         type: 'folder',
                         children: {
-                            first: { id: 'File1', type: 'file', name: 'Part 1.rar', link: 'https://store1.gofile.io/download/web/File1/Part%201.rar' },
+                            first: { id: 'File1', type: 'file', name: 'Part 1.rar', size: 240000000, link: 'https://store1.gofile.io/download/web/File1/Part%201.rar' },
                             nested: { id: 'Nested123', type: 'folder', name: 'Bonus' }
                         }
                     }
@@ -129,7 +129,7 @@ test('Gofile resolver authenticates once, paginates folders, and keeps only trus
                     data: {
                         type: 'folder',
                         children: {
-                            second: { id: 'File2', type: 'file', name: 'Part 2.rar', link: 'https://store2.gofile.io/download/web/File2/Part%202.rar' }
+                            second: { id: 'File2', type: 'file', name: 'Part 2.rar', size: -1, link: 'https://store2.gofile.io/download/web/File2/Part%202.rar' }
                         }
                     }
                 })
@@ -160,6 +160,7 @@ test('Gofile resolver authenticates once, paginates folders, and keeps only trus
         { url: 'https://store2.gofile.io/download/web/File2/Part%202.rar', name: 'Part 2.rar' }
     ]);
     assert.ok(files.every(file => file.headers.includes('Cookie: accountToken=fixture-account-token')));
+    assert.deepEqual(files.map(file => file.sizeBytes), [240000000, undefined, undefined]);
     const accountCall = calls.find(call => call.url === 'https://api.gofile.io/accounts');
     assert.equal(accountCall.options.headers['X-BL'], 'en-US');
     assert.match(accountCall.options.headers['X-Website-Token'], /^[a-f0-9]{64}$/);
@@ -190,7 +191,7 @@ test('concurrent Gofile resolutions share one in-flight guest account creation',
                 body: JSON.stringify({
                     status: 'ok',
                     metadata: { totalPages: 1 },
-                    data: { type: 'file', name: `${id}.zip`, link: `https://store1.gofile.io/download/web/${id}/${id}.zip` }
+                    data: { type: 'file', name: `${id}.zip`, size: 150000000, link: `https://store1.gofile.io/download/web/${id}/${id}.zip` }
                 })
             };
         }
@@ -1293,6 +1294,8 @@ test('BuzzHeavier Cloudflare failures reach one visible managed verification flo
     assert.ok(resolverStart >= 0 && resolverEnd > resolverStart);
     const calls = [];
     const resolveDirectUrl = vm.runInNewContext(`(${main.slice(resolverStart, resolverEnd).trim()}\n)`, {
+        isTorrentDownload: require('../runtime/debridTorrents').isTorrentDownload,
+        resolveTorrentDownloads: async files => files,
         SOURCE_REFERER: { steamrip: 'https://steamrip.com/' },
         normalizeFileCryptContainerUrl: () => '',
         debridActive: () => false,
@@ -1323,6 +1326,8 @@ test('FuckingFast tries the current direct POST before its visible cookie-preser
     assert.ok(resolverStart >= 0 && resolverEnd > resolverStart);
     const calls = [];
     const resolveDirectUrl = vm.runInNewContext(`(${main.slice(resolverStart, resolverEnd).trim()}\n)`, {
+        isTorrentDownload: require('../runtime/debridTorrents').isTorrentDownload,
+        resolveTorrentDownloads: async files => files,
         SOURCE_REFERER: { fitgirl: 'https://fitgirl-repacks.site/' },
         normalizeFileCryptContainerUrl: () => '',
         debridActive: () => false,
@@ -1358,6 +1363,8 @@ test('FuckingFast skips the verification window when the current POST returns a 
     let browserCalls = 0;
     const direct = [{ url: 'https://fuckingfast.co/dl/signed-file', kind: 'http', maxConn: 1 }];
     const resolveDirectUrl = vm.runInNewContext(`(${main.slice(resolverStart, resolverEnd).trim()}\n)`, {
+        isTorrentDownload: require('../runtime/debridTorrents').isTorrentDownload,
+        resolveTorrentDownloads: async files => files,
         SOURCE_REFERER: { fitgirl: 'https://fitgirl-repacks.site/' },
         normalizeFileCryptContainerUrl: () => '',
         debridActive: () => false,
@@ -1375,6 +1382,8 @@ test('FileDitch and MultiUp failures enter their visible provider-scoped handoff
     const resolverEnd = main.indexOf('function buildUnresolvedError(', resolverStart);
     const calls = [];
     const resolveDirectUrl = vm.runInNewContext(`(${main.slice(resolverStart, resolverEnd).trim()}\n)`, {
+        isTorrentDownload: require('../runtime/debridTorrents').isTorrentDownload,
+        resolveTorrentDownloads: async files => files,
         SOURCE_REFERER: { fitgirl: 'https://fitgirl-repacks.site/' },
         normalizeFileCryptContainerUrl: () => '',
         debridActive: () => false,
@@ -1414,6 +1423,8 @@ test('confirmed offline FileDitch links never open a pointless verification wind
         healthReason: 'fileditch-redirected-away'
     });
     const resolveDirectUrl = vm.runInNewContext(`(${main.slice(resolverStart, resolverEnd).trim()}\n)`, {
+        isTorrentDownload: require('../runtime/debridTorrents').isTorrentDownload,
+        resolveTorrentDownloads: async files => files,
         SOURCE_REFERER: { steamrip: 'https://steamrip.com/' },
         normalizeFileCryptContainerUrl: () => '',
         debridActive: () => false,
