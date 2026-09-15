@@ -34,6 +34,12 @@ async function chooseDirectory(dialog, options) {
     return result.canceled ? null : result.filePaths[0];
 }
 
+function formatLaunchArguments(argv) {
+    return (argv || []).map(value => /[\s"]/.test(value) || !value
+        ? '"' + value.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/g, '$1$1') + '"'
+        : value).join(' ');
+}
+
 function registerAccountIpc({ app, ipcMain, safeStorage, authorizeIpcEvent, dialog, validateSteamAppId, onSessionChanged }) {
     if (typeof authorizeIpcEvent !== 'function') throw new TypeError('Account IPC requires sender authorization.');
     if (!dialog || typeof dialog.showOpenDialog !== 'function' || typeof dialog.showMessageBox !== 'function') {
@@ -505,6 +511,23 @@ function registerAccountIpc({ app, ipcMain, safeStorage, authorizeIpcEvent, dial
         const input = exactPayload(payload, ['gameId'], 'Authority status');
         return profileStore.authorityStatus(input.gameId);
     }));
+    ipcMain.handle('authority-get-execution-settings', guarded('authority-get-execution-settings', (_event, payload) => {
+        const input = exactPayload(payload, ['gameId'], 'Launch settings');
+        const authority = profileStore.authorityStatus(input.gameId).execution;
+        if (!authority || authority.state !== 'active') return { state: authority && authority.state || 'missing' };
+        const { details } = profileStore.validateExecutionCapability({
+            gameId: input.gameId, capabilityId: authority.capabilityId,
+            expectedRevision: authority.revision, operation: 'reveal'
+        });
+        return {
+            state: 'active', capabilityId: authority.capabilityId, revision: authority.revision,
+            argumentProposal: formatLaunchArguments(details.argv),
+            runAsAdmin: details.runAsAdmin === true, highPriority: details.highPriority === true,
+            companionName: path.basename(details.companionPath || ''),
+            preLaunchName: path.basename(details.preLaunchScript || ''),
+            postLaunchName: path.basename(details.postLaunchScript || '')
+        };
+    }));
     ipcMain.handle('downloaded-game-uninstall-status', guarded('downloaded-game-uninstall-status', (_event, payload) => {
         const input = exactPayload(payload, ['gameId'], 'Downloaded game uninstall status');
         return profileStore.downloadedGameUninstallStatus(input.gameId);
@@ -557,12 +580,21 @@ function registerAccountIpc({ app, ipcMain, safeStorage, authorizeIpcEvent, dial
         const input = exactPayload(payload, [
             'gameId', 'argumentProposal', 'requestPreLaunchScript', 'requestPostLaunchScript',
             'requestCompanion', 'requestElevation', 'requestHighPriority', 'requestTrackingExecutable',
-            'requestRom', 'useSteamInstallation', 'baseSelectionId'
+            'requestRom', 'useSteamInstallation', 'baseSelectionId', 'capabilityId', 'expectedRevision'
         ], 'Execution setup');
         const metadata = profileStore.activeGameMetadata(input.gameId);
+        const currentReference = input.capabilityId || input.expectedRevision !== undefined ? {
+            gameId: input.gameId, capabilityId: input.capabilityId,
+            expectedRevision: input.expectedRevision, operation: 'reveal'
+        } : null;
+        const current = currentReference ? profileStore.validateExecutionCapability(currentReference).details : null;
         let steamAppId = '';
         let executablePath = '';
-        if (input.useSteamInstallation) {
+        if (current) {
+            if (input.baseSelectionId) throw executionSelectionError('Launch-option edits cannot replace the base executable.');
+            executablePath = current.executablePath || '';
+            steamAppId = current.steamAppId || '';
+        } else if (input.useSteamInstallation) {
             if (input.baseSelectionId) throw executionSelectionError('A local executable selection cannot be combined with Steam installation setup.');
             steamAppId = String(metadata.steamAppId || '');
             if (!steamAppId || typeof validateSteamAppId !== 'function' || !await validateSteamAppId(steamAppId)) {
@@ -577,26 +609,31 @@ function registerAccountIpc({ app, ipcMain, safeStorage, authorizeIpcEvent, dial
                 });
             if (!executablePath) return { canceled: true };
         }
-        const romPath = input.requestRom ? await chooseFile(dialog, { title: 'Choose the local ROM image' }) : '';
-        if (input.requestRom && !romPath) return { canceled: true };
-        let argv = [];
-        const argumentProposal = String(input.argumentProposal || '').slice(0, 8192);
-        if (argumentProposal) {
-            argv = parseArgumentString(argumentProposal);
-        }
-        if (input.requestRom) {
+        const romPath = input.requestRom && !current ? await chooseFile(dialog, { title: 'Choose the local ROM image' }) : '';
+        if (input.requestRom && !current && !romPath) return { canceled: true };
+        const argumentProposal = input.argumentProposal === undefined && current
+            ? formatLaunchArguments(current.argv) : String(input.argumentProposal || '');
+        let argv = current && argumentProposal === formatLaunchArguments(current.argv)
+            ? current.argv : parseArgumentString(argumentProposal);
+        if (input.requestRom && !current) {
             argv = argv.length ? argv.map(argument => argument.replace(/%rom%/g, romPath)) : [romPath];
             if (!argv.some(argument => argument.includes(romPath))) argv.push(romPath);
         }
         const scriptFilters = [{ name: 'Local scripts', extensions: ['ps1', 'bat', 'cmd', 'exe'] }];
-        const preLaunchScript = input.requestPreLaunchScript ? await chooseFile(dialog, { title: 'Approve a pre-launch script', filters: scriptFilters }) : '';
-        const postLaunchScript = input.requestPostLaunchScript ? await chooseFile(dialog, { title: 'Approve a post-exit script', filters: scriptFilters }) : '';
-        const companionPath = input.requestCompanion ? await chooseFile(dialog, { title: 'Approve a companion application', filters: [{ name: 'Applications', extensions: ['exe', 'lnk'] }] }) : '';
-        const playDetectionPath = input.requestTrackingExecutable ? await chooseFile(dialog, { title: 'Approve a process tracking executable', filters: [{ name: 'Executables', extensions: ['exe'] }] }) : '';
-        const runAsAdmin = input.requestElevation === true;
-        const highPriority = input.requestHighPriority === true;
+        const preLaunchScript = input.requestPreLaunchScript ? await chooseFile(dialog, { title: 'Approve a pre-launch script', filters: scriptFilters }) : current && current.preLaunchScript || '';
+        if (input.requestPreLaunchScript && !preLaunchScript) return { canceled: true };
+        const postLaunchScript = input.requestPostLaunchScript ? await chooseFile(dialog, { title: 'Approve a post-exit script', filters: scriptFilters }) : current && current.postLaunchScript || '';
+        if (input.requestPostLaunchScript && !postLaunchScript) return { canceled: true };
+        const companionPath = input.requestCompanion ? await chooseFile(dialog, { title: 'Approve a companion application', filters: [{ name: 'Applications', extensions: ['exe', 'lnk'] }] }) : current && current.companionPath || '';
+        if (input.requestCompanion && !companionPath) return { canceled: true };
+        const playDetectionPath = input.requestTrackingExecutable ? await chooseFile(dialog, { title: 'Approve a process tracking executable', filters: [{ name: 'Executables', extensions: ['exe'] }] }) : current && current.playDetectionPath || '';
+        if (input.requestTrackingExecutable && !playDetectionPath) return { canceled: true };
+        const runAsAdmin = input.requestElevation === undefined && current ? current.runAsAdmin === true : input.requestElevation === true;
+        const highPriority = input.requestHighPriority === undefined && current ? current.highPriority === true : input.requestHighPriority === true;
+        // A picker can outlive a profile switch or another settings save.
+        if (currentReference) profileStore.validateExecutionCapability(currentReference);
         return profileStore.createExecutionCapability(input.gameId, {
-            executablePath, argv, workingDirectory: executablePath ? path.dirname(executablePath) : '',
+            executablePath, argv, workingDirectory: current ? current.workingDirectory : executablePath ? path.dirname(executablePath) : '',
             preLaunchScript: preLaunchScript || '', postLaunchScript: postLaunchScript || '',
             companionPath: companionPath || '', runAsAdmin, highPriority,
             playDetectionPath: playDetectionPath || '', steamAppId

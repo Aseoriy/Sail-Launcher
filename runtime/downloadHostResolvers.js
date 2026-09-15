@@ -65,6 +65,39 @@ function gofileShareDetails(value) {
     return match ? { directUrl: '', contentId: match[1] } : null;
 }
 
+function safeGofileContentId(value) {
+    return typeof value === 'string' && /^[A-Za-z0-9_-]{4,128}$/.test(value) ? value : '';
+}
+
+function gofileDirectContentId(value) {
+    const direct = gofileDirectDownloadUrl(value);
+    if (!direct) return '';
+    const match = new URL(direct).pathname.match(/^\/download\/web\/([A-Za-z0-9_-]{4,128})(?:\/|$)/i);
+    return match ? match[1] : '';
+}
+
+function throwIfGofileAborted(signal) {
+    if (signal && signal.aborted) throw Object.assign(new Error('Cancelled'), { name: 'AbortError' });
+}
+
+function waitForSharedGofileRequest(promise, signal) {
+    throwIfGofileAborted(signal);
+    if (!signal) return promise;
+    return new Promise((resolve, reject) => {
+        let settled = false;
+        const finish = (complete, value) => {
+            if (settled) return;
+            settled = true;
+            signal.removeEventListener('abort', abort);
+            complete(value);
+        };
+        const abort = () => finish(reject, Object.assign(new Error('Cancelled'), { name: 'AbortError' }));
+        signal.addEventListener('abort', abort, { once: true });
+        Promise.resolve(promise).then(value => finish(resolve, value), error => finish(reject, error));
+        if (signal.aborted) abort();
+    });
+}
+
 function extractGofileWebsiteTokenSecret(scriptSource) {
     const script = String(scriptSource || '');
     if (!script || Buffer.byteLength(script, 'utf8') > GOFILE_MAX_SCRIPT_BYTES
@@ -158,8 +191,9 @@ function createGofileResolver(defaultDependencies = {}) {
     }
 
     async function loadWebsiteTokenSecret(dependencies) {
+        throwIfGofileAborted(dependencies.signal);
         if (websiteTokenSecret) return websiteTokenSecret;
-        if (websiteTokenSecretPromise) return websiteTokenSecretPromise;
+        if (websiteTokenSecretPromise) return waitForSharedGofileRequest(websiteTokenSecretPromise, dependencies.signal);
         websiteTokenSecretPromise = (async () => {
             const request = requestFor(dependencies);
             const scriptUrls = [];
@@ -206,7 +240,7 @@ function createGofileResolver(defaultDependencies = {}) {
             websiteTokenSecret = secret;
             return secret;
         }).finally(() => { websiteTokenSecretPromise = null; });
-        return websiteTokenSecretPromise;
+        return waitForSharedGofileRequest(websiteTokenSecretPromise, dependencies.signal);
     }
 
     async function websiteToken(dependencies, token = '') {
@@ -249,18 +283,22 @@ function createGofileResolver(defaultDependencies = {}) {
     }
 
     async function authorize(dependencies, forceRefresh = false) {
+        throwIfGofileAborted(dependencies.signal);
         if (forceRefresh) accountToken = '';
         if (accountToken) return accountToken;
         if (!accountPromise) {
-            accountPromise = createAccount(dependencies).then(token => {
+            // Other downloads can be waiting for this same guest account. Cancel
+            // only this caller's wait; shared authorization has its own timeouts.
+            accountPromise = createAccount({ ...dependencies, signal: undefined }).then(token => {
                 accountToken = token;
                 return token;
             }).finally(() => { accountPromise = null; });
         }
-        return accountPromise;
+        return waitForSharedGofileRequest(accountPromise, dependencies.signal);
     }
 
     async function getContentPage(contentId, token, page, dependencies) {
+        throwIfGofileAborted(dependencies.signal);
         const params = new URLSearchParams({
             page: String(page),
             pageSize: '1000',
@@ -273,8 +311,10 @@ function createGofileResolver(defaultDependencies = {}) {
                 'X-Website-Token': await websiteToken(dependencies, token)
             }),
             follow: false,
-            timeoutMs: 15000
+            timeoutMs: 15000,
+            signal: dependencies.signal
         });
+        throwIfGofileAborted(dependencies.signal);
         const payload = boundedJsonResponse(response, 'Gofile content API');
         if (response && response.status === 429 || payload && payload.status === 'error-rateLimit') {
             throw new Error('Gofile rate limit reached.');
@@ -301,6 +341,7 @@ function createGofileResolver(defaultDependencies = {}) {
             if (data.type === 'file') {
                 const url = gofileDirectDownloadUrl(data.link);
                 if (url) output.push({ url, name: cleanDownloadName(data.name), kind: 'http',
+                    gofileContentId: safeGofileContentId(data.id) || contentId,
                     ...(Number.isSafeInteger(data.size) && data.size > 0 ? { sizeBytes: data.size } : {}) });
                 continue;
             }
@@ -309,7 +350,9 @@ function createGofileResolver(defaultDependencies = {}) {
                 if (!child || child.canAccess === false || output.length >= 512) continue;
                 if (child.type === 'file') {
                     const url = gofileDirectDownloadUrl(child.link);
+                    const fileId = safeGofileContentId(child.id) || gofileDirectContentId(url);
                     if (url) output.push({ url, name: cleanDownloadName(child.name), kind: 'http',
+                        ...(fileId ? { gofileContentId: fileId } : {}),
                         ...(Number.isSafeInteger(child.size) && child.size > 0 ? { sizeBytes: child.size } : {}) });
                 } else if (child.type === 'folder' && child.id) {
                     await collectContent(String(child.id), token, dependencies, output, visited);
@@ -322,13 +365,17 @@ function createGofileResolver(defaultDependencies = {}) {
         const details = gofileShareDetails(rawUrl);
         if (!details) return null;
         const dependencies = dependenciesFor(overrides);
+        throwIfGofileAborted(dependencies.signal);
         const userAgent = String(dependencies.userAgent || GOFILE_USER_AGENT);
         if (details.directUrl) {
-            const token = await authorize(dependencies);
+            const token = await authorize(dependencies, dependencies.refreshAccount === true);
+            throwIfGofileAborted(dependencies.signal);
+            const fileId = gofileDirectContentId(details.directUrl);
             return [{
                 url: details.directUrl,
                 name: fileNameFromUrl(details.directUrl),
                 kind: 'http',
+                ...(fileId ? { gofileContentId: fileId } : {}),
                 headers: [
                     `Cookie: accountToken=${token}`,
                     `User-Agent: ${userAgent}`,
@@ -338,7 +385,8 @@ function createGofileResolver(defaultDependencies = {}) {
                 ]
             }];
         }
-        let token = await authorize(dependencies);
+        let token = await authorize(dependencies, dependencies.refreshAccount === true);
+        throwIfGofileAborted(dependencies.signal);
         let files = [];
         try {
             await collectContent(details.contentId, token, dependencies, files, new Set());
@@ -348,6 +396,7 @@ function createGofileResolver(defaultDependencies = {}) {
             files = [];
             await collectContent(details.contentId, token, dependencies, files, new Set());
         }
+        throwIfGofileAborted(dependencies.signal);
         const headers = [
             `Cookie: accountToken=${token}`,
             `User-Agent: ${userAgent}`,
@@ -363,6 +412,78 @@ function createGofileResolver(defaultDependencies = {}) {
 }
 
 const resolveGofileUrl = createGofileResolver();
+
+function gofileTransferError(refreshEligible = false, rateLimited = false) {
+    return Object.assign(new Error(rateLimited
+        ? 'GoFile is limiting download requests. Wait before retrying.'
+        : 'GoFile did not return a valid download file. Retry or choose another mirror.'), {
+        gofileTransferInvalid: true,
+        gofileRefreshEligible: refreshEligible,
+        ...(rateLimited ? { providerRateLimited: true } : {})
+    });
+}
+
+async function validateGofileTransfer(file, { request, signal } = {}) {
+    throwIfGofileAborted(signal);
+    if (typeof request !== 'function') throw new TypeError('GoFile transfer validation requires a request function.');
+    let current = gofileDirectDownloadUrl(file && file.url);
+    if (!current) throw gofileTransferError();
+    const headers = {};
+    const inputHeaders = Array.isArray(file.headers)
+        ? file.headers.map(value => {
+            const text = String(value || '');
+            const split = text.indexOf(':');
+            return split > 0 ? [text.slice(0, split), text.slice(split + 1).trim()] : ['', ''];
+        })
+        : Object.entries(file.headers || {});
+    for (const [name, value] of inputHeaders) {
+        if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(name) || /[\u0000\r\n]/.test(String(value))) {
+            throw gofileTransferError();
+        }
+        if (!/^(?:range|accept-encoding)$/i.test(name)) headers[name] = String(value);
+    }
+    headers.Range = 'bytes=0-0';
+    headers['Accept-Encoding'] = 'identity';
+    const visited = new Set();
+    for (let redirects = 0; redirects <= 3; redirects++) {
+        throwIfGofileAborted(signal);
+        if (visited.has(current)) throw gofileTransferError();
+        visited.add(current);
+        let response;
+        try {
+            response = await request('GET', current, {
+                headers: { ...headers }, follow: false, headersOnly: true, timeoutMs: 10000, signal
+            });
+        } catch (error) {
+            if (error && error.name === 'AbortError') throw error;
+            throwIfGofileAborted(signal);
+            throw gofileTransferError();
+        }
+        throwIfGofileAborted(signal);
+        const status = Number(response && response.status) || 0;
+        if (status === 429) throw gofileTransferError(false, true);
+        if (status === 401 || status === 403) throw gofileTransferError(true);
+        if (status >= 300 && status < 400) {
+            const location = credentialFreeHttpsUrl(headerValue(response && response.headers, 'location'), current);
+            const next = gofileDirectDownloadUrl(location);
+            if (!next) {
+                let gofilePage = false;
+                if (location) {
+                    const host = new URL(location).hostname.toLowerCase();
+                    gofilePage = host === 'gofile.io' || host.endsWith('.gofile.io');
+                }
+                throw gofileTransferError(gofilePage);
+            }
+            if (redirects === 3) throw gofileTransferError();
+            current = next;
+            continue;
+        }
+        if (dataNodesFileResponse(response, current, file.name)) return { ...file, url: current };
+        const contentType = headerValue(response && response.headers, 'content-type').split(';', 1)[0].trim();
+        throw gofileTransferError([200, 206].includes(status) && /^(?:text\/html|application\/xhtml\+xml)$/i.test(contentType));
+    }
+    throw gofileTransferError();
+}
 
 function headerValue(headers, name) {
     if (!headers) return '';
@@ -1653,5 +1774,6 @@ module.exports = {
     resolvePixeldrainUrl,
     resolveRootzUrl,
     resolveVikingFileUrl,
-    validateDataNodesBrowserTransfer
+    validateDataNodesBrowserTransfer,
+    validateGofileTransfer
 };

@@ -93,6 +93,7 @@ function createDownloadCancellationHandler(options) {
     }
 
     return async function cancelDownload(_event, id) {
+        if (typeof options.onCancelRequested === 'function') options.onCancelRequested(_event, id);
         const cancellation = await registry.requestCancel(id);
         if (!cancellation) return publicOutcome({ status: CANCELLATION_STATUSES.REFUSED_UNKNOWN_JOB, reason: 'unknown-job', retained: null });
         const { job, repeated } = cancellation;

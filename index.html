@@ -4772,9 +4772,10 @@
             </div>
 
             <button class="outline" id="approveLocalExecutionBtn" style="width:100%;margin-top:14px;">
-                Update local launch setup
+                Save launch options
             </button>
-            <div id="localExecutionSetupStatus" style="font-size:10px;opacity:.65;margin-top:7px;"></div>
+            <button class="outline" id="discardLocalExecutionBtn" style="width:100%;margin-top:7px;display:none;">Discard changes</button>
+            <div id="localExecutionSetupStatus" role="status" style="font-size:12px;opacity:.8;margin-top:7px;"></div>
 
             <div style="display: flex; gap: 10px; margin-top: 15px;">
                 <button class="outline" id="browseLocalFilesBtn" style="flex-grow: 1;">📁 Browse Local Files</button>
@@ -13293,9 +13294,131 @@
             openModal('uninstallGameModal');
         }
 
+        const gameLaunchSettingsDrafts = new Map();
+        let gameLaunchSettingsView = null;
+        let gameSettingsOpenSequence = 0;
+
+        function gameLaunchSettingsKey(game) {
+            return JSON.stringify([launcherProfileState && launcherProfileState.activeProfileId || '',
+                launcherProfileState && launcherProfileState.activeLibraryId || '', String(game.id)]);
+        }
+
+        function renderGameLaunchSettings() {
+            const view = gameLaunchSettingsView;
+            if (!view || view.key !== gameLaunchSettingsKey(view.game)) return;
+            const draft = view.draft;
+            const busy = !draft || draft.saving;
+            for (const id of ['perGameAdminToggle', 'highPriorityToggle', 'launchArgsInput',
+                'browseCompanionBtn', 'browsePreLaunchBtn', 'browsePostLaunchBtn', 'approveLocalExecutionBtn', 'discardLocalExecutionBtn']) {
+                document.getElementById(id).disabled = busy;
+            }
+            document.getElementById('approveLocalExecutionBtn').textContent = draft && draft.saving ? 'Saving…' : 'Save launch options';
+            document.getElementById('discardLocalExecutionBtn').style.display = draft && draft.dirty ? 'block' : 'none';
+            document.getElementById('localExecutionSetupStatus').textContent = view.message || (draft && draft.dirty
+                ? 'Unsaved changes are kept while Sail is open. Save to apply them.'
+                : draft && draft.saved.state === 'active' ? 'Launch options saved on this PC.' : 'Choose the local launch files when saving to finish setup.');
+            if (!draft) {
+                for (const id of ['launchArgsInput', 'companionAppInput', 'preLaunchInput', 'postLaunchInput']) document.getElementById(id).value = '';
+                document.getElementById('perGameAdminToggle').checked = false;
+                document.getElementById('highPriorityToggle').checked = false;
+                return;
+            }
+            document.getElementById('perGameAdminToggle').checked = draft.admin;
+            document.getElementById('highPriorityToggle').checked = draft.priority;
+            document.getElementById('launchArgsInput').value = draft.args;
+            for (const [id, request, name] of [
+                ['companionAppInput', 'companion', 'companionName'],
+                ['preLaunchInput', 'pre', 'preLaunchName'], ['postLaunchInput', 'post', 'postLaunchName']
+            ]) {
+                const input = document.getElementById(id);
+                input.readOnly = true;
+                input.value = draft.requests[request] ? 'Choose when saving changes' : draft.saved[name] || '';
+            }
+        }
+
+        async function loadGameLaunchSettings(game) {
+            const view = { key: gameLaunchSettingsKey(game), game, draft: null, message: 'Loading saved launch options…' };
+            gameLaunchSettingsView = view;
+            const isCurrent = () => gameLaunchSettingsView === view && view.key === gameLaunchSettingsKey(game);
+            renderGameLaunchSettings();
+            try {
+                view.draft = gameLaunchSettingsDrafts.get(view.key);
+                if (!view.draft) {
+                    const saved = await invokeAccount('authority-get-execution-settings', { gameId: String(game.id) });
+                    if (!isCurrent()) return;
+                    view.draft = { saved, args: saved.argumentProposal || '', admin: saved.runAsAdmin === true,
+                        priority: saved.highPriority === true, requests: { companion: false, pre: false, post: false },
+                        dirty: false, saving: false };
+                }
+                view.message = '';
+            } catch (error) {
+                if (!isCurrent()) return;
+                view.message = safeSyncErrorMessage(error);
+                renderGameLaunchSettings();
+                return;
+            }
+            const change = update => {
+                if (!isCurrent() || view.draft.saving) return;
+                update(view.draft);
+                view.draft.dirty = true;
+                view.message = '';
+                gameLaunchSettingsDrafts.set(view.key, view.draft);
+                renderGameLaunchSettings();
+            };
+            document.getElementById('launchArgsInput').oninput = event => change(draft => { draft.args = event.target.value; });
+            document.getElementById('perGameAdminToggle').onchange = event => change(draft => { draft.admin = event.target.checked; });
+            document.getElementById('highPriorityToggle').onchange = event => change(draft => { draft.priority = event.target.checked; });
+            for (const [id, request] of [['browseCompanionBtn', 'companion'], ['browsePreLaunchBtn', 'pre'], ['browsePostLaunchBtn', 'post']]) {
+                document.getElementById(id).onclick = () => change(draft => { draft.requests[request] = true; });
+            }
+            document.getElementById('discardLocalExecutionBtn').onclick = () => {
+                if (!isCurrent() || view.draft.saving) return;
+                gameLaunchSettingsDrafts.delete(view.key);
+                return loadGameLaunchSettings(game);
+            };
+            document.getElementById('approveLocalExecutionBtn').onclick = async () => {
+                if (!isCurrent() || view.draft.saving) return;
+                const draft = view.draft;
+                draft.saving = true;
+                gameLaunchSettingsDrafts.set(view.key, draft);
+                view.message = 'Saving launch options…';
+                renderGameLaunchSettings();
+                try {
+                    const result = await invokeAccount('authority-configure-execution', {
+                        gameId: String(game.id), argumentProposal: draft.args,
+                        ...(draft.saved.state === 'active' ? { capabilityId: draft.saved.capabilityId, expectedRevision: draft.saved.revision } : {}),
+                        requestRom: !!game.isRom, useSteamInstallation: !!game.steamAppId && !game.isRom,
+                        requestPreLaunchScript: draft.requests.pre, requestPostLaunchScript: draft.requests.post,
+                        requestCompanion: draft.requests.companion, requestElevation: draft.admin,
+                        requestHighPriority: draft.priority, requestTrackingExecutable: false
+                    });
+                    if (result && result.canceled) {
+                        if (gameLaunchSettingsView && gameLaunchSettingsView.draft === draft) gameLaunchSettingsView.message = 'Save canceled. Your changes are still here.';
+                    } else {
+                        if (!result || result.state !== 'active') throw new Error('Launch options could not be saved.');
+                        gameLaunchSettingsDrafts.delete(view.key);
+                        game.localSetupStatus = 'active';
+                        if (gameLaunchSettingsView && gameLaunchSettingsView.draft === draft
+                            && view.key === gameLaunchSettingsKey(game)) await loadGameLaunchSettings(game);
+                    }
+                } catch (error) {
+                    if (gameLaunchSettingsView && gameLaunchSettingsView.draft === draft) gameLaunchSettingsView.message = safeSyncErrorMessage(error);
+                } finally {
+                    draft.saving = false;
+                    renderGameLaunchSettings();
+                }
+            };
+            renderGameLaunchSettings();
+        }
+
         async function openGameSettings() {
             if (viewingGameIndex === null) return;
             const game = myGames[viewingGameIndex];
+            const settingsKey = gameLaunchSettingsKey(game);
+            const openSequence = ++gameSettingsOpenSequence;
+            const isCurrentSettings = () => openSequence === gameSettingsOpenSequence
+                && viewingGameIndex !== null && myGames[viewingGameIndex] === game
+                && settingsKey === gameLaunchSettingsKey(game);
             const uninstallSection = document.getElementById('uninstallGameSection');
             const uninstallButton = document.getElementById('uninstallGameBtn');
             const uninstallMessage = document.getElementById('uninstallGameStatus');
@@ -13337,65 +13460,10 @@
                 } catch (error) { manualConfigStatus.textContent = safeSyncErrorMessage(error); }
             };
 
-            const executionRequests = { companion: false, pre: false, post: false };
-            const adminToggle = document.getElementById('perGameAdminToggle');
-            const priorityToggle = document.getElementById('highPriorityToggle');
-            const launchArgsInput = document.getElementById('launchArgsInput');
-            const companionInput = document.getElementById('companionAppInput');
-            const preLaunchInput = document.getElementById('preLaunchInput');
-            const postLaunchInput = document.getElementById('postLaunchInput');
-            adminToggle.checked = false;
-            priorityToggle.checked = false;
-            launchArgsInput.value = '';
-            companionInput.value = '';
-            preLaunchInput.value = '';
-            postLaunchInput.value = '';
-            companionInput.readOnly = true;
-            preLaunchInput.readOnly = true;
-            postLaunchInput.readOnly = true;
-
-            document.getElementById('browseCompanionBtn').onclick = () => {
-                executionRequests.companion = true;
-                companionInput.value = 'Choose when applying changes';
-            };
-            document.getElementById('browsePreLaunchBtn').onclick = () => {
-                executionRequests.pre = true;
-                preLaunchInput.value = 'Choose when applying changes';
-            };
-            document.getElementById('browsePostLaunchBtn').onclick = () => {
-                executionRequests.post = true;
-                postLaunchInput.value = 'Choose when applying changes';
-            };
+            if (!isCurrentSettings()) return;
+            await loadGameLaunchSettings(game);
+            if (!isCurrentSettings()) return;
             const localExecutionStatus = document.getElementById('localExecutionSetupStatus');
-            localExecutionStatus.textContent = game.localSetupStatus === 'active'
-                ? 'Local launch setup is ready. Choose any changes below, then apply.'
-                : 'Choose the local launch files to finish setup.';
-            document.getElementById('approveLocalExecutionBtn').onclick = async () => {
-                localExecutionStatus.textContent = 'Choose local files in the Windows picker…';
-                try {
-                    const result = await invokeAccount('authority-configure-execution', {
-                        gameId: String(game.id),
-                        argumentProposal: launchArgsInput.value,
-                        requestRom: !!game.isRom,
-                        useSteamInstallation: !!game.steamAppId && !game.isRom,
-                        requestPreLaunchScript: executionRequests.pre,
-                        requestPostLaunchScript: executionRequests.post,
-                        requestCompanion: executionRequests.companion,
-                        requestElevation: adminToggle.checked,
-                        requestHighPriority: priorityToggle.checked,
-                        requestTrackingExecutable: false
-                    });
-                    localExecutionStatus.textContent = result && result.canceled
-                        ? 'Local setup was not changed.' : 'Local launch setup is ready on this PC.';
-                    if (!result || !result.canceled) {
-                        const refreshed = await invokeAccount('profiles-load-active');
-                        const refreshedGame = (refreshed.snapshot.myGames || []).find(item => item.id === game.id);
-                        if (refreshedGame) Object.assign(game, refreshedGame);
-                    }
-                } catch (error) {
-                    localExecutionStatus.textContent = safeSyncErrorMessage(error);
-                }
-            };
 
             document.getElementById('browseLocalFilesBtn').onclick = async () => {
                 try {
@@ -13441,6 +13509,7 @@
             };
             backups = await loadGameBackups();
             const backupRunning = await ipcRenderer.invoke('check-backup-running');
+            if (!isCurrentSettings()) return;
 
             const backupActionsRow = document.getElementById('backupActionsRow');
             backupActionsRow.style.display = (backups && backups.length > 0 && !backupRunning) ? 'flex' : 'none';
@@ -13565,7 +13634,14 @@
                     document.getElementById('saveVersionActionsRow').style.display = versions.length ? 'flex' : 'none';
                     saveVersionEmptyMsg.style.display = versions.length ? 'none' : 'block';
                 };
-                try { renderSaveVersions(await loadSaveVersions()); } catch (_) { renderSaveVersions([]); }
+                try {
+                    const rows = await loadSaveVersions();
+                    if (!isCurrentSettings()) return;
+                    renderSaveVersions(rows);
+                } catch (_) {
+                    if (!isCurrentSettings()) return;
+                    renderSaveVersions([]);
+                }
                 if (versions && versions.length > 0) {
                     document.getElementById('saveVersionActionsRow').style.display = 'flex';
                     saveVersionEmptyMsg.style.display = 'none';
@@ -13607,7 +13683,7 @@
                 saveVersionSection.style.display = 'none';
             }
 
-            openModal('gameSettingsModal');
+            if (isCurrentSettings()) openModal('gameSettingsModal');
         }
 
         let tabTransitionTimeout = null;
@@ -20278,7 +20354,13 @@
             if (!expected) return { status: 'unknown', text: '● Link availability is checked when the download starts' };
             if (values.length < expected) return { status: 'checking', text: `● Checking links… ${values.length}/${expected} checked` };
             const verification = values.find(value => value.status === 'verification-required');
-            if (verification) return { status: 'verification-required', text: '● Verification may be needed' };
+            if (verification) {
+                const filecrypt = (indicator._downloadHealthKeys || []).some(key =>
+                    DownloadSourceLogic.normalizeSteamRipGofileContainerUrl(String(key).slice(String(key).indexOf('\n') + 1)));
+                return { status: 'verification-required', text: filecrypt
+                    ? '● FileCrypt link — you may need to verify'
+                    : '● Verification may be needed' };
+            }
             if (values.every(value => value.status === 'available')) return { status: 'available', text: expected === 1 ? '● Link available' : `● All ${expected} links available` };
             if (values.every(value => value.reason === 'unsupported-health-target')) return { status: 'unsupported', text: '● This host does not support link checks' };
             const unconfirmed = values.filter(value => value.status !== 'available').length;
@@ -20899,10 +20981,11 @@
             renderDock();
             pumpBulkDownloadRetry();
         };
-        window.resumeDownload = function (id) {
+        window.resumeDownload = function (id, debridRetryToken = '') {
             const d = dlQueue.get(id); if (!d || !d.resumeOpts) return;
             if (d._sizeWarningPending || d._debridRetryPending) return;
             if (d.retrying || DownloadManagerLogic.isDownloadSlotActive(d)) return;
+            if (!debridRetryToken) discardDebridRetryLink(d);
             if (d.needsBrowser && !d.browserCapture) {
                 if (d.url) openDownloadInAppBrowser(d.url, d.referrer);
                 return;
@@ -20919,7 +21002,9 @@
             }
             d.state = 'resolving'; d.label = d.resumeOpts.skipDebrid ? 'Resolving directly from the file host…' : initialResolveLabel(); d.error = '';
             renderDock();
-            invokeDownloadWithCurrentRoot(d.resumeOpts).catch(error => {
+            const requestOptions = debridRetryToken ? { ...d.resumeOpts, debridRetryToken } : d.resumeOpts;
+            invokeDownloadWithCurrentRoot(requestOptions).catch(error => {
+                if (debridRetryToken) discardDebridRetryLink(d, debridRetryToken);
                 d.retrying = false;
                 d.state = 'error';
                 d.error = error && error.message || 'The download could not be resumed.';
@@ -20927,6 +21012,7 @@
             });
         };
         window.cancelDownload = function (id) {
+            discardDebridRetryLink(dlQueue.get(id));
             const cancellation = ipcRenderer.invoke('cancel-download', id);
             const pendingDownload = dlQueue.get(id);
             if (pendingDownload) {
@@ -20950,11 +21036,18 @@
             });
         };
 
+        function discardDebridRetryLink(download, token = download && download.debridRetryToken) {
+            if (!token) return;
+            if (download && download.debridRetryToken === token) delete download.debridRetryToken;
+            void ipcRenderer.invoke('discard-debrid-retry-link', { token }).catch(() => {});
+        }
+
         async function retryDownloadWithoutDebrid(id) {
             const download = dlQueue.get(id);
             if (!DownloadManagerLogic.canRetryWithoutDebrid(download)) return;
             const previousOptions = download.resumeOpts;
             const previousError = download.error;
+            const previousToken = download.debridRetryToken || '';
             download._debridRetryPending = true;
             renderDock();
             let confirmed = false;
@@ -20965,17 +21058,25 @@
                     cancelText: 'Keep current download',
                     tone: 'warning'
                 });
+            } catch (error) {
+                discardDebridRetryLink(download, previousToken);
+                throw error;
             } finally {
                 download._debridRetryPending = false;
                 renderDock();
             }
             if (!confirmed || dlQueue.get(id) !== download || download.resumeOpts !== previousOptions
-                || download.error !== previousError || !DownloadManagerLogic.canRetryWithoutDebrid(download)) return;
+                || download.error !== previousError || (download.debridRetryToken || '') !== previousToken
+                || !DownloadManagerLogic.canRetryWithoutDebrid(download)) {
+                discardDebridRetryLink(download, previousToken);
+                return;
+            }
+            delete download.debridRetryToken;
             download.resumeOpts = { ...previousOptions, skipDebrid: true };
             download.cached = false;
             download.debridService = '';
             download.requestedDebridService = '';
-            window.resumeDownload(id);
+            window.resumeDownload(id, previousToken || '');
         }
 
         function applyDownloadCancellationOutcome(id, result) {
@@ -21168,7 +21269,7 @@
             } else if (download.state === 'error') {
                 if (download.resumeOpts) add('↻ Retry', () => resumeDownload(download.id));
                 if (download.needsBrowser) add('🌐 Open in Browser', () => openDownloadInAppBrowser(download.url, download.referrer));
-                add('✕ Clear', () => { dlQueue.delete(download.id); renderDock(); });
+                add('✕ Clear', () => { discardDebridRetryLink(download); dlQueue.delete(download.id); renderDock(); });
             }
             return actions;
         }
@@ -21689,6 +21790,7 @@
             d.debridFailure = p.debridFailure === true;
             d.debridRejected = p.debridRejected === true;
             d.failedDebridService = p.failedDebridService || '';
+            d.debridRetryToken = typeof p.debridRetryToken === 'string' ? p.debridRetryToken : '';
             if (p.linkHealth === 'down' && p.url) {
                 updateDownloadLinkHealth(p.url, d.sourceId, { status: 'down', reason: 'download-reported-offline' });
             }

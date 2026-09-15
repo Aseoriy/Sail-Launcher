@@ -57,7 +57,7 @@ test('main resolves only the provider selected by the renderer', () => {
     assert.match(normalizer, /input\.mirrors\.forEach/);
     assert.doesNotMatch(handler, /resolveSelectedLinksSequentially\(/);
     const sourceLoop = handler.indexOf('for (let sourceIndex = 0; sourceIndex < sourceTotal; sourceIndex++)');
-    const resolveSelected = handler.indexOf('resolveDirectUrl(sourceLink.url', sourceLoop);
+    const resolveSelected = handler.indexOf('resolveDirectUrl(resolutionUrl', sourceLoop);
     const consumeSelected = handler.indexOf('runAria2Download(aria2, file', resolveSelected);
     const loopComplete = handler.indexOf('if (!downloadedAny)', consumeSelected);
     assert.ok(sourceLoop >= 0 && resolveSelected > sourceLoop && consumeSelected > resolveSelected && loopComplete > consumeSelected,

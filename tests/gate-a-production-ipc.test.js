@@ -272,7 +272,7 @@ test('renderer treats active local setup as ready and uses normal local-choice c
     const renderer = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
     assert.doesNotMatch(renderer, /localSetupStatus\s*===\s*'ready'/);
     assert.doesNotMatch(renderer, /Review required on first use|Approved locally|native review|approve locally during Save/i);
-    assert.match(renderer, /Local launch setup is ready/);
+    assert.match(renderer, /Launch options saved on this PC/);
     assert.match(renderer, /Configured on this PC/);
 });
 

@@ -56,6 +56,7 @@ const rendererSource = fs.readFileSync(path.join(__dirname, '..', 'index.html'),
 const rendererFunctions = ['scrapeMeta', 'estTime', 'downloadSetSizeInfo', 'downloadSetSourceSize', 'downloadSetSizeText', 'buildDownloadSizeIndicator', 'renderDownloadSetSize', 'renderDownloadSizeMeta', 'selectDownloadSizeSet', 'downloadLinkHealthKey', 'downloadSetHealthTargets', 'checkDownloadHealthTarget', 'pumpDownloadLinkHealthQueue', 'requestDownloadLinkHealth', 'updateDownloadLinkHealth', 'downloadHealthPresentation', 'renderDownloadHealthIndicator', 'buildDownloadHealthIndicator', 'configurePrimaryDownloadButton', 'refreshPrimaryDownloadChoice', 'buildSetRow', 'groupDownloadSets', 'dlHostScore', 'cachedBadge', 'fmtState', 'dlIsIndeterminate', 'formatCacheBytes', 'downloadSizeWarning', 'renderDownloadSizeWarning', 'refreshDownloadSizeWarnings', 'buildDownloadRow', 'buildDownloadActions', 'patchActiveRow', 'dlIsBusy', 'handleDownloadSizeWarning'];
 const extracted = Object.fromEntries(rendererFunctions.map(name => [name, extractFunction(rendererSource, name)]));
 extracted.retryDownloadWithoutDebrid = extractFunction(rendererSource, 'retryDownloadWithoutDebrid');
+extracted.discardDebridRetryLink = extractFunction(rendererSource, 'discardDebridRetryLink');
 const dialogsSource = fs.readFileSync(path.join(__dirname, '..', 'ui', 'dialogs.js'), 'utf8');
 const openDetailStart = rendererSource.indexOf('window.openDownloadDetail = async function (');
 const openDetailEnd = rendererSource.indexOf('// A grouped host set:', openDetailStart);
@@ -83,6 +84,24 @@ async function main() {
             const SafeDom = require(${JSON.stringify(path.join(__dirname, '..', 'ui', 'safeDom.js'))});
             const DownloadManagerLogic = require(${JSON.stringify(path.join(__dirname, '..', 'ui', 'downloadManagerLogic.js'))});
             const DownloadSourceLogic = require(${JSON.stringify(path.join(__dirname, '..', 'ui', 'downloadSourceLogic.js'))});
+            const gofileDoc = document.implementation.createHTMLDocument('SteamRIP links');
+            for (const suffix of ['', '.html']) {
+                gofileDoc.body.innerHTML = '<article><h3><strong>GOFILE</strong></h3>'
+                    + '<p><a href="https://www.filecrypt.cc/Container/C9D9F3E419' + suffix + '">DOWNLOAD HERE</a></p>'
+                    + '<h3>BZZHR</h3><p><a href="https://bzzhr.to/game">DOWNLOAD HERE</a></p>'
+                    + '<p><a href="https://www.filecrypt.cc/Container/BBBBBBBBBB.html">Unlabeled container</a></p>'
+                    + '<h3>1FICHIER</h3><p><a href="https://1fichier.com/?game">DOWNLOAD HERE</a></p>'
+                    + '<h3>LANGUAGES</h3><h3>GOFILE</h3>'
+                    + '<p><a href="https://filecrypt.cc/Container/CCCCCCCCCC">DOWNLOAD HERE</a></p></article>'
+                    + '<aside><p>GOFILE</p><a href="https://filecrypt.cc/Container/DDDDDDDDDD.html">Sidebar</a></aside>';
+                const parsed = DownloadSourceLogic.parseSteamRipDownloadLinks(gofileDoc);
+                assert.deepEqual(parsed.map(link => [link.label, link.group]), [
+                    ['GoFile', 'game'], ['BuzzHeavier', 'game'], ['1fichier.com', 'game'], ['GoFile', 'languages']
+                ], 'GoFile accepts container links with or without .html');
+                const sets = DownloadSourceLogic.groupDownloadSets(parsed, 'steamrip');
+                assert.equal(sets.find(set => set.host === 'gofile.io' && set.group === 'game').parts[0].url,
+                    'https://www.filecrypt.cc/Container/C9D9F3E419.html');
+            }
             const screenshotImages = () => [];
             const screenshotRecord = () => null;
             const downloadLinkHealthState = new Map();
@@ -139,6 +158,7 @@ async function main() {
             ${extracted.refreshDownloadSizeWarnings}
             ${extracted.buildDownloadRow}
             ${extracted.retryDownloadWithoutDebrid}
+            ${extracted.discardDebridRetryLink}
             ${extracted.buildDownloadActions}
             ${extracted.patchActiveRow}
             ${extracted.dlIsBusy}
@@ -389,6 +409,10 @@ async function main() {
             primary.click();
             assert.equal(startedDownloads.length, 1);
             assert.equal(startedDownloads[0].set.parts[0].url, buzzUrl, 'click uses the newly displayed mirror, not stale GoFile');
+            updateDownloadLinkHealth(gofileUrl, 'steamrip', { status: 'verification-required' });
+            const gofileHealth = dlCurrent.primaryUi.rows.find(row => row._downloadSet.host === 'gofile.io').querySelector('.download-link-health');
+            assert.equal(gofileHealth.textContent, '● FileCrypt link — you may need to verify');
+            assert.equal(gofileHealth.title, 'FileCrypt link — you may need to verify');
             updateDownloadLinkHealth(gofileUrl, 'steamrip', { status: 'down', reason: 'download-reported-offline' });
             pageChecks.get(gofileUrl)({ status: 'available' });
             await flushLookups();
@@ -406,6 +430,8 @@ async function main() {
             updateDownloadLinkHealth(gofileUrl, 'steamrip', { status: 'unknown' });
             assert.equal(primary.disabled, false, 'unconfirmed mirrors remain manually usable');
             assert.ok(primary.textContent.includes('unconfirmed') && !primary.textContent.includes('1-Click'));
+            updateDownloadLinkHealth(gofileUrl, 'steamrip', { status: 'verification-required' });
+            assert.equal(dlCurrent.primaryUi.health.textContent, '● FileCrypt link — you may need to verify');
             updateDownloadLinkHealth(buzzUrl, 'steamrip', { status: 'available', sizeBytes: 7 * 1024 ** 3 });
             assert.ok(primary.textContent.includes('buzzheavier.com'));
             updateDownloadLinkHealth(gofileUrl, 'steamrip', { status: 'available' });
@@ -441,6 +467,7 @@ async function main() {
             pageChecks.get(dataUrl)({ status: 'verification-required', sizeLabel: '82.6 GB' });
             await flushLookups();
             assert.ok(noAkiraPrimary.textContent.includes('datanodes.to') && noAkiraPrimary.textContent.includes('unconfirmed'));
+            assert.equal(dlCurrent.primaryUi.health.textContent, '● Verification may be needed');
             assert.ok(document.getElementById('ddpMeta').textContent.includes('Mirrordatanodes.to'));
             const akiraRow = dlCurrent.primaryUi.rows.find(row => row._downloadSet.host === 'akirabox.com');
             assert.equal(akiraRow.hidden, false, 'AkiraBox remains listed for manual use');

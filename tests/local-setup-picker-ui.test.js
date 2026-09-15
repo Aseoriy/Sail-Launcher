@@ -407,3 +407,132 @@ test('Override cancels late auto-scan results and preserves a manual selection',
     assert.equal(env.elements.get('localSave').value, 'Manual folder selected — Save to apply');
     assert.equal(env.rendered.length, 0, 'stale automatic results must not replace manual selection');
 });
+
+function createManageGameHarness() {
+    const { document, elements } = makeDocument([]);
+    const calls = [];
+    const games = [{ id: 'first' }, { id: 'second' }];
+    const profile = { activeProfileId: 'profile-a', activeLibraryId: 'library-a' };
+    const saved = new Map();
+    let nextSave = null;
+    const key = gameId => JSON.stringify([profile.activeProfileId, profile.activeLibraryId, gameId]);
+    const defaults = gameId => ({ state: 'active', capabilityId: `saved-${gameId}`, revision: 1,
+        argumentProposal: '--saved "two words"', runAsAdmin: true, highPriority: true,
+        companionName: 'helper.exe', preLaunchName: 'before.ps1', postLaunchName: 'after.ps1' });
+    const invokeAccount = async (channel, payload) => {
+        calls.push({ channel, payload: plain(payload) });
+        if (channel === 'authority-get-execution-settings') return plain(saved.get(key(payload.gameId)) || defaults(payload.gameId));
+        assert.equal(channel, 'authority-configure-execution');
+        const outcome = nextSave ? await nextSave : { state: 'active' };
+        nextSave = null;
+        if (outcome.canceled) return outcome;
+        saved.set(key(payload.gameId), { ...defaults(payload.gameId), argumentProposal: payload.argumentProposal,
+            runAsAdmin: payload.requestElevation, highPriority: payload.requestHighPriority });
+        return outcome;
+    };
+    const context = vm.createContext({ document, launcherProfileState: profile, invokeAccount,
+        safeSyncErrorMessage: error => error.message || String(error) });
+    const api = vm.runInContext(`(() => {
+        ${sourceBetween('const gameLaunchSettingsDrafts = new Map();', 'async function openGameSettings()')}
+        return { load: loadGameLaunchSettings, draftCount: () => gameLaunchSettingsDrafts.size };
+    })()`, context);
+    return { ...api, elements, calls, games, profile, saved,
+        open: (index = 0) => api.load(games[index]),
+        input(id, value) {
+            const element = document.getElementById(id);
+            if (typeof value === 'boolean') element.checked = value; else element.value = value;
+            return (element.oninput || element.onchange)({ target: element });
+        },
+        click: id => document.getElementById(id).onclick(),
+        nextSave: value => { nextSave = value; }
+    };
+}
+
+test('Manage Game restores saved options and retains edits when reopened without applying them', async () => {
+    const env = createManageGameHarness();
+    await env.open();
+    assert.equal(env.elements.get('launchArgsInput').value, '--saved "two words"');
+    assert.equal(env.elements.get('perGameAdminToggle').checked, true);
+    assert.equal(env.elements.get('highPriorityToggle').checked, true);
+    assert.equal(env.elements.get('companionAppInput').value, 'helper.exe');
+    assert.equal(env.elements.get('preLaunchInput').value, 'before.ps1');
+    assert.equal(env.elements.get('postLaunchInput').value, 'after.ps1');
+    env.input('launchArgsInput', '--draft');
+    env.input('perGameAdminToggle', false);
+    env.input('highPriorityToggle', false);
+    env.click('browsePreLaunchBtn');
+    await env.open();
+    assert.equal(env.elements.get('launchArgsInput').value, '--draft');
+    assert.equal(env.elements.get('perGameAdminToggle').checked, false);
+    assert.equal(env.elements.get('highPriorityToggle').checked, false);
+    assert.match(env.elements.get('preLaunchInput').value, /choose when saving/i);
+    assert.match(env.elements.get('localExecutionSetupStatus').textContent, /unsaved changes/i);
+    assert.equal(env.calls.some(call => call.channel === 'authority-configure-execution'), false);
+});
+
+test('Manage Game drafts are isolated by game, profile, and library and can be discarded', async () => {
+    const env = createManageGameHarness();
+    await env.open();
+    env.input('launchArgsInput', '--first-draft');
+    await env.open(1);
+    assert.equal(env.elements.get('launchArgsInput').value, '--saved "two words"');
+    env.profile.activeProfileId = 'profile-b';
+    await env.open();
+    assert.equal(env.elements.get('launchArgsInput').value, '--saved "two words"');
+    env.profile.activeProfileId = 'profile-a';
+    env.profile.activeLibraryId = 'library-b';
+    await env.open();
+    assert.equal(env.elements.get('launchArgsInput').value, '--saved "two words"');
+    env.profile.activeLibraryId = 'library-a';
+    await env.open();
+    assert.equal(env.elements.get('launchArgsInput').value, '--first-draft');
+    await env.click('discardLocalExecutionBtn');
+    assert.equal(env.elements.get('launchArgsInput').value, '--saved "two words"');
+    assert.equal(env.draftCount(), 0);
+});
+
+test('Manage Game Save applies the existing authority reference and reloads the saved values', async () => {
+    const env = createManageGameHarness();
+    await env.open();
+    env.input('launchArgsInput', '--new "Local User"');
+    env.input('highPriorityToggle', false);
+    await env.click('approveLocalExecutionBtn');
+    const save = env.calls.find(call => call.channel === 'authority-configure-execution');
+    assert.equal(save.payload.capabilityId, 'saved-first');
+    assert.equal(save.payload.expectedRevision, 1);
+    assert.equal(save.payload.argumentProposal, '--new "Local User"');
+    assert.equal(save.payload.requestCompanion, false);
+    assert.equal(save.payload.requestPreLaunchScript, false);
+    assert.equal(env.draftCount(), 0);
+    await env.open();
+    assert.equal(env.elements.get('launchArgsInput').value, '--new "Local User"');
+    assert.equal(env.elements.get('highPriorityToggle').checked, false);
+    assert.match(env.elements.get('localExecutionSetupStatus').textContent, /saved on this PC/i);
+});
+
+test('Manage Game cancellation and errors retain edits and pending saves cannot be duplicated', async () => {
+    const env = createManageGameHarness();
+    await env.open();
+    env.input('launchArgsInput', '--keep-after-cancel');
+    const pending = deferred();
+    env.nextSave(pending.promise);
+    const saving = env.click('approveLocalExecutionBtn');
+    await env.open();
+    assert.equal(env.elements.get('approveLocalExecutionBtn').disabled, true);
+    assert.equal(env.elements.get('launchArgsInput').disabled, true);
+    await env.click('approveLocalExecutionBtn');
+    pending.resolve({ canceled: true });
+    await saving;
+    assert.equal(env.calls.filter(call => call.channel === 'authority-configure-execution').length, 1);
+    assert.match(env.elements.get('localExecutionSetupStatus').textContent, /canceled.*still here/i);
+    assert.equal(env.elements.get('launchArgsInput').value, '--keep-after-cancel');
+    const failure = deferred();
+    env.nextSave(failure.promise);
+    const failedSave = env.click('approveLocalExecutionBtn');
+    failure.reject(new Error('Unable to save'));
+    await failedSave;
+    assert.match(env.elements.get('localExecutionSetupStatus').textContent, /unable to save/i);
+    await env.open();
+    assert.equal(env.elements.get('launchArgsInput').value, '--keep-after-cancel');
+    assert.equal(env.elements.get('approveLocalExecutionBtn').disabled, false);
+});

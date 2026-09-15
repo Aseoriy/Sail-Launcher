@@ -878,7 +878,7 @@ async function resolveWithSystemChromium(rawUrl, expression, options = {}) {
                     const evaluated = await client.send('Runtime.evaluate', {
                         expression: '({pageUrl:location.href,userAgent:navigator.userAgent})',
                         returnByValue: true
-                    }, 3000);
+                    }, 3000).catch(() => ({}));
                     const page = evaluated && evaluated.result && evaluated.result.value || {};
                     const cookieResult = await client.send('Network.getCookies', {
                         urls: [download.url]

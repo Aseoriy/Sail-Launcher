@@ -730,8 +730,8 @@ test('production download flow reports and blocks confirmed offline links', () =
     const index = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 
     assert.match(main, /fitgirl:\s*'https:\/\/fitgirl-repacks\.site\/'/);
-    assert.match(main, /const containerHealth = classifyFileCryptResponse\(/);
-    assert.match(main, /throw buildLinkDownError\(containerUrl, containerHealth\.reason\)/);
+    assert.match(main, /const health = classifyFileCryptResponse\(/);
+    assert.match(main, /throw buildLinkDownError\(containerUrl, browserResult\.reason\)/);
     assert.match(main, /e\.aria2Code === 3[\s\S]{0,240}e\.linkHealth = HEALTH_STATES\.DOWN/);
     assert.match(main, /linkHealth: err\.linkHealth === HEALTH_STATES\.DOWN/);
     assert.match(main, /buzzHeavierBrowserCheck:[\s\S]{0,220}checkBuzzheavierWithSystemBrowser/);

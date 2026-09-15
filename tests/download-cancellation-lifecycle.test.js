@@ -544,6 +544,7 @@ test('only completed clean or quarantined cancellation becomes already_cancelled
 test('Downloads Manager cancel button keeps incomplete rows and removes only presenter-completed rows', async () => {
     const renderer = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
     const cancelSource = rendererFunctionSource(renderer, 'window.cancelDownload = function (id)');
+    const discardSource = rendererFunctionSource(renderer, 'function discardDebridRetryLink(');
     const reducerSource = rendererFunctionSource(renderer, 'function applyDownloadCancellationOutcome(id, result)');
     const actionsSource = rendererFunctionSource(renderer, 'function buildDownloadActions(download, page = false)');
 
@@ -589,7 +590,7 @@ test('Downloads Manager cancel button keeps incomplete rows and removes only pre
         sailAlert: async (message, options) => { alerts.push({ message, options }); }
     };
     context.window = context;
-    vm.runInNewContext(`${reducerSource}\n${cancelSource}\n${actionsSource}`, context, {
+    vm.runInNewContext(`${discardSource}\n${reducerSource}\n${cancelSource}\n${actionsSource}`, context, {
         filename: 'index.html:downloads-manager-cancel'
     });
     const actions = context.buildDownloadActions({ id, state: 'downloading' }, false);

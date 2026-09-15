@@ -199,6 +199,81 @@ test('system Chromium navigation rejects an unsafe referrer before starting a br
     );
 });
 
+test('a captured GoFile share survives a navigation context error while reading optional page metadata', async () => {
+    const containerUrl = 'https://www.filecrypt.cc/Container/C9D9F3E419.html';
+    const shareUrl = 'https://gofile.io/d/UIM5QR';
+    const listeners = new Map();
+    const calls = [];
+    let now = 0;
+    let metadataErrorInjected = false;
+    let browserClosed = false;
+    let profileRemoved = false;
+    const client = {
+        on(method, listener) { listeners.set(method, listener); },
+        async send(method, params = {}) {
+            calls.push({ method, params });
+            if (method === 'Page.getFrameTree') return { frameTree: { frame: { id: 'main-frame' } } };
+            if (method === 'Page.navigate') {
+                listeners.get('Fetch.requestPaused')({
+                    requestId: 'gofile-share-request',
+                    request: { url: shareUrl },
+                    frameId: 'main-frame'
+                });
+            }
+            if (method === 'Runtime.evaluate') {
+                if (!metadataErrorInjected
+                    && params.expression === '({pageUrl:location.href,userAgent:navigator.userAgent})') {
+                    metadataErrorInjected = true;
+                    throw new Error('Execution context was destroyed.');
+                }
+                return { result: { value: null } };
+            }
+            return {};
+        },
+        close() {}
+    };
+    const isolatedResolver = vm.runInNewContext(`(${resolveWithSystemChromium.toString()})`, {
+        URL, path, Buffer,
+        Date: { now: () => now },
+        fs: { mkdirSync() {}, mkdtempSync: () => 'unused-test-profile' },
+        throwIfAborted() {},
+        reserveLoopbackPort: async () => 49152,
+        systemChromiumLaunchArgs,
+        spawn: () => ({ exitCode: null, kill() {} }),
+        waitForPageTarget: async () => 'ws://127.0.0.1:49152/devtools/page/initial-page',
+        connectCdp: async () => client,
+        requestJson: async () => ({ webSocketDebuggerUrl: 'ws://127.0.0.1:49152/devtools/browser/test-browser' }),
+        isLoopbackDebuggerUrl,
+        normalizeHost: value => value,
+        DEFAULT_VERIFICATION_RESOURCE_HOSTS,
+        POPUP_BINDING: '__testPopupRequested',
+        POPUP_GUARD_SOURCE,
+        VERIFICATION_STATE_EXPRESSION,
+        closeBrowser: async () => { browserClosed = true; },
+        safeRemoveProfile: () => { profileRemoved = true; },
+        delayWithSignal: async milliseconds => { now += milliseconds; }
+    });
+    const result = await isolatedResolver(containerUrl, 'null', {
+        executablePath: 'unused-test-browser',
+        tempRoot: path.join(__dirname, 'unused-test-browser-root'),
+        timeoutMs: 5000,
+        captureDownloads: true,
+        interceptTransferRequests: true,
+        isAllowedUrl: parsed => parsed.href === containerUrl || parsed.href === shareUrl,
+        captureRequestUrl: url => url === shareUrl,
+        acceptDownloadUrl: url => url === shareUrl,
+        acceptResult: () => false
+    });
+    assert.equal(metadataErrorInjected, true);
+    assert.ok(result, 'optional page metadata must not discard the captured share');
+    assert.equal(result.url, shareUrl);
+    assert.equal(result.pageUrl, containerUrl);
+    assert.ok(calls.some(call => call.method === 'Fetch.failRequest'
+        && call.params.requestId === 'gofile-share-request' && call.params.errorReason === 'Aborted'));
+    assert.equal(browserClosed, true);
+    assert.equal(profileRemoved, true);
+});
+
 test('captured JSON responses are read only after DevTools reports the body complete', () => {
     const source = fs.readFileSync(path.join(__dirname, '..', 'runtime', 'systemBrowserResolver.js'), 'utf8');
     assert.match(source, /pendingResponseBodies\.set\(requestId, response\)/);

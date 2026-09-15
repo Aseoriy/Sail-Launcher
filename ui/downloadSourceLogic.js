@@ -138,7 +138,8 @@ function normalizeSteamRipGofileContainerUrl(value, baseUrl = 'https://steamrip.
     try { parsed = new URL(source, baseUrl); } catch (_) { return ''; }
     if (parsed.protocol !== 'https:' || !/^(?:www\.)?filecrypt\.cc$/i.test(parsed.hostname)
         || parsed.username || parsed.password || parsed.port || parsed.search || parsed.hash
-        || !/^\/Container\/[A-Fa-f0-9]{10,64}\.html$/.test(parsed.pathname)) return '';
+        || !/^\/Container\/[A-Fa-f0-9]{10,64}(?:\.html)?$/.test(parsed.pathname)) return '';
+    if (!parsed.pathname.endsWith('.html')) parsed.pathname += '.html';
     return parsed.href;
 }
 

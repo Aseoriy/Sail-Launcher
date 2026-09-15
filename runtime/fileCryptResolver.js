@@ -3,8 +3,8 @@
 const os = require('node:os');
 const { Worker } = require('node:worker_threads');
 
-const FILECRYPT_CONTAINER_RE = /^\/Container\/([A-Fa-f0-9]{10,64})\.html$/;
-const FILECRYPT_LINK_RE = /^\/Link\/([A-Fa-f0-9]{10,64})\.html$/;
+const FILECRYPT_CONTAINER_RE = /^\/Container\/([A-Fa-f0-9]{10,64})(?:\.html)?$/;
+const FILECRYPT_LINK_RE = /^\/(?:Link\/[A-Fa-f0-9]{10,64}|Go\/[A-Fa-f0-9]{40,64})(?:\.html)?$/;
 
 function normalizeFileCryptContainerUrl(value) {
     let parsed;
@@ -12,6 +12,7 @@ function normalizeFileCryptContainerUrl(value) {
     if (parsed.protocol !== 'https:' || !/^(?:www\.)?filecrypt\.cc$/i.test(parsed.hostname)
         || parsed.username || parsed.password || parsed.port || parsed.search || parsed.hash
         || !FILECRYPT_CONTAINER_RE.test(parsed.pathname)) return '';
+    if (!parsed.pathname.endsWith('.html')) parsed.pathname += '.html';
     return parsed.href;
 }
 
@@ -26,6 +27,7 @@ function fileCryptLinkCandidates(links, containerUrl) {
         try { parsed = new URL(String(value || ''), origin); } catch (_) { return; }
         if (parsed.origin !== origin || parsed.username || parsed.password || parsed.port
             || parsed.search || parsed.hash || !FILECRYPT_LINK_RE.test(parsed.pathname)) return;
+        if (!parsed.pathname.endsWith('.html')) parsed.pathname += '.html';
         if (!seen.has(parsed.href)) {
             seen.add(parsed.href);
             output.push(parsed.href);
@@ -40,6 +42,49 @@ function fileCryptLinkCandidates(links, containerUrl) {
         }
     }
     return output.slice(0, 16);
+}
+
+function fileCryptPageAllowed(value, containerUrl) {
+    let parsed, container;
+    try {
+        parsed = new URL(String(value || ''));
+        container = new URL(normalizeFileCryptContainerUrl(containerUrl));
+    } catch (_) { return false; }
+    if (parsed.protocol !== 'https:' || !/^(?:www\.)?filecrypt\.cc$/i.test(parsed.hostname)
+        || parsed.username || parsed.password || parsed.port) return false;
+    return parsed.pathname.replace(/\.html$/, '') === container.pathname.replace(/\.html$/, '')
+        || FILECRYPT_LINK_RE.test(parsed.pathname);
+}
+
+function fileCryptResolutionError(reason) {
+    const messages = {
+        'browser-unavailable': 'No supported browser was found for FileCrypt verification. Open the game page to download manually.',
+        'browser-failed': 'The FileCrypt verification window closed or failed before returning a GoFile link. Retry and complete the check there.',
+        'verification-incomplete': 'FileCrypt verification did not finish. Retry and complete the check in the verification window.',
+        'link-missing': 'FileCrypt opened, but no usable GoFile link was returned. Open the game page to check this mirror.',
+        'gofile-failed': 'FileCrypt reached GoFile, but GoFile could not provide the download. Retry or choose another mirror.',
+        'gofile-empty': 'The GoFile link was found, but GoFile returned no downloadable files.'
+    };
+    const stage = Object.prototype.hasOwnProperty.call(messages, reason) ? reason : 'link-missing';
+    return Object.assign(new Error(messages[stage]), { fileCryptStage: stage, needsBrowser: false });
+}
+
+function fileCryptNavigationExpression(fromUrl, toUrl, containerUrl) {
+    const from = new URL(fromUrl);
+    if (!fileCryptPageAllowed(from.href, containerUrl)) throw new Error('Invalid FileCrypt link navigation.');
+    const pageContainer = new URL(normalizeFileCryptContainerUrl(containerUrl));
+    pageContainer.hostname = from.hostname;
+    const target = fileCryptLinkCandidates([{ href: toUrl }], pageContainer.href)[0];
+    if (!target) throw new Error('Invalid FileCrypt link navigation.');
+    return `(function(){
+        var target=${JSON.stringify(target)};
+        if(location.href===${JSON.stringify(from.href)}&&sessionStorage.__sailFileCryptFollowed!==target){
+            sessionStorage.__sailFileCryptFollowed=target;
+            location.assign(target);
+            return null;
+        }
+        return ${FILECRYPT_CHALLENGE_EXPRESSION};
+    })()`;
 }
 
 const POW_WORKER_SOURCE = String.raw`
@@ -149,9 +194,7 @@ const FILECRYPT_CHALLENGE_EXPRESSION = `(function(){
     var captcha=document.querySelector('#pow-captcha');
     var links=function(){return Array.from(document.querySelectorAll('a[href],[onclick],button[onclick]')).slice(0,256).map(function(element){return{href:element.href||'',text:(element.textContent||'').trim().slice(0,256),onclick:(element.getAttribute('onclick')||'').slice(0,1024)}})};
     var statusText=function(){return String(document.body&&document.body.innerText||'').slice(0,65536)};
-    if(!captcha)return{stage:'container',location:location.href,cookie:document.cookie,ua:navigator.userAgent,links:links(),statusText:statusText()};
-    if(sessionStorage.__sailGoFilePhase==='submitted')return{stage:'rejected'};
-    return null;
+    return{stage:captcha?'verification':'container',location:location.href,links:links(),statusText:statusText()};
 })()`;
 
 function fileCryptSubmitExpression(challengeResult, proof) {
@@ -203,6 +246,9 @@ function fileCryptSubmitExpression(challengeResult, proof) {
 module.exports = {
     FILECRYPT_CHALLENGE_EXPRESSION,
     fileCryptLinkCandidates,
+    fileCryptNavigationExpression,
+    fileCryptPageAllowed,
+    fileCryptResolutionError,
     fileCryptSubmitExpression,
     normalizeFileCryptContainerUrl,
     solveFileCryptProof

@@ -175,6 +175,7 @@ test('SteamRIP detail links expose a labeled GoFile mirror without exposing gene
     };
     const elements = [
         link('//bzzhr.to/u33dxmmaozb6'),
+        link('//www.filecrypt.cc/Container/E779AE4ECB', false, true),
         link('//www.filecrypt.cc/Container/E779AE4ECB.html', false, true),
         link('//www.filecrypt.cc/Container/AAAAAAAAAA.html'),
         link('//fileditchfiles.me/file.php?f=/alpha4/Cbpunk-2ksvenseven-SteamRIP.com.rar'),
@@ -347,7 +348,7 @@ test('download source wiring stays within real result and screenshot sections', 
     assert.doesNotMatch(hostAllow[0], /filecrypt/);
     assert.match(main, /const gofileContainer = normalizeFileCryptContainerUrl\(rawUrl\)/);
     assert.match(main, /if \(opts\.sourceId !== 'steamrip'\) return null/);
-    assert.match(main, /captureResponseUrl:[\s\S]{0,500}captchasession/);
+    assert.match(main, /captureRequestUrl: isGofileShare/);
     assert.match(main, /scrapeSteamRipGofileContainer\(gofileContainer, referer, async gofileUrl/);
-    assert.match(main, /return resolveGofileShare\(location\)/);
+    assert.match(main, /await resolveGofileShare\(browserResult\.url\)/);
 });

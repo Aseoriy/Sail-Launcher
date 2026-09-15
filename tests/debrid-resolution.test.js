@@ -28,8 +28,10 @@ function loadDlRequest(context) {
 
 test('HTTP requests retain the normal timeout and allow TorBox its longer extraction timeout', async () => {
     const timeouts = [];
+    const connectionTimeouts = [];
     const client = {
         request(url, options, onResponse) {
+            connectionTimeouts.push(options.timeout);
             const request = new EventEmitter();
             request.setTimeout = value => timeouts.push(value);
             request.end = () => {
@@ -48,6 +50,57 @@ test('HTTP requests retain the normal timeout and allow TorBox its longer extrac
     await dlRequest('GET', 'https://example.invalid/test', { timeoutMs: 180000 });
     await dlRequest('GET', 'https://example.invalid/test', { timeoutMs: 999999 });
     assert.deepEqual(timeouts, [25000, 180000, 180000]);
+    assert.deepEqual(connectionTimeouts, timeouts);
+});
+
+test('HTTP connection setup and reused sockets honor the request timeout over the agent default', { timeout: 10000 }, async t => {
+    const server = http.createServer((request, response) => {
+        if (request.url === '/slow') setTimeout(() => response.end('ready'), 200);
+        else response.end('ready');
+    });
+    const agent = new http.Agent({
+        keepAlive: true,
+        maxSockets: 1,
+        timeout: 50,
+        lookup(hostname, options, callback) {
+            setTimeout(() => callback(null, '127.0.0.1', 4), 200);
+        }
+    });
+    t.after(() => new Promise(resolve => {
+        agent.destroy();
+        server.closeAllConnections();
+        server.close(resolve);
+    }));
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    const requests = [];
+    const client = {
+        request(url, options, onResponse) {
+            const request = http.request(url, { ...options, agent, autoSelectFamily: false }, onResponse);
+            requests.push(request);
+            return request;
+        }
+    };
+    const dlRequest = loadDlRequest({ http: client });
+    const origin = `http://delayed-lookup.invalid:${server.address().port}`;
+    const connected = await dlRequest('GET', origin, { timeoutMs: 5000 });
+    assert.equal(connected.body, 'ready');
+    const reused = await dlRequest('GET', origin + '/slow', { timeoutMs: 5000 });
+    assert.equal(reused.body, 'ready');
+    assert.equal(requests[1].reusedSocket, true);
+});
+
+test('HTTP inactivity still times out and reports a timeout code', { timeout: 10000 }, async t => {
+    const server = http.createServer(() => {});
+    t.after(() => new Promise(resolve => {
+        server.closeAllConnections();
+        server.close(resolve);
+    }));
+    await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+    const dlRequest = loadDlRequest({ http });
+    await assert.rejects(
+        dlRequest('GET', `http://127.0.0.1:${server.address().port}`, { timeoutMs: 1000 }),
+        error => error.code === 'ETIMEDOUT' && error.message === 'timeout'
+    );
 });
 
 test('metadata requests read bounded JSON and never buffer file downloads, including after redirects', async t => {
@@ -130,6 +183,29 @@ test('HTTP cancellation aborts an in-flight request after a redirect', { timeout
     await waiting;
     controller.abort();
     await rejected;
+});
+
+test('GoFile content requests abort with their owned resolution work', async () => {
+    const main = readMain();
+    const start = main.indexOf('async function dlElectronRequest(');
+    const end = main.indexOf('const CHROME_UA', start);
+    let fetchSignal;
+    const request = vm.runInNewContext(`(${main.slice(start, end).trim()})`, {
+        AbortController, setTimeout, clearTimeout, DL_UA: 'test',
+        net: { fetch: async (_url, options) => {
+            fetchSignal = options.signal;
+            return new Promise((_resolve, reject) => {
+                const fail = () => reject(Object.assign(new Error('Aborted'), { name: 'AbortError' }));
+                if (options.signal.aborted) fail();
+                else options.signal.addEventListener('abort', fail, { once: true });
+            });
+        } }
+    });
+    const controller = new AbortController();
+    const pending = request('GET', 'https://api.gofile.io/contents/fixture', { signal: controller.signal });
+    controller.abort();
+    await assert.rejects(pending, error => error.name === 'AbortError');
+    assert.equal(fetchSignal.aborted, true);
 });
 
 function loadResolveDirectUrl(context) {
@@ -392,6 +468,29 @@ test('the FileCrypt-backed GoFile route surfaces a fatal TorBox rejection instea
     assert.equal(directGofileCalls, 0);
 });
 
+test('FileCrypt preparation preserves stage errors and passes cancellation and progress into verification', async () => {
+    const containerUrl = 'https://www.filecrypt.cc/Container/C9D9F3E419.html';
+    const failure = Object.assign(new Error('FileCrypt verification did not finish.'), {
+        fileCryptStage: 'verification-incomplete', needsBrowser: false
+    });
+    const controller = new AbortController();
+    const progress = () => {};
+    const resolveDirectUrl = loadResolveDirectUrl({
+        SOURCE_REFERER: { steamrip: 'https://steamrip.com/' },
+        normalizeFileCryptContainerUrl: value => value === containerUrl ? containerUrl : '',
+        inspectDownloadLinkHealth: async () => ({ status: 'unknown' }),
+        HEALTH_STATES: { DOWN: 'down' },
+        scrapeSteamRipGofileContainer: async (_url, _referer, _onShare, options) => {
+            assert.equal(options.signal, controller.signal);
+            assert.equal(options.onProgress, progress);
+            throw failure;
+        }
+    });
+    await assert.rejects(resolveDirectUrl(containerUrl, {
+        sourceId: 'steamrip', signal: controller.signal, onProgress: progress
+    }), error => error === failure);
+});
+
 test('DataNodes sends its original landing URL to TorBox without local resolution', async () => {
     const landingUrl = 'https://datanodes.to/Abc12345/Game.rar';
     const debridCalls = [];
@@ -617,6 +716,40 @@ test('TorBox does not poll or report acceptance when create succeeds without a j
     );
     assert.equal(calls, 1);
     assert.ok(!labels.some(label => /accepted the file/i.test(label)));
+});
+
+test('TorBox connection timeouts do not invent elapsed time or repeat an unconfirmed create request', async () => {
+    for (const failure of [
+        new Error('timeout'),
+        Object.assign(new Error('connect ETIMEDOUT 192.0.2.1:443'), { code: 'ETIMEDOUT' })
+    ]) {
+        const calls = [];
+        const labels = [];
+        const debrid = loadDebridServices({
+            dlRequest: async (method, url) => {
+                calls.push({ method, url });
+                throw failure;
+            }
+        });
+        await assert.rejects(
+            () => debrid.torbox.unrestrict('torbox-test-key', 'https://gofile.io/d/timeout-test', {
+                onProgress: label => labels.push(label)
+            }),
+            error => {
+                assert.equal(error.debridResolutionFatal, true);
+                assert.equal(error.debridRejected, false);
+                assert.match(error.message, /connection to TorBox timed out before it returned a download ID/i);
+                assert.match(error.message, /dashboard before retrying/i);
+                assert.doesNotMatch(error.message, /three minutes|180|192\.0\.2\.1/i);
+                return true;
+            }
+        );
+        assert.equal(calls.length, 1);
+        assert.equal(calls[0].method, 'POST');
+        assert.match(calls[0].url, /\/webdl\/createwebdownload$/);
+        assert.equal(debrid.torbox.pendingDownloads.size, 0);
+        assert.ok(!labels.some(label => /accepted the file/i.test(label)));
+    }
 });
 
 test('TorBox forwards cancellation signals to create, list, and requestdl calls', async () => {

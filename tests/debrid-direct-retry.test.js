@@ -11,14 +11,14 @@ const logic = require(path.join(root, 'ui', 'downloadManagerLogic'));
 
 function loadRetryHarness(overrides = {}) {
     const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
-    const start = html.indexOf('        async function retryDownloadWithoutDebrid(');
+    const start = html.indexOf('        function discardDebridRetryLink(');
     const end = html.indexOf('\n        function applyDownloadCancellationOutcome(', start);
     assert.ok(start >= 0 && end > start);
     const calls = [];
     const queue = overrides.queue || new Map();
     const window = {
-        resumeDownload(id) {
-            calls.push({ type: 'resume', id, options: queue.get(id) && queue.get(id).resumeOpts });
+        resumeDownload(id, token) {
+            calls.push({ type: 'resume', id, token, options: queue.get(id) && queue.get(id).resumeOpts });
         },
         pushDebridConfigToMain() { throw new Error('A direct retry must not change the global connection'); },
         ...(overrides.window || {})
@@ -29,6 +29,7 @@ function loadRetryHarness(overrides = {}) {
         renderDock: () => calls.push({ type: 'render' }),
         window,
         sailConfirm: overrides.sailConfirm || (async () => true),
+        ipcRenderer: { invoke: async (channel, payload) => { calls.push({ type: 'ipc', channel, payload }); } },
         calls
     };
     const functions = vm.runInNewContext(`(() => {\n${html.slice(start, end)}\nreturn { retryDownloadWithoutDebrid };\n})()`, context);
@@ -42,6 +43,7 @@ function failedDownload(overrides = {}) {
         error: 'TorBox rejected the file.',
         debridFailure: true,
         failedDebridService: 'TorBox',
+        debridRetryToken: '11223344-1234-1234-1234-112233445566',
         resumeOpts: { id: 'dl_retry', url: 'https://gofile.io/d/game', sourceId: 'steamrip' },
         ...overrides
     };
@@ -75,6 +77,11 @@ test('the main request boundary accepts only an explicit boolean debrid override
     assert.equal(normalize({ ...input, skipDebrid: true }).skipDebrid, true);
     assert.equal(normalize({ ...input, skipDebrid: false }).skipDebrid, false);
     for (const skipDebrid of ['true', 1, null, {}]) assert.throws(() => normalize({ ...input, skipDebrid }), /debrid preference is invalid/);
+    const token = '11223344-1234-1234-1234-112233445566';
+    assert.equal(normalize({ ...input, skipDebrid: true, debridRetryToken: token }).debridRetryToken, token);
+    assert.throws(() => normalize({ ...input, debridRetryToken: token }), /direct retry reference is invalid/);
+    assert.throws(() => normalize({ ...input, skipDebrid: true, debridRetryToken: 'https://gofile.io/d/private' }), /direct retry reference is invalid/);
+    assert.throws(() => normalize({ ...input, debridRetryUrl: 'https://gofile.io/d/private' }), /not allowed/);
 });
 
 test('accepted retry clones skipDebrid options and leaves the original request and connection unchanged', async () => {
@@ -95,13 +102,16 @@ test('accepted retry clones skipDebrid options and leaves the original request a
     const resumed = harness.calls.find(call => call.type === 'resume');
     assert.equal(resumed.id, original.id);
     assert.equal(resumed.options.skipDebrid, true);
+    assert.equal(resumed.token, '11223344-1234-1234-1234-112233445566');
+    assert.equal(resumed.options.debridRetryToken, undefined);
+    assert.equal(original.debridRetryToken, undefined);
     assert.notEqual(resumed.options, originalOptions);
     assert.equal(originalOptions.skipDebrid, undefined);
     assert.equal(original.resumeOpts.skipDebrid, true);
     assert.equal(original._debridRetryPending, false);
 });
 
-test('cancelled confirmation leaves the row untouched', async () => {
+test('cancelled confirmation preserves request settings and discards the temporary link', async () => {
     for (const sailConfirm of [async () => false, async () => undefined]) {
         const original = failedDownload();
         const before = original.resumeOpts;
@@ -110,6 +120,9 @@ test('cancelled confirmation leaves the row untouched', async () => {
         assert.equal(harness.calls.some(call => call.type === 'resume'), false);
         assert.equal(original.resumeOpts, before);
         assert.equal(original._debridRetryPending, false);
+        assert.equal(original.debridRetryToken, undefined);
+        const discarded = harness.calls.find(call => call.channel === 'discard-debrid-retry-link');
+        assert.equal(discarded.payload.token, '11223344-1234-1234-1234-112233445566');
     }
 });
 
@@ -139,7 +152,8 @@ test('cleared or changed rows are rejected after confirmation becomes available'
         queue => { queue.set('dl_retry', failedDownload()); },
         (queue, download) => { download.state = 'paused'; },
         (queue, download) => { download.resumeOpts = { ...download.resumeOpts, url: 'https://host/replaced.zip' }; },
-        (queue, download) => { download.error = 'A newer failure replaced this one.'; }
+        (queue, download) => { download.error = 'A newer failure replaced this one.'; },
+        (queue, download) => { download.debridRetryToken = '99887766-1234-1234-1234-998877665544'; }
     ];
     for (const mutate of mutations) {
         const original = failedDownload();
@@ -155,5 +169,19 @@ test('cleared or changed rows are rejected after confirmation becomes available'
         resolveConfirmation(true);
         await pending;
         assert.equal(harness.calls.some(call => call.type === 'resume'), false);
+        if (original.debridRetryToken) assert.equal(original.debridRetryToken, '99887766-1234-1234-1234-998877665544');
     }
+});
+
+test('a prompt opened without a retained link cannot discard a newer handoff', async () => {
+    const original = failedDownload({ debridRetryToken: undefined });
+    let confirm;
+    const harness = loadRetryHarness({ queue: new Map([[original.id, original]]),
+        sailConfirm: () => new Promise(resolve => { confirm = resolve; }) });
+    const pending = harness.retryDownloadWithoutDebrid(original.id);
+    original.debridRetryToken = '99887766-1234-1234-1234-998877665544';
+    confirm(true);
+    await pending;
+    assert.equal(original.debridRetryToken, '99887766-1234-1234-1234-998877665544');
+    assert.equal(harness.calls.some(call => call.type === 'resume' || call.type === 'ipc'), false);
 });

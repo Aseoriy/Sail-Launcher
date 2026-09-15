@@ -34,7 +34,8 @@ const {
     resolveRootzUrl,
     resolveVikingFileUrl,
     rootzPageDetails,
-    validateDataNodesBrowserTransfer
+    validateDataNodesBrowserTransfer,
+    validateGofileTransfer
 } = require('../runtime/downloadHostResolvers');
 
 const UA = 'Sail resolver test';
@@ -161,6 +162,7 @@ test('Gofile resolver authenticates once, paginates folders, and keeps only trus
     ]);
     assert.ok(files.every(file => file.headers.includes('Cookie: accountToken=fixture-account-token')));
     assert.deepEqual(files.map(file => file.sizeBytes), [240000000, undefined, undefined]);
+    assert.deepEqual(files.map(file => file.gofileContentId), ['File1', 'File3', 'File2']);
     const accountCall = calls.find(call => call.url === 'https://api.gofile.io/accounts');
     assert.equal(accountCall.options.headers['X-BL'], 'en-US');
     assert.match(accountCall.options.headers['X-Website-Token'], /^[a-f0-9]{64}$/);
@@ -203,6 +205,70 @@ test('concurrent Gofile resolutions share one in-flight guest account creation',
     assert.equal(accountCalls, 1);
     assert.equal(first[0].name, 'First123.zip');
     assert.equal(second[0].name, 'Second123.zip');
+    assert.equal(first[0].gofileContentId, 'First123');
+    assert.equal(second[0].gofileContentId, 'Second123');
+});
+
+test('canceling a Gofile caller does not abort shared account or website-token discovery', async t => {
+    for (const phase of ['account', 'website-token']) {
+        const firstController = new AbortController();
+        const secondController = new AbortController();
+        let beginSharedRequest;
+        const sharedRequestStarted = new Promise(resolve => { beginSharedRequest = resolve; });
+        let releaseSharedRequest;
+        const sharedResponse = new Promise(resolve => { releaseSharedRequest = resolve; });
+        const release = () => releaseSharedRequest(phase === 'website-token'
+            ? { status: 503, body: '' }
+            : { status: 200, body: JSON.stringify({ status: 'ok', data: { token: 'shared-account-token' } }) });
+        t.after(release);
+        let accountCalls = 0;
+        const contentCalls = [];
+        const resolver = createGofileResolver({
+            request: async (_method, url, options) => {
+                if (url === 'https://gofile.io/' || url === 'https://gofile.io/js/wt.obf.js') {
+                    assert.equal(options.signal, undefined, 'website-token discovery has no individual owner');
+                    if (phase === 'website-token' && url === 'https://gofile.io/') {
+                        beginSharedRequest();
+                        return sharedResponse;
+                    }
+                    return { status: 503, body: '' };
+                }
+                if (url === 'https://api.gofile.io/accounts') {
+                    accountCalls++;
+                    assert.equal(options.signal, undefined, 'guest-account creation has no individual owner');
+                    if (phase === 'account') {
+                        beginSharedRequest();
+                        return sharedResponse;
+                    }
+                    return { status: 200, body: JSON.stringify({ status: 'ok', data: { token: 'shared-account-token' } }) };
+                }
+                contentCalls.push(url);
+                assert.equal(options.signal, secondController.signal);
+                assert.equal(options.signal.aborted, false);
+                return { status: 200, body: JSON.stringify({ status: 'ok', data: {
+                    type: 'file', id: 'Second123', name: 'Game.rar',
+                    link: 'https://store1.gofile.io/download/web/Second123/Game.rar'
+                } }) };
+            }
+        });
+        let firstError;
+        const first = resolver('https://gofile.io/d/First123', { signal: firstController.signal })
+            .catch(error => { firstError = error; });
+        await sharedRequestStarted;
+        const second = resolver('https://gofile.io/d/Second123', { signal: secondController.signal });
+        firstController.abort();
+        await new Promise(resolve => setImmediate(resolve));
+        assert.equal(firstError && firstError.name, 'AbortError', phase + ' cancellation must not wait for shared network work');
+        assert.equal(secondController.signal.aborted, false);
+        assert.equal(contentCalls.length, 0);
+        release();
+        const secondFiles = await second;
+        await first;
+        assert.equal(accountCalls, 1);
+        assert.equal(secondFiles[0].gofileContentId, 'Second123');
+        assert.equal(contentCalls.length, 1);
+        assert.equal(new URL(contentCalls[0]).pathname, '/contents/Second123');
+    }
 });
 
 test('Gofile direct download URLs obtain a guest cookie instead of saving the share redirect', async () => {
@@ -226,6 +292,7 @@ test('Gofile direct download URLs obtain a guest cookie instead of saving the sh
     assert.equal(accountCalls, 1);
     assert.equal(files[0].url, direct);
     assert.equal(files[0].name, 'Game Payload.rar');
+    assert.equal(files[0].gofileContentId, 'File123');
     assert.ok(files[0].headers.includes('Cookie: accountToken=direct-file-token'));
     assert.ok(files[0].headers.includes('Origin: https://gofile.io'));
 });
@@ -274,6 +341,235 @@ test('Gofile refreshes rejected guest tokens for every current authentication st
         assert.equal(contentCalls, 2, rejectedStatus);
         assert.ok(files[0].headers.includes('Cookie: accountToken=token-2'), rejectedStatus);
     }
+});
+
+test('Gofile can refresh its guest account while resolving the same file ID', async () => {
+    let accountCalls = 0;
+    const contentCalls = [];
+    const resolver = createGofileResolver({
+        userAgent: UA,
+        request: async (method, url, options) => {
+            if (url === 'https://gofile.io/' || url === 'https://gofile.io/js/wt.obf.js') return { status: 503, body: '' };
+            if (url === 'https://api.gofile.io/accounts') {
+                accountCalls++;
+                return { status: 200, body: JSON.stringify({ status: 'ok', data: { token: `fresh-token-${accountCalls}` } }) };
+            }
+            contentCalls.push({ url, options });
+            return { status: 200, body: JSON.stringify({ status: 'ok', data: {
+                type: 'file', id: 'Stable123', name: 'Game.zip', size: 80000000000,
+                link: 'https://store1.gofile.io/download/web/Stable123/Game.zip'
+            } }) };
+        }
+    });
+    const first = await resolver('https://gofile.io/d/Share123');
+    const cached = await resolver('https://gofile.io/contents/Stable123');
+    assert.equal(accountCalls, 1);
+    assert.ok(cached[0].headers.includes('Cookie: accountToken=fresh-token-1'));
+    const controller = new AbortController();
+    const refreshed = await resolver(`https://gofile.io/contents/${first[0].gofileContentId}`, {
+        refreshAccount: true, signal: controller.signal
+    });
+    assert.equal(accountCalls, 2);
+    assert.equal(refreshed[0].gofileContentId, 'Stable123');
+    assert.equal(refreshed[0].url, first[0].url);
+    assert.ok(refreshed[0].headers.includes('Cookie: accountToken=fresh-token-2'));
+    assert.ok(first[0].headers.includes('Cookie: accountToken=fresh-token-1'), 'refresh does not mutate another transfer');
+    assert.equal(new URL(contentCalls.at(-1).url).pathname, '/contents/Stable123');
+    assert.equal(contentCalls.at(-1).options.headers.Authorization, 'Bearer fresh-token-2');
+    assert.equal(contentCalls.at(-1).options.signal, controller.signal);
+});
+
+test('Gofile child metadata never assigns a folder ID as a file refresh identity', async () => {
+    const resolver = createGofileResolver({
+        request: async (method, url) => {
+            if (url === 'https://gofile.io/' || url === 'https://gofile.io/js/wt.obf.js') return { status: 503, body: '' };
+            if (url === 'https://api.gofile.io/accounts') {
+                return { status: 200, body: JSON.stringify({ status: 'ok', data: { token: 'fixture-token' } }) };
+            }
+            return { status: 200, body: JSON.stringify({ status: 'ok', data: {
+                type: 'folder', id: 'Folder123', children: {
+                    first: { type: 'file', id: '../invalid', name: 'first.rar',
+                        link: 'https://store1.gofile.io/download/web/First123/first.rar' },
+                    second: { type: 'file', name: 'second.rar',
+                        link: 'https://store1.gofile.io/download/legacy/second.rar' }
+                }
+            } }) };
+        }
+    });
+    const files = await resolver('https://gofile.io/d/Folder123');
+    assert.equal(files[0].gofileContentId, 'First123');
+    assert.equal(files[1].gofileContentId, undefined);
+    assert.ok(files.every(file => file.gofileContentId !== 'Folder123'));
+});
+
+test('Gofile direct URL refresh preserves the URL and permits a same-URL fallback without an ID', async () => {
+    let accounts = 0;
+    const resolver = createGofileResolver({
+        request: async (method, url) => {
+            if (url === 'https://gofile.io/' || url === 'https://gofile.io/js/wt.obf.js') return { status: 503, body: '' };
+            assert.equal(url, 'https://api.gofile.io/accounts', 'a direct URL needs no folder listing');
+            return { status: 200, body: JSON.stringify({ status: 'ok', data: { token: `direct-token-${++accounts}` } }) };
+        }
+    });
+    const url = 'https://store1.gofile.io/download/legacy/Game.rar';
+    const first = await resolver(url);
+    const refreshed = await resolver(url, { refreshAccount: true });
+    assert.equal(accounts, 2);
+    assert.equal(first[0].gofileContentId, undefined);
+    assert.equal(refreshed[0].gofileContentId, undefined);
+    assert.equal(refreshed[0].url, url);
+    assert.ok(refreshed[0].headers.includes('Cookie: accountToken=direct-token-2'));
+});
+
+test('Gofile transfer validation keeps host headers and metadata through approved redirects', async () => {
+    const file = {
+        url: 'https://store1.gofile.io/download/web/File123/Game.rar?token=fixture',
+        name: 'Game.rar', kind: 'http', sizeBytes: 80000000000, gofileContentId: 'File123',
+        headers: ['Cookie: accountToken=fixture-token', `User-Agent: ${UA}`, 'Accept: */*',
+            'Referer: https://gofile.io/', 'Origin: https://gofile.io']
+    };
+    const before = JSON.stringify(file);
+    const controller = new AbortController();
+    const calls = [];
+    const result = await validateGofileTransfer(file, {
+        signal: controller.signal,
+        request: async (method, url, options) => {
+            calls.push({ method, url, options });
+            return calls.length === 1
+                ? { status: 302, headers: { location: 'https://store2.gofile.io/download/web/File123/Game.rar?token=next' } }
+                : { status: 206, headers: { 'content-type': 'application/octet-stream',
+                    'content-disposition': 'attachment; filename="Game.rar"', 'content-length': '1',
+                    'content-range': 'bytes 0-0/80000000000' } };
+        }
+    });
+    assert.deepEqual(result, { ...file, url: 'https://store2.gofile.io/download/web/File123/Game.rar?token=next' });
+    assert.notEqual(result, file);
+    assert.equal(JSON.stringify(file), before);
+    assert.equal(calls.length, 2);
+    for (const call of calls) {
+        assert.equal(call.method, 'GET');
+        assert.deepEqual(call.options.headers, {
+            Cookie: 'accountToken=fixture-token', 'User-Agent': UA, Accept: '*/*',
+            Referer: 'https://gofile.io/', Origin: 'https://gofile.io',
+            Range: 'bytes=0-0', 'Accept-Encoding': 'identity'
+        });
+        assert.equal(call.options.follow, false);
+        assert.equal(call.options.headersOnly, true);
+        assert.equal(call.options.timeoutMs, 10000);
+        assert.equal(call.options.signal, controller.signal);
+    }
+    const legacyHeaders = { Cookie: 'accountToken=fixture-token', 'User-Agent': UA };
+    const legacy = await validateGofileTransfer({ ...file, headers: legacyHeaders }, {
+        request: async (_method, _url, options) => {
+            assert.equal(options.headers.Cookie, legacyHeaders.Cookie);
+            return { status: 200, headers: { 'content-type': 'application/zip' } };
+        }
+    });
+    assert.equal(legacy.headers, legacyHeaders);
+});
+
+test('Gofile transfer validation rejects HTML and JSON even when named as an archive', async () => {
+    const file = { url: 'https://store1.gofile.io/download/web/File123/Game.rar', name: 'Game.rar' };
+    for (const [status, contentType, refreshEligible] of [
+        [200, 'text/html; charset=utf-8', true], [206, 'application/xhtml+xml', true],
+        [200, 'application/json', false], [200, 'text/plain', false],
+        [401, 'application/json', true], [403, 'text/html', true],
+        [429, 'text/html', false], [503, 'text/html', false], [404, 'text/html', false]
+    ]) {
+        await assert.rejects(validateGofileTransfer(file, {
+            request: async () => ({ status, headers: {
+                'content-type': contentType, 'content-disposition': 'attachment; filename="Game.rar"'
+            }, body: '<!doctype html><title>private page contents</title>' })
+        }), error => {
+            assert.equal(error.gofileTransferInvalid, true);
+            assert.equal(error.gofileRefreshEligible, refreshEligible);
+            assert.equal(error.providerRateLimited === true, status === 429);
+            assert.doesNotMatch(error.message, /private page|store1|File123/);
+            return true;
+        });
+    }
+});
+
+test('Gofile transfer validation never follows or authenticates a foreign or page redirect', async () => {
+    const file = { url: 'https://store1.gofile.io/download/web/File123/Game.rar',
+        headers: ['Cookie: accountToken=private-fixture', 'Authorization: Bearer private-fixture'] };
+    for (const [location, refreshEligible] of [
+        ['https://gofile.io/d/File123', true], ['/', true],
+        ['https://evil.example/download/web/File123/Game.rar', false],
+        ['//gofile.io.evil.example/download/web/File123/Game.rar', false],
+        ['https://gofile.io@evil.example/download/web/File123/Game.rar', false],
+        ['http://store2.gofile.io/download/web/File123/Game.rar', false],
+        ['https://store2.gofile.io:8443/download/web/File123/Game.rar', false],
+        ['https://user:pass@store2.gofile.io/download/web/File123/Game.rar', false],
+        ['https:\\evil.example\\download\\web\\File123\\Game.rar', false]
+    ]) {
+        let calls = 0;
+        await assert.rejects(validateGofileTransfer(file, {
+            request: async (_method, url) => {
+                calls++;
+                assert.equal(url, file.url, 'the redirect must not receive another authenticated request');
+                return { status: 302, headers: { location } };
+            }
+        }), error => error.gofileTransferInvalid === true && error.gofileRefreshEligible === refreshEligible
+            && !/private-fixture|evil\.example|user:pass/.test(error.message));
+        assert.equal(calls, 1);
+    }
+    let invalidRequests = 0;
+    await assert.rejects(validateGofileTransfer({ ...file, url: 'https://evil.example/download/web/File123/Game.rar' }, {
+        request: async () => { invalidRequests++; }
+    }), error => error.gofileTransferInvalid === true && error.gofileRefreshEligible === false);
+    assert.equal(invalidRequests, 0);
+});
+
+test('Gofile transfer validation permits at most three approved redirects and rejects loops', async () => {
+    const file = { url: 'https://store1.gofile.io/download/web/File123/Game.rar' };
+    let allowedCalls = 0;
+    const approved = await validateGofileTransfer(file, {
+        request: async () => ++allowedCalls < 4
+            ? { status: 302, headers: { location: `/download/web/File123/Game.rar?hop=${allowedCalls}` } }
+            : { status: 206, headers: { 'content-type': 'application/octet-stream' } }
+    });
+    assert.equal(allowedCalls, 4);
+    assert.equal(approved.url, file.url + '?hop=3');
+    let refusedCalls = 0;
+    await assert.rejects(validateGofileTransfer(file, {
+        request: async () => ({ status: 302, headers: { location: `/download/web/File123/Game.rar?hop=${++refusedCalls}` } })
+    }), error => error.gofileTransferInvalid === true && error.gofileRefreshEligible === false);
+    assert.equal(refusedCalls, 4);
+    let loopCalls = 0;
+    await assert.rejects(validateGofileTransfer(file, {
+        request: async () => { loopCalls++; return { status: 302, headers: { location: file.url } }; }
+    }), error => error.gofileTransferInvalid === true && error.gofileRefreshEligible === false);
+    assert.equal(loopCalls, 1);
+});
+
+test('Gofile transfer validation preserves aborts and never refreshes a network failure', async () => {
+    const file = { url: 'https://store1.gofile.io/download/web/File123/Game.rar' };
+    const preAborted = new AbortController();
+    preAborted.abort();
+    let requests = 0;
+    await assert.rejects(validateGofileTransfer(file, {
+        signal: preAborted.signal, request: async () => { requests++; }
+    }), error => error.name === 'AbortError' && !error.gofileRefreshEligible);
+    assert.equal(requests, 0);
+    const controller = new AbortController();
+    const abort = Object.assign(new Error('Cancelled'), { name: 'AbortError' });
+    await assert.rejects(validateGofileTransfer(file, {
+        signal: controller.signal,
+        request: async (_method, _url, options) => {
+            assert.equal(options.signal, controller.signal);
+            controller.abort();
+            throw abort;
+        }
+    }), error => error === abort);
+    await assert.rejects(validateGofileTransfer(file, {
+        request: async () => { throw Object.assign(new Error('private URL and token'), { code: 'ETIMEDOUT' }); }
+    }), error => error.gofileTransferInvalid === true && error.gofileRefreshEligible === false
+        && !/private URL|token/.test(error.message));
+    const resolver = createGofileResolver({ request: async () => { requests++; } });
+    await assert.rejects(resolver('https://gofile.io/d/Aborted123', { signal: preAborted.signal, refreshAccount: true }),
+        error => error.name === 'AbortError');
+    assert.equal(requests, 0);
 });
 
 test('BuzzHeavier page candidates preserve the file id and endpoint parser keeps the primary transfer', () => {

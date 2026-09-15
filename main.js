@@ -56,6 +56,7 @@ const {
     extractDataNodesBrowserDownload,
     extractFuckingFastBrowserDownload,
     fileKeeperDownloadUrl,
+    gofileDirectDownloadUrl,
     gofileShareDetails,
     managedHostTransferRequest,
     resolve1337xUrl,
@@ -69,14 +70,16 @@ const {
     resolvePixeldrainUrl,
     resolveRootzUrl,
     resolveVikingFileUrl,
-    validateDataNodesBrowserTransfer
+    validateDataNodesBrowserTransfer,
+    validateGofileTransfer
 } = require('./runtime/downloadHostResolvers');
 const {
     FILECRYPT_CHALLENGE_EXPRESSION,
     fileCryptLinkCandidates,
-    fileCryptSubmitExpression,
-    normalizeFileCryptContainerUrl,
-    solveFileCryptProof
+    fileCryptNavigationExpression,
+    fileCryptPageAllowed,
+    fileCryptResolutionError,
+    normalizeFileCryptContainerUrl
 } = require('./runtime/fileCryptResolver');
 const {
     HEALTH_STATES,
@@ -92,6 +95,7 @@ const {
 } = require('./runtime/systemBrowserResolver');
 const DownloadSourceLogic = require('./ui/downloadSourceLogic');
 const DownloadSizeLogic = require('./ui/downloadSizeLogic');
+const { DebridRetryLinkStore, debridRetryRequestKey } = require('./runtime/debridRetryLinks');
 const ARCHIVE_EXTRACT_WORKER = path.join(__dirname, 'runtime', 'archiveExtractWorker.js');
 const DOWNLOAD_PREPARATION_WORKER = path.join(__dirname, 'runtime', 'downloadPreparationWorker.js');
 const { createAuthorizedIpcRegistrar, createTrustedFrameAuthorizer } = require('./security/ipcAuthorization');
@@ -2779,6 +2783,7 @@ const ARIA2_DL_URL = 'https://github.com/aria2/aria2/releases/download/release-1
 const DL_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 let aria2BinPath = null;
 const activeDownloads = new Map(); // id -> { proc, dir, meta }
+const debridRetryLinks = new DebridRetryLinkStore();
 const downloadQuarantineCatalog = new DownloadQuarantineCatalog({
     catalogPath: path.join(app.getPath('userData'), 'download-quarantine-roots.json')
 });
@@ -2987,7 +2992,10 @@ function dlRequest(method, url, { headers, body, follow = true, timeoutMs = 2500
             return reject(new Error('Invalid torrent metadata URL'));
         }
         const client = u.protocol === 'https:' ? https : http;
-        const opts = { method, signal, headers: Object.assign({ 'User-Agent': DL_UA, 'Accept': '*/*' }, headers || {}) };
+        const requestTimeoutMs = Math.max(1000, Math.min(180000, Number(timeoutMs) || 25000));
+        // setTimeout alone applies after connection; the request option also
+        // overrides the agent's shorter timeout during DNS/TCP setup.
+        const opts = { method, signal, timeout: requestTimeoutMs, headers: Object.assign({ 'User-Agent': DL_UA, 'Accept': '*/*' }, headers || {}) };
         const req = client.request(u, opts, (res) => {
             if (follow && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
                 let loc = res.headers.location; try { loc = new URL(loc, url).href; } catch (e) {}
@@ -3031,14 +3039,19 @@ function dlRequest(method, url, { headers, body, follow = true, timeoutMs = 2500
             res.on('end', () => resolve({ status: res.statusCode, headers: res.headers, body: binary ? Buffer.concat(data) : data }));
         });
         req.on('error', reject);
-        req.setTimeout(Math.max(1000, Math.min(180000, Number(timeoutMs) || 25000)), () => req.destroy(new Error('timeout')));
+        req.setTimeout(requestTimeoutMs, () => req.destroy(Object.assign(new Error('timeout'), { code: 'ETIMEDOUT' })));
         if (body) req.write(body);
         req.end();
     });
 }
 
-async function dlElectronRequest(method, url, { headers, body, follow = false, timeoutMs = 25000 } = {}) {
+async function dlElectronRequest(method, url, { headers, body, follow = false, timeoutMs = 25000, signal } = {}) {
     const controller = new AbortController();
+    const abort = () => controller.abort();
+    if (signal) {
+        if (signal.aborted) abort();
+        else signal.addEventListener('abort', abort, { once: true });
+    }
     const timeout = setTimeout(() => controller.abort(), Math.max(1000, Math.min(30000, Number(timeoutMs) || 25000)));
     try {
         const requestHeaders = Object.assign({ 'User-Agent': DL_UA, 'Accept': '*/*' }, headers || {});
@@ -3057,6 +3070,7 @@ async function dlElectronRequest(method, url, { headers, body, follow = false, t
         return { status: response.status, headers: outputHeaders, body: await response.text() };
     } finally {
         clearTimeout(timeout);
+        if (signal) signal.removeEventListener('abort', abort);
     }
 }
 const CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
@@ -3064,11 +3078,38 @@ const GOFILE_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 
 
 // GoFile: the host rotates its website-token generator. The resolver discovers
 // the current same-origin script, caches one guest account, and walks folders.
-async function scrapeGofile(rawUrl) {
+async function scrapeGofile(rawUrl, options = {}) {
     return resolveGofileUrl(rawUrl, {
         request: dlElectronRequest,
+        refreshAccount: options.refreshAccount === true,
+        signal: options.signal,
         userAgent: GOFILE_UA
     });
+}
+
+async function prepareGofileDownload(file, options = {}) {
+    const dependencies = { request: dlRequest, signal: options.signal };
+    try {
+        return await validateGofileTransfer(file, dependencies);
+    } catch (error) {
+        if (!error || error.name === 'AbortError' || !error.gofileRefreshEligible) throw error;
+    }
+    if (typeof options.onProgress === 'function') options.onProgress('Refreshing GoFile’s download link…');
+    try {
+        const contentId = String(file.gofileContentId || '');
+        const source = /^[A-Za-z0-9_-]{4,128}$/.test(contentId)
+            ? 'https://gofile.io/contents/' + encodeURIComponent(contentId) : file.url;
+        const refreshed = await scrapeGofile(source, { refreshAccount: true, signal: options.signal });
+        const replacement = (refreshed || []).find(candidate => contentId
+            ? candidate.gofileContentId === contentId : candidate.url === file.url);
+        if (!replacement) throw new Error('GoFile did not return the same file after refreshing.');
+        return await validateGofileTransfer({ ...file, ...replacement }, dependencies);
+    } catch (error) {
+        if (error && (error.name === 'AbortError' || error.gofileTransferInvalid)) throw error;
+        throw Object.assign(new Error('GoFile could not refresh the file download. Retry or choose another mirror.'), {
+            gofileTransferInvalid: true
+        });
+    }
 }
 
 function mergeDownloadCookies(current, setCookie) {
@@ -3085,98 +3126,91 @@ function mergeDownloadCookies(current, setCookie) {
     return [...cookies].map(([name, value]) => `${name}=${value}`).join('; ');
 }
 
-async function scrapeSteamRipGofileContainer(rawUrl, referer, onGofileShare) {
+async function scrapeSteamRipGofileContainer(rawUrl, referer, onGofileShare, options = {}) {
     const containerUrl = normalizeFileCryptContainerUrl(rawUrl);
     if (!containerUrl || !/^https:\/\/steamrip\.com\//i.test(String(referer || ''))) return null;
     const resolveGofileShare = typeof onGofileShare === 'function' ? onGofileShare : scrapeGofile;
-    let proofStarted = false;
-    const browserResult = await resolveWithSystemChromium(containerUrl, FILECRYPT_CHALLENGE_EXPRESSION, {
-        executablePath: findSystemChromiumExecutable(),
-        timeoutMs: 6 * 60 * 1000,
-        evaluationTimeoutMs: 15000,
-        tempRoot: path.join(app.getPath('temp'), 'sail-filecrypt-resolver'),
-        navigationReferrer: referer,
-        clickSelector: '.pow-captcha__box',
-        clickTimeoutMs: 20000,
-        isAllowedUrl: parsed => /^(?:www\.)?filecrypt\.cc$/i.test(parsed.hostname),
-        captureResponseUrl: value => {
-            try {
-                const parsed = new URL(value);
-                return parsed.origin === new URL(containerUrl).origin
-                    && /^\/captchasession\/[A-Fa-f0-9]+\.json$/.test(parsed.pathname);
-            } catch (_) { return false; }
-        },
-        handleResponse: async response => {
-            if (proofStarted) return null;
-            let payload = null;
-            try { payload = JSON.parse(response && response.body || ''); } catch (_) {}
-            if (!payload || !payload.challenge) return null;
-            proofStarted = true;
-            const startedAt = Date.now();
-            const proof = await solveFileCryptProof(payload.challenge, { timeoutMs: 5 * 60 * 1000 });
-            const remaining = 30000 - (Date.now() - startedAt);
-            if (remaining > 0) await new Promise(resolve => setTimeout(resolve, remaining));
-            proof.elapsed = Date.now() - startedAt;
-            return { expression: fileCryptSubmitExpression({ challenge: payload.challenge }, proof) };
-        },
-        acceptResult: value => value && ['container', 'rejected', 'error'].includes(value.stage)
-    });
-    if (!browserResult || browserResult.stage !== 'container'
-        || normalizeFileCryptContainerUrl(browserResult.location) !== containerUrl) return null;
-
-    const containerHealth = classifyFileCryptResponse({
-        status: 200,
-        headers: { 'content-type': 'text/html' },
-        body: String(browserResult.statusText || '')
-    });
-    if (containerHealth.status === HEALTH_STATES.DOWN) {
-        throw buildLinkDownError(containerUrl, containerHealth.reason);
-    }
-
-    for (const link of browserResult.links || []) {
-        const details = gofileShareDetails(link && link.href);
-        if (details && details.contentId) return resolveGofileShare(link.href);
-    }
-
-    const candidates = fileCryptLinkCandidates(browserResult.links, containerUrl);
-    if (!candidates.length) return null;
-    let cookie = String(browserResult.cookie || '').replace(/[\r\n]/g, '').slice(0, 8192);
-    const userAgent = String(browserResult.ua || GOFILE_UA).replace(/[\r\n]/g, '').slice(0, 1024);
-    for (const candidate of candidates) {
-        for (let attempt = 0; attempt < 3; attempt++) {
-            const headers = {
-                'User-Agent': userAgent,
-                'Accept': 'text/html,application/xhtml+xml',
-                'Referer': containerUrl
-            };
-            if (cookie) headers.Cookie = cookie;
-            const response = await dlRequest('GET', candidate, { headers, follow: false, timeoutMs: 15000 });
-            cookie = mergeDownloadCookies(cookie, response && response.headers && response.headers['set-cookie']);
-            const locations = [response && response.headers && response.headers.location];
-            const body = String(response && response.body || '');
-            for (const match of body.matchAll(/https:\/\/gofile\.io\/d\/[A-Za-z0-9_-]{4,128}/gi)) locations.push(match[0]);
-            const goMatch = body.match(/https:\/\/(?:www\.)?filecrypt\.cc\/Go\/[A-Fa-f0-9]{40,64}\.html/i);
-            if (goMatch) {
-                const goUrl = new URL(goMatch[0]);
-                if (goUrl.origin === new URL(containerUrl).origin) {
-                    const goHeaders = Object.assign({}, headers, { Referer: candidate });
-                    if (cookie) goHeaders.Cookie = cookie;
-                    const goResponse = await dlRequest('GET', goUrl.href, {
-                        headers: goHeaders,
-                        follow: false,
-                        timeoutMs: 15000
+    const executablePath = findSystemChromiumExecutable();
+    if (!executablePath) throw fileCryptResolutionError('browser-unavailable');
+    const isGofileShare = value => !!(gofileShareDetails(value) || {}).contentId;
+    const reportProgress = label => {
+        try { if (typeof options.onProgress === 'function') options.onProgress(label); } catch (_) {}
+    };
+    let parentBounds = null;
+    try { if (mainWindow && !mainWindow.isDestroyed()) parentBounds = mainWindow.getBounds(); } catch (_) {}
+    let sawLinks = false;
+    let browserResult;
+    reportProgress('Waiting for the FileCrypt verification window…');
+    try {
+        browserResult = await managedVerificationCoordinator.run(`filecrypt:${containerUrl}`, async signal => {
+            const visited = new Set();
+            reportProgress('Complete the FileCrypt check in the verification window to continue…');
+            return resolveWithSystemChromium(containerUrl, FILECRYPT_CHALLENGE_EXPRESSION, {
+                executablePath,
+                timeoutMs: 6 * 60 * 1000,
+                tempRoot: path.join(app.getPath('temp'), 'sail-filecrypt-resolver'),
+                visible: true,
+                appMode: true,
+                parentBounds,
+                navigationReferrer: referer,
+                blockedHosts: adBlockEnabled ? AD_BLOCK_HOSTS : [],
+                allowedResourceHosts: [...HUMAN_VERIFICATION_RESOURCE_HOSTS, 'filecrypt.cc', 'www.filecrypt.cc'],
+                captureDownloads: true,
+                interceptTransferRequests: true,
+                isAllowedUrl: parsed => fileCryptPageAllowed(parsed.href, containerUrl) || isGofileShare(parsed.href),
+                captureRequestUrl: isGofileShare,
+                acceptDownloadUrl: isGofileShare,
+                // Keep FileCrypt's own verification and redirects in this session,
+                // including HttpOnly cookies. Capture only the revealed GoFile share.
+                handleValue: value => {
+                    if (!fileCryptPageAllowed(value.location, containerUrl)) return null;
+                    const health = classifyFileCryptResponse({
+                        status: 200,
+                        headers: { 'content-type': 'text/html' },
+                        body: String(value.statusText || '')
                     });
-                    cookie = mergeDownloadCookies(cookie, goResponse && goResponse.headers && goResponse.headers['set-cookie']);
-                    locations.push(goResponse && goResponse.headers && goResponse.headers.location);
-                }
-            }
-            for (const location of locations) {
-                const details = gofileShareDetails(location);
-                if (details && details.contentId) return resolveGofileShare(location);
-            }
-        }
+                    if (health.status === HEALTH_STATES.DOWN) return { value: { linkHealth: health.status, reason: health.reason } };
+                    if (value.stage !== 'container') return null;
+                    const links = Array.isArray(value.links) ? value.links.slice(0, 256) : [];
+                    const share = links.find(link => isGofileShare(link && link.href));
+                    if (share) return { value: { url: share.href } };
+                    const pageContainer = new URL(containerUrl);
+                    pageContainer.hostname = new URL(value.location).hostname;
+                    const candidates = fileCryptLinkCandidates(links, pageContainer.href);
+                    if (candidates.length) sawLinks = true;
+                    const next = candidates.find(url => !visited.has(url) && url !== value.location);
+                    if (!next || visited.size >= 16) return null;
+                    visited.add(next);
+                    reportProgress('FileCrypt verification finished — opening the GoFile link…');
+                    return { expression: fileCryptNavigationExpression(value.location, next, containerUrl) };
+                },
+                acceptResult: () => false,
+                signal
+            });
+        }, { signal: options.signal });
+    } catch (error) {
+        if (error && error.name === 'AbortError') throw error;
+        throw fileCryptResolutionError('browser-failed');
     }
-    return null;
+    if (browserResult && browserResult.linkHealth === HEALTH_STATES.DOWN) {
+        throw buildLinkDownError(containerUrl, browserResult.reason);
+    }
+    if (!browserResult || !isGofileShare(browserResult.url)) {
+        throw fileCryptResolutionError(sawLinks ? 'link-missing' : 'verification-incomplete');
+    }
+    reportProgress('GoFile link found — preparing the download…');
+    try {
+        const files = await resolveGofileShare(browserResult.url);
+        if (!files || !files.length) throw fileCryptResolutionError('gofile-empty');
+        return files;
+    } catch (error) {
+        if (error && (error.name === 'AbortError' || error.debridResolutionFatal || error.providerRateLimited
+            || error.fileCryptStage || error.linkHealth === HEALTH_STATES.DOWN)) throw error;
+        if (/^error-(?:notFound|contentNotFound|deleted)$/i.test(String(error && error.gofileStatus || ''))) {
+            throw buildLinkDownError(browserResult.url, error.gofileStatus);
+        }
+        throw fileCryptResolutionError('gofile-failed');
+    }
 }
 async function scrapePixeldrain(rawUrl, referer) {
     return resolvePixeldrainUrl(rawUrl, {
@@ -3951,8 +3985,8 @@ const DEBRID = {
                     if (e && (e.name === 'AbortError' || e.debridResolutionFatal)) throw e;
                     if (e && e.torboxTransient) throw torboxError(e.message, e.torboxCode, e.debridRejected === true);
                     const reason = safeTorboxText(e && e.message);
-                    if (reason === 'timeout') {
-                        throw torboxError('TorBox did not finish checking the source link within three minutes. Check the TorBox dashboard before retrying.');
+                    if (e && e.code === 'ETIMEDOUT' || reason === 'timeout') {
+                        throw torboxError('The connection to TorBox timed out before it returned a download ID. Check the TorBox dashboard before retrying.');
                     }
                     throw torboxError('TorBox could not accept this file' + (reason ? ': ' + reason : '') + '.');
                 }
@@ -4049,6 +4083,8 @@ const DEBRID = {
     }
 };
 let debridService = '', debridKey = '';
+// Capture only the failing provider input, without adding private URLs to errors or IPC.
+const failedDebridSourceLinks = new WeakMap();
 function debridActive() { return !!(debridService && debridKey && DEBRID[debridService]); }
 function debridServiceName() { return (debridService && DEBRID[debridService] && DEBRID[debridService].name) || ''; }
 
@@ -4101,6 +4137,7 @@ async function debridUnrestrict(link, options) {
         if (e && e.debridResolutionFatal) {
             e.debridFailure = true;
             e.failedDebridService = serviceName;
+            failedDebridSourceLinks.set(e, cacheLink);
             throw e;
         }
         return null;
@@ -4181,29 +4218,23 @@ async function resolveDirectUrl(rawUrl, opts) {
         if (opts.sourceId !== 'steamrip') return null;
         const health = await inspectDownloadLinkHealth(gofileContainer, opts.sourceId);
         if (health.status === HEALTH_STATES.DOWN) throw buildLinkDownError(gofileContainer, health.reason);
-        try {
-            return await scrapeSteamRipGofileContainer(gofileContainer, referer, async gofileUrl => {
-                // The catalog labels this as GoFile, but its stored URL is a FileCrypt
-                // container. TorBox needs the revealed GoFile share, not the container.
-                if (opts.skipDebrid !== true && debridActive()) {
-                    const dr = await debridUnrestrict(gofileUrl, opts);
-                    if (dr && dr.url) return [{
-                        url: dr.url,
-                        kind: 'http',
-                        name: dr.name || '',
-                        ...(Number.isSafeInteger(dr.sizeBytes) && dr.sizeBytes > 0 ? { sizeBytes: dr.sizeBytes } : {}),
-                        debridService: dr.debridService || '',
-                        debridServiceId: dr.debridServiceId || '',
-                        debridCached: dr.cached === true
-                    }];
-                }
-                return scrapeGofile(gofileUrl);
-            });
-        } catch (error) {
-            if (error && error.linkHealth === HEALTH_STATES.DOWN) throw error;
-            if (error && (error.name === 'AbortError' || error.debridResolutionFatal)) throw error;
-            return null;
-        }
+        return scrapeSteamRipGofileContainer(gofileContainer, referer, async gofileUrl => {
+            // The catalog labels this as GoFile, but its stored URL is a FileCrypt
+            // container. TorBox needs the revealed GoFile share, not the container.
+            if (opts.skipDebrid !== true && debridActive()) {
+                const dr = await debridUnrestrict(gofileUrl, opts);
+                if (dr && dr.url) return [{
+                    url: dr.url,
+                    kind: 'http',
+                    name: dr.name || '',
+                    ...(Number.isSafeInteger(dr.sizeBytes) && dr.sizeBytes > 0 ? { sizeBytes: dr.sizeBytes } : {}),
+                    debridService: dr.debridService || '',
+                    debridServiceId: dr.debridServiceId || '',
+                    debridCached: dr.cached === true
+                }];
+            }
+            return scrapeGofile(gofileUrl);
+        }, opts);
     }
     // Send the original hoster share to the connected provider. DataNodes' signed
     // storage URL is a different host and cannot select TorBox's DataNodes handler.
@@ -4300,7 +4331,7 @@ function buildUnresolvedError(url) {
     if (/megadb/i.test(host)) msg = 'MegaDB did not return an approved signed download link. Retry once, or choose another mirror.';
     else if (/pixeldrain/i.test(host)) msg = 'PixelDrain did not return a usable file through the direct API or any trusted custom Worker. Try another mirror or add a Worker you trust in Download Settings.';
     else if (/gofile/i.test(host)) msg = 'Gofile\'s API is temporarily unavailable (their servers, not the launcher). Try again in a minute, or pick another host.';
-    else if (/filecrypt/i.test(host)) msg = 'The GoFile mirror could not finish its protected handoff. Retry once, or pick another host while the mirror refreshes.';
+    else if (/filecrypt/i.test(host)) msg = 'FileCrypt did not return a usable GoFile link. Retry and complete the check in the verification window.';
     else if (/filekeeper/i.test(host)) msg = 'FileKeeper did not return an approved provider download. Retry once, or choose another mirror.';
     else if (/fuckingfast/i.test(host)) msg = 'FuckingFast did not produce an approved file URL through Sail\'s protected verification. The ad blocker stayed enabled; choose another mirror.';
     else if (/datanodes/i.test(host)) msg = 'DataNodes did not produce an approved file URL through Sail\'s protected verification. The ad blocker stayed enabled; choose another mirror.';
@@ -5920,7 +5951,7 @@ function normalizeDownloadRequest(value) {
     const input = exactGateAPayload(value, [
         'id', 'gameName', 'image', 'url', 'links', 'sourceId', 'mirrors', 'maxSpeed',
         'autoExtract', 'autoInstall', 'skipRedist', 'autoAdd', 'referrer', 'skipDebrid',
-        'rootCapabilityId', 'rootExpectedRevision', 'reportedDownloadBytes', 'approvedDownloadSizeBytes'
+        'rootCapabilityId', 'rootExpectedRevision', 'reportedDownloadBytes', 'approvedDownloadSizeBytes', 'debridRetryToken'
     ], 'Download request');
     const output = {
         id: boundedDownloadText(input.id, 'Download ID', 128, /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/),
@@ -5937,6 +5968,13 @@ function normalizeDownloadRequest(value) {
     };
     if (input.skipDebrid !== undefined && typeof input.skipDebrid !== 'boolean') throw new Error('The download debrid preference is invalid.');
     output.skipDebrid = input.skipDebrid === true;
+    if (input.debridRetryToken !== undefined) {
+        if (!output.skipDebrid || typeof input.debridRetryToken !== 'string'
+            || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(input.debridRetryToken)) {
+            throw new Error('The direct retry reference is invalid.');
+        }
+        output.debridRetryToken = input.debridRetryToken;
+    }
     for (const field of ['reportedDownloadBytes', 'approvedDownloadSizeBytes']) {
         if (input[field] === undefined || input[field] === null) continue;
         if (!Number.isSafeInteger(input[field]) || input[field] <= 0) throw new Error('The download size warning reference is invalid.');
@@ -5975,13 +6013,22 @@ function normalizeDownloadRequest(value) {
 
 ipcMain.handle('download-game', async (e, opts) => {
     opts = normalizeDownloadRequest(opts);
-    const steamMetadataPromise = resolveSteamMetadataForDownload(opts.gameName, opts.sourceId);
     const wc = e.sender;
     const id = opts.id;
+    const retryRequestKey = debridRetryRequestKey(opts, gateAProfileStore().activeScope());
+    // Claim once before any asynchronous work or new attempt changes the job generation.
+    let directRetryLink = opts.skipDebrid && opts.debridRetryToken ? debridRetryLinks.consume(opts.debridRetryToken, {
+        owner: wc, job: downloadJobDirectories.get(id), requestKey: retryRequestKey
+    }) : null;
+    debridRetryLinks.clearDownload(id, wc);
+    delete opts.debridRetryToken;
+    const steamMetadataPromise = resolveSteamMetadataForDownload(opts.gameName, opts.sourceId);
     const ctl = { proc: null, cancelled: false, paused: false };
     let job = null;
     let continuation = null;
     let slowTimer = null;
+    let failedSourceIndex = -1;
+    let failedSourceUrl = '';
     try {
         job = beginDownloadJob(id, opts);
         continuation = await downloadJobDirectories.beginAttempt(job);
@@ -6065,6 +6112,15 @@ ipcMain.handle('download-game', async (e, opts) => {
         for (let sourceIndex = 0; sourceIndex < sourceTotal; sourceIndex++) {
             if (ctl.cancelled) throw new Error('Cancelled');
             const sourceLink = links[sourceIndex];
+            failedSourceIndex = sourceIndex;
+            failedSourceUrl = sourceLink.url;
+            let resolutionUrl = sourceLink.url;
+            let usingDirectRetryLink = false;
+            if (directRetryLink && directRetryLink.sourceIndex === sourceIndex && directRetryLink.sourceUrl === sourceLink.url) {
+                resolutionUrl = directRetryLink.url;
+                directRetryLink = null;
+                usingDirectRetryLink = true;
+            }
             const sourceLabel = sourceTotal > 1 ? `Part ${sourceIndex + 1}/${sourceTotal}` : '';
             wc.send('download-progress', {
                 id,
@@ -6074,14 +6130,23 @@ ipcMain.handle('download-game', async (e, opts) => {
                 label: (sourceLabel ? sourceLabel + ' — ' : '') + 'Resolving this file…',
                 subLabel: ''
             });
-            const resolved = await runOwnedLinkResolution(signal => resolveDirectUrl(sourceLink.url, {
-                skipDebrid: opts.skipDebrid,
-                name: sourceLink.name,
-                sourceId: opts.sourceId,
-                referer: opts.referer,
-                onProgress: label => reportResolutionProgress((sourceLabel ? sourceLabel + ' — ' : '') + label),
-                signal
-            }));
+            const resolved = await runOwnedLinkResolution(async signal => {
+                try {
+                    return await resolveDirectUrl(resolutionUrl, {
+                        skipDebrid: opts.skipDebrid,
+                        name: sourceLink.name,
+                        sourceId: opts.sourceId,
+                        referer: opts.referer,
+                        onProgress: label => reportResolutionProgress((sourceLabel ? sourceLabel + ' — ' : '') + label),
+                        signal
+                    });
+                } catch (error) {
+                    if (usingDirectRetryLink && error && typeof error === 'object') error.downloadUrl = sourceLink.url;
+                    throw error;
+                } finally {
+                    resolutionUrl = sourceLink.url;
+                }
+            });
             clearTimeout(slowTimer);
             if (!resolved || !resolved.length) {
                 const error = buildUnresolvedError(sourceLink.url);
@@ -6117,6 +6182,14 @@ ipcMain.handle('download-game', async (e, opts) => {
                 while (attempt < 3 && !ok) {
                     attempt++;
                     try {
+                        if (!file.debridService && gofileDirectDownloadUrl(file.url)) {
+                            reportResolutionProgress('Checking GoFile’s file response…');
+                            file = await runOwnedLinkResolution(signal => prepareGofileDownload(file, {
+                                signal, onProgress: reportResolutionProgress
+                            }));
+                            if (ctl.cancelled) throw new Error('Cancelled');
+                            if (ctl.paused) throw new Error('Paused');
+                        }
                         await downloadWork.run(continuation, {
                             type: 'payload-download',
                             state: 'downloading',
@@ -6145,6 +6218,7 @@ ipcMain.handle('download-game', async (e, opts) => {
                     } catch (e) {
                         lastErr = e;
                         if (ctl.cancelled || ctl.paused || /cancelled|paused/i.test(e.message)) throw e;
+                        if (e && e.gofileTransferInvalid) throw e;
                         if (file.requiresFreshVerification === true) {
                             cleanPartial(dir, file);
                             lastErr = Object.assign(new Error(
@@ -6373,6 +6447,11 @@ ipcMain.handle('download-game', async (e, opts) => {
         if (ctl.cancelled || /cancelled/i.test(err.message)) return { success: false, cancelled: true };
         const errMsg = err.message;
         await retainDownloadJobError(continuation || job);
+        const rejectedLink = failedDebridSourceLinks.get(err);
+        failedDebridSourceLinks.delete(err);
+        const debridRetryToken = !opts.skipDebrid && err.debridFailure === true && rejectedLink
+            ? debridRetryLinks.remember({ owner: wc, continuation, requestKey: retryRequestKey,
+                sourceIndex: failedSourceIndex, sourceUrl: failedSourceUrl, url: rejectedLink }) : '';
         const failedUrl = err.downloadUrl || opts.url || (opts.links && opts.links[0] && opts.links[0].url) || '';
         wc.send('download-error', {
             id,
@@ -6382,10 +6461,18 @@ ipcMain.handle('download-game', async (e, opts) => {
             debridFailure: !opts.skipDebrid && err.debridFailure === true,
             debridRejected: err.debridRejected === true,
             failedDebridService: err.debridFailure === true ? String(err.failedDebridService || '').slice(0, 80) : '',
+            debridRetryToken,
             linkHealth: err.linkHealth === HEALTH_STATES.DOWN ? HEALTH_STATES.DOWN : ''
         });
         return { success: false, error: errMsg };
+    } finally {
+        directRetryLink = null;
     }
+});
+
+ipcMain.handle('discard-debrid-retry-link', (e, payload) => {
+    const input = exactGateAPayload(payload, ['token'], 'Direct retry discard');
+    if (typeof input.token === 'string') debridRetryLinks.discard(input.token, e.sender);
 });
 
 // Cancellation is registered from the shared production module so runtime tests execute
@@ -6395,6 +6482,7 @@ registerDownloadCancellationIpc(ipcMain, {
     activeDownloads,
     pendingBrowserDownloads,
     browserIntents: browserDownloadIntents,
+    onCancelRequested(event, id) { debridRetryLinks.clearDownload(id, event.sender); },
     onCleanupOutcome(job, outcome) {
         try {
             if (mainWindow && !mainWindow.isDestroyed()) {
@@ -6646,6 +6734,7 @@ else {
     app.commandLine.appendSwitch('enable-features', 'GamepadButtonAxisEvents');
 
     app.on('before-quit', () => {
+        debridRetryLinks.clear();
         if (achievementService) achievementService.dispose();
         clearInterval(runtimeMonitorTimer);
         clearTimeout(deferredQuitTimer);
