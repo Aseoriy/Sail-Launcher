@@ -3,6 +3,7 @@
   "productName": "Sail Launcher",
   "version": "5.5.5",
   "description": "Pookie's custom launcher for games",
+  "desktopName": "com.aseoriy.saillauncher.desktop",
   "author": "Aseoriy",
   "main": "runtime/entry.cjs",
   "scripts": {
@@ -60,6 +61,12 @@
       "node_modules/7zip-min/node_modules/7zip-bin/**/*"
     ],
     "linux": {
+      "target": ["AppImage", "deb"],
+      "category": "Game",
+      "icon": "icon.png",
+      "synopsis": "Customizable game launcher",
+      "maintainer": "Aseoriy <alissatorz@gmail.com>",
+      "artifactName": "Sail-Launcher-${version}-${arch}.${ext}",
       "extraResources": [{ "from": "native/linux/x64/sail-native", "to": "native/sail-native" }]
     },
     "win": {

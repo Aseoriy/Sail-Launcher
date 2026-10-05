@@ -8183,7 +8183,7 @@
                         // Locate the Windows installer asset (the .exe) so we can
                         // download it directly. Falls back to the release page.
                         const assets = Array.isArray(response.assets) ? response.assets : [];
-                        const exeAsset = assets.find(a => /\.exe$/i.test(a.name || '') && !/blockmap/i.test(a.name || ''));
+                        const exeAsset = process.platform === 'linux' ? null : assets.find(a => /\.exe$/i.test(a.name || '') && !/blockmap/i.test(a.name || ''));
                         const info = {
                             currentTag,
                             latestTag,
@@ -8246,7 +8246,7 @@
 
         function launcherUpdateInfo(response, forceInstall = false) {
             const assets = Array.isArray(response.assets) ? response.assets : [];
-            const exeAsset = assets.find(asset => /\.exe$/i.test(asset.name || '') && !/blockmap/i.test(asset.name || ''));
+            const exeAsset = process.platform === 'linux' ? null : assets.find(asset => /\.exe$/i.test(asset.name || '') && !/blockmap/i.test(asset.name || ''));
             return {
                 currentTag: PACKAGE_VERSION,
                 latestTag: LauncherLogic.normalizeLauncherVersion(response.tag_name),
