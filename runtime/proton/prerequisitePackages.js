@@ -173,6 +173,7 @@ function legacyVc(prefix, item, registry) {
     const detectedVersion = installed && item.dllVersions ? registered.version : versions.filter(Boolean).sort((a, b) => atLeast(a, b) ? 1 : -1)[0] || registered.version;
     return { installed, unknown, detectedVersion };
 }
+const WINE_DIRECTX_NOTE = 'On standalone Wine this installer needs Wine Mono and fails without it; Wine already provides many of these DirectX libraries, so try the game first.';
 function probe(manager, scope, runtimeId = '') {
     const prefix = manager.prefixPath ? manager.prefixPath(scope, runtimeId) : path.join(manager.root, 'prefixes', scopeKey(scope));
     let registry = '', present = false, error = '';
@@ -183,7 +184,9 @@ function probe(manager, scope, runtimeId = '') {
             catch (failure) { if (failure.code !== 'ENOENT') throw failure; }
         }
     } catch (_) { error = 'The Windows environment could not be checked. Close the game and try again.'; }
-    return recipes.map(item => {
+    let standaloneWine = false;
+    try { standaloneWine = !!runtimeId && manager.runtime(runtimeId).backend === 'wine'; } catch (_) { /* Runtime changes are reported by the install path. */ }
+    const results = recipes.map(item => {
         let installed = false, detectedVersion = '', reason = error;
         try {
             if (!error && present && item.vcYear) {
@@ -204,6 +207,9 @@ function probe(manager, scope, runtimeId = '') {
         } catch (_) { reason = 'Component detection is unavailable for this environment.'; return publicRecipe(item, 'unknown', reason); }
         return { ...publicRecipe(item, error ? 'unknown' : installed ? 'detected' : 'not-detected', reason), detectedVersion };
     });
+    // The DirectX June 2010 setup program needs .NET (Wine Mono) and fails without it; Proton bundles it, standalone Wine often does not.
+    return standaloneWine ? results.map(item => item.id === 'directx-june2010' && item.detection === 'not-detected'
+        ? { ...item, reason: WINE_DIRECTX_NOTE + (item.reason ? ' ' + item.reason : '') } : item) : results;
 }
 function publicRecipe(item, detection, reason) {
     return { id: item.id, label: item.label, version: item.version, size: item.size, infoUrl: item.infoUrl, detection, reason, legacy: !!item.vcYear };
