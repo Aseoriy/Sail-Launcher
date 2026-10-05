@@ -11,7 +11,11 @@ function showProtonSetup({ document, gameId, invoke, available, selectedRuntimeI
     button.disabled = false; if (wineButton) wineButton.disabled = false; prepare.disabled = true; environment.textContent = '';
     const current = () => panel.dataset.gameId === gameId && panel.protonSetupToken === token;
     let selection = selectedRuntimeId, useDefault = false, windowsGame = false, busy = false, catalogRevision = 0, environmentRevision = 0;
+    // Heavy mod loaders such as Geode can stall on stock Wine; Proton builds include the needed fixes.
+    const modNote = document.getElementById('wineModNote');
+    const syncModNote = () => { if (modNote) modNote.hidden = !/^Wine\b/.test([...select.options].find(option => option.value === select.value)?.textContent || ''); };
     const refreshEnvironment = async () => {
+        syncModNote();
         const revision = ++environmentRevision, runtimeId = selection;
         prepare.disabled = true;
         if (!runtimeId || runtimeId.startsWith('detected:') || runtimeId.startsWith('wine:')) { environment.textContent = ''; return; }
@@ -63,6 +67,7 @@ function showProtonSetup({ document, gameId, invoke, available, selectedRuntimeI
             const option = document.createElement('option'); option.value = selection; option.textContent = 'Previously selected version — unavailable';
             option.disabled = true; select.append(option); select.value = selection;
         }
+        syncModNote();
         status.textContent = result.reason || 'Choose the compatibility version for this game.';
         await refreshEnvironment();
     };
