@@ -4,6 +4,7 @@ const DownloadSizeLogic = require('./downloadSizeLogic');
 const CANCELLATION_MESSAGES = Object.freeze({
     cancelled_clean: 'Download cancelled. No temporary files were created.',
     cancelled_quarantined: 'Download cancelled. Temporary files were retained in quarantine for safety.',
+    cancelled_saved: 'Further download setup was cancelled. Published game files and any library entry were kept.',
     already_cancelled: 'This download was already cancelled.',
     cancellation_pending: 'Cancellation requested. Sail is waiting for active download work to stop safely.',
     cleanup_pending: 'Cancellation requested. Sail is waiting for active download work to stop safely.',
@@ -25,6 +26,7 @@ function cancellationPresentation(result) {
     const pending = status === 'cancellation_pending' || status === 'cleanup_pending';
     const completed = status === 'cancelled_clean'
         || status === 'cancelled_quarantined'
+        || status === 'cancelled_saved'
         || status === 'already_cancelled';
     return {
         status,

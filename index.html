@@ -2265,8 +2265,12 @@
         }
 
         .steam-search-result {
+            display:flex; align-items:center; gap:10px; padding:8px; cursor:pointer; border-radius:8px;
             transition: background 0.2s;
         }
+        .steam-search-result img { width:92px; height:35px; object-fit:cover; border-radius:4px; flex-shrink:0; }
+        .steam-search-caption { min-width:0; display:flex; flex-direction:column; gap:3px; }
+        .steam-search-caption small { font-size:11px; opacity:0.65; }
 
         .steam-search-result:hover {
             background: var(--border-color) !important;
@@ -4223,6 +4227,14 @@
 
                 <div id="continuePlayingCard" class="continue-card" style="display:none;" tabindex="0"></div>
 
+                <div id="compatibilitySetupBanner" class="account-card" hidden style="margin:12px 0;">
+                    <strong>Windows gaming setup</strong>
+                    <p id="compatibilitySetupBannerText">Prepare compatibility tools for Windows games.</p>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                        <button id="compatibilitySetupBannerOpen">Open setup</button>
+                        <button id="compatibilitySetupBannerDismiss" class="outline">Not now</button>
+                    </div>
+                </div>
                 <div class="game-grid" id="gameGrid"></div>
                 <div id="libraryEmptyState" class="library-empty-state" role="status" aria-live="polite" hidden>
                     <span class="library-empty-icon" aria-hidden="true"><span class="app-ic" data-ic="search"></span></span>
@@ -4410,6 +4422,12 @@
                             <input type="text" id="downloadSearchInput" placeholder="Search for a game (e.g. Hades, Elden Ring)..." style="flex-grow: 1; padding: 12px 16px; background: var(--bg-color); border: 1px solid var(--border-color); color: var(--text-color); border-radius: 8px; font-size: 15px;" onkeydown="if(event.key === 'Enter') runDownloadSearch()">
                             <button id="downloadSearchBtn" onclick="runDownloadSearch()" style="padding: 12px 28px; border-radius: 8px; font-size: 15px;">Search</button>
                         </div>
+                        <div id="linuxDownloadHint" hidden style="font-size:12px;opacity:.75;">Linux supports direct HTTPS transfers, ZIP, RAR, and 7z archives. For browser verification or torrents, download separately, then import the archive. Setup uses this game’s Proton environment.</div>
+                        <div id="linuxArchiveImportControls" style="display:none;gap:10px;align-items:center;flex-wrap:wrap;">
+                            <input id="linuxArchiveGameName" hidden aria-label="Imported game name" placeholder="Name for imported game" maxlength="240" style="flex:1;min-width:180px;">
+                            <button id="importLinuxGameArchive" class="outline" hidden>Import archive…</button>
+                        </div>
+                        <div id="linuxRetainedDownloads" hidden aria-label="Saved Linux downloads"></div>
                         <div id="downloadSourceToggles" style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
                             <span style="font-size: 11px; opacity: 0.5; font-weight: bold; text-transform: uppercase; margin-right: 4px;">Sources:</span>
                             <!-- source chips injected here -->
@@ -4502,7 +4520,7 @@
                     <button id="gpInfoBtn" class="outline"
                         style="margin-right: 10px; font-size: 18px; padding: 6px 12px; border:none; box-shadow:none; color: var(--accent);">ℹ️</button>
 
-                    <span id="gpStatusText" style="opacity: 0.7; margin-right: 15px; font-size: 14px;"
+                    <span id="gpStatusText" style="opacity: 0.7; margin-right: 15px; font-size: 14px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; max-width:210px;"
                         data-i18n="ready">Ready to Play</span>
                     <button id="gpSyncBtn" class="outline" style="display:none; margin-right: 10px;" data-i18n="sync">☁️
                         Sync Saves</button>
@@ -4744,6 +4762,17 @@
                     style="width: 100%; box-sizing: border-box;">
             </div>
 
+            <div id="nativeLaunchFields" hidden style="margin-top: 10px;">
+                <label for="wineDllOverridesInput">Wine DLL overrides</label>
+                <input id="wineDllOverridesInput" type="text" placeholder="xinput1_4=n,b" style="width:100%;box-sizing:border-box;">
+                <p style="font-size:12px;opacity:0.7;">For Geode: xinput1_4=n,b. These settings stay on this PC.</p>
+                <div class="input-row">
+                    <button id="changeNativeExecutableBtn">Change executable</button>
+                    <button id="changeNativeDirectoryBtn">Change working folder</button>
+                </div>
+                <p id="nativeLaunchPaths" style="font-size:12px;overflow-wrap:anywhere;"></p>
+            </div>
+
             <div style="margin-top: 15px;">
                 <label style="font-size: 12px; opacity:0.6; margin-bottom: 5px; display:block;">Companion App / Mod Tool
                     (e.g. WeMod)</label>
@@ -4769,6 +4798,64 @@
                     <input type="text" id="postLaunchInput" placeholder="Path to script">
                     <button id="browsePostLaunchBtn">Browse</button>
                 </div>
+            </div>
+
+            <div id="protonSetupPanel" hidden style="margin-top:14px;">
+                <label for="protonRuntimeSelect" style="font-size:12px;display:block;margin-bottom:5px;">Compatibility</label>
+                <select id="protonRuntimeSelect" style="width:100%;"><option value="">Native Linux executable</option></select>
+                <button class="outline" id="manageCompatibilityBtn" style="width:100%;margin-top:7px;">Manage compatibility versions</button>
+                <button class="outline" id="addProtonRuntimeBtn" style="width:100%;margin-top:7px;">Browse for another Proton folder</button>
+                <button class="outline" id="registerWineRuntimeBtn" style="width:100%;margin-top:7px;">Browse for a Wine executable</button>
+                <div id="protonDiscoveryStatus" style="font-size:11px;opacity:.8;margin-top:7px;" role="status"></div>
+                <button class="outline" id="prepareProtonEnvironmentBtn" disabled style="width:100%;margin-top:7px;">Prepare Windows environment</button>
+                <div id="protonEnvironmentStatus" style="font-size:10px;opacity:.65;margin-top:7px;" role="status"></div>
+                <div id="protonSetupStatus" style="font-size:10px;opacity:.65;margin-top:7px;" role="status"></div>
+            </div>
+
+            <div id="linuxDownloadedGamePanel" hidden style="margin-top:14px;">
+                <button id="configureLinuxDownloadedGame" class="outline" style="width:100%;">Finish downloaded game setup</button>
+                <p id="linuxDownloadedGameStatus" role="status" style="font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"></p>
+            </div>
+            <div id="protonInstallationPanel" hidden style="margin-top:14px;">
+                <label style="font-size:12px;display:block;">Windows installation</label>
+                <button id="runWindowsInstaller" class="outline" disabled style="width:100%;margin-top:7px;">Run Windows installer…</button>
+                <label style="display:flex;gap:8px;align-items:center;font-size:11px;margin:9px 0;"><input id="includeBundledPrerequisites" type="checkbox" checked>Install supported bundled prerequisites afterward</label>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                    <button id="checkProtonPrerequisites" class="outline" disabled>Check bundled prerequisites</button>
+                    <button id="installProtonPrerequisites" class="outline" disabled>Install bundled prerequisites</button>
+                    <button id="cancelWindowsInstallation" class="outline" hidden>Cancel installation</button>
+                </div>
+                <p id="protonBundledPrerequisites" style="font-size:11px;"></p>
+                <div style="margin-top:14px;padding-top:12px;border-top:1px solid rgba(255,255,255,.1);">
+                    <label style="font-size:12px;display:block;">Windows components</label>
+                    <p style="font-size:11px;opacity:.8;">Download Visual C++ v14, 2010, 2012, 2013 or legacy DirectX from Microsoft. Suggested missing components are selected for this game; you can choose others.</p>
+                    <div id="protonOnlineComponents" style="display:grid;gap:8px;font-size:11px;"></div>
+                    <div id="protonComponentGuidance" hidden style="font-size:11px;line-height:1.5;overflow-wrap:anywhere;margin-top:10px;"></div>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
+                        <button id="checkOnlineProtonPrerequisites" class="outline" disabled>Check components</button>
+                        <button id="installOnlineProtonPrerequisites" class="outline" disabled>Download and install selected</button>
+                        <button id="cancelOnlineProtonPrerequisites" class="outline" hidden>Cancel download</button>
+                    </div>
+                    <p id="protonOnlinePrerequisiteStatus" role="status" aria-live="polite" style="font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"></p>
+                </div>
+                <p id="protonInstallationStatus" role="status" aria-live="polite" style="font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"></p>
+                <p style="font-size:11px;opacity:.65;">Uses this game’s Windows environment. Proton’s first use may download a Linux runtime. Includes bundled installers and Microsoft downloads for common components. Other components can be chosen manually. After installing a game, select its executable using Change executable above.</p>
+            </div>
+
+            <div id="protonLaunchLogPanel" hidden style="margin-top:14px;">
+                <button id="viewProtonLaunchLog" class="outline" style="width:100%;">View launch log</button>
+                <p id="protonLaunchLogHint" role="status" style="font-size:12px;"></p>
+                <pre id="protonLaunchLogText" hidden tabindex="0" aria-label="Recent compatibility launch log" style="max-height:260px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;padding:10px;background:rgba(0,0,0,.25);border-radius:8px;"></pre>
+            </div>
+            <div id="protonSavesPanel" hidden style="margin-top:14px;">
+                <label style="font-size:12px;display:block;">Existing saves</label>
+                <p style="font-size:12px;opacity:.8;">Sail uses a separate save folder. You can import an existing Steam save after closing the game.</p>
+                <select id="protonSaveSelect" aria-label="Detected Steam saves" hidden style="width:100%;"></select>
+                <div style="display:flex;gap:7px;margin-top:7px;">
+                    <button class="outline" id="checkProtonSavesBtn">Check for saves</button>
+                    <button class="outline" id="importProtonSaveBtn" disabled>Import Steam save</button>
+                </div>
+                <div id="protonSavesStatus" style="font-size:12px;opacity:.8;margin-top:7px;overflow-wrap:anywhere;" role="status"></div>
             </div>
 
             <button class="outline" id="approveLocalExecutionBtn" style="width:100%;margin-top:14px;">
@@ -5538,6 +5625,17 @@
         </div>
     </div>
 
+    <style>
+        .compatibility-row { display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid var(--border-color,rgba(255,255,255,.1)); }
+        .compatibility-row > div { min-width:0;flex:1; }
+        .compatibility-row strong,.compatibility-row small { display:block;overflow-wrap:anywhere; }
+        .compatibility-row small { opacity:.7;font-size:12px;margin-top:4px; }
+        .compatibility-row button { flex-shrink:0; }
+        #tab-compatibility progress { accent-color:var(--accent-color,#a855f7); }
+        .compatibility-check-state { flex-shrink:0;font-size:12px; }
+        .compatibility-check-state[data-state="missing"],.compatibility-check-state[data-state="warning"] { color:var(--text-color);font-weight:600; }
+        #compatibilitySetupBanner[hidden] { display:none; }
+    </style>
     <div id="settingsModal" class="modal">
         <div class="modal-content" style="width: 850px; max-width: 90vw;">
             <button class="close-x" onclick="closeModal('settingsModal')">✕</button>
@@ -5560,12 +5658,57 @@
                     Cloud Sync</div>
                 <div class="settings-tab" tabindex="0" onclick="switchSettingsTab('library')"><span class="app-ic" data-ic="book"></span>
                     Library Management</div>
+                <div class="settings-tab" id="settingsTabCompatibility" hidden style="display:none;" tabindex="0" onclick="switchSettingsTab('compatibility')">Compatibility</div>
                 <div class="settings-tab" id="settingsTabMaintenance" tabindex="0" onclick="switchSettingsTab('maintenance')" style="display:none;"><span class="app-ic" data-ic="wrench"></span>
                     Maintenance</div>
                 <div class="settings-tab" tabindex="0" onclick="switchSettingsTab('experimental')"><span class="app-ic" data-ic="flask"></span>
                     Experimental</div>
                 <div class="settings-tab" tabindex="0" onclick="switchSettingsTab('alerts')" id="tabButtonAlerts" style="display: none;"><span class="app-ic" data-ic="code"></span>
                     Developer</div>
+            </div>
+
+            <div id="tab-compatibility" class="settings-pane" hidden style="display:none;">
+                <div class="account-card">
+                    <h3>Windows game compatibility</h3>
+                    <p>Set up tools for Windows games, then choose a version per game when needed.</p>
+                    <p id="compatibilitySetupSummary" role="status" aria-live="polite">Checking Windows gaming setup…</p>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                        <button id="compatibilitySetup" disabled>Set up Windows gaming</button>
+                        <button id="compatibilityCheck" class="outline">Recheck requirements</button>
+                    </div>
+                    <details style="margin:14px 0;" open>
+                        <summary>Setup checklist</summary>
+                        <div id="compatibilityChecklist"></div>
+                    </details>
+                    <p style="font-size:12px;opacity:.75;">Sail downloads UMU and GE-Proton here. You can also select installed Wine below. System Python and graphics packages are checked below. Each game uses its own Windows environment.</p>
+                    <label for="compatibilityDefault">Default compatibility version</label>
+                    <select id="compatibilityDefault" style="width:100%;margin-top:7px;"><option value="">Loading…</option></select>
+                    <p style="font-size:12px;opacity:.75;">Used when setting up new Windows games. Existing games keep their selected version; you can change it in Manage Game.</p>
+                    <p id="compatibilityUmu"></p>
+                </div>
+                <div class="account-card" style="margin-top:14px;">
+                    <h3>Download versions</h3>
+                    <p>Downloads come from the official UMU and GE-Proton releases. Updates install alongside existing versions.</p>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                        <select id="compatibilityKind" aria-label="Compatibility tool"><option value="proton">GE-Proton</option><option value="umu">UMU launcher</option></select>
+                        <select id="compatibilityVersion" aria-label="Version to download" style="flex:1;min-width:180px;"><option value="">Check for available versions</option></select>
+                    </div>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
+                        <button id="compatibilityInstall" disabled>Install selected version</button>
+                        <button id="compatibilityRefresh" class="outline">Check for updates</button>
+                        <button id="compatibilityCancel" class="outline" hidden>Cancel download</button>
+                    </div>
+                    <progress id="compatibilityProgress" hidden style="width:100%;margin-top:12px;" aria-label="Compatibility download progress"></progress>
+                    <p id="compatibilityJob" role="status" aria-live="polite" style="overflow-wrap:anywhere;"></p>
+                    <p id="compatibilityStatus" role="status" aria-live="polite" style="overflow-wrap:anywhere;"></p>
+                </div>
+                <div class="account-card" style="margin-top:14px;"><h3>Downloaded by Sail</h3><div id="compatibilityInstalled"></div></div>
+                <div class="account-card" style="margin-top:14px;">
+                    <h3>Other installed versions</h3><div id="compatibilityDetected"></div>
+                    <button id="compatibilityBrowse" class="outline" style="margin-top:10px;">Browse for a Proton folder</button>
+                    <button id="compatibilityBrowseWine" class="outline" style="margin-top:10px;">Browse for a Wine executable</button>
+                    <p id="compatibilityWine" style="font-size:12px;opacity:.75;"></p>
+                </div>
             </div>
 
             <div id="tab-appearance" class="settings-pane active">
@@ -6882,6 +7025,80 @@
     <script src="ui/achievements.js"></script>
     <script>
         const ipcRenderer = require('electron').ipcRenderer;
+        const localOnlyPreview = process.env.SAIL_DEV_ISOLATED === '1' || process.platform === 'linux';
+        let localProfileLoaded = false;
+        const platformAvailability = require('./ui/platformAvailability').installPlatformAvailability(document, ipcRenderer);
+        const desktopProtocol = require('./ui/desktopProtocol').installDesktopProtocol({
+            document, ipc: ipcRenderer, getSupport: () => platformAvailability.support, notice: platformAvailability.notice
+        });
+        const linuxDownloadsUi = require('./ui/linuxDownloads').installLinuxDownloads({
+            document, ipc: ipcRenderer, invoke: invokeAccount, ready: platformAvailability.ready, notice: platformAvailability.notice,
+            getRuntimeId: () => document.getElementById('protonRuntimeSelect').value,
+            getScope: () => launcherProfileState ? `${launcherProfileState.activeProfileId}:${launcherProfileState.activeLibraryId}` : '',
+            onImport: () => window.importLinuxGameArchive(),
+            onChanged: result => {
+                if (result?.state && result?.snapshot) applyLauncherSnapshot(result);
+                if (result?.gameId) document.dispatchEvent(new CustomEvent('sail-local-execution-changed', { detail: { gameId: String(result.gameId) } }));
+                if (localProfileLoaded) { renderGames(); if (viewingGameIndex !== null) updateGamePageActionBar(); }
+            }
+        });
+        const nativeSessions = new Map();
+        const nativePendingActivities = new Map();
+        const nativePendingGames = new Set();
+        const compatibilityManager = require('./ui/compatibilityManager').installCompatibilityManager({
+            document, invoke: invokeAccount, ready: platformAvailability.ready,
+            open: () => { openModal('settingsModal'); window.switchSettingsTab('compatibility'); }
+        });
+        document.getElementById('manageCompatibilityBtn').onclick = () => compatibilityManager.show().catch(error => platformAvailability.notice(error.message));
+        const protonFirstLaunchUi = require('./ui/protonFirstLaunch').createProtonFirstLaunch({
+            invoke: invokeAccount, getScope: () => currentRuntimeLibraryKey(),
+            getSetup: gameId => invokeAccount('authority-get-native-setup', { gameId }),
+            getAuthority: executionAuthorityReference, launch: launchNativeGame,
+            configure: configureFirstPlay, manage: openFirstPlaySettings,
+            changed: () => { if (localProfileLoaded) { renderGames(); if (viewingGameIndex !== null) updateGamePageActionBar(); } }
+        });
+        function steamMetadataAvailable() { return !localOnlyPreview || !!platformAvailability.support?.features.steamMetadata?.available; }
+        function nativeGamesAvailable() { return process.platform === 'linux' && !!platformAvailability.support?.features.nativeGames.available; }
+        function nativeRecoveryAvailable() { return process.platform === 'linux' && !!platformAvailability.support?.features.nativeRecovery.available; }
+        function linuxDownloadLabel(gameId) { const state = linuxDownloadsUi.state(gameId); return state && state.phase !== 'ready' ? linuxDownloadsUi.label(state) : ''; }
+        function nativeSessionStatus(gameId) {
+            return require('./ui/nativeSessionStatus').sessionStatus(nativeSessions.get(String(gameId)), nativePendingGames.has(String(gameId)));
+        }
+        function nativeSessionText(gameId) { return nativeSessionStatus(gameId).label; }
+        function receiveNativeState(state) {
+            if (!localProfileLoaded || !nativeRecoveryAvailable()) return;
+            const previous = [...nativeSessions.keys()].join('|') + ':' + [...nativePendingGames].join('|');
+            const previousGames = new Set(nativeSessions.keys());
+            nativeSessions.clear();
+            nativePendingGames.clear(); nativePendingActivities.clear();
+            for (const event of state.completedSessions || []) {
+                if (event.provider === 'linux-native' && event.libraryKey === currentRuntimeLibraryKey()) {
+                    nativePendingGames.add(String(event.gameId));
+                    if (event.creditPlaytime === false) nativePendingActivities.set(String(event.gameId), event.activity || 'game');
+                }
+            }
+            for (const session of Object.values(state.activeSessions || {})) {
+                if (session.provider !== 'linux-native' || session.libraryKey !== currentRuntimeLibraryKey()) continue;
+                nativeSessions.set(String(session.gameId), session);
+                const index = myGames.findIndex(game => String(game.id) === String(session.gameId));
+                if (index >= 0) { runtimeSessionIds[index] = session.sessionId; sessionStartTimes[index] = session.startedAt; }
+            }
+            for (const id of previousGames) {
+                if (nativeSessions.has(id)) continue;
+                const index = myGames.findIndex(game => String(game.id) === id);
+                delete runtimeSessionIds[index]; delete sessionStartTimes[index];
+                if (activeGameIndex === index) activeGameIndex = null;
+            }
+            if (viewingGameIndex !== null) updateGamePageActionBar();
+            else if (previous !== [...nativeSessions.keys()].join('|') + ':' + [...nativePendingGames].join('|')) renderGames();
+            for (const [id] of nativeSessions) {
+                const index = myGames.findIndex(game => String(game.id) === id);
+                const status = document.getElementById(`status-${index}`);
+                if (status) { const display = nativeSessionStatus(id); status.textContent = display.label; status.title = display.detail; }
+            }
+        }
+        ipcRenderer.on('native-runtime-state', (_event, state) => receiveNativeState(state));
+        function previewUnavailable(feature) { platformAvailability.notice(`${feature} is unavailable in this offline Linux boot milestone. Local library and settings remain available.`); }
         const fs = require('fs-extra');
         const path = require('path');
         const os = require('os');
@@ -6920,7 +7137,7 @@
             btn.innerHTML = window.ic(muted ? 'mute' : 'volume');
             if (typeof paintIcons === 'function') paintIcons(btn);
             btn.title = muted ? 'Installer music muted — click to unmute' : 'Mute installer music';
-            try { require('electron').ipcRenderer.send('toggle-installer-mute', muted); } catch (e) {}
+            try { if (!localOnlyPreview) require('electron').ipcRenderer.send('toggle-installer-mute', muted); } catch (e) {}
         };
         document.getElementById('muteBtn').addEventListener('click', () => {
             globalSettings.muteSounds = !globalSettings.muteSounds;
@@ -7165,7 +7382,7 @@
         const { createClient: createSupabaseClient } = require('@supabase/supabase-js');
         const SAIL_SUPABASE_URL = 'https://vglpzpffejwgttlqrums.supabase.co';
         const SAIL_SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_BaNykIu4jFs-B1hVAd2Y1A_71t1BK2e';
-        const alertSupabase = createSupabaseClient(SAIL_SUPABASE_URL, SAIL_SUPABASE_PUBLISHABLE_KEY, {
+        const alertSupabase = localOnlyPreview ? null : createSupabaseClient(SAIL_SUPABASE_URL, SAIL_SUPABASE_PUBLISHABLE_KEY, {
             auth: { persistSession: false, autoRefreshToken: true, detectSessionInUrl: false }
         });
         let alertAdminAuthorized = false;
@@ -7175,7 +7392,9 @@
         let skipStaggerAnimation = false;
 
         function applyGlassOpacity() {
-            const configuredOpacity = Number(globalSettings.glassOpacity);
+            const storedOpacity = Number(globalSettings.glassOpacity);
+            // Accept portable ratios as well as existing local UI percentages.
+            const configuredOpacity = storedOpacity >= 0.05 && storedOpacity <= 1 ? storedOpacity * 100 : storedOpacity;
             const opacity = Number.isFinite(configuredOpacity)
                 ? Math.max(0, Math.min(100, configuredOpacity))
                 : 40;
@@ -7188,6 +7407,7 @@
         }
 
         function syncThemeToIframe() {
+            if (localOnlyPreview) return;
             const webview = document.getElementById('storeIframe');
             if (!webview) return;
             const styles = getComputedStyle(document.body);
@@ -7518,6 +7738,7 @@
         let installedPlugins = []; // Track loaded plugin manifests
 
         async function loadPlugins() {
+            if (localOnlyPreview) return;
             installedPlugins = [];
             try {
                 const userDataPath = await ipcRenderer.invoke('get-user-data');
@@ -7798,6 +8019,7 @@
         }
 
         async function checkPluginUpdates() {
+            if (localOnlyPreview) { previewUnavailable('Plugin updates'); return; }
             try {
                 if (installedPlugins.length === 0) return;
                 const remoteItems = await fetchRemotePlugins();
@@ -8036,6 +8258,7 @@
         }
 
         async function checkForUpdates(silent = false, triggerBtn = null, options = {}) {
+            if (localOnlyPreview) { if (!silent) previewUnavailable('Installer updates'); return; }
             const button = triggerBtn || document.getElementById('checkUpdateBtn');
             const originalLabel = button ? button.innerText : 'Check Updates';
             const forceInstall = !!options.forceInstall;
@@ -8248,6 +8471,7 @@
 
         // On startup: if we just applied an update, celebrate & tidy up.
         function checkUpdateCompleted() {
+            if (localOnlyPreview) return;
             const pv = globalSettings.pendingUpdateVersion;
             if (!pv) return;
             const cur = APP_VERSION.replace(/^v/i, '');
@@ -8263,6 +8487,7 @@
         // ===================== Supporters (live from Sail Hub) =====================
         let _supportersCache = null;
         window.openSupportersModal = function () {
+            if (localOnlyPreview) { previewUnavailable('Live supporters'); return; }
             const modal = document.getElementById('supportersModal');
             modal.classList.add('show');
             const list = document.getElementById('supList');
@@ -8284,6 +8509,7 @@
         // Fetch the Sail Hub supporters page and pull out its embedded SUPPORTERS array
         // (the page renders client-side from a plain JS array, so we parse that directly).
         function fetchSupporters() {
+            if (localOnlyPreview) return Promise.reject(new Error('SAIL_OFFLINE: Live supporters are unavailable in this milestone.'));
             return new Promise((resolve, reject) => {
                 const https = require('https');
                 https.get('https://sailhub.fyi/supporters', { headers: { 'User-Agent': 'Sail-Launcher' } }, (res) => {
@@ -8363,6 +8589,7 @@
         }
 
         async function checkRemoteAlerts() {
+            if (localOnlyPreview) return;
             const container = document.getElementById('launcherAlertContainer');
             if (!container) return;
             try {
@@ -9270,7 +9497,7 @@
             const operation = (async () => {
                 try {
                 if (!silent) setAccountStatus('Uploading profiles, libraries, and settings…');
-                await invokeAccount('profiles-capture-active', { myGames, customSections, globalSettings });
+                await flushLocalProfile();
                 remoteControlPlane = await invokeAccount('account-upsert-remote');
                 setSyncConfidenceStatus('library', 'success');
                 finishSyncConfidence('success');
@@ -9298,6 +9525,7 @@
         }
 
         function queueAccountControlPlaneSync() {
+            if (localOnlyPreview) return;
             if (!accountUiState.signedIn || !accountSyncEnabledOnThisPc()) return;
             clearTimeout(accountControlPlaneTimer);
             accountControlPlaneTimer = setTimeout(() => syncLocalAccountControlPlane(true), 5000);
@@ -9650,11 +9878,16 @@
             myGames.forEach(game => DownloadSourceLogic.repairDownloadedSteamGameMetadata(game));
             customSections = Array.isArray(snapshot.customSections) ? snapshot.customSections : [];
             globalSettings = Object.assign({}, globalSettings, snapshot.globalSettings || {});
+            localProfileLoaded = true;
             sessionStartTimes = {};
             runtimeSessionIds = {};
             runtimeLaunchGraceUntil = {};
             activeGameIndex = null;
             saveToMemory();
+            updateThemeSelect();
+            applyTheme(globalSettings.theme);
+            applyGlassOpacity();
+            document.getElementById('glassOpacityContainer').style.display = globalSettings.glassmorphicUi ? 'block' : 'none';
             applyMotionSettings();
             try { applyPageVisibility(); } catch (_) {}
             ipcRenderer.invoke('maintenance-set-enabled', globalSettings.maintenanceEnabled === true).catch(() => {});
@@ -9663,13 +9896,14 @@
             renderAccountUi();
             if (window.SailAchievements) window.SailAchievements.syncLibrary({ render: false }).catch(() => {});
             initializeRuntimeRecovery().catch(error => console.error('Profile runtime recovery failed:', error));
+            linuxDownloadsUi.refresh().catch(error => platformAvailability.notice(error.message));
         }
 
         window.switchLauncherProfile = async function () {
             const profileId = document.getElementById('launcherProfileSelect').value;
             const profile = launcherProfileState.profiles.find(item => item.id === profileId);
             try {
-                await invokeAccount('profiles-capture-active', { myGames, customSections, globalSettings });
+                await flushLocalProfile();
                 if (profile && profile.locked) {
                     const unlock = await invokeAccount('profiles-unlock', {
                         profileId,
@@ -9812,7 +10046,7 @@
 
         window.switchLauncherLibrary = async function () {
             try {
-                await invokeAccount('profiles-capture-active', { myGames, customSections, globalSettings });
+                await flushLocalProfile();
                 applyLauncherSnapshot(await invokeAccount('profiles-switch-library', {
                     libraryId: document.getElementById('launcherLibrarySelect').value
                 }));
@@ -9836,7 +10070,7 @@
 
         window.switchLauncherPreset = async function () {
             try {
-                await invokeAccount('profiles-capture-active', { myGames, customSections, globalSettings });
+                await flushLocalProfile();
                 applyLauncherSnapshot(await invokeAccount('profiles-switch-preset', {
                     presetId: document.getElementById('launcherPresetSelect').value
                 }));
@@ -9947,6 +10181,7 @@
         let syncV2IntervalHandle = null;
         let syncManualInFlight = null;
         function scheduleSyncV2Interval() {
+            if (localOnlyPreview) return;
             clearInterval(syncV2IntervalHandle);
             const settings = normalizedSyncV2();
             if (settings.configIntervalMinutes > 0) {
@@ -10241,6 +10476,7 @@
         }
 
         function queueSailCloudGameSaveBackfillIfNeeded() {
+            if (localOnlyPreview) return;
             if (!sailCloudGameSavesEnabled()) return;
             if (localStorage.getItem(sailCloudGameSaveBackfillKey())) return;
             if (sailCloudGameSaveBackfillQueued || sailCloudGameSaveBackfillInFlight) return;
@@ -10584,6 +10820,7 @@
         }
 
         window.runManualLauncherSync = async function (trigger = 'manual') {
+            if (localOnlyPreview) { previewUnavailable('Cloud synchronization'); return; }
             if (syncManualInFlight) {
                 setSyncV2Status('A sync is already running. Please wait for it to finish.');
                 return syncManualInFlight;
@@ -10774,13 +11011,14 @@
             }
         }
 
-        let gameConfigIntervalHandle = setInterval(() => {
+        let gameConfigIntervalHandle = localOnlyPreview ? null : setInterval(() => {
             myGames.forEach(game => {
                 runGameConfigSync(game, 'upload', 'interval').catch(error => console.error('Game config interval sync failed:', safeSyncErrorMessage(error)));
             });
         }, 60000);
 
         async function initApp() {
+            await platformAvailability.ready;
             try {
                 const bootstrap = await ipcRenderer.invoke('profiles-bootstrap');
                 if (bootstrap && bootstrap.success && bootstrap.data) {
@@ -10789,11 +11027,15 @@
                     myGames = Array.isArray(snapshot.myGames) ? snapshot.myGames : myGames;
                     customSections = Array.isArray(snapshot.customSections) ? snapshot.customSections : customSections;
                     globalSettings = Object.assign({}, globalSettings, snapshot.globalSettings || {});
+                    localProfileLoaded = true;
                 }
             } catch (error) {
                 console.error('Launcher profile bootstrap failed:', error);
+                if (localOnlyPreview) throw error;
             }
 
+            if (localOnlyPreview && !localProfileLoaded) throw new Error('The isolated local profile could not be loaded.');
+            compatibilityManager.offerSetup().catch(() => { /* Setup remains available in Settings if a local scan fails. */ });
             if (!globalSettings.dismissedAlerts) globalSettings.dismissedAlerts = [];
             if (purgeLegacyAlertCredentials()) saveToMemory();
             if (globalSettings.favoritesFirst === undefined) globalSettings.favoritesFirst = true;
@@ -10885,8 +11127,8 @@
             try { applyUiAccent(); } catch (e) {}
             try { applyUiCustom(); } catch (e) {}
             // push debrid + pixeldrain-proxy config to main, and reflect the active service badge
-            try { window.pushDebridConfigToMain && window.pushDebridConfigToMain(); } catch (e) {}
-            try { if (typeof window.getPixeldrainProxies === 'function') ipcRenderer.send('set-pixeldrain-proxies', window.getPixeldrainProxies()); } catch (e) {}
+            try { if (!localOnlyPreview) window.pushDebridConfigToMain && window.pushDebridConfigToMain(); } catch (e) {}
+            try { if (!localOnlyPreview && typeof window.getPixeldrainProxies === 'function') ipcRenderer.send('set-pixeldrain-proxies', window.getPixeldrainProxies()); } catch (e) {}
             try { if (typeof window.updateDebridBadge === 'function') window.updateDebridBadge(); } catch (e) {}
             if (globalSettings.recentDays === undefined) globalSettings.recentDays = 30;
             if (globalSettings.showSocialSidebar === undefined) globalSettings.showSocialSidebar = true;
@@ -11055,15 +11297,15 @@
             if (globalSettings.sidebarCollapsed) document.getElementById('mainSidebar').classList.add('collapsed');
             syncSidebarToggleAccessibility();
 
-            ipcRenderer.invoke('set-autostart', globalSettings.autoStart);
-            ipcRenderer.send('set-rpc-setting', globalSettings.disableDiscordRpc);
+            await autostartControl.initialize();
+            if (!localOnlyPreview) ipcRenderer.send('set-rpc-setting', globalSettings.disableDiscordRpc);
             ipcRenderer.send('set-exit-behavior', globalSettings.exitWhenClosed);
             ipcRenderer.send('set-devtools-setting', globalSettings.enableDevTools);
 
             renderQuickPathsManager();
             renderSidebar(); renderGames(); pushNavState();
 
-            if (window.SailAchievements) {
+            if (!localOnlyPreview && window.SailAchievements) {
                 await window.SailAchievements.initialize({
                     getGames: () => myGames,
                     getSettings: () => globalSettings,
@@ -11090,7 +11332,7 @@
 
             // Check for active announcements/alerts
             checkRemoteAlerts();
-            setInterval(checkRemoteAlerts, 10 * 60 * 1000);
+            if (!localOnlyPreview) setInterval(checkRemoteAlerts, 10 * 60 * 1000);
 
             const autoId = await ipcRenderer.invoke('get-auto-launch');
             if (autoId) {
@@ -11215,7 +11457,7 @@
             await loadPlugins();
 
             // Auto-check for plugin updates on startup
-            setTimeout(() => checkPluginUpdates(), 3000);
+            if (!localOnlyPreview) setTimeout(() => checkPluginUpdates(), 3000);
 
             // --- SAIL HUB: Handle one-click installs from the website ---
             ipcRenderer.on('hub-install', async (e, { action, fileUrl }) => {
@@ -11332,13 +11574,14 @@
             try { checkUpdateCompleted(); } catch (e) { console.error('Update-complete check failed:', e); }
 
             // Initialize Maintenance only after the library/settings migrations above finish.
-            try { if (window.maintenanceInitialize) await window.maintenanceInitialize(); } catch (e) { console.error('Maintenance initialization failed:', e); }
+            try { if (!localOnlyPreview && window.maintenanceInitialize) await window.maintenanceInitialize(); } catch (e) { console.error('Maintenance initialization failed:', e); }
 
             // Recover playtime and post-game save/config work left behind by a crash or forced close.
             try { await initializeRuntimeRecovery(); } catch (e) { console.error('Runtime recovery initialization failed:', e); }
+            await linuxDownloadsUi.refresh().catch(error => platformAvailability.notice(error.message));
 
             // Auto-check for updates silently on startup
-            setTimeout(() => checkForUpdates(true), 3000);
+            if (!localOnlyPreview) setTimeout(() => checkForUpdates(true), 3000);
 
             // Intercept click & keyboard focus events on select elements for custom select dropdown modal in glassmorphic mode
             document.addEventListener('mousedown', (e) => {
@@ -11652,7 +11895,20 @@
             saveHistory(arr) { globalSettings.dlHistory = Array.isArray(arr) ? arr.slice(0, 50) : []; saveToMemory(); }
         };
 
+        let profileCaptureInFlight = Promise.resolve();
+        let localStateRevision = 0;
+        async function flushLocalProfile() {
+            if (localOnlyPreview && !localProfileLoaded) throw new Error('Local profile did not load; saving is unavailable.');
+            clearTimeout(profileCaptureTimer);
+            profileCaptureTimer = null;
+            const snapshot = JSON.parse(JSON.stringify({ myGames, customSections, globalSettings }));
+            const operation = profileCaptureInFlight.catch(() => {}).then(() => invokeAccount('profiles-capture-active', snapshot));
+            profileCaptureInFlight = operation;
+            return operation;
+        }
+
         function saveToMemory() {
+            localStateRevision += 1;
             try {
                 // Synchronously mirror settings to localStorage to prevent startup theme flash
                 localStorage.setItem('themeSettingsSync', JSON.stringify({
@@ -11675,10 +11931,9 @@
                 queueAccountControlPlaneSync();
                 clearTimeout(profileCaptureTimer);
                 profileCaptureTimer = setTimeout(() => {
-                    ipcRenderer.invoke('profiles-capture-active', { myGames, customSections, globalSettings })
-                        .catch(error => console.error('Profile snapshot capture failed:', error));
+                    flushLocalProfile().catch(error => platformAvailability.notice(`Local changes were not saved: ${error.message}`));
                 }, 750);
-                if (window.SailAchievements) window.SailAchievements.scheduleLibrarySync();
+                if (!localOnlyPreview && window.SailAchievements) window.SailAchievements.scheduleLibrarySync();
                 return true;
             } catch (e) {
                 console.error('Could not save the launcher library:', e);
@@ -11688,6 +11943,7 @@
 
         let configSyncDebounceTimer = null;
         function queueConfigSync() {
+            if (localOnlyPreview) return;
             const mode = normalizedSyncV2().configChangeMode;
             if (mode === 'off') return;
             clearTimeout(configSyncDebounceTimer);
@@ -11706,6 +11962,7 @@
         let configSyncPending = false;
 
         async function syncConfigToCloud(trigger = 'automatic', { replaceCloud = false } = {}) {
+            if (localOnlyPreview) return;
             if (!globalSettings.cloudAutoSync && !replaceCloud) {
                 if (['manual', 'retry'].includes(trigger)) setSyncConfidenceStatus('config', 'paused');
                 return;
@@ -11724,7 +11981,7 @@
                 const maxVersions = replaceCloud
                     ? 1
                     : (globalSettings.saveBackupCount !== undefined ? globalSettings.saveBackupCount : 3);
-                await invokeAccount('profiles-capture-active', { myGames, customSections, globalSettings });
+                await flushLocalProfile();
 
                 if (accountUiState.signedIn) {
                     const transfer = await invokeAccount('profiles-create-portable-upload-transfer');
@@ -11788,6 +12045,7 @@
         }
 
         async function syncConfigFromCloudIfNeeded() {
+            if (localOnlyPreview) return;
             if (!globalSettings.cloudAutoSync) return;
             if (!normalizedSyncV2().configOnStartup) return;
             try {
@@ -11878,13 +12136,41 @@
             });
         }
 
-        ipcRenderer.on('exit-sync-request', async () => {
+        let activeExitAttempt = null;
+        let exitFocus = null;
+        ipcRenderer.on('exit-sync-cancelled', (_event, id, message) => {
+            if (activeExitAttempt !== id) return;
+            activeExitAttempt = null;
+            document.body.inert = false;
+            if (exitFocus && exitFocus.isConnected) exitFocus.focus();
+            exitFocus = null;
+            platformAvailability.notice(message);
+        });
+        ipcRenderer.on('exit-sync-request', async (_event, id) => {
+            activeExitAttempt = id;
+            exitFocus = document.activeElement;
+            document.body.inert = true;
             try {
-                await syncConfigToCloudPromise();
-            } catch(e) {
-                console.error("Exit cloud sync failed:", safeSyncErrorMessage(e));
-            } finally {
-                ipcRenderer.send('exit-sync-completed');
+                // Captures are serial. If asynchronous UI work changed state during
+                // a save, persist that revision too before acknowledging this exit.
+                let revision;
+                do {
+                    revision = localStateRevision;
+                    await flushLocalProfile();
+                    if (activeExitAttempt !== id) return;
+                } while (revision !== localStateRevision);
+                if (!localOnlyPreview) await syncConfigToCloudPromise();
+                if (activeExitAttempt !== id) return;
+                while (revision !== localStateRevision) {
+                    revision = localStateRevision;
+                    await flushLocalProfile();
+                    if (activeExitAttempt !== id) return;
+                }
+                ipcRenderer.send('exit-sync-completed', id);
+            } catch (error) {
+                if (activeExitAttempt !== id) return;
+                ipcRenderer.send('exit-sync-failed', id,
+                    `Local changes were not saved: ${error.message}. Sail stayed open; fix the destination and retry closing.`);
             }
         });
 
@@ -11922,6 +12208,7 @@
                 nextPane.classList.add('active');
             }
             if (!skipHistory) pushNavState();
+            if (tabId === 'compatibility') compatibilityManager.enter().catch(error => { document.getElementById('compatibilityStatus').textContent = error.message; });
         };
 
         // Developer page — its own top bar with Alerts / Feature Testing sub-tabs.
@@ -12382,12 +12669,6 @@
             try {
                 const data = await remoteData.searchSteamApps(query);
 
-                // Steam Community SearchApps returns an array of items, or object if it's empty sometimes, but wait, usually `{ value: [...] }`? 
-                // Ah, my earlier test returned `[{"appid":"...","name":"...","icon":"...","logo":"..."},...]` Wait, actually my `Invoke-RestMethod` test returned an array? Let's check my test.
-
-                // My earlier test returned: `{"value": [{"appid": "1551360", "name": "Forza Horizon 5"...}], "Count": 5}`.
-                // Actually `Invoke-RestMethod` parses JSON. So it's an array if I don't use `value`... Wait, if I do `Invoke-RestMethod` on `SearchApps/forza`, it gave me `{"value": [...], "Count": 5}`? No, PowerShell `Invoke-RestMethod` returns a PowerShell object. Steam's endpoint actually returns an array `[{"appid":"...","name":"...","icon":"...","logo":"..."},...]`.
-
                 let items = [];
                 if (Array.isArray(data)) items = data;
                 else if (data && data.value) items = data.value;
@@ -12413,7 +12694,11 @@
                             if (fallback) image.src = fallback;
                             else image.hidden = true;
                         }, { once: true });
-                        row.append(image, SafeDom.element(document, 'span', { text: name }));
+                        const caption = SafeDom.element(document, 'div', { className: 'steam-search-caption' }, [
+                            SafeDom.element(document, 'span', { text: name }),
+                            SafeDom.element(document, 'small', { text: `App ID: ${appId}` })
+                        ]);
+                        row.append(image, caption);
                         row.addEventListener('click', () => window.selectSteamSearchResult(appId, name));
                         rows.push(row);
                     }
@@ -12423,7 +12708,7 @@
                     resContainer.replaceChildren(SafeDom.element(document, 'div', { text: 'No results found.' }));
                 }
             } catch (err) {
-                resContainer.replaceChildren(SafeDom.element(document, 'div', { text: 'Search failed.' }));
+                resContainer.replaceChildren(SafeDom.element(document, 'div', { text: err && err.message || 'Steam search failed. Check your connection and try again.' }));
             }
         };
 
@@ -12522,6 +12807,10 @@
         };
 
         async function fetchFriends() {
+            if (localOnlyPreview) {
+                document.getElementById('friendsListContainer').textContent = 'Friends are unavailable in the offline preview.';
+                return;
+            }
             if (!globalSettings.showSocialSidebar) return;
             const container = document.getElementById('friendsListContainer');
             if (!window.cachedDiscordFriends && !window.cachedSteamFriends) {
@@ -12918,7 +13207,7 @@
 
             if (game.customBannerPath) {
                 SafeDom.setImageSource(bannerEl, game.customBannerPath, { allowFile: true, hideInvalid: true });
-            } else if (game.steamAppId) {
+            } else if (game.steamAppId && steamMetadataAvailable()) {
                 const source = SafeDom.safeImageUrl(game.steamHeroUrl, { allowSteam: true })
                     || SafeDom.safeImageUrl(`https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${encodeURIComponent(String(game.steamAppId || ''))}/library_hero.jpg`, { allowSteam: true });
                 SafeDom.setImageSource(bannerEl, source, { allowSteam: true, hideInvalid: true });
@@ -12932,7 +13221,7 @@
             try { if (window.renderGameMaintenancePanel) window.renderGameMaintenancePanel(game); } catch (e) { console.error('Game maintenance panel failed:', e); }
 
             if (!globalSettings.compactLayout) {
-                if (game.steamAppId) {
+                if (game.steamAppId && steamMetadataAvailable()) {
                     descContent.textContent = "Fetching data from Steam…";
                     try {
                         const lang = globalSettings.language || 'english';
@@ -12945,7 +13234,9 @@
                         specsContent.textContent = '';
                     }
                 } else {
-                    descContent.textContent = 'This is a custom game added to your library. No official description is available.';
+                    descContent.textContent = game.steamAppId && !steamMetadataAvailable()
+                        ? 'Steam details are unavailable in this Linux preview.'
+                        : 'This is a custom game added to your library. No official description is available.';
                     specsContent.textContent = `Local setup: ${game.localSetupStatus === 'active' ? 'Ready' : 'Required'}.`;
                 }
             }
@@ -13353,7 +13644,8 @@
                 view.message = '';
             } catch (error) {
                 if (!isCurrent()) return;
-                view.message = safeSyncErrorMessage(error);
+                view.message = /SAIL_PLATFORM_UNSUPPORTED/.test(String(error && error.message))
+                    ? 'Launch options are unavailable in this mode.' : safeSyncErrorMessage(error);
                 renderGameLaunchSettings();
                 return;
             }
@@ -13411,7 +13703,8 @@
             renderGameLaunchSettings();
         }
 
-        async function openGameSettings() {
+        async function openGameSettings({ executableSelectionId = '' } = {}) {
+            let selectedExecutableBackend = executableSelectionId ? 'proton-umu' : '';
             if (viewingGameIndex === null) return;
             const game = myGames[viewingGameIndex];
             const settingsKey = gameLaunchSettingsKey(game);
@@ -13428,8 +13721,8 @@
                 uninstallMessage.textContent = 'Checking Sail’s install-folder ownership…';
                 try {
                     const uninstallStatus = await invokeAccount('downloaded-game-uninstall-status', { gameId: String(game.id) });
-                    uninstallButton.disabled = !uninstallStatus.available;
-                    uninstallMessage.textContent = uninstallStatus.available
+                    uninstallButton.disabled = process.platform === 'linux' || !uninstallStatus.available;
+                    uninstallMessage.textContent = process.platform === 'linux' ? 'Linux file removal is not available yet. Remove the library entry to keep its downloaded files and Windows environment.' : uninstallStatus.available
                         ? 'Removes the game folder Sail created and then removes this library entry.'
                         : 'Sail can’t verify ownership of this install folder, so its files must be removed manually.';
                     uninstallButton.onclick = uninstallStatus.available
@@ -13460,10 +13753,132 @@
                 } catch (error) { manualConfigStatus.textContent = safeSyncErrorMessage(error); }
             };
 
-            if (!isCurrentSettings()) return;
-            await loadGameLaunchSettings(game);
-            if (!isCurrentSettings()) return;
             const localExecutionStatus = document.getElementById('localExecutionSetupStatus');
+            if (!isCurrentSettings()) return;
+            if (nativeGamesAvailable()) {
+                const executionRequests = { companion: false, pre: false, post: false };
+                let workingDirectorySelectionId = '';
+                const dllOverridesInput = document.getElementById('wineDllOverridesInput');
+                dllOverridesInput.value = '';
+                document.getElementById('nativeLaunchFields').hidden = !nativeGamesAvailable();
+                document.getElementById('nativeLaunchPaths').textContent = '';
+                document.getElementById('changeNativeExecutableBtn').onclick = async () => {
+                    try {
+                        const selection = await invokeAccount('authority-select-executable', { gameId: String(game.id) });
+                        if (selection && !selection.canceled) { executableSelectionId = selection.selectionId; selectedExecutableBackend = selection.backend; if (selection.backend === 'proton-umu' && !document.getElementById('protonRuntimeSelect').value) protonSetup.setSelected('', true); localExecutionStatus.textContent = 'Executable selected. Update local launch setup to apply.'; }
+                    } catch (error) { localExecutionStatus.textContent = safeSyncErrorMessage(error); }
+                };
+                document.getElementById('changeNativeDirectoryBtn').onclick = async () => {
+                    try {
+                        const selection = await invokeAccount('authority-select-working-directory', { gameId: String(game.id) });
+                        if (selection && !selection.canceled) { workingDirectorySelectionId = selection.selectionId; document.getElementById('nativeLaunchPaths').textContent = `Working folder: ${selection.label}`; }
+                    } catch (error) { localExecutionStatus.textContent = safeSyncErrorMessage(error); }
+                };
+                const adminToggle = document.getElementById('perGameAdminToggle');
+                const priorityToggle = document.getElementById('highPriorityToggle');
+                const launchArgsInput = document.getElementById('launchArgsInput');
+                const companionInput = document.getElementById('companionAppInput');
+                const preLaunchInput = document.getElementById('preLaunchInput');
+                const postLaunchInput = document.getElementById('postLaunchInput');
+                adminToggle.checked = false;
+                priorityToggle.checked = false;
+                launchArgsInput.value = nativeGamesAvailable() ? '[]' : '';
+                launchArgsInput.placeholder = nativeGamesAvailable() ? '[\"--option\", \"two words\", \"\"]' : 'e.g. -novid -high';
+                companionInput.value = '';
+                preLaunchInput.value = '';
+                postLaunchInput.value = '';
+                companionInput.readOnly = true;
+                preLaunchInput.readOnly = true;
+                postLaunchInput.readOnly = true;
+
+                document.getElementById('browseCompanionBtn').onclick = () => {
+                    executionRequests.companion = true;
+                    companionInput.value = 'Choose when applying changes';
+                };
+                document.getElementById('browsePreLaunchBtn').onclick = () => {
+                    executionRequests.pre = true;
+                    preLaunchInput.value = 'Choose when applying changes';
+                };
+                document.getElementById('browsePostLaunchBtn').onclick = () => {
+                    executionRequests.post = true;
+                    postLaunchInput.value = 'Choose when applying changes';
+                };
+                const protonSetup = require('./ui/protonSetup').showProtonSetup({ document, gameId: String(game.id), invoke: invokeAccount,
+                    available: nativeGamesAvailable() && platformAvailability.support?.features.protonSetup.available,
+                    getLaunchRequest: () => executionAuthorityReference(game, 'launch'),
+                    onPrepared: async result => {
+                        if (result.event) await handleRuntimeSessionEnded(result.event);
+                        receiveNativeState(await ipcRenderer.invoke('runtime-recovery-state'));
+                    } });
+                require('./ui/protonLaunchLog').showProtonLaunchLog({ document, gameId: String(game.id), invoke: invokeAccount, available: nativeGamesAvailable() });
+                const protonInstallation = require('./ui/protonInstallation').showProtonInstallation({ document, gameId: String(game.id), invoke: invokeAccount,
+                    available: nativeGamesAvailable() && platformAvailability.support?.features.standaloneProton.available,
+                    getRequest: operation => executionAuthorityReference(game, operation),
+                    onChanged: async () => receiveNativeState(await ipcRenderer.invoke('runtime-recovery-state')) });
+                const protonSaves = require('./ui/protonSaves').showProtonSaves({ document, gameId: String(game.id), invoke: invokeAccount,
+                    available: nativeGamesAvailable() && String(game.steamAppId || '') === '322170' });
+                for (const id of ['perGameAdminToggle', 'highPriorityToggle', 'browseCompanionBtn', 'browsePreLaunchBtn', 'browsePostLaunchBtn']) {
+                    document.getElementById(id).disabled = nativeGamesAvailable();
+                }
+                if (nativeGamesAvailable()) {
+                    invokeAccount('authority-get-native-setup', { gameId: String(game.id) }).then(setup => {
+                        if (!isCurrentSettings()) return;
+                        launchArgsInput.value = JSON.stringify(setup.argv);
+                        dllOverridesInput.value = setup.dllOverrides || '';
+                        document.getElementById('nativeLaunchPaths').textContent = `Executable: ${setup.executable || 'selected for first setup'}. Working folder: ${setup.workingDirectory || 'executable’s folder (shown when saving)'}.`;
+                        protonSetup.setSelected(setup.runtimeId, ['proton-umu', 'wine'].includes(setup.backend) || selectedExecutableBackend === 'proton-umu');
+                        protonSaves.refresh();
+                        protonInstallation.refresh().catch(() => {});
+                        launchArgsInput.title = 'JSON array of literal arguments. Empty strings are preserved; no shell is used.';
+                        localExecutionStatus.textContent = executableSelectionId ? 'Windows game added. Choose Proton or Wine, then update local launch setup.' : setup.reason || `${['proton-umu', 'wine'].includes(setup.backend) ? 'Windows executable' : 'Native executable'}: ${setup.executable || 'choose when applying'}. Working directory: ${setup.workingDirectory || 'choose independently when applying'}.`;
+                    }).catch(error => { localExecutionStatus.textContent = safeSyncErrorMessage(error); });
+                }
+                localExecutionStatus.textContent = game.localSetupStatus === 'active'
+                    ? 'Local launch setup is ready. Choose any changes below, then apply.'
+                    : 'Choose the local launch files to finish setup.';
+                document.getElementById('approveLocalExecutionBtn').onclick = async () => {
+                    localExecutionStatus.textContent = nativeGamesAvailable() ? 'Saving local launch setup…' : 'Choose local files in the Windows picker…';
+                    try {
+                        if (selectedExecutableBackend === 'proton-umu' && !document.getElementById('protonRuntimeSelect').value) {
+                            localExecutionStatus.textContent = 'Choose or add a Proton or Wine version before updating this Windows game’s setup.';
+                            return;
+                        }
+                        // Parse before consuming the one-shot picker receipt, so a typo
+                        // never discards the executable the user just selected.
+                        const options = nativeGamesAvailable() ? require('./ui/protonLaunchOptions').parseProtonLaunchOptions(launchArgsInput.value, dllOverridesInput.value) : null;
+                        const baseSelectionId = executableSelectionId, cwdSelectionId = workingDirectorySelectionId;
+                        executableSelectionId = ''; workingDirectorySelectionId = '';
+                        const result = await invokeAccount('authority-configure-execution', {
+                            gameId: String(game.id),
+                            ...(baseSelectionId ? { baseSelectionId } : {}),
+                            ...(nativeGamesAvailable() ? { ...options, runtimeId: document.getElementById('protonRuntimeSelect').value, ...(cwdSelectionId ? { workingDirectorySelectionId: cwdSelectionId } : {}) } : { argumentProposal: launchArgsInput.value }),
+                            requestRom: !nativeGamesAvailable() && !!game.isRom,
+                            useSteamInstallation: !nativeGamesAvailable() && !!game.steamAppId && !game.isRom,
+                            requestPreLaunchScript: executionRequests.pre,
+                            requestPostLaunchScript: executionRequests.post,
+                            requestCompanion: executionRequests.companion,
+                            requestElevation: adminToggle.checked,
+                            requestHighPriority: priorityToggle.checked,
+                            requestTrackingExecutable: false
+                        });
+                        localExecutionStatus.textContent = result && result.canceled
+                            ? 'Local setup was not changed.' : (nativeGamesAvailable() && document.getElementById('protonRuntimeSelect').value ? 'Windows setup saved. Check compatibility status before playing.' : 'Local launch setup is ready on this PC.');
+                        if (!result || !result.canceled) {
+                            if (options) { launchArgsInput.value = JSON.stringify(options.argv); dllOverridesInput.value = options.dllOverrides; }
+                            const refreshed = await invokeAccount('profiles-load-active');
+                            const refreshedGame = (refreshed.snapshot.myGames || []).find(item => item.id === game.id);
+                            if (refreshedGame) Object.assign(game, refreshedGame);
+                            protonSaves.refresh();
+                            protonInstallation.refresh().catch(() => {});
+                        }
+                    } catch (error) {
+                        localExecutionStatus.textContent = safeSyncErrorMessage(error);
+                    }
+                };
+            } else {
+                await loadGameLaunchSettings(game);
+                if (!isCurrentSettings()) return;
+            }
 
             document.getElementById('browseLocalFilesBtn').onclick = async () => {
                 try {
@@ -13507,8 +13922,8 @@
                     return [];
                 }
             };
-            backups = await loadGameBackups();
-            const backupRunning = await ipcRenderer.invoke('check-backup-running');
+            backups = localOnlyPreview ? [] : await loadGameBackups();
+            const backupRunning = localOnlyPreview ? null : await ipcRenderer.invoke('check-backup-running');
             if (!isCurrentSettings()) return;
 
             const backupActionsRow = document.getElementById('backupActionsRow');
@@ -13537,6 +13952,7 @@
                 btn.innerText = "📦 Backup Game Folder"; if (typeof iconizeElement === 'function') iconizeElement(btn); btn.disabled = false; cancelBtn.style.display = "none"; pgBg.style.display = "none";
             }
 
+            if (localOnlyPreview) { btn.disabled = true; btn.textContent = 'Game backup unavailable'; btn.title = platformAvailability.support.features.saveDiscovery.reason; }
             btn.onclick = async () => {
                 btn.innerText = "📦 Zipping..."; btn.disabled = true; cancelBtn.style.display = "block"; pgBg.style.display = "block";
                 backupActionsRow.style.display = 'none';
@@ -13683,11 +14099,15 @@
                 saveVersionSection.style.display = 'none';
             }
 
-            if (isCurrentSettings()) openModal('gameSettingsModal');
+            if (isCurrentSettings()) {
+                linuxDownloadsUi.showGame(game.id);
+                openModal('gameSettingsModal');
+            }
         }
 
         let tabTransitionTimeout = null;
         async function switchMainTab(tab) {
+            if (localOnlyPreview && tab !== 'library' && !(['downloads', 'downloadsmgr'].includes(tab) && platformAvailability.support?.features.downloads.available)) { previewUnavailable('This integration'); return; }
             if (tab === 'maintenance' && globalSettings.maintenanceEnabled !== true) tab = 'library';
             viewingGameIndex = null;
             
@@ -14107,17 +14527,33 @@
             playBtn.onclick = () => launchGame(viewingGameIndex);
             stopBtn.onclick = () => forceStopGame(viewingGameIndex);
 
+            statusText.title = '';
             favBtn.innerText = game.isFavorite ? '★' : '☆';
             favBtn.style.color = game.isFavorite ? '#facc15' : 'var(--text-color)';
             favBtn.onclick = () => toggleFavorite(viewingGameIndex);
             infoBtn.onclick = () => openGameInfo();
 
-            if (activeGameIndex === viewingGameIndex) {
+            if (nativeRecoveryAvailable() && protonFirstLaunchUi.active(game.id)) {
+                playBtn.innerText = 'Setting up…'; playBtn.classList.add('running'); stopBtn.style.display = 'block';
+                statusText.innerText = protonFirstLaunchUi.label(game.id); statusText.title = 'Setup uses this game’s Windows environment and does not count as gameplay.';
+            } else if (nativeRecoveryAvailable() && nativeSessions.has(String(game.id))) {
+                const session = nativeSessions.get(String(game.id));
+                playBtn.innerText = session.native.phase === 'tracking-lost' ? 'Unknown'
+                    : ['proton-umu', 'wine'].includes(session.native.runtime?.backend)
+                        ? session.native.runtime.activity === 'installation' ? 'Installing…' : session.native.runtime.activity === 'preparation' ? 'Preparing…' : session.native.gameConfirmed ? (session.native.gameActiveProcesses ? 'Running…' : 'Finishing…') : 'Starting…' : 'Running…';
+                playBtn.classList.add('running'); stopBtn.style.display = 'block';
+                statusText.innerText = nativeSessionText(game.id); statusText.title = nativeSessionStatus(game.id).detail;
+            } else if (nativeRecoveryAvailable() && nativePendingGames.has(String(game.id))) {
+                playBtn.innerText = 'Retry save'; playBtn.classList.remove('running'); stopBtn.style.display = 'none';
+                playBtn.onclick = () => initializeRuntimeRecovery().catch(error => platformAvailability.notice(`Playtime save is still pending: ${error.message}`));
+                statusText.innerText = nativeSessionText(game.id); statusText.title = nativeSessionStatus(game.id).detail;
+            } else if (activeGameIndex === viewingGameIndex) {
                 playBtn.innerText = "Running..."; playBtn.classList.add("running"); stopBtn.style.display = "block";
                 statusText.innerText = "Game is currently active.";
             } else {
-                playBtn.innerText = d.play || "▶ Play"; playBtn.classList.remove("running"); stopBtn.style.display = "none";
-                statusText.innerText = d.ready || "Ready to Play";
+                playBtn.innerText = linuxDownloadLabel(game.id) ? 'Finish setup' : d.play || "▶ Play"; playBtn.classList.remove("running"); stopBtn.style.display = "none";
+                statusText.innerText = linuxDownloadLabel(game.id) || (nativeGamesAvailable() && game.localSetupStatus !== 'active' ? "Local setup required"
+                    : localOnlyPreview && !nativeGamesAvailable() ? "Game launching unavailable in this milestone" : (d.ready || "Ready to Play"));
             }
 
             if (game.localSaveSetupStatus === 'active') {
@@ -14150,6 +14586,8 @@
                 ipcRenderer.send('show-launch-splash', { gameId: String(game.id) });
                 openGamePage(index);
                 setTimeout(() => launchGame(index), 500);
+            } else {
+                platformAvailability.notice('This shortcut game is not in the active library. Switch to its profile and library to launch it.');
             }
         }
 
@@ -14271,6 +14709,13 @@
         };
 
         window.updateCloudSyncUI = async function() {
+            if (localOnlyPreview) {
+                for (const provider of ['google', 'onedrive', 'dropbox', 'mediafire']) {
+                    const status = document.getElementById(`status-${provider}`);
+                    if (status) status.textContent = 'Unavailable in offline preview';
+                }
+                return;
+            }
             const status = await ipcRenderer.invoke('cloud-get-status');
             const providers = ['google', 'onedrive', 'dropbox', 'mediafire'];
 
@@ -14916,7 +15361,52 @@
             return succeeded;
         }
 
+        async function openFirstPlaySettings(game) {
+            const index = myGames.findIndex(item => String(item.id) === String(game.id));
+            if (index < 0) throw Error('This game is no longer in the active library.');
+            if (viewingGameIndex !== index) await openGamePage(index);
+            await openGameSettings();
+        }
+        async function configureFirstPlay(game) {
+            const library = currentRuntimeLibraryKey(), state = linuxDownloadsUi.state(String(game.id));
+            if (state && !state.ready) {
+                if (state.phase === 'installing') { await openFirstPlaySettings(game); return false; }
+                const result = await invokeAccount('linux-download-configure', { gameId: String(game.id), afterInstallation: false, includePrerequisites: false });
+                if (library !== currentRuntimeLibraryKey()) throw Error('The active library changed during setup.');
+                if (result.canceled) return false;
+                if (result.state && result.snapshot) applyLauncherSnapshot(result);
+                await linuxDownloadsUi.refresh();
+                document.dispatchEvent(new CustomEvent('sail-local-execution-changed', { detail: { gameId: String(game.id) } }));
+                if (!result.ready) { await openFirstPlaySettings(game); return false; }
+            }
+            const saved = await invokeAccount('authority-get-native-setup', { gameId: String(game.id) });
+            if (library !== currentRuntimeLibraryKey()) throw Error('The active library changed during setup.');
+            if (!saved.executable || (['proton-umu', 'wine'].includes(saved.backend) && !saved.runtimeId)) { await openFirstPlaySettings(game); return false; }
+            const wineSupport = platformAvailability.support?.features.standaloneWine;
+            if (saved.backend === 'wine' && !wineSupport?.available) throw Error(wineSupport?.reason || 'Standalone Wine launching is awaiting verification.');
+            return true;
+        }
+        async function launchNativeGame(game) {
+            const library = currentRuntimeLibraryKey(), authority = await executionAuthorityReference(game, 'launch');
+            if (library !== currentRuntimeLibraryKey()) throw Error('The active library changed before launch.');
+            const result = await ipcRenderer.invoke('launch-game', { gameId: game.id, capabilityId: authority.capabilityId,
+                expectedRevision: authority.expectedRevision, needsSaveSync: false, needsGameConfigSync: false });
+            if (result.setupRequired) throw Error('The game setup changed. Click Play again to review its components.');
+            if (result.event) await handleRuntimeSessionEnded(result.event);
+            receiveNativeState(await ipcRenderer.invoke('runtime-recovery-state'));
+        }
         async function launchGame(index) {
+            await platformAvailability.ready;
+            if (nativeGamesAvailable()) {
+                const game = myGames[index];
+                try {
+                    if (nativeSessions.get(String(game.id))?.native.runtime?.activity === 'installation') await openFirstPlaySettings(game);
+                    else if (nativeSessions.has(String(game.id)) || nativePendingGames.has(String(game.id))) await launchNativeGame(game);
+                    else await protonFirstLaunchUi.play(game);
+                } catch (error) { platformAvailability.notice(`Launch: ${safeSyncErrorMessage(error)}`); }
+                return;
+            }
+            if (localOnlyPreview) { previewUnavailable('Game launching (native, Steam/Proton and standalone Wine)'); return; }
             const game = myGames[index]; activeGameIndex = index;
             window.SailAPI.executePluginsOnLaunch(game);
             if (viewingGameIndex === index) updateGamePageActionBar(); else renderGames();
@@ -14954,26 +15444,12 @@
             } catch (err) { alert("Launch Failed: " + err.message); activeGameIndex = null; if (viewingGameIndex === index) updateGamePageActionBar(); else renderGames(); }
         }
 
-        async function applyRuntimeSessionEvent(event) {
-            if (!event || event.libraryKey && event.libraryKey !== currentRuntimeLibraryKey()) return -1;
-            const index = myGames.findIndex(game => String(game.id) === String(event.gameId));
-            if (index < 0) return -1;
-            const game = myGames[index];
-            const applied = Array.isArray(game.playtimeSessionIds) ? game.playtimeSessionIds : [];
-            let persisted = true;
-            if (!applied.includes(event.id)) {
-                game.playtime = (Number(game.playtime) || 0) + Math.max(0, Number(event.durationSeconds) || 0);
-                game.lastPlayed = Math.max(Number(game.lastPlayed) || 0, Number(event.startedAt) || 0) || game.lastPlayed;
-                game.playtimeSessionIds = [...applied, event.id].slice(-50);
-                persisted = saveToMemory();
-            }
-            if (persisted) {
-                try { await ipcRenderer.invoke('runtime-session-acknowledge', event.id); } catch (_) {}
-            } else {
-                console.error('Playtime was left in the recovery journal because the library file could not be saved.');
-            }
-            return index;
-        }
+        const applyRuntimeSessionEvent = require('./ui/runtimeCompletion').createRuntimeCompletionQueue({
+            getLibraryKey: () => currentRuntimeLibraryKey(), getGames: () => myGames,
+            fetchPending: id => ipcRenderer.invoke('runtime-session-pending', id),
+            save: () => saveToMemory(), flush: () => flushLocalProfile(),
+            acknowledge: id => ipcRenderer.invoke('runtime-session-acknowledge', id)
+        });
 
         async function processRuntimePostExitJob(gameIndex, source = {}) {
             const game = myGames[gameIndex];
@@ -15038,19 +15514,40 @@
                 delete runtimeLaunchGraceUntil[index];
                 if (activeGameIndex === index) {
                     activeGameIndex = null;
-                    ipcRenderer.send('update-rpc', null);
+                    if (!localOnlyPreview) ipcRenderer.send('update-rpc', null);
                 }
                 if (viewingGameIndex === index) updateGamePageActionBar(); else renderGames();
-                await processRuntimePostExitJob(index, event);
+                if (event.provider === 'linux-native') {
+                    nativeSessions.delete(String(event.gameId));
+                    nativePendingGames.delete(String(event.gameId)); nativePendingActivities.delete(String(event.gameId));
+                    if (viewingGameIndex === index) updateGamePageActionBar(); else renderGames();
+                    if (event.creditPlaytime === false) platformAvailability.notice(event.activity === 'installation'
+                        ? event.outcome === 'installation-finished' ? 'Installer finished. Test the game after setup.'
+                            : event.outcome === 'installation-stopped' ? 'Installation stopped. Existing files were kept.' : 'Installation did not finish. View the launch log and retry.'
+                        : event.activity === 'preparation'
+                        ? event.outcome === 'preparation-failed' ? 'Windows environment preparation failed. No playtime was added.'
+                            : 'Windows environment preparation ended; initialization remains unverified. No playtime was added.'
+                        : event.outcome === 'windows-launch-failed' ? 'Windows game launch failed. No playtime was added.'
+                            : event.outcome === 'windows-tracking-failed' ? 'Windows game tracking failed. No playtime was added for this session.'
+                            : 'Windows game startup was not confirmed. No playtime was added.');
+                    else if (event.outcome === 'launch-failed') platformAvailability.notice('Native launch failed. No playtime or post-game save was added.');
+                    else platformAvailability.notice(event.activity === 'game' ? 'Windows game completed. Playtime is saved locally.' : 'Native game completed. Playtime is saved locally.');
+                } else await processRuntimePostExitJob(index, event);
+            } catch (error) {
+                if (event.provider === 'linux-native') platformAvailability.notice(`Playtime save is still pending: ${error.message}`);
+                throw error;
             } finally {
                 runtimeEndingGames.delete(event.id);
             }
         }
 
         async function initializeRuntimeRecovery() {
+            await platformAvailability.ready;
+            if (localOnlyPreview && !nativeRecoveryAvailable()) return;
             let state;
             try { state = await ipcRenderer.invoke('runtime-recovery-state'); }
             catch (error) { console.error('Runtime recovery could not load:', error); return; }
+            if (nativeRecoveryAvailable()) receiveNativeState(state);
             const libraryKey = currentRuntimeLibraryKey();
             for (const session of Object.values(state.activeSessions || {})) {
                 if (session.libraryKey && session.libraryKey !== libraryKey) continue;
@@ -15064,14 +15561,14 @@
                 if (!event.libraryKey || event.libraryKey === libraryKey) await handleRuntimeSessionEnded(event);
             }
             try { state = await ipcRenderer.invoke('runtime-recovery-state'); } catch (_) {}
-            for (const job of state.postExitJobs || []) {
+            for (const job of (localOnlyPreview ? [] : state.postExitJobs || [])) {
                 if (job.libraryKey && job.libraryKey !== libraryKey) continue;
                 const index = myGames.findIndex(game => String(game.id) === String(job.gameId));
                 if (index < 0 || sessionStartTimes[index]) continue;
                 processRuntimePostExitJob(index, job).catch(error => console.error('Recovered post-exit work failed:', safeSyncErrorMessage(error)));
             }
             if (Object.keys(sessionStartTimes).length) {
-                ipcRenderer.send('update-rpc', myGames[activeGameIndex] && myGames[activeGameIndex].name || null);
+                if (!localOnlyPreview) ipcRenderer.send('update-rpc', myGames[activeGameIndex] && myGames[activeGameIndex].name || null);
                 if (viewingGameIndex !== null) updateGamePageActionBar(); else renderGames();
             }
         }
@@ -15092,6 +15589,7 @@
         let gameProcessPollTimer = null;
         let gameProcessPollInFlight = false;
         function scheduleGameProcessPoll(delay) {
+            if (localOnlyPreview && !nativeRecoveryAvailable()) return;
             clearTimeout(gameProcessPollTimer);
             const hiddenDelay = Object.keys(sessionStartTimes).length > 0 ? 10000 : 30000;
             gameProcessPollTimer = setTimeout(pollRunningGames, delay !== undefined ? delay : (document.hidden ? hiddenDelay : 10000));
@@ -15108,6 +15606,9 @@
                 for (const event of state && state.completedSessions || []) {
                     await handleRuntimeSessionEnded(event);
                 }
+            } catch (error) {
+                console.error('Runtime recovery remains pending:', error);
+                if (nativeRecoveryAvailable()) platformAvailability.notice(`Playtime save is still pending: ${error.message}`);
             } finally {
                 gameProcessPollInFlight = false;
                 scheduleGameProcessPoll();
@@ -15146,6 +15647,26 @@
 
         async function forceStopGame(index) {
             const game = myGames[index];
+            if (nativeRecoveryAvailable()) {
+                try {
+                    if (protonFirstLaunchUi.active(game.id)) { await protonFirstLaunchUi.cancel(game.id); return; }
+                    const session = nativeSessions.get(String(game.id));
+                    if (!session) throw new Error('This game has no active native session.');
+                    const status = await gameAuthorityStatus(game);
+                    const reference = activeAuthorityReference(status.execution, 'terminate', 'Current permission to stop this game');
+                    const result = await ipcRenderer.invoke('kill-game-process', { gameId: String(game.id), sessionId: session.sessionId,
+                        capabilityId: reference.capabilityId, expectedRevision: reference.expectedRevision });
+                    if (result.event) await handleRuntimeSessionEnded(result.event);
+                    receiveNativeState(await ipcRenderer.invoke('runtime-recovery-state'));
+                } catch (error) {
+                    // Reconcile an uncertain reply; a later explicit Stop reads
+                    // fresh permission. Never replay the consumed action here.
+                    try { await initializeRuntimeRecovery(); }
+                    catch (recoveryError) { console.error('Native recovery remains pending:', recoveryError); }
+                    platformAvailability.notice(`Stop incomplete: ${safeSyncErrorMessage(error)}`);
+                }
+                return;
+            }
             try {
                 const reference = await executionAuthorityReference(game, 'terminate');
                 await ipcRenderer.invoke('kill-game-process', {
@@ -15428,7 +15949,7 @@
                     const image = SafeDom.element(document, 'img', { className: 'card-banner' });
                     image.loading = 'lazy'; image.decoding = 'async'; image.alt = '';
                     if (SafeDom.setImageSource(image, game.customBannerPath, { allowFile: true, hideInvalid: true })) imageNode = image;
-                } else if (game.steamAppId) {
+                } else if (game.steamAppId && steamMetadataAvailable()) {
                     const heroUrl = game.steamHeroUrl || `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${game.steamAppId}/library_hero.jpg`;
                     const fallbackUrl = game.steamImageUrl || `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${game.steamAppId}/header.jpg`;
                     const image = SafeDom.element(document, 'img', { className: 'card-banner' });
@@ -15445,10 +15966,12 @@
                 if (!imageNode) imageNode = SafeDom.element(document, 'div', { className: 'no-image', text: 'No Image' });
 
                 let timeStr = game.playtime > 0 ? ` • ${formatPlaytime(game.playtime)}` : '';
-                let readyStr = (d.ready || 'Ready to Play') + timeStr;
+                let readyStr = (protonFirstLaunchUi.label(game.id) || nativeSessionText(game.id) || linuxDownloadLabel(game.id) || (nativeGamesAvailable() && game.localSetupStatus !== 'active'
+                    ? 'Local setup required' : localOnlyPreview && !nativeGamesAvailable() ? 'Game launching unavailable'
+                        : (d.ready || 'Ready to Play'))) + timeStr;
 
                 const stopButton = SafeDom.element(document, 'button', { className: 'tile-stop-btn', text: '🛑 Stop' });
-                stopButton.style.display = activeGameIndex === masterIndex ? 'block' : 'none';
+                stopButton.style.display = activeGameIndex === masterIndex || nativeSessions.has(String(game.id)) ? 'block' : 'none';
                 const favorite = SafeDom.element(document, 'div', { className: `fav-btn ${game.isFavorite ? 'active' : ''}`, text: '★' });
                 const textArea = SafeDom.element(document, 'div', { className: 'card-text-area' }, [
                     SafeDom.element(document, 'h2', { className: 'card-title', text: String(game.name || '').slice(0, 256) }),
@@ -15502,8 +16025,8 @@
         // game at the top of the library home (only on the unfiltered All view).
         function gameCoverUrl(game) {
             if (game.customBannerPath) return 'file://' + game.customBannerPath.replace(/\\/g, '/');
-            if (game.steamHeroUrl) return game.steamHeroUrl;
-            if (game.steamAppId) return `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${game.steamAppId}/library_hero.jpg`;
+            if (steamMetadataAvailable() && game.steamHeroUrl) return game.steamHeroUrl;
+            if (steamMetadataAvailable() && game.steamAppId) return `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${game.steamAppId}/library_hero.jpg`;
             if (game.iconData) return game.iconData;
             return '';
         }
@@ -15614,7 +16137,7 @@
                         className: `sidebar-sub-item ${viewingGameIndex === i ? 'active' : ''}`
                     });
                     let iconNode = SafeDom.element(document, 'span', { className: 'sidebar-sub-icon', text: '🎮' });
-                    if (g.steamAppId) {
+                    if (g.steamAppId && steamMetadataAvailable()) {
                         let imgUrl = g.steamImageUrl || `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${g.steamAppId}/header.jpg`;
                         const image = SafeDom.element(document, 'img', { className: 'sidebar-sub-icon' });
                         image.loading = 'lazy'; image.decoding = 'async'; image.alt = '';
@@ -15726,7 +16249,7 @@
 
         document.getElementById('exportDataBtn').addEventListener('click', async () => {
             try {
-                await invokeAccount('profiles-capture-active', { myGames, customSections, globalSettings });
+                await flushLocalProfile();
                 const result = await invokeAccount('profiles-export-local-backup-file');
                 if (!result.canceled) alert("Launcher backup exported successfully! Account sessions and private cloud tokens stay on this PC.");
             } catch (e) { alert("Export Error: " + e.message); }
@@ -15803,7 +16326,7 @@
                     // If Steam, use exact App ID. If Epic/GOG, try to search steam for metadata
                     let targetSteamId = isSteam ? steamAppId : null;
 
-                    if (!targetSteamId && (platform === 'epic' || platform === 'gog') && name) {
+                    if (steamMetadataAvailable() && !targetSteamId && (platform === 'epic' || platform === 'gog') && name) {
                         try {
                             const searchJson = await remoteData.searchSteamStore(name);
                             if (searchJson.items && searchJson.items.length > 0) {
@@ -15813,16 +16336,16 @@
                         } catch(e) {}
                     }
 
-                    if (targetSteamId) {
+                    if (steamMetadataAvailable() && targetSteamId) {
                         try {
-                            if (isSteam) name = "Loading name...";
+                            // Keep the user’s chosen name while fetching artwork.
                             const lang = globalSettings.language || 'english';
                             const json = await remoteData.getSteamAppDetails(String(targetSteamId), lang);
                             if (json[targetSteamId] && json[targetSteamId].success) {
-                                if (isSteam) name = json[targetSteamId].data.name;
+                                // Metadata editing preserves the user’s title.
                                 steamImageUrl = json[targetSteamId].data.header_image;
                                 steamHeroUrl = `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${targetSteamId}/library_hero.jpg`;
-                            } else if (isSteam) name = "Unknown Steam Game";
+                            }
                         } catch (e) { }
                     }
 
@@ -15834,9 +16357,9 @@
 
                     const existingGame = editingIndex === -1 ? null : myGames[editingIndex];
                     const requestedConfigEntries = gameConfigEntriesDraft.filter(entry => entry.setupRequested);
-                    const executionRequested = editingIndex === -1
+                    const executionRequested = (!localOnlyPreview || nativeGamesAvailable()) && (editingIndex === -1
                         || authorityDraft.execution
-                        || !!(existingGame && String(existingGame.steamAppId || '') !== String(nextSteamAppId || ''));
+                        || !!(!nativeGamesAvailable() && existingGame && String(existingGame.steamAppId || '') !== String(nextSteamAppId || '')));
                     if (executionRequested) authorityDraft.execution = true;
                     const gameData = {
                         id: editingIndex === -1 ? Date.now().toString() + Math.floor(Math.random() * 1000) : myGames[editingIndex].id,
@@ -15846,7 +16369,7 @@
                         searchSteamAppId: searchSteamAppId,
                         epicId: platform === 'epic' ? epicId : null,
                         gogId: platform === 'gog' ? gogId : null,
-                        steamImageUrl: steamImageUrl, steamHeroUrl: steamHeroUrl,
+                        steamImageUrl: steamImageUrl || (existingGame && String(existingGame.steamAppId || '') === String(nextSteamAppId || '') ? existingGame.steamImageUrl : null), steamHeroUrl: steamHeroUrl || (existingGame && String(existingGame.steamAppId || '') === String(nextSteamAppId || '') ? existingGame.steamHeroUrl : null),
                         customBannerPath: document.getElementById('customBannerPath').value || null,
                         isRom: isRom,
                         shortcutIcon: document.getElementById('shortcutIconPath').value,
@@ -15865,17 +16388,29 @@
                     };
 
                     if (editingIndex === -1) myGames.push(gameData); else myGames[editingIndex] = gameData;
-                    await invokeAccount('profiles-capture-active', { myGames, customSections, globalSettings });
+                    await flushLocalProfile();
                     if (localAuthorityDraft !== authorityDraft || document.getElementById('addModal').classList.contains('closing')) return;
                     // Keep a new game's identity if local setup needs another try.
                     if (editingIndex === -1) editingIndex = myGames.findIndex(game => game.id === gameData.id);
+                    let protonSelectionId = '';
                     if (executionRequested) {
-                        if (isSteam && !authorityDraft.executableSelectionId) {
+                        if (nativeGamesAvailable() && !authorityDraft.executableSelectionId) {
+                            const selection = await invokeAccount('authority-select-executable', { gameId: gameData.id });
+                            if (!selection || selection.canceled) throw new Error('Local game setup was cancelled. Choose the executable and try saving again.');
+                            if (localAuthorityDraft !== authorityDraft) return;
+                            authorityDraft.executableSelectionId = selection.selectionId;
+                            authorityDraft.executableBackend = selection.backend;
+                        }
+                        // Windows setup needs an explicit per-game compatibility choice.
+                        // Save metadata and carry the opaque picker receipt to that UI.
+                        if (nativeGamesAvailable() && authorityDraft.executableBackend === 'proton-umu') {
+                            protonSelectionId = authorityDraft.executableSelectionId;
+                        } else if (!nativeGamesAvailable() && isSteam && !authorityDraft.executableSelectionId) {
                             await invokeAccount('authority-configure-steam', { gameId: gameData.id, steamAppId });
                         } else {
                             const configured = await invokeAccount('authority-configure-execution', {
                                 gameId: gameData.id,
-                                argumentProposal: isRom ? (document.getElementById('romArgs').value || '"%rom%"') : '',
+                                ...(nativeGamesAvailable() ? { argv: [] } : { argumentProposal: isRom ? (document.getElementById('romArgs').value || '"%rom%"') : '' }),
                                 ...(authorityDraft.executableSelectionId
                                     ? { baseSelectionId: authorityDraft.executableSelectionId } : {}),
                                 requestRom: isRom,
@@ -15891,6 +16426,7 @@
                         }
                         authorityDraft.execution = false;
                         authorityDraft.executableSelectionId = '';
+                        authorityDraft.executableBackend = '';
                         authorityDraft.companion = false;
                     }
                     if (authorityDraft.trackingSelectionId) {
@@ -15918,7 +16454,13 @@
                     if (localAuthorityDraft !== authorityDraft) return;
                     closeModal('addModal');
                     applyLauncherSnapshot(refreshed);
-                    if (viewingGameIndex !== null && editingIndex === viewingGameIndex) openGamePage(viewingGameIndex);
+                    if (protonSelectionId) {
+                        const gameIndex = myGames.findIndex(game => game.id === gameData.id);
+                        if (gameIndex >= 0) {
+                            openGamePage(gameIndex);
+                            await openGameSettings({ executableSelectionId: protonSelectionId });
+                        }
+                    } else if (viewingGameIndex !== null && editingIndex === viewingGameIndex) openGamePage(viewingGameIndex);
                 } catch (error) {
                     if (localAuthorityDraft === authorityDraft) {
                         await sailAlert(error && error.message || 'Local game setup could not be saved. Please choose the location again.', {
@@ -17033,10 +17575,12 @@
 
         document.getElementById('devToolsToggle').addEventListener('change', (e) => { globalSettings.enableDevTools = e.target.checked; saveToMemory(); ipcRenderer.send('set-devtools-setting', e.target.checked); });
 
-        document.getElementById('autoStartToggle').addEventListener('change', (e) => {
-            globalSettings.autoStart = e.target.checked;
-            saveToMemory();
-            ipcRenderer.invoke('set-autostart', e.target.checked);
+        const autostartControl = require('./ui/autostart').installAutostartControl({
+            element: document.getElementById('autoStartToggle'), ipc: ipcRenderer,
+            getSupport: () => platformAvailability.support,
+            getStored: () => globalSettings.autoStart,
+            setStored: value => { globalSettings.autoStart = value; saveToMemory(); },
+            notice: message => platformAvailability.notice(message)
         });
 
         document.getElementById('compactPageToggle').addEventListener('change', (e) => { globalSettings.compactLayout = e.target.checked; saveToMemory(); if (document.getElementById('gamePageView').style.display === 'block') openGamePage(viewingGameIndex, true); });
@@ -17060,14 +17604,24 @@
             setLocalImportButton(btn, '⏳', 'Scanning Steam Libraries...', true);
             try {
                 const result = await ipcRenderer.invoke('import-steam-games');
-                if (!result || !result.importedCount) {
+                if (result && result.launchReady === false) {
+                    if (result.importedCount) applyLauncherSnapshot(result);
+                    const summary = !result.dataRootsFound ? 'No Steam data folder was found.'
+                        : !result.scannedCount ? 'No installed Steam games were found.'
+                        : !result.importedCount ? 'All discovered Steam games are already in this library.'
+                        : `Added ${result.importedCount} Steam game(s) to this library. Steam launching is still being developed on Linux.`;
+                    const issues = Array.isArray(result.issues) && result.issues.length
+                        ? ` Some Steam metadata could not be read (${result.issueCount} issue(s)).` : '';
+                    alert(summary + issues);
+                } else if (!result || !result.importedCount) {
                     alert("No Steam games found or Steam is not installed.");
                 } else {
                     applyLauncherSnapshot(result);
                     alert(`Successfully imported ${result.importedCount} new Steam game(s). Installed games are ready to launch.`);
                 }
             } catch (err) {
-                alert("Failed to import Steam games.");
+                alert(/SAIL_PLATFORM_UNSUPPORTED/.test(String(err && err.message))
+                    ? err.message : "Failed to import Steam games.");
             }
             setLocalImportButton(btn, '🎮', 'Auto-Import Steam Games', false);
         });
@@ -18016,6 +18570,7 @@
                 if (!selection || selection.canceled || !selection.selectionId) return;
                 localAuthorityDraft.execution = true;
                 localAuthorityDraft.executableSelectionId = selection.selectionId;
+                localAuthorityDraft.executableBackend = selection.backend || '';
                 gamePath.value = 'Executable selected — Save to apply';
                 document.getElementById('quickPathGameBtn').style.display = 'none';
             } catch (error) {
@@ -18383,6 +18938,7 @@
 
             if (webview) {
                 webview.addEventListener('dom-ready', () => {
+                    if (localOnlyPreview) return;
                     try { ipcRenderer.invoke('register-browser-webview', webview.getWebContentsId()); } catch (e) {}
                 });
                 webview.addEventListener('new-window', (e) => {
@@ -18609,7 +19165,12 @@
             setTimeout(() => document.body.classList.remove('launcher-entering'), 700);
         }
         initApp()
-            .catch(error => console.error('Launcher initialization failed:', error))
+            .then(async () => {
+                window.sailLocalBootReady = true;
+                await desktopProtocol.ready();
+                await desktopProtocol.initialize();
+            })
+            .catch(error => { console.error('Launcher initialization failed:', error); platformAvailability.notice('Launcher initialization failed. See the development log.'); })
             .finally(finishStartupExperience);
     </script>
 
@@ -19509,7 +20070,7 @@
                 Object.keys(dlEnabled).forEach(k => { if (typeof s.enabledSources[k] === 'boolean') dlEnabled[k] = s.enabledSources[k]; });
             }
             // sync ad-block + debrid + pixeldrain-proxy preferences with main once at load
-            if (!dlAdBlockSynced && window.sailDownloadBridge) {
+            if (!localOnlyPreview && !dlAdBlockSynced && window.sailDownloadBridge) {
                 dlAdBlockSynced = true;
                 ipcRenderer.invoke('set-adblock', s.adBlock !== false);
                 try { window.pushDebridConfigToMain && window.pushDebridConfigToMain(); } catch (e) {}
@@ -20976,6 +21537,7 @@
         // any staging data is moved into Sail's fail-closed quarantine and retained for safety.
         window.pauseDownload = function (id) {
             const d = dlQueue.get(id); if (!d) return;
+            if (process.platform === 'linux') { platformAvailability.notice('Pause and resume are not available for Linux transfers yet. Cancel or keep the download running.'); return; }
             ipcRenderer.invoke('pause-download', id);
             d.state = 'paused'; d.label = 'Paused';
             renderDock();
@@ -20983,6 +21545,12 @@
         };
         window.resumeDownload = function (id, debridRetryToken = '') {
             const d = dlQueue.get(id); if (!d || !d.resumeOpts) return;
+            if (process.platform === 'linux') {
+                const freshId = 'dl_' + Date.now() + '_' + Math.floor(Math.random() * 1000000);
+                const opts = { ...d.resumeOpts, id: freshId };
+                dlQueue.delete(id); dlQueue.set(freshId, { ...d, id: freshId, state: 'resolving', percent: 0, error: '', resumeOpts: opts }); renderDock();
+                invokeDownloadWithCurrentRoot(opts).catch(error => { const row = dlQueue.get(freshId); if (row) { row.state = 'error'; row.error = error.message; renderDock(); } }); return;
+            }
             if (d._sizeWarningPending || d._debridRetryPending) return;
             if (d.retrying || DownloadManagerLogic.isDownloadSlotActive(d)) return;
             if (!debridRetryToken) discardDebridRetryLink(d);
@@ -21255,11 +21823,12 @@
             if (['waiting-browser', 'starting', 'resolving', 'queued'].includes(download.state)) {
                 add('Cancel', () => cancelDownload(download.id));
             } else if (download.state === 'downloading') {
-                add('⏸ Pause', () => pauseDownload(download.id)); add('Cancel', () => cancelDownload(download.id));
+                if (process.platform !== 'linux') add('⏸ Pause', () => pauseDownload(download.id)); add('Cancel', () => cancelDownload(download.id));
             } else if (['processing', 'installing'].includes(download.state)) add('Cancel', () => cancelDownload(download.id));
             else if (download.state === 'paused') {
                 add('▶ Resume', () => resumeDownload(download.id)); add('Cancel', () => cancelDownload(download.id));
             } else if (download.state === 'done') {
+                if (process.platform === 'linux' && download.gameId && download.gameId !== 'launcher-device') add('Manage Game', () => { const index = myGames.findIndex(game => String(game.id) === String(download.gameId)); if (index !== -1) openGamePage(index).then(() => openGameSettings()); });
                 if (download.location) add('📂 Open Folder', () => openDownloadLocation(download));
                 add('✕ Clear', () => {
                     addToHistory(download);
@@ -21690,6 +22259,19 @@
             }
         }
 
+        window.importLinuxGameArchive = async function () {
+            const input = document.getElementById('linuxArchiveGameName');
+            const gameName = input.value.trim();
+            if (!gameName) { platformAvailability.notice('Enter a name for the imported game.'); input.focus(); return; }
+            const id = 'import_' + Date.now() + '_' + Math.floor(Math.random() * 1000000);
+            dlQueue.set(id, { id, name: gameName, sourceId: 'archive-import', category: 'game', percent: 0, state: 'resolving', label: 'Choose game archives…' }); renderDock();
+            try {
+                const result = await invokeAccount('linux-download-import', { id, gameName, ...await currentDownloadRootReference() });
+                if (result.canceled) { dlQueue.delete(id); renderDock(); }
+                await linuxDownloadsUi.refresh();
+            } catch (error) { const row = dlQueue.get(id); if (row) { row.state = 'error'; row.error = error.message; renderDock(); } }
+        };
+
         window.startGameDownload = function (item, link, sourceId) {
             if (warnOfflineDownload([link], sourceId)) return '';
             selectDownloadSizeSet(item, { kind: link.type === 'magnet' ? 'magnet' : 'host', host: dlHostOf(link.url), parts: [link] }, sourceId);
@@ -21820,6 +22402,7 @@
 
         ipcRenderer.on('download-complete', async (e, p) => {
             const d = dlQueue.get(p.id); if (!d) return;
+            if (process.platform === 'linux') linuxDownloadsUi.refresh().catch(error => platformAvailability.notice(error.message));
             d.retrying = false;
             d.state = 'done'; d.percent = 100; d.warning = p.warning;
             const probe = hostTransferProbeStates.get(p.id);
@@ -21887,6 +22470,7 @@
         };
         // Push the active service + key to the main process (used by the download resolver).
         window.pushDebridConfigToMain = function () {
+            if (localOnlyPreview) return;
             // Repair an empty/stale selection before syncing. This matters after profile
             // restore, where a validated TorBox key can exist before `active` is normalized.
             recomputeDebridActive();

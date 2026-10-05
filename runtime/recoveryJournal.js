@@ -3,6 +3,7 @@
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const { durableWriteJson } = require('../security/capabilityStore');
 
 const RUNTIME_SCHEMA_VERSION = 1;
 const MAX_COMPLETED_SESSIONS = 100;
@@ -20,6 +21,13 @@ function finiteTime(value, fallback) {
 
 function cleanText(value, maxLength = 240) {
     return String(value === undefined || value === null ? '' : value).trim().slice(0, maxLength);
+}
+
+function validSavedGameClock(item) {
+    const c = item.gameClock;
+    return item.creditPlaytime === true && c?.method === 'pe-image-v1' && c.confirmed === true
+        && Number.isSafeInteger(c.elapsedMs) && c.elapsedMs >= 0 && c.elapsedMs <= MAX_SESSION_DURATION_MS
+        && item.durationSeconds === c.elapsedMs / 1000;
 }
 
 function cleanExeName(value) {
@@ -109,10 +117,11 @@ function normalizeState(value) {
             lastHeartbeatAt: Math.max(startedAt, finiteTime(raw.lastHeartbeatAt, startedAt)),
             pid: Number.isInteger(Number(raw.pid)) && Number(raw.pid) > 0 ? Number(raw.pid) : null,
             exeName: cleanExeName(raw.exeName),
-            processConfirmed: !!raw.processConfirmed,
+            processConfirmed: ['proton-umu', 'wine'].includes(raw.native?.launchMetadata?.backend) ? require('./proton/tracking').confirmedGame(raw) : !!raw.processConfirmed,
             needsSaveSync: !!raw.needsSaveSync,
             needsGameConfigSync: !!raw.needsGameConfigSync,
-            recovered: !!raw.recovered
+            recovered: !!raw.recovered,
+            ...(raw.provider === 'linux-native' ? { provider: 'linux-native', native: clone(raw.native || {}) } : {})
         };
     }
 
@@ -127,9 +136,15 @@ function normalizeState(value) {
             gameName: cleanText(item.gameName || 'Unknown game', 200),
             startedAt: finiteTime(item.startedAt, 0),
             endedAt: finiteTime(item.endedAt, 0),
-            durationSeconds: Math.max(0, Number(item.durationSeconds) || 0),
+            durationSeconds: item.creditPlaytime === false || ['preparation', 'installation'].includes(item.activity) || item.activity === 'game' && !validSavedGameClock(item) ? 0 : Math.max(0, Number(item.durationSeconds) || 0),
             reason: cleanText(item.reason || 'process-exited', 80),
-            postExitJobId: cleanText(item.postExitJobId, 180) || null
+            postExitJobId: cleanText(item.postExitJobId, 180) || null,
+            ...(item.provider === 'linux-native' ? { provider: 'linux-native', outcome: cleanText(item.outcome, 80),
+                ...(item.creditPlaytime === false || ['preparation', 'installation'].includes(item.activity) || item.activity === 'game' && !validSavedGameClock(item)
+                    ? { creditPlaytime: false, ...(['preparation', 'game', 'installation'].includes(item.activity) ? { activity: item.activity } : {}),
+                        ...(item.activity === 'installation' && require('./native/protocol').UUID.test(item.installationId) && Number.isSafeInteger(item.installationStep) && item.installationStep >= 0 && item.installationStep <= 15
+                            ? { installationId: item.installationId, installationStep: item.installationStep } : {}) }
+                    : item.activity === 'game' && validSavedGameClock(item) ? { activity: 'game', creditPlaytime: true, gameClock: clone(item.gameClock) } : {}) } : {})
         }));
 
     const postExitJobs = (Array.isArray(state.postExitJobs) ? state.postExitJobs : [])
@@ -158,6 +173,7 @@ class RecoveryJournal {
         this.now = options.now || (() => Date.now());
         this.idFactory = options.idFactory || (() => crypto.randomUUID());
         this.state = this.readState();
+        this.durableState = clone(this.state);
         let changed = false;
         for (const session of Object.values(this.state.activeSessions)) {
             if (!session.recovered) {
@@ -188,16 +204,18 @@ class RecoveryJournal {
     }
 
     persist() {
-        const directory = path.dirname(this.filePath);
-        const temporaryPath = `${this.filePath}.${process.pid}.${this.idFactory()}.tmp`;
-        this.fs.mkdirSync(directory, { recursive: true });
-        this.fs.writeFileSync(temporaryPath, `${JSON.stringify(this.state, null, 2)}\n`, 'utf8');
         try {
-            if (this.fs.existsSync(this.filePath)) this.fs.copyFileSync(this.filePath, this.backupPath);
-            this.fs.rmSync(this.filePath, { force: true });
-            this.fs.renameSync(temporaryPath, this.filePath);
+            if (this.fs.existsSync(this.filePath)) {
+                const prior = JSON.parse(this.fs.readFileSync(this.filePath, 'utf8'));
+                durableWriteJson(this.backupPath, prior, { fs: this.fs });
+            }
+            durableWriteJson(this.filePath, this.state, { fs: this.fs });
+            this.durableState = clone(this.state);
         } catch (error) {
-            try { this.fs.rmSync(temporaryPath, { force: true }); } catch (_) {}
+            // A rename followed by a failed directory fsync may have published.
+            // Retain pending work in memory and retry idempotently; never treat
+            // an uncertain write as permission to exec, acknowledge or discard.
+            this.state = clone(this.durableState);
             throw error;
         }
     }
@@ -213,6 +231,7 @@ class RecoveryJournal {
         const libraryKey = cleanText(input.libraryKey || 'local:default', 240);
         const storageKey = activeSessionKey(libraryKey, gameId);
         const existing = this.state.activeSessions[storageKey];
+        if (existing && existing.provider === 'linux-native') throw new Error('Native sessions are controlled only by their verified supervisor.');
         if (existing) {
             existing.pid = Number(input.pid) > 0 ? Number(input.pid) : existing.pid;
             existing.exeName = cleanExeName(input.exeName) || existing.exeName;
@@ -223,6 +242,7 @@ class RecoveryJournal {
             this.persist();
             return clone(existing);
         }
+        if (Object.keys(this.state.activeSessions).length + this.state.completedSessions.length >= MAX_COMPLETED_SESSIONS) throw new Error('Pending playtime saves must finish before another tracked game can start.');
         const startedAt = Math.min(now, finiteTime(input.startedAt, now));
         const session = {
             sessionId: cleanText(input.sessionId, 160) || this.idFactory(),
@@ -248,6 +268,7 @@ class RecoveryJournal {
         const found = findActiveSession(this.state, input);
         if (!found) return null;
         const session = found[1];
+        if (session.provider === 'linux-native') throw new Error('Native observations require a verified receipt.');
         if (gameId && session.gameId !== gameId) return null;
         const observedAt = Math.max(session.startedAt, finiteTime(input.observedAt, this.now()));
         session.lastHeartbeatAt = Math.max(session.lastHeartbeatAt, observedAt);
@@ -303,6 +324,7 @@ class RecoveryJournal {
             );
             return existing ? clone(existing) : null;
         }
+        if (session.provider === 'linux-native') throw new Error('Native completion requires a verified terminal receipt.');
         const now = this.now();
         const requestedEnd = finiteTime(input.endedAt, now);
         const endedAt = Math.max(session.startedAt, Math.min(now, requestedEnd));
@@ -336,12 +358,97 @@ class RecoveryJournal {
         return clone(event);
     }
 
-    acknowledgeSession(eventId) {
+    acknowledgeSession(eventId, options = {}) {
         const id = cleanText(eventId, 180);
+        const pending = this.state.completedSessions.find(item => item.id === id);
+        if (pending && pending.provider === 'linux-native' && !options.durableProfileVerified) throw new Error('Native completion has not been verified in the durable profile.');
         const before = this.state.completedSessions.length;
         this.state.completedSessions = this.state.completedSessions.filter(item => item.id !== id);
         if (this.state.completedSessions.length !== before) this.persist();
         return this.state.completedSessions.length !== before;
+    }
+
+    startNativeSession(input) {
+        const executionKind = input.executionKind === undefined ? 'elf' : input.executionKind;
+        if (!['elf', 'script', 'script-native-path'].includes(executionKind)) throw new Error('Invalid native execution kind.');
+        const metadata = require('./proton/session').validateLaunchMetadata(input.launchMetadata);
+        const gameTracking = require('./proton/tracking').validateGameTracking(input.gameTracking);
+        if (gameTracking && metadata?.activity !== 'game') throw new Error('Only a Windows game can bind image tracking.');
+        const gameId = cleanText(input.gameId, 160);
+        const libraryKey = cleanText(input.libraryKey, 240);
+        const key = activeSessionKey(libraryKey, gameId);
+        if (!gameId || !libraryKey) throw new Error('A scoped game is required for native tracking.');
+        if (this.state.activeSessions[key]) throw new Error('This game already has an active or unresolved native session.');
+        if (this.state.completedSessions.some(event => event.gameId === gameId && event.libraryKey === libraryKey)) {
+            throw new Error('Save this game’s pending playtime before launching it again.');
+        }
+        if (Object.keys(this.state.activeSessions).length + this.state.completedSessions.length >= MAX_COMPLETED_SESSIONS) {
+            throw new Error('Pending playtime saves must finish before another tracked game can start.');
+        }
+        const session = { sessionId: input.sessionId, gameId, libraryKey, gameName: cleanText(input.gameName, 200),
+            startedAt: this.now(), lastHeartbeatAt: this.now(), processConfirmed: false, recovered: false,
+            needsSaveSync: false, needsGameConfigSync: false, provider: 'linux-native',
+            native: { protocol: 1, executionKind, phase: 'starting', nonce: input.nonce, directory: input.directory, owner: null,
+                receipt: null, error: '', commitRequested: false,
+                ...(gameTracking ? { gameTracking } : {}),
+                ...(metadata ? { launchMetadata: metadata } : {}) } };
+        this.state.activeSessions[key] = session;
+        this.persist();
+        return clone(session);
+    }
+
+    cancelNativeStart(sessionId) {
+        const found = findActiveSession(this.state, { sessionId });
+        if (!found) return false;
+        if (found[1].provider !== 'linux-native' || found[1].native.commitRequested) throw new Error('A possibly committed native session cannot be cancelled as an unstarted intent.');
+        delete this.state.activeSessions[found[0]];
+        this.persist();
+        return true;
+    }
+
+    updateNativeSession(sessionId, patch) {
+        const found = findActiveSession(this.state, { sessionId });
+        if (!found || found[1].provider !== 'linux-native') throw new Error('The native session is no longer active.');
+        const session = found[1];
+        if (patch.launchMetadata !== undefined && !require('node:util').isDeepStrictEqual(patch.launchMetadata, session.native.launchMetadata)) {
+            throw new Error('The Proton session binding cannot change.');
+        }
+        if (patch.gameTracking !== undefined && !require('node:util').isDeepStrictEqual(patch.gameTracking, session.native.gameTracking)) throw new Error('The Windows image tracking binding cannot change.');
+        if (patch.executionKind !== undefined && patch.executionKind !== (session.native.executionKind || 'elf')) {
+            throw new Error('The native execution kind cannot change during a session.');
+        }
+        if (Object.prototype.hasOwnProperty.call(patch, 'receipt')) {
+            require('./native/protocol').validateReceipt(patch.receipt, sessionId, session.native.owner, session.native.receipt, session.native.executionKind || 'elf', session.native.gameTracking);
+        }
+        session.native = { ...session.native, ...clone(patch) };
+        session.processConfirmed = require('./proton/session').protonActivity(session)
+            ? require('./proton/tracking').confirmedGame(session) : !!(session.native.receipt && session.native.receipt.execSucceeded);
+        session.lastHeartbeatAt = this.now();
+        this.persist();
+        return clone(session);
+    }
+
+    finishNativeSession(sessionId, receipt) {
+        const found = findActiveSession(this.state, { sessionId });
+        if (!found) return clone(this.state.completedSessions.find(event => event.sessionId === sessionId) || null);
+        const session = found[1];
+        if (session.provider !== 'linux-native' || !receipt.terminal || !receipt.durable || receipt.trackingErrno || receipt.receiptErrno) {
+            throw new Error('A durable terminal native receipt is required.');
+        }
+        require('./native/protocol').validateReceipt(receipt, sessionId, session.native.owner, session.native.receipt, session.native.executionKind || 'elf', session.native.gameTracking);
+        const policy = require('./proton/session').completionPolicy(session, receipt);
+        const event = { id: `session:${sessionId}`, sessionId, gameId: session.gameId, libraryKey: session.libraryKey,
+            gameName: session.gameName, startedAt: session.startedAt + (policy.creditPlaytime && policy.activity === 'game' ? receipt.game.startOffsetMs : 0), endedAt: this.now(),
+            durationSeconds: policy.creditPlaytime && receipt.execSucceeded ? Math.min(MAX_SESSION_DURATION_MS, policy.activity === 'game' ? receipt.game.elapsedMs : receipt.elapsedMs) / 1000 : 0,
+            ...(policy.activity ? { activity: policy.activity, creditPlaytime: policy.creditPlaytime } : {}),
+            ...(policy.activity === 'installation' ? { installationId: session.native.launchMetadata.installationId,
+                installationStep: session.native.launchMetadata.installationStep } : {}),
+            ...(policy.creditPlaytime && policy.activity === 'game' ? { gameClock: { method: 'pe-image-v1', confirmed: true, elapsedMs: Math.min(MAX_SESSION_DURATION_MS, receipt.game.elapsedMs) } } : {}),
+            reason: receipt.phase, outcome: policy.outcome, provider: 'linux-native', postExitJobId: null };
+        delete this.state.activeSessions[found[0]];
+        this.state.completedSessions.push(event);
+        this.persist();
+        return clone(event);
     }
 
     purgeGame(input = {}) {

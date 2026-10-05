@@ -378,7 +378,7 @@ function validateLocalBackupAuthorities(value) {
     const executionKeys = new Set([
         'executablePath', 'argv', 'workingDirectory', 'preLaunchScript',
         'postLaunchScript', 'companionPath', 'runAsAdmin', 'highPriority',
-        'playDetectionPath', 'steamAppId'
+        'playDetectionPath', 'steamAppId', 'linuxRuntime'
     ]);
     for (const [gameId, record] of gameEntries) {
         if (PROTOTYPE_KEYS.has(gameId) || cleanId(gameId, '') !== gameId || !isPlainObject(record)) {
@@ -392,6 +392,14 @@ function validateLocalBackupAuthorities(value) {
                 fail('SAIL_LOCAL_BACKUP_INVALID', `Local backup execution authority for ${gameId} is invalid.`);
             }
             const execution = record.execution;
+            if (execution.linuxRuntime !== undefined) {
+                const runtime = execution.linuxRuntime;
+                if (!isPlainObject(runtime) || Object.keys(runtime).some(key => !['backend', 'runtimeId', 'dllOverrides'].includes(key))
+                    || runtime.backend !== 'proton-umu' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(runtime.runtimeId)) {
+                    fail('SAIL_LOCAL_BACKUP_INVALID', 'Invalid device-local Proton runtime selection.');
+                }
+                if (runtime.dllOverrides !== undefined) require('../runtime/proton/environment').validateDllOverrides(runtime.dllOverrides);
+            }
             for (const key of ['executablePath', 'workingDirectory', 'preLaunchScript', 'postLaunchScript', 'companionPath', 'playDetectionPath']) {
                 if (execution[key] !== undefined && (typeof execution[key] !== 'string' || execution[key].length > 32767
                     || execution[key] && !path.isAbsolute(execution[key]))) {
@@ -537,6 +545,7 @@ class ProfileStore {
         this.migrationReady = false;
         this.faultInjector = typeof options.faultInjector === 'function' ? options.faultInjector : () => {};
         this.capabilityStore = null;
+        this.assertMutationAllowed = typeof options.assertMutationAllowed === 'function' ? options.assertMutationAllowed : null;
     }
 
     atomicWrite(destination, value) {
@@ -1165,6 +1174,9 @@ class ProfileStore {
             presetName: presetMeta.name,
             conflictMode: profile.conflictMode
         });
+        this.assertMutationAllowed?.({ type: 'capture', scope: this.activeScope(),
+            currentGameIds: fsExtra.readJsonSync(this.libraryPath(profile.id, libraryMeta.id)).library.games.map(game => String(game.id)),
+            gameIds: projected.artifact.libraries[0].games.map(game => String(game.id)) });
         this.atomicWrite(this.libraryPath(profile.id, libraryMeta.id), { schemaVersion: PROFILE_SCHEMA_VERSION, library: projected.artifact.libraries[0] });
         this.atomicWrite(this.presetPath(profile.id, presetMeta.id), { schemaVersion: PROFILE_SCHEMA_VERSION, preset: projected.artifact.presets[0] });
         const existingOverlay = this.readOverlay(profile.id, libraryMeta.id);
@@ -1290,6 +1302,7 @@ class ProfileStore {
 
     importActiveLocalBackup(input) {
         this.ensureReady();
+        this.assertMutationAllowed?.({ type: 'replace-library', scope: this.activeScope() });
         const parsed = decodeLocalBackupInput(input);
         const rollback = this.exportActiveLocalBackup();
         const rollbackRoot = path.join(this.root, 'import-backups');
@@ -1376,6 +1389,8 @@ class ProfileStore {
         const admitted = admitPortableArtifact(remoteInput, { kindHint: 'control-plane' });
         let remote = admitted.artifact;
         if (remote.kind !== 'control-plane') fail('SAIL_PORTABLE_KIND_MISMATCH', 'A control-plane artifact is required.');
+        for (const library of remote.libraries) this.assertMutationAllowed?.({ type: 'replace-library',
+            scope: { profileId: library.profileId, libraryId: library.id } });
         const metadataOnlyProfiles = new Set(remote.presets
             .filter(preset => portableMetadataOnlyEnabled(preset.settings))
             .map(preset => preset.profileId));
@@ -1465,6 +1480,7 @@ class ProfileStore {
 
     importActivePortable(input) {
         this.ensureReady();
+        this.assertMutationAllowed?.({ type: 'replace-library', scope: this.activeScope() });
         const admitted = admitPortableArtifact(input, { kindHint: 'launcher-snapshot' });
         if (admitted.artifact.kind !== 'launcher-snapshot') fail('SAIL_PORTABLE_KIND_MISMATCH', 'A launcher snapshot artifact is required.');
         const profile = this.activeProfile();
@@ -1586,6 +1602,7 @@ class ProfileStore {
         const index = this.state.profiles.findIndex(item => item.id === profileId);
         if (index < 0) fail('SAIL_PROFILE_NOT_FOUND', 'Launcher profile was not found.');
         const profile = this.state.profiles[index];
+        this.assertMutationAllowed?.({ type: 'profile', scope: { profileId } });
         if (profile.pinVerifier) {
             const unlock = this.unlockProfile(profileId, pin);
             if (!unlock.success) fail('SAIL_PROFILE_PIN_INVALID', 'Enter the correct profile PIN before deleting it.');
@@ -1607,6 +1624,7 @@ class ProfileStore {
         this.ensureReady();
         const profile = this.state.profiles.find(item => item.id === profileId);
         if (!profile) fail('SAIL_PROFILE_NOT_FOUND', 'Launcher profile was not found.');
+        if (patch.pin) this.assertMutationAllowed?.({ type: 'profile', scope: { profileId } });
         if (Object.prototype.hasOwnProperty.call(patch, 'name')) profile.name = cleanName(patch.name, profile.name);
         if (['prompt', 'newest', 'local'].includes(patch.conflictMode)) profile.conflictMode = patch.conflictMode;
         if (Object.prototype.hasOwnProperty.call(patch, 'pin')) {
@@ -1639,6 +1657,9 @@ class ProfileStore {
         this.ensureReady();
         const profile = this.state.profiles.find(item => item.id === profileId);
         if (!profile) fail('SAIL_PROFILE_NOT_FOUND', 'Launcher profile was not found.');
+        if (this.state.activeProfileId !== profile.id || this.state.activeLibraryId !== profile.libraries[0].id) {
+            this.assertMutationAllowed?.({ type: 'leave-library', scope: this.activeScope() });
+        }
         this.state.activeProfileId = profile.id;
         this.state.activeLibraryId = profile.libraries[0].id;
         this.state.activePresetId = profile.presets[0].id;
@@ -1665,6 +1686,7 @@ class ProfileStore {
         this.ensureReady();
         const profile = this.activeProfile();
         if (!profile.libraries.some(item => item.id === libraryId)) fail('SAIL_PROFILE_LIBRARY_NOT_FOUND', 'Library was not found.');
+        if (this.state.activeLibraryId !== libraryId) this.assertMutationAllowed?.({ type: 'leave-library', scope: this.activeScope() });
         this.state.activeLibraryId = libraryId;
         this.saveState();
         return { state: this.getState(), snapshot: this.loadActiveSnapshot() };
@@ -1719,6 +1741,13 @@ class ProfileStore {
         return record ? clone(record) : null;
     }
 
+    localExecutionSetup(gameId) {
+        const scope = this.authorityScope(gameId);
+        const record = this.capabilityStore.latest('execution', scope);
+        // Presentation/reconfiguration only; this is never execution authority.
+        return record ? { details: clone(record.details || {}), proposals: clone(record.proposals || {}) } : { details: {}, proposals: {} };
+    }
+
     authorityStatus(gameId) {
         return this.capabilityStore.status(this.authorityScope(gameId));
     }
@@ -1740,6 +1769,7 @@ class ProfileStore {
 
     removeGameFromActiveLibrary(gameId, options = {}) {
         const scope = this.authorityScope(gameId);
+        this.assertMutationAllowed?.({ type: 'remove-game', scope });
         const current = this.loadActiveSnapshot();
         const index = current.myGames.findIndex(game => String(game && game.id || '') === scope.gameId);
         if (index < 0) fail('SAIL_PROFILE_GAME_NOT_FOUND', 'Game was not found in the active library.');
@@ -1856,13 +1886,30 @@ class ProfileStore {
         }, selectedPath);
     }
 
-    resolveExecutionCapability(request) {
+    resolveExecutionCapability(request, { consume = true } = {}) {
         const scope = this.authorityScope(request && request.gameId);
-        return this.capabilityStore.resolveExecution({
+        return this.capabilityStore[consume ? 'resolveExecution' : 'validateExecution']({
             capabilityId: request && request.capabilityId,
             expectedRevision: request && request.expectedRevision,
             operation: request && request.operation || 'launch',
             ...scope
+        });
+    }
+
+    resolveNativeSessionTermination(request, session) {
+        const allowed = new Set(['gameId', 'sessionId', 'capabilityId', 'expectedRevision']);
+        if (!isPlainObject(request) || Object.keys(request).some(key => !allowed.has(key))) {
+            fail('SAIL_CAPABILITY_INVALID', 'Native session termination contains an invalid field.');
+        }
+        const scope = this.authorityScope(request.gameId);
+        if (!session || session.provider !== 'linux-native' || !session.sessionId
+            || session.sessionId !== request.sessionId || session.gameId !== scope.gameId
+            || session.libraryKey !== `${scope.profileId}:${scope.libraryId}`) {
+            fail('SAIL_NATIVE_SESSION', 'Termination permission requires this game’s exact active native session.');
+        }
+        return this.capabilityStore.resolveNativeSessionTermination({
+            capabilityId: request.capabilityId, expectedRevision: request.expectedRevision,
+            ...scope, operation: 'terminate'
         });
     }
 
@@ -1916,6 +1963,7 @@ class ProfileStore {
     registerDiscoveredGames(rows = [], source = 'local-import') {
         this.ensureReady();
         if (!Array.isArray(rows) || rows.length > 5000) fail('SAIL_PROFILE_INVALID', 'The local import result is invalid.');
+        const metadataOnly = source === 'steam-import-linux';
         const current = this.loadActiveSnapshot();
         const created = [];
         for (const row of rows) {
@@ -1952,10 +2000,10 @@ class ProfileStore {
             current.myGames.push(game);
             created.push({
                 gameId,
-                executablePath: typeof row.executablePath === 'string' && path.isAbsolute(row.executablePath) && fs.existsSync(row.executablePath) && fs.statSync(row.executablePath).isFile()
+                executablePath: !metadataOnly && typeof row.executablePath === 'string' && path.isAbsolute(row.executablePath) && fs.existsSync(row.executablePath) && fs.statSync(row.executablePath).isFile()
                     ? path.normalize(row.executablePath)
                     : '',
-                steamAppId
+                steamAppId: metadataOnly ? '' : steamAppId
             });
         }
         if (!created.length) return { importedCount: 0, state: this.getState(), snapshot: current };

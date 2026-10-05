@@ -1,4 +1,12 @@
 const { app, BrowserWindow, ipcMain: electronIpcMain, dialog, shell, screen, Tray, Menu, session, safeStorage, Notification, net } = require('electron');
+const { createPlatformSupport, createSupportedIpcRegistrar } = require('./runtime/platformSupport');
+const nativeContext = require('./runtime/native/context').initializeNativeContext(app);
+const platformSupport = createPlatformSupport({ mode: nativeContext.mode, packaged: app.isPackaged && process.env.SAIL_ALLOW_MULTI_INSTANCE !== '1' });
+require('./runtime/nativeSessionPolicy').installNativeSessionPolicy({ app }, platformSupport);
+if (platformSupport.isolated && !require('./runtime/offlineNetwork').isInstalled()) {
+    console.error('Linux Milestone 1 uses private data: run npm run dev:linux with Node 22.23.2.');
+    app.exit(1);
+}
 const { exec, execFile, spawn } = require('child_process');
 const os = require('os');
 const path = require('path');
@@ -24,6 +32,11 @@ const { scanSaveCandidates } = require('./maintenance/saveScanner');
 const { registerAccountIpc } = require('./accounts/ipc');
 const { registerAchievementIpc } = require('./achievements/ipc');
 const { findSteamRoot, resolveInstalledSteamApp } = require('./achievements/achievementDiscovery');
+const { discoverSteamLibraries } = require('./runtime/steamDiscovery');
+const { createLinuxGameShortcut } = require('./runtime/linuxDesktopShortcut');
+const { registerAutostartIpc } = require('./runtime/linuxAutostart');
+const { registerLinuxProtocolIpc, DESKTOP_ID } = require('./runtime/linuxProtocol');
+const { registerLocalDesktopIpc } = require('./runtime/localDesktop');
 const { RecoveryJournal } = require('./runtime/recoveryJournal');
 const { DownloadJobDirectoryRegistry } = require('./runtime/downloadJobCleanup');
 const { registerDownloadCancellationIpc } = require('./runtime/downloadIpc');
@@ -122,10 +135,13 @@ if (args.includes('--sail-ui-probe')) {
     app.commandLine.appendSwitch('use-gl', 'angle');
     app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
 }
-let autoLaunchGameId = null;
-const launchArg = args.find(a => a.startsWith('--launch-game-id='));
-if (launchArg) autoLaunchGameId = launchArg.split('=')[1].replace(/"/g, '');
+const desktopActivation = require('./runtime/desktopActivation').createDesktopActivation({
+    initialArguments: args, getWindow: () => mainWindow
+});
 
+const protocolActivation = require('./runtime/protocolActivation').createProtocolActivation({
+    getWindow: () => mainWindow, focus: () => desktopActivation.focus(), getSupport: () => platformSupport
+});
 const startHidden = args.includes('--hidden');
 let activeBackupProcess = null;
 let backingUpZipPath = null;
@@ -140,6 +156,12 @@ const fullscreenControllers = new WeakMap();
 const fullscreenStates = new WeakMap();
 const sailHubGuestContents = new Set();
 let runtimeRecovery = null;
+let nativeProvider = null;
+let protonManager = null;
+let linuxDownloads = null;
+let protonProvider = null;
+let nativeQuitPrompt = false;
+const acknowledgedUnknownSessions = new Set();
 let runtimeMonitorTimer = null;
 let runtimeMonitorBusy = false;
 let deferredQuitRequested = false;
@@ -148,9 +170,31 @@ let deferredQuitTimer = null;
 const runtimeProcessMisses = new Map();
 let isQuitting = false;
 let exitSynced = false;
+let relaunchAfterSave = false;
+let trayAvailable = false;
 
 let exitWhenClosedSetting = false;
 let devToolsEnabled = false;
+const exitCoordinator = require('./runtime/exitCoordinator').createExitCoordinator({
+    request: id => mainWindow.webContents.send('exit-sync-request', id),
+    cancel: (id, message) => {
+        isQuitting = false;
+        exitSynced = false;
+        relaunchAfterSave = false;
+        acknowledgedUnknownSessions.clear();
+        if (mainWindow && !mainWindow.isDestroyed()) {
+            mainWindow.webContents.send('exit-sync-cancelled', id, message);
+            mainWindow.show();
+        }
+    },
+    complete: restart => {
+        relaunchAfterSave = false;
+        exitSynced = true;
+        isQuitting = true;
+        if (restart) app.relaunch();
+        app.quit();
+    }
+});
 function resolveLocallyInstalledSteamAppId(appId) {
     return resolveInstalledSteamApp(appId);
 }
@@ -163,7 +207,9 @@ const authorizeIpcEvent = createTrustedFrameAuthorizer({
     getMainWindow: () => mainWindow,
     trustedEntryPath
 });
-const ipcMain = createAuthorizedIpcRegistrar(electronIpcMain, authorizeIpcEvent);
+const supportedIpcMain = createSupportedIpcRegistrar(electronIpcMain, authorizeIpcEvent, platformSupport);
+const ipcMain = createAuthorizedIpcRegistrar(supportedIpcMain, authorizeIpcEvent);
+ipcMain.handle('platform-get-support', () => ({ ...platformSupport, trayAvailable }));
 ipcMain.on('set-exit-behavior', (e, val) => exitWhenClosedSetting = val);
 ipcMain.on('set-devtools-setting', (e, val) => devToolsEnabled = val);
 
@@ -204,7 +250,7 @@ function finishRuntimeSession(payload) {
 }
 
 async function monitorRuntimeSessions() {
-    if (!runtimeRecovery || runtimeMonitorBusy) return;
+    if (process.platform === 'linux' || !runtimeRecovery || runtimeMonitorBusy) return;
     runtimeMonitorBusy = true;
     try {
         const snapshot = runtimeRecovery.snapshot();
@@ -262,7 +308,9 @@ function postExitWorkStillRunning(snapshot) {
 function evaluateDeferredQuit() {
     if (!deferredQuitRequested || !runtimeRecovery) return;
     const snapshot = runtimeRecovery.snapshot();
-    if (Object.keys(snapshot.activeSessions || {}).length) return;
+    if (Object.keys(snapshot.activeSessions || {}).length || protonManager?.installations?.pendingBindings().length || linuxDownloads?.pendingBindings().length) {
+        clearTimeout(deferredQuitTimer); deferredQuitTimer = setTimeout(evaluateDeferredQuit, 1000); return;
+    }
     if (!deferredQuitSyncDeadline) deferredQuitSyncDeadline = Date.now() + 120000;
     if (postExitWorkStillRunning(snapshot) && Date.now() < deferredQuitSyncDeadline) {
         clearTimeout(deferredQuitTimer);
@@ -271,14 +319,65 @@ function evaluateDeferredQuit() {
     }
     deferredQuitRequested = false;
     clearTimeout(deferredQuitTimer);
+    deferredQuitTimer = null;
     isQuitting = true;
     app.quit();
 }
 
+function refuseNativeQuitWhileActive(sessions) {
+    if (process.platform !== 'linux' || !sessions.length) return false;
+    const active = sessions.filter(session => session.provider === 'linux-native');
+    if (!active.length) return false;
+    const unknown = active.filter(session => ['tracking-lost', 'cleanup-failed'].includes(session.native.phase));
+    const requestedRestart = relaunchAfterSave;
+    deferredQuitRequested = false;
+    clearTimeout(deferredQuitTimer);
+    deferredQuitTimer = null;
+    if (unknown.length === active.length && active.every(session => acknowledgedUnknownSessions.has(session.sessionId))) return false;
+    relaunchAfterSave = false;
+    isQuitting = false;
+    if (mainWindow && !mainWindow.isDestroyed()) { mainWindow.show(); mainWindow.focus(); }
+    if (unknown.length !== active.length) {
+        const cleanupOnly = active.every(session => session.native.receipt && session.native.receipt.scriptView && session.native.receipt.scriptView.gameFinished);
+        if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('platform-operation-unavailable',
+            cleanupOnly ? 'Script cleanup is still unresolved. Wait for cleanup, then explicitly Close or Restart Sail. Playtime is frozen and this exit request was cancelled.'
+                : 'A native game is still active. Stop or wait for the game, then explicitly Close or Restart Sail. This exit request was cancelled.');
+        return true;
+    }
+    if (!nativeQuitPrompt) {
+        nativeQuitPrompt = true;
+        const cleanupOnly = active.every(session => session.native.receipt && session.native.receipt.scriptView && session.native.receipt.scriptView.gameFinished);
+        dialog.showMessageBox(mainWindow, { type: 'warning', buttons: ['Keep Sail open', requestedRestart ? 'Restart with tracking unresolved' : 'Exit with tracking unresolved'],
+            defaultId: 0, cancelId: 0, message: cleanupOnly ? 'Script cleanup remains unresolved.' : 'The game may still be running.',
+            detail: cleanupOnly ? 'Sail cannot verify successful script cleanup. Leaving does not remove the file view or mark the session completed. Frozen playtime and the unresolved session will be kept for recovery. Local library changes must still save successfully.'
+                : 'Sail lost verified process ownership. Leaving does not stop the game or mark it completed. The last measured duration and unresolved session will be kept for recovery. Local library changes must still save successfully.'
+        }).then(async decision => {
+            if (decision.response !== 1) return;
+            const ids = active.map(session => session.sessionId);
+            await nativeProvider.acknowledgeUnresolvedExit(ids);
+            ids.forEach(id => acknowledgedUnknownSessions.add(id));
+            relaunchAfterSave = requestedRestart;
+            requestApplicationQuit();
+        }).catch(error => {
+            acknowledgedUnknownSessions.clear(); relaunchAfterSave = false;
+            if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('platform-operation-unavailable',
+                `Sail stayed open: the unresolved session could not be saved (${error.message}). Retry closing.`);
+        }).finally(() => { nativeQuitPrompt = false; });
+    }
+    return true;
+}
+
 function deferQuitForRuntimeWork() {
-    if (!runtimeRecovery) return false;
+    // isQuitting means the runtime wait already finished (or hit its deadline).
+    // before-quit and repeated Close/Restart must advance that same decision.
+    if (isQuitting || !runtimeRecovery) return false;
+    const nativeSessions = Object.values(runtimeRecovery.snapshot().activeSessions || {});
+    if (refuseNativeQuitWhileActive(nativeSessions)) return true;
+    if (process.platform === 'linux' && nativeSessions.length && nativeSessions.every(session =>
+        session.provider === 'linux-native' && ['tracking-lost', 'cleanup-failed'].includes(session.native.phase) && acknowledgedUnknownSessions.has(session.sessionId))) return false;
+    if (deferredQuitRequested) return true;
     const snapshot = runtimeRecovery.snapshot();
-    const hasActiveGame = Object.keys(snapshot.activeSessions || {}).length > 0;
+    const hasActiveGame = Object.keys(snapshot.activeSessions || {}).length > 0 || !!protonManager?.installations?.pendingBindings().length || !!linuxDownloads?.pendingBindings().length;
     const hasActiveSaveWork = postExitWorkStillRunning(snapshot);
     if (!hasActiveGame && !hasActiveSaveWork) return false;
     deferredQuitRequested = true;
@@ -633,17 +732,27 @@ function createWindow() {
 
     const win = new BrowserWindow({
         width: state.width, height: state.height, x: state.x, y: state.y, frame: false, titleBarStyle: 'hidden', transparent: true,
-        icon: path.join(__dirname, 'icon.ico'),
+        icon: path.join(__dirname, process.platform === 'linux' ? 'icon.png' : 'icon.ico'),
         show: false,
-        webPreferences: { nodeIntegration: true, contextIsolation: false, webSecurity: true, webviewTag: true }
+        webPreferences: { nodeIntegration: true, contextIsolation: false, webSecurity: true, webviewTag: true,
+            ...(platformSupport.isolated ? { preload: path.join(__dirname, 'runtime', 'devPreload.cjs') } : {}),
+            ...((process.platform === 'linux' || platformSupport.isolated) ? { spellcheck: false } : {}) }
     });
     mainWindow = win;
+    desktopActivation.resetRenderer();
+    protocolActivation.resetRenderer();
+    win.webContents.on('did-start-navigation', (_event, _url, isInPlace, isMainFrame) => {
+        if (isMainFrame && !isInPlace) {
+            desktopActivation.resetRenderer();
+            protocolActivation.resetRenderer();
+        }
+    });
     win.once('closed', () => {
         if (mainWindow === win) mainWindow = null;
     });
 
     win.once('ready-to-show', () => {
-        if (!startHidden && !win.isDestroyed()) win.show();
+        if ((!startHidden || ((process.platform === 'linux' || platformSupport.isolated) && !trayAvailable)) && !win.isDestroyed()) win.show();
     });
 
     const saveBounds = () => {
@@ -765,6 +874,7 @@ function createWindow() {
         session,
         onSailLauncherProtocol: handleProtocolUrl
     });
+    if (!platformSupport.features.remoteContent.available) win.webContents.on('will-attach-webview', event => event.preventDefault());
     win.webContents.on('did-attach-webview', (_event, guestContents) => {
         registerSailHubGuestContents(guestContents);
     });
@@ -801,6 +911,7 @@ function createWindow() {
 
 
     win.webContents.session.webRequest.onBeforeRequest({ urls: ['*://*/*'] }, (details, callback) => {
+        if (!platformSupport.features.remoteContent.available && !require('./runtime/steamArtworkPolicy').allowsSteamArtwork(details, platformSupport)) return require('./runtime/offlineNetwork').blockElectronRequest(details, callback);
         const url = details.url.toLowerCase();
         const shouldBlock = adBlockList.some(domain => url.includes(domain));
         if (shouldBlock) {
@@ -993,28 +1104,22 @@ function createWindow() {
     });
 
     win.on('close', (event) => {
-        if (!isQuitting && !exitWhenClosedSetting) {
+        if (!isQuitting && !exitWhenClosedSetting && (process.platform !== 'linux' && !platformSupport.isolated || trayAvailable)) {
             event.preventDefault();
-            win.hide();
+            // Keep the Linux taskbar entry reachable even if a tray host disappears.
+            if (process.platform === 'linux' || platformSupport.isolated) win.minimize(); else win.hide();
             return;
         }
 
         if (!isQuitting && deferQuitForRuntimeWork()) {
             event.preventDefault();
-            win.hide();
+            if (process.platform !== 'linux') win.hide();
             return;
         }
 
         if (!exitSynced) {
             event.preventDefault();
-            win.webContents.send('exit-sync-request');
-            setTimeout(() => {
-                if (!exitSynced) {
-                    exitSynced = true;
-                    isQuitting = true;
-                    app.quit();
-                }
-            }, 5000);
+            exitCoordinator.request(relaunchAfterSave);
         }
     });
 
@@ -1025,12 +1130,12 @@ function createWindow() {
 
 // Restart App Hook
 ipcMain.on('restart-app', () => {
-    app.relaunch();
-    app.exit(0);
+    relaunchAfterSave = true;
+    requestApplicationQuit();
 });
 
 ipcMain.handle('get-user-data', () => app.getPath('userData'));
-ipcMain.handle('get-auto-launch', () => autoLaunchGameId);
+ipcMain.handle('get-auto-launch', () => desktopActivation.rendererReady());
 
 ipcMain.handle('search-steam-workshop', async (e, payload) => {
     const input = exactGateAPayload(payload, ['gameId', 'steamAppId', 'query', 'page'], 'Steam Workshop search');
@@ -1166,10 +1271,12 @@ ipcMain.handle('get-common-paths', () => {
     return { appData: app.getPath('appData'), localAppData: process.env.LOCALAPPDATA || app.getPath('appData'), documents: app.getPath('documents') };
 });
 
-ipcMain.handle('set-autostart', (e, enable) => { app.setLoginItemSettings({ openAtLogin: enable, path: app.getPath('exe'), args: ['--hidden'] }); });
-ipcMain.handle('get-autostart', () => app.getLoginItemSettings().openAtLogin);
+registerAutostartIpc({ ipcMain, app });
+if (process.platform === 'linux') registerLinuxProtocolIpc({ ipcMain, app });
+ipcMain.handle('desktop-protocol-ready', () => protocolActivation.rendererReady());
+ipcMain.handle('desktop-protocol-ack', (_event, id) => protocolActivation.acknowledge(id));
 
-ipcMain.handle('create-shortcut', (e, payload) => {
+ipcMain.handle('create-shortcut', async (e, payload) => {
     const input = exactGateAPayload(payload, ['gameId', 'capabilityId', 'expectedRevision'], 'Game shortcut');
     const store = gateAProfileStore();
     const resolved = store.resolveExecutionCapability({
@@ -1179,6 +1286,18 @@ ipcMain.handle('create-shortcut', (e, payload) => {
         operation: 'shortcut'
     });
     const metadata = store.activeGameMetadata(input.gameId);
+    if (process.platform === 'linux') {
+        if (!platformSupport.features.nativeGames.available || !resolved.details.executablePath) {
+            throw new Error('A ready native game setup is required for a Linux desktop shortcut.');
+        }
+        return createLinuxGameShortcut({
+            desktopPath: app.getPath('desktop'),
+            executablePath: process.execPath,
+            sourcePath: process.defaultApp ? path.resolve(process.argv[1]) : null,
+            gameId: metadata.id,
+            gameName: metadata.name
+        });
+    }
     const safeName = metadata.name.replace(/[<>:"/\\|?*]+/g, '').slice(0, 120) || 'Game';
     const shortcutPath = path.join(app.getPath('desktop'), `${safeName}.lnk`);
     const gameExePath = resolved.details.executablePath || '';
@@ -1206,12 +1325,30 @@ ipcMain.on('show-game-context', (e, index) => {
 
 ipcMain.handle('runtime-recovery-state', async () => {
     await monitorRuntimeSessions();
-    return runtimeRecovery ? runtimeRecovery.snapshot() : { activeSessions: {}, completedSessions: [], postExitJobs: [] };
+    return nativeProvider ? nativeProvider.snapshot() : runtimeRecovery ? runtimeRecovery.snapshot() : { activeSessions: {}, completedSessions: [], postExitJobs: [] };
 });
 ipcMain.handle('runtime-session-start', (_event, payload) => runtimeRecovery ? runtimeRecovery.startSession(payload) : null);
 ipcMain.handle('runtime-session-observed', (_event, payload) => runtimeRecovery ? runtimeRecovery.touchSession(payload) : null);
 ipcMain.handle('runtime-session-finish', (_event, payload) => finishRuntimeSession(payload));
-ipcMain.handle('runtime-session-acknowledge', (_event, eventId) => runtimeRecovery ? runtimeRecovery.acknowledgeSession(eventId) : false);
+ipcMain.handle('runtime-session-pending', (_event, eventId) => {
+    const pending = runtimeRecovery && runtimeRecovery.snapshot().completedSessions.find(item => item.id === eventId);
+    if (!pending) return null;
+    const metadata = gateAProfileStore().activeGameMetadata(pending.gameId);
+    if (`${metadata.profileId}:${metadata.libraryId}` !== pending.libraryKey) throw new Error('This completion belongs to another profile or library.');
+    return pending;
+});
+ipcMain.handle('runtime-session-acknowledge', (_event, eventId) => {
+    if (!runtimeRecovery) return false;
+    const pending = runtimeRecovery.snapshot().completedSessions.find(item => item.id === eventId);
+    if (pending && pending.provider === 'linux-native') {
+        // activeGameMetadata reads the actual durable library, not renderer state.
+        const metadata = gateAProfileStore().activeGameMetadata(pending.gameId);
+        if (`${metadata.profileId}:${metadata.libraryId}` !== pending.libraryKey
+            || !(metadata.playtimeSessionIds || []).includes(pending.id)) throw new Error('Playtime has not been saved to this game’s durable local profile. Retry saving before acknowledgement.');
+        return runtimeRecovery.acknowledgeSession(eventId, { durableProfileVerified: true });
+    }
+    return runtimeRecovery.acknowledgeSession(eventId);
+});
 ipcMain.handle('runtime-post-exit-begin', (_event, payload) => runtimeRecovery ? runtimeRecovery.ensurePostExitJob(payload) : null);
 ipcMain.handle('runtime-post-exit-update', (_event, payload) => {
     const result = runtimeRecovery ? runtimeRecovery.updatePostExitJob(payload) : null;
@@ -2169,14 +2306,18 @@ ipcMain.on('window-set-fullscreen', (e, enabled) => {
     if (win) setWindowFullscreen(win, enabled === true);
 });
 ipcMain.on('window-close', (e, exitWhenClosed) => {
-    if (exitWhenClosed) requestApplicationQuit();
-    else { BrowserWindow.fromWebContents(e.sender)?.hide(); }
+    if (exitWhenClosed || ((process.platform === 'linux' || platformSupport.isolated) && !trayAvailable)) requestApplicationQuit();
+    else {
+        const win = BrowserWindow.fromWebContents(e.sender);
+        if (process.platform === 'linux' || platformSupport.isolated) win?.minimize(); else win?.hide();
+    }
 });
 
-ipcMain.on('exit-sync-completed', () => {
-    exitSynced = true;
-    isQuitting = true;
-    app.quit();
+ipcMain.on('exit-sync-failed', (_event, id, message) => {
+    exitCoordinator.fail(id, typeof message === 'string' ? message : undefined);
+});
+ipcMain.on('exit-sync-completed', (_event, id) => {
+    exitCoordinator.succeed(id);
 });
 
 ipcMain.handle('get-displays', () => {
@@ -2209,22 +2350,7 @@ ipcMain.on('move-to-display-fullscreen', (e, displayId) => {
     }
 });
 
-ipcMain.handle('dialog-select-folder', async (e, defaultPath) => {
-    const options = { properties: ['openDirectory'] };
-    if (defaultPath) options.defaultPath = defaultPath;
-    const r = await dialog.showOpenDialog(options);
-    return r.canceled ? null : r.filePaths[0];
-});
-
-ipcMain.handle('dialog-select-file', async () => { const r = await dialog.showOpenDialog({ properties: ['openFile'], filters: [{ name: 'Executables & Shortcuts', extensions: ['exe', 'lnk', 'bat', 'cmd'] }] }); return r.canceled ? null : r.filePaths[0]; });
-ipcMain.handle('dialog-select-image', async () => { const r = await dialog.showOpenDialog({ properties: ['openFile'], filters: [{ name: 'Images', extensions: ['jpg', 'png', 'jpeg', 'webp', 'ico'] }] }); return r.canceled ? null : r.filePaths[0]; });
-ipcMain.handle('dialog-select-font', async () => { const r = await dialog.showOpenDialog({ properties: ['openFile'], filters: [{ name: 'Fonts', extensions: ['ttf', 'otf', 'woff', 'woff2'] }] }); return r.canceled ? null : r.filePaths[0]; });
-ipcMain.handle('dialog-select-icon', async () => { const r = await dialog.showOpenDialog({ properties: ['openFile'], filters: [{ name: 'Icons & Executables', extensions: ['ico', 'exe'] }] }); return r.canceled ? null : r.filePaths[0]; });
-
-ipcMain.handle('dialog-save-json', async () => { const r = await dialog.showSaveDialog({ defaultPath: 'sail_library_backup.json', filters: [{ name: 'JSON', extensions: ['json'] }] }); return r.canceled ? null : r.filePath; });
-ipcMain.handle('dialog-open-json', async () => { const r = await dialog.showOpenDialog({ properties: ['openFile'], filters: [{ name: 'JSON', extensions: ['json'] }] }); return r.canceled ? null : r.filePaths[0]; });
-ipcMain.handle('dialog-save-theme', async () => { const r = await dialog.showSaveDialog({ defaultPath: 'my_theme.json', filters: [{ name: 'JSON Theme', extensions: ['json'] }] }); return r.canceled ? null : r.filePath; });
-ipcMain.handle('dialog-open-theme', async () => { const r = await dialog.showOpenDialog({ properties: ['openFile'], filters: [{ name: 'JSON Theme', extensions: ['json'] }] }); return r.canceled ? null : r.filePaths[0]; });
+registerLocalDesktopIpc({ ipcMain, dialog, shell, BrowserWindow });
 
 // --- Plugin Manager IPC Handlers ---
 ipcMain.handle('open-file-dialog', async (e, opts) => {
@@ -2270,10 +2396,6 @@ ipcMain.handle('create-zip', async (e, { sourceDir, destPath }) => {
     });
 });
 
-ipcMain.handle('open-url', (e, url) => {
-    if (!openExternalWebUrl(shell, url)) throw new Error('This link cannot be opened.');
-    return true;
-});
 ipcMain.handle('show-game-local-file', (e, payload) => {
     const input = exactGateAPayload(payload, ['gameId', 'capabilityId', 'expectedRevision'], 'Reveal game file');
     const resolved = gateAProfileStore().resolveExecutionCapability({
@@ -2372,7 +2494,16 @@ ipcMain.handle('cleanup-update-folder', async () => {
 });
 
 ipcMain.handle('kill-game-process', (e, payload) => {
-    const input = exactGateAPayload(payload, ['gameId', 'capabilityId', 'expectedRevision'], 'Stop game process');
+    const input = exactGateAPayload(payload, ['gameId', 'capabilityId', 'expectedRevision', ...(process.platform === 'linux' ? ['sessionId'] : [])], 'Stop game process');
+    if (process.platform === 'linux') {
+        if (!nativeProvider) throw new Error('Native execution is unavailable.');
+        const scope = gateAProfileStore().authorityScope(input.gameId);
+        return nativeProvider.stop({ sessionId: input.sessionId, gameId: scope.gameId, libraryKey: `${scope.profileId}:${scope.libraryId}`,
+            authorize: session => {
+                authorizeIpcEvent(e);
+                return gateAProfileStore().resolveNativeSessionTermination(input, session);
+            } });
+    }
     const resolved = gateAProfileStore().resolveExecutionCapability({
         capabilityId: input.capabilityId,
         expectedRevision: input.expectedRevision,
@@ -2514,7 +2645,14 @@ ipcMain.handle('launch-game', async (e, payload) => {
     ], 'Launch request');
     if (uninstallingGameIds.has(String(input.gameId || ''))) throw new Error('This game is currently being uninstalled.');
     if (!accountServices || !accountServices.profileStore) throw new Error('Local game authority is not ready.');
+    if (process.platform === 'linux' && (deferredQuitRequested || isQuitting)) throw Error('Sail is closing. Click Play after reopening to launch the game.');
     const gameMetadata = accountServices.profileStore.activeGameMetadata(input.gameId);
+    linuxDownloads?.assertPlayable(String(input.gameId));
+    protonManager?.installations?.assertIdle({ profileId: gameMetadata.profileId, libraryId: gameMetadata.libraryId, gameId: String(gameMetadata.id) });
+    if (process.platform === 'linux') {
+        const first = protonFirstLaunchPlan(gameMetadata, accountServices.profileStore.localExecutionSetup(input.gameId).details);
+        if (first?.reviewRequired) return { success: true, setupRequired: true, firstLaunch: first };
+    }
     const resolved = accountServices.profileStore.resolveExecutionCapability({
         capabilityId: input.capabilityId,
         expectedRevision: input.expectedRevision,
@@ -2526,6 +2664,23 @@ ipcMain.handle('launch-game', async (e, payload) => {
         gameId: input.gameId,
         resolvedCapability: resolved
     });
+    if (process.platform === 'linux') {
+        if (!nativeProvider) throw new Error('Native execution is unavailable.');
+        if (input.needsSaveSync || input.needsGameConfigSync) throw new Error('Native cloud/save integrations are unavailable in this milestone.');
+        if (require('./runtime/proton/wine').windowsBackend(resolved.details.linuxRuntime?.backend)) {
+            if (!protonProvider) throw new Error('Proton execution is unavailable.');
+            const result = await protonProvider.launch({ scope: { profileId: gameMetadata.profileId, libraryId: gameMetadata.libraryId, gameId: gameMetadata.id },
+                gameName: gameMetadata.name, resolve: () => {
+                    const details = phaseAuthority.resolve('launch');
+                    if (protonFirstLaunchPlan(gameMetadata, details)?.reviewRequired) throw Error('Review first-launch setup before playing this game.');
+                    return details;
+                } });
+            return { success: true, ...result, capability: resolved.replacement };
+        }
+        const result = await nativeProvider.launch({ gameId: gameMetadata.id, gameName: gameMetadata.name,
+            libraryKey: `${gameMetadata.profileId}:${gameMetadata.libraryId}`, resolve: () => phaseAuthority.resolve('launch') });
+        return { success: true, ...result, capability: resolved.replacement };
+    }
     const {
         executablePath: exePath,
         steamAppId,
@@ -2637,7 +2792,56 @@ ipcMain.handle('launch-game', async (e, payload) => {
     });
 });
 
+ipcMain.handle('proton-prepare-environment', async (_event, payload) => {
+    const input = exactGateAPayload(payload, ['capabilityId', 'expectedRevision', 'gameId'], 'Windows environment preparation');
+    if (!protonProvider || !protonManager) throw new Error('Windows environment preparation is unavailable.');
+    // Refuse before consuming permission or creating a prefix when the runtime
+    // preparation lifecycle has not been accepted for this build.
+    protonManager.assertPreparationReady();
+    if (uninstallingGameIds.has(String(input.gameId || ''))) throw new Error('This game is currently being uninstalled.');
+    const profileStore = gateAProfileStore();
+    const game = profileStore.activeGameMetadata(input.gameId);
+    const resolved = profileStore.resolveExecutionCapability({ ...input, operation: 'launch' });
+    const phaseAuthority = createExecutionPhaseAuthority({ profileStore, gameId: game.id, resolvedCapability: resolved });
+    const result = await protonProvider.prepareEnvironment({
+        scope: { profileId: game.profileId, libraryId: game.libraryId, gameId: game.id },
+        gameName: game.name, resolve: () => phaseAuthority.resolve('launch') });
+    return { success: true, ...result, capability: resolved.replacement };
+});
+
+function protonFirstLaunchRoots(gameId) {
+    const record = linuxDownloads?.forGame(String(gameId));
+    if (!record?.published) return [];
+    linuxDownloads.sameScope(record); linuxDownloads.validateFolder(record);
+    return [record.folder];
+}
+function protonFirstLaunchPlan(game, details) {
+    if (!require('./runtime/proton/wine').windowsBackend(details.linuxRuntime?.backend) || !protonManager?.firstLaunch?.enabled) return null;
+    return protonManager.firstLaunch.plan({ scope: { profileId: game.profileId, libraryId: game.libraryId, gameId: String(game.id) },
+        details, roots: protonFirstLaunchRoots(game.id) });
+}
+function resolveInstallationExecution(input) {
+    const store = gateAProfileStore(), game = store.activeGameMetadata(input.gameId);
+    const resolved = store.resolveExecutionCapability({ gameId: input.gameId, capabilityId: input.capabilityId,
+        expectedRevision: input.expectedRevision, operation: 'launch' });
+    const authority = createExecutionPhaseAuthority({ profileStore: store, gameId: game.id, resolvedCapability: resolved });
+    return { scope: { profileId: game.profileId, libraryId: game.libraryId, gameId: String(game.id) }, gameName: game.name,
+        resolve: () => authority.resolve('launch'), capability: resolved.replacement };
+}
+require('./runtime/proton/installationIpc').registerWindowsInstallationIpc({
+    ipcMain, dialog, authorize: authorizeIpcEvent, exactPayload: exactGateAPayload,
+    getStore: () => gateAProfileStore(), getInstallations: () => protonManager?.installations,
+    isUninstalling: gameId => uninstallingGameIds.has(String(gameId)),
+    resolveExecution: resolveInstallationExecution, getGameRoots: protonFirstLaunchRoots, isExiting: () => deferredQuitRequested || isQuitting
+});
+
 ipcMain.handle('get-system-specs', async () => {
+    if (process.platform === 'linux' || platformSupport.isolated) {
+        const display = screen.getPrimaryDisplay();
+        return { os: `${os.type()} ${os.release()}`, cpu: os.cpus()[0]?.model || 'Unavailable',
+            ram: Math.round(os.totalmem() / 1024 ** 3), gpu: 'Unavailable in Linux boot preview',
+            resolution: `${display.size.width}x${display.size.height}` };
+    }
     return new Promise((resolve) => {
         exec('wmic path win32_VideoController get name', (err, stdout) => {
             let gpuName = "Unknown GPU";
@@ -2654,35 +2858,7 @@ ipcMain.handle('get-system-specs', async () => {
 
 // --- SAIL HUB: Custom Protocol Handler ---
 function handleProtocolUrl(url) {
-    try {
-        // url looks like: sail-launcher://install-theme?url=https%3A%2F%2F...
-        const parsed = new URL(url);
-        const action = parsed.hostname; // e.g. "install-theme" or "install-plugin"
-        if (action === 'cloud-callback') {
-            const win = BrowserWindow.getAllWindows()[0];
-            if (win) {
-                if (win.isMinimized()) win.restore();
-                win.show();
-                win.focus();
-                win.webContents.send('account-cloud-callback', {
-                    success: parsed.searchParams.get('success') === '1',
-                    provider: parsed.searchParams.get('provider') || '',
-                    error: parsed.searchParams.get('error') || ''
-                });
-            }
-            return;
-        }
-        const fileUrl = parsed.searchParams.get('url');
-        if (fileUrl && (action === 'install-theme' || action === 'install-plugin')) {
-            const win = BrowserWindow.getAllWindows()[0];
-            if (win) {
-                if (win.isMinimized()) win.restore();
-                win.show();
-                win.focus();
-                win.webContents.send('hub-install', { action, fileUrl });
-            }
-        }
-    } catch (err) { console.log('Protocol parse error:', err); }
+    return protocolActivation.receive(url);
 }
 
 // Download a Sail Hub item without exposing partial files or allowing an encoded
@@ -2765,7 +2941,7 @@ const remoteDataService = createRemoteDataService();
 registerRemoteDataIpc(ipcMain, remoteDataService);
 
 async function resolveSteamMetadataForDownload(gameName, sourceId) {
-    if (!DownloadSourceLogic.isSteamCatalogDownloadSource(sourceId)) return null;
+    if (!DownloadSourceLogic.isSteamCatalogDownloadSource(sourceId) && sourceId !== 'archive-import') return null;
     const cleanName = DownloadSourceLogic.cleanDownloadedGameName(gameName);
     if (!cleanName) return null;
     try {
@@ -2789,6 +2965,60 @@ const downloadQuarantineCatalog = new DownloadQuarantineCatalog({
 });
 const downloadJobDirectories = new DownloadJobDirectoryRegistry({ quarantineCatalog: downloadQuarantineCatalog });
 const downloadWork = createDownloadWorkCoordinator(downloadJobDirectories);
+function getLinuxDownloads() {
+    if (process.platform !== 'linux' || !platformSupport.features.downloads.available) throw Error('Linux downloads are unavailable in this platform mode.');
+    if (!linuxDownloads) linuxDownloads = new (require('./runtime/linuxDownloads').LinuxDownloads)({
+        root: path.join(app.getPath('userData'), 'runtime', 'linux-downloads'), defaultRoot: path.join(app.getPath('userData'), 'SailDownloads'),
+        getStore: () => gateAProfileStore(), getManager: () => protonManager, registry: downloadJobDirectories, work: downloadWork,
+        activeDownloads, dialog, authorize: authorizeIpcEvent, resolveExecution: resolveInstallationExecution, metadata: resolveSteamMetadataForDownload,
+        emit: (channel, data) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, data); }
+    });
+    linuxDownloads.initialize(); return linuxDownloads;
+}
+function registerLinuxDownloadHandle(channel, handler) {
+    ipcMain.handle(channel, async (event, payload) => {
+        try { return { success: true, data: await handler(event, payload) }; }
+        catch (error) { return { success: false, error: String(error.message || error).replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 500) }; }
+    });
+}
+registerLinuxDownloadHandle('linux-download-list', () => getLinuxDownloads().list());
+registerLinuxDownloadHandle('linux-download-adopt', (event, payload) => {
+    const input = exactGateAPayload(payload, ['id'], 'Finish saved download'); return getLinuxDownloads().adopt(event, input);
+});
+registerLinuxDownloadHandle('linux-download-status', (_event, payload) => {
+    const input = exactGateAPayload(payload, ['gameId'], 'Linux download status'); return getLinuxDownloads().status(String(input.gameId));
+});
+registerLinuxDownloadHandle('linux-download-configure', (event, payload) => {
+    const input = exactGateAPayload(payload, ['gameId', 'runtimeId', 'includePrerequisites', 'afterInstallation'], 'Downloaded game setup');
+    if (input.afterInstallation !== undefined && typeof input.afterInstallation !== 'boolean') throw Error('Invalid installation review.');
+    if (input.includePrerequisites !== undefined && typeof input.includePrerequisites !== 'boolean') throw Error('Invalid prerequisites selection.');
+    if (uninstallingGameIds.has(String(input.gameId))) throw Error('This game is being uninstalled.');
+    return getLinuxDownloads().configure(event, input);
+});
+registerLinuxDownloadHandle('linux-download-import', async (event, payload) => {
+    const input = exactGateAPayload(payload, ['id', 'gameName', 'rootCapabilityId', 'rootExpectedRevision'], 'Archive import');
+    const downloads = getLinuxDownloads(), before = downloads.scope();
+    const options = normalizeDownloadRequest({ ...input, sourceId: 'archive-import', url: 'https://archive.invalid/local', autoExtract: true, autoAdd: true, autoInstall: true });
+    const picked = await dialog.showOpenDialog({ title: 'Import a game archive (select every split volume)', properties: ['openFile', 'multiSelections'],
+        filters: [{ name: 'Game archives and split volumes', extensions: ['zip', 'rar', '7z', '001', '002', '003', 'r00', 'r01'] }, { name: 'All files', extensions: ['*'] }] });
+    if (picked.canceled || !picked.filePaths?.length) return { canceled: true };
+    if (picked.filePaths.length > 32) throw Error('Choose no more than 32 archive volumes.');
+    authorizeIpcEvent(event);
+    if (!require('node:util').isDeepStrictEqual(before, downloads.scope())) throw Error('The profile or library changed during archive selection.');
+    const imports = picked.filePaths.map(file => {
+        const canonical = fs.realpathSync(file);
+        if (canonical !== path.resolve(file)) throw Error('Choose the archive itself rather than a symbolic link.');
+        return { file: canonical, identity: require('./security/capabilityStore').fileIdentity(canonical, 'file') };
+    });
+    if (!imports.some(item => require('./runtime/linuxGameDiscovery').archiveKind(item.file))) throw Error('Choose a ZIP, RAR, or 7z archive and its split volumes.');
+    if (imports.reduce((total, item) => total + fs.statSync(item.file).size, 0) > 512 * 1024 ** 3) throw Error('These archives exceed the import size limit.');
+    return downloads.run(event, options, imports);
+});
+registerLinuxDownloadHandle('linux-download-open', async (_event, payload) => {
+    const input = exactGateAPayload(payload, ['id'], 'Open retained download'), downloads = getLinuxDownloads();
+    const record = downloads.records.get(input.id); if (!record) throw Error('This download is no longer available.');
+    downloads.sameScope(record); downloads.validateFolder(record); const error = await shell.openPath(record.folder); if (error) throw Error(error); return true;
+});
 let browserDownloadCapture = { enabled: false, defaults: {} };
 const browserDownloadWebContents = new Set();
 const managedResolverWebContents = new Set();
@@ -2827,6 +3057,13 @@ function isAdHost(url) {
     } catch (e) { return false; }
 }
 function applyAdBlock(sess) {
+    if (!platformSupport.features.remoteContent.available && sess) {
+        sess.webRequest.onBeforeRequest((details, callback) => {
+            if (sess === session.defaultSession && require('./runtime/steamArtworkPolicy').allowsSteamArtwork(details, platformSupport)) return callback({ cancel: false });
+            require('./runtime/offlineNetwork').blockElectronRequest(details, callback);
+        });
+        return;
+    }
     if (!sess || sess.__sailAdBlock) return;
     sess.__sailAdBlock = true;
     sess.webRequest.onBeforeRequest((details, cb) => {
@@ -6007,12 +6244,14 @@ function normalizeDownloadRequest(value) {
             expectedRevision: input.rootExpectedRevision
         });
         output.installDir = resolved.details.rootPath;
+        if (process.platform === 'linux') output.rootReference = { kind: 'download-root', capabilityId: resolved.replacement.capabilityId, expectedRevision: resolved.replacement.revision };
     } else output.installDir = '';
     return output;
 }
 
 ipcMain.handle('download-game', async (e, opts) => {
     opts = normalizeDownloadRequest(opts);
+    if (process.platform === 'linux') return getLinuxDownloads().run(e, opts);
     const wc = e.sender;
     const id = opts.id;
     const retryRequestKey = debridRetryRequestKey(opts, gateAProfileStore().activeScope());
@@ -6477,7 +6716,12 @@ ipcMain.handle('discard-debrid-retry-link', (e, payload) => {
 
 // Cancellation is registered from the shared production module so runtime tests execute
 // the same ownership checks, control shutdown, bounded retries, and cleanup authority.
-registerDownloadCancellationIpc(ipcMain, {
+registerDownloadCancellationIpc({ handle(channel, handler) {
+    ipcMain.handle(channel, async (event, id) => {
+        const saved = process.platform === 'linux' ? await linuxDownloads?.cancelSaved(event, String(id)) : null;
+        return saved || handler(event, id);
+    });
+} }, {
     registry: downloadJobDirectories,
     activeDownloads,
     pendingBrowserDownloads,
@@ -6496,6 +6740,7 @@ registerDownloadQuarantineIpc(ipcMain, { catalog: downloadQuarantineCatalog, she
 // Pause = kill aria2 but keep the partial download + .aria2 control file so Resume can
 // continue from where it stopped. Removed from activeDownloads; files stay on disk.
 ipcMain.handle('pause-download', async (e, id) => {
+    if (process.platform === 'linux') throw Error('Linux transfers do not support resume yet. Cancel the transfer or keep it running; saved files can be imported.');
     const d = activeDownloads.get(id);
     if (d && d.item) {
         d.paused = true;
@@ -6564,10 +6809,15 @@ ipcMain.handle('authority-get-device-root-status', (_event, payload) => {
     return gateAProfileStore().deviceRootStatus(input.kind);
 });
 
-ipcMain.handle('pick-download-folder', async () => {
+ipcMain.handle('pick-download-folder', async event => {
+    const before = process.platform === 'linux' ? gateAProfileStore().activeScope() : null;
     const r = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] });
     if (r.canceled || !r.filePaths[0]) return { canceled: true };
-    const capability = gateAProfileStore().createDeviceRootCapability('download-root', r.filePaths[0]);
+    if (process.platform === 'linux') {
+        authorizeIpcEvent(event);
+        if (!require('node:util').isDeepStrictEqual(before, gateAProfileStore().activeScope())) throw Error('The profile or library changed during folder selection.');
+    }
+    const capability = gateAProfileStore().createDeviceRootCapability('download-root', process.platform === 'linux' ? fs.realpathSync(r.filePaths[0]) : r.filePaths[0]);
     return { canceled: false, capability, label: path.basename(r.filePaths[0]) || 'Selected folder' };
 });
 
@@ -6575,11 +6825,12 @@ const allowMultiInstance = process.env.SAIL_ALLOW_MULTI_INSTANCE === '1';
 const gotTheLock = allowMultiInstance || app.requestSingleInstanceLock();
 if (!gotTheLock) app.quit();
 else {
-    app.setAppUserModelId("com.aseoriy.saillauncher");
+    if (process.platform === 'win32') app.setAppUserModelId("com.aseoriy.saillauncher");
 
     // Isolated verification instances must not replace the installed launcher's
     // sail-launcher:// registration while a source build is under test.
-    if (!allowMultiInstance) {
+    if (process.platform === 'linux' && platformSupport.features.desktopIntegration.available) app.setDesktopName(DESKTOP_ID);
+    if (process.platform !== 'linux' && !allowMultiInstance && platformSupport.features.desktopIntegration.available) {
         if (process.defaultApp) {
             app.setAsDefaultProtocolClient('sail-launcher', process.execPath, [path.resolve(process.argv[1])]);
         } else {
@@ -6588,27 +6839,19 @@ else {
     }
 
     app.on('second-instance', (e, commandLine) => {
-        // Check for sail-launcher:// protocol URL first
-        const protocolUrl = commandLine.find(a => a.startsWith('sail-launcher://'));
-        if (protocolUrl) {
-            handleProtocolUrl(protocolUrl);
-            return;
-        }
-
-        const newLaunchArg = commandLine.find(a => a.startsWith('--launch-game-id='));
-        if (newLaunchArg) {
-            BrowserWindow.getAllWindows()[0].webContents.send('shortcut-triggered', newLaunchArg.split('=')[1].replace(/"/g, ''));
-        } else {
-            if (BrowserWindow.getAllWindows().length > 0) {
-                const mainWindow = BrowserWindow.getAllWindows()[0];
-                if (mainWindow.isMinimized()) mainWindow.restore();
-                mainWindow.show();
-                mainWindow.focus();
-            }
-        }
+        if (protocolActivation.receiveArguments(commandLine)) return;
+        desktopActivation.receiveArguments(commandLine);
     });
+    app.on('activate', () => desktopActivation.focus());
+    protocolActivation.receiveArguments(process.argv);
 
     ipcMain.handle('import-steam-games', async () => {
+        if (process.platform === 'linux') {
+            const discovery = await discoverSteamLibraries();
+            const result = gateAProfileStore().registerDiscoveredGames(discovery.games, 'steam-import-linux');
+            return { ...result, scannedCount: discovery.games.length, issues: discovery.issues, issueCount: discovery.issueCount,
+                dataRootsFound: discovery.dataRootsFound, launchReady: false };
+        }
         return new Promise((resolve, reject) => {
             exec('reg query "HKCU\\Software\\Valve\\Steam" /v SteamPath', (err, stdout) => {
                 if (err) return resolve(gateAProfileStore().registerDiscoveredGames([], 'steam-import'));
@@ -6733,20 +6976,65 @@ else {
 
     app.commandLine.appendSwitch('enable-features', 'GamepadButtonAxisEvents');
 
-    app.on('before-quit', () => {
+    app.on('before-quit', event => {
+        if (exitSynced || !mainWindow || mainWindow.isDestroyed()) return;
+        event.preventDefault();
+        if (deferQuitForRuntimeWork()) return;
+        isQuitting = true;
+        exitCoordinator.request(relaunchAfterSave);
+    });
+    // before-quit can be cancelled by the save handshake. Dispose only when
+    // Electron has closed the windows and quitting is final.
+    app.once('will-quit', () => {
         debridRetryLinks.clear();
         if (achievementService) achievementService.dispose();
+        if (nativeProvider) nativeProvider.dispose();
+        protonManager?.downloads?.dispose();
+        protonManager?.installations?.dispose();
+        protonManager?.prerequisites?.dispose();
         clearInterval(runtimeMonitorTimer);
+        runtimeMonitorTimer = null;
         clearTimeout(deferredQuitTimer);
+        deferredQuitTimer = null;
     });
 
-    app.whenReady().then(() => {
+    app.whenReady().then(async () => {
         try { applyAdBlock(session.defaultSession); } catch (e) {}
         try { applyAdBlock(session.fromPartition(SOURCES_PARTITION)); } catch (e) {}
         runtimeRecovery = new RecoveryJournal(path.join(app.getPath('userData'), 'runtime', 'recovery.json'));
+        if (nativeContext.gateway) protonManager = new (require('./runtime/proton/manager').ProtonManager)({
+            root: path.join(app.getPath('userData'), 'runtime', 'proton'), fixtureRoot: nativeContext.fixtureRoot });
+        if (protonManager) protonManager.downloads = new (require('./runtime/proton/downloads').RuntimeDownloads)({
+            manager: protonManager, enabled: platformSupport.features.steamMetadata.available,
+            usage: () => {
+                const references = accountServices?.profileStore?.capabilityStore.protonRuntimeReferences() || [];
+                for (const session of Object.values(runtimeRecovery.snapshot().activeSessions || {})) {
+                    if (session.native?.launchMetadata?.runtimeId) references.push({ runtimeId: session.native.launchMetadata.runtimeId,
+                        profileId: session.libraryKey, libraryId: '', gameId: session.gameId });
+                }
+                const scopes = new Map();
+                for (const ref of references) {
+                    if (!scopes.has(ref.runtimeId)) scopes.set(ref.runtimeId, new Set());
+                    scopes.get(ref.runtimeId).add(JSON.stringify([ref.profileId, ref.libraryId, ref.gameId]));
+                }
+                return new Map([...scopes].map(([id, games]) => [id, games.size]));
+            }
+        });
         accountServices = registerAccountIpc({
             app,
-            ipcMain: electronIpcMain,
+            ipcMain: supportedIpcMain,
+            localOnly: !platformSupport.features.accounts.available,
+            assertProfileMutationAllowed: nativeContext.gateway
+                ? require('./runtime/native/mutationPolicy').createNativeMutationGuard(() => {
+                    const state = runtimeRecovery.snapshot();
+                    const pending = [...(protonManager?.installations?.pendingBindings() || []), ...(linuxDownloads?.pendingBindings() || [])];
+                    return { ...state, activeSessions: { ...state.activeSessions, ...Object.fromEntries(pending.map((item, index) => ['installation:' + index, item])) } };
+                }) : null,
+            nativeSetup: process.platform === 'linux' ? { fixtureRoot: nativeContext.fixtureRoot,
+                get allowScripts() { return platformSupport.features.nativeScripts.available; }, protonManager,
+                getReadiness: () => ({ available: !!nativeProvider?.available, scriptsAvailable: !!nativeProvider?.scriptsAvailable,
+                    windowsTrackingAvailable: !!nativeProvider?.windowsTrackingAvailable, wineTrackingAvailable: !!nativeProvider?.wineTrackingAvailable, reason: nativeProvider?.reason || '' }),
+                runtimeSnapshot: () => runtimeRecovery.snapshot(), launchLog: scope => nativeProvider?.logs.read(scope) } : null,
             safeStorage,
             authorizeIpcEvent,
             dialog,
@@ -6754,28 +7042,74 @@ else {
             onSessionChanged: notifySailHubGuestAuthChange
         });
         maintenanceService = registerMaintenanceIpc({
-            app, ipcMain: electronIpcMain, BrowserWindow, dialog, shell,
+            app, ipcMain: supportedIpcMain, BrowserWindow, dialog, shell, providerEnabled: platformSupport.features.saveDiscovery.available,
             findExecutable: findBestExe, authorizeIpcEvent,
             profileStore: accountServices.profileStore
         });
         achievementService = registerAchievementIpc({
-            app, ipcMain: electronIpcMain, BrowserWindow, Notification, dialog, authorizeIpcEvent,
+            app, ipcMain: supportedIpcMain, BrowserWindow, Notification, dialog, authorizeIpcEvent, enabled: platformSupport.features.achievements.available,
             profileStore: accountServices.profileStore,
             resolveSteamInstallation: resolveLocallyInstalledSteamAppId
         });
+        if (nativeContext.gateway) {
+            nativeProvider = new (require('./runtime/native/provider').NativeProvider)({
+                gateway: nativeContext.gateway, journal: runtimeRecovery, fixtureRoot: nativeContext.fixtureRoot,
+                sessionRoot: path.join(app.getPath('userData'), 'runtime', 'native'),
+                canAccessSession: session => {
+                    try {
+                        const scope = accountServices.profileStore.activeGameMetadata(session.gameId);
+                        return `${scope.profileId}:${scope.libraryId}` === session.libraryKey;
+                    } catch (_) { return false; }
+                },
+                onEnded: event => {
+                    try { protonManager?.installations?.accept(event); } catch (_) { console.warn('Installation completion could not be recorded; its queue will not continue without a receipt.'); }
+                    sendRuntimeSessionEnded(event);
+                },
+                onChanged: state => {
+                    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('native-runtime-state', state);
+                }
+            });
+            protonProvider = new (require('./runtime/proton/provider').ProtonProvider)({ manager: protonManager, nativeProvider });
+            protonManager.installations = new (require('./runtime/proton/installations').WindowsInstallations)({ manager: protonManager, provider: protonProvider,
+                snapshot: () => runtimeRecovery.snapshot() });
+            protonManager.prerequisites = new (require('./runtime/proton/prerequisiteDownloads').PrerequisiteDownloads)({
+                manager: protonManager, installations: protonManager.installations, enabled: platformSupport.features.steamMetadata.available });
+            protonManager.firstLaunch = new (require('./runtime/proton/firstLaunch').FirstLaunch)({
+                manager: protonManager, enabled: platformSupport.features.steamMetadata.available });
+            platformSupport.features.nativeGames = await nativeProvider.initialize();
+            platformSupport.features.protonSetup = { available: platformSupport.features.nativeGames.available, reason: platformSupport.features.nativeGames.reason };
+            platformSupport.features.standaloneProton = protonManager.launchReadiness();
+            platformSupport.features.standaloneProton.available &&= platformSupport.features.nativeGames.available && nativeProvider.scriptsAvailable && nativeProvider.windowsTrackingAvailable;
+            if (!platformSupport.features.standaloneProton.available) platformSupport.features.standaloneProton.reason ||= require('./runtime/proton/manager').LAUNCH_PENDING_REASON;
+            platformSupport.features.standaloneWine = protonManager.wineLaunchReadiness();
+            platformSupport.features.standaloneWine.available &&= platformSupport.features.nativeGames.available && nativeProvider.scriptsAvailable && nativeProvider.wineTrackingAvailable;
+            if (!platformSupport.features.standaloneWine.available) platformSupport.features.standaloneWine.reason ||= require('./runtime/proton/wine').WINE_PENDING_REASON;
+            platformSupport.features.nativeScripts = { available: platformSupport.features.nativeGames.scriptsAvailable === true,
+                reason: platformSupport.features.nativeGames.scriptsAvailable ? '' : require('./runtime/platformSupport').NATIVE_SCRIPT_UNAVAILABLE_REASON };
+            platformSupport.features.desktopShortcuts.available = !platformSupport.isolated
+                && platformSupport.features.nativeGames.available;
+            if (platformSupport.features.desktopShortcuts.available) platformSupport.features.desktopShortcuts.reason = '';
+        }
         createWindow();
-        startRuntimeMonitor();
-        tray = new Tray(path.join(__dirname, 'icon.ico'));
-        const contextMenu = Menu.buildFromTemplate([
-            { label: 'Open Sail Launcher', click: () => BrowserWindow.getAllWindows()[0].show() },
-            { label: 'Quit', click: () => requestApplicationQuit() }
-        ]);
-        tray.setToolTip('Sail Launcher');
-        tray.setContextMenu(contextMenu);
-        tray.on('double-click', () => BrowserWindow.getAllWindows()[0].show());
+        if (process.platform !== 'linux' && !platformSupport.isolated) startRuntimeMonitor();
+        try {
+            if (platformSupport.isolated && process.env.SAIL_DEV_WITHOUT_TRAY === '1') throw new Error('Tray disabled for the isolated failure check.');
+            tray = new Tray(path.join(__dirname, process.platform === 'linux' ? 'icon.png' : 'icon.ico'));
+            trayAvailable = true;
+            const contextMenu = Menu.buildFromTemplate([
+                { label: 'Open Sail Launcher', click: () => desktopActivation.focus() },
+                { label: 'Quit', click: () => requestApplicationQuit() }
+            ]);
+            tray.setToolTip('Sail Launcher');
+            tray.setContextMenu(contextMenu);
+            const showLauncher = () => desktopActivation.focus();
+            tray.on('double-click', showLauncher);
+            tray.on('click', showLauncher);
+        } catch (error) {
+            if (process.platform !== 'linux' && !platformSupport.isolated) throw error;
+            trayAvailable = false;
+            console.warn('Tray unavailable; closing the window exits this session.');
+        }
 
-        // Handle protocol URL if app was launched via it
-        const protocolArg = process.argv.find(a => a.startsWith('sail-launcher://'));
-        if (protocolArg) handleProtocolUrl(protocolArg);
     });
 }

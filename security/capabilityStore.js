@@ -250,7 +250,7 @@ function validateExecutionDetails(value, label, state) {
         'executablePath', 'executableIdentity', 'argv', 'workingDirectory', 'workingDirectoryIdentity',
         'preLaunchScript', 'preLaunchScriptIdentity', 'postLaunchScript', 'postLaunchScriptIdentity',
         'companionPath', 'companionIdentity', 'runAsAdmin', 'highPriority',
-        'playDetectionPath', 'playDetectionIdentity', 'steamAppId'
+        'playDetectionPath', 'playDetectionIdentity', 'steamAppId', 'linuxRuntime'
     ]), label);
     const pathPairs = [
         ['executablePath', 'executableIdentity', 'file'],
@@ -266,6 +266,7 @@ function validateExecutionDetails(value, label, state) {
         if (selectedPath && !identity || !selectedPath && identity) fail('SAIL_CAPABILITY_STORE_INVALID', `${label}.${identityKey} does not match its path.`);
     }
     if (details.argv !== undefined) normalizeArgv(details.argv);
+    if (details.linuxRuntime !== undefined) validateLinuxRuntime(details.linuxRuntime);
     for (const key of ['runAsAdmin', 'highPriority']) {
         if (details[key] !== undefined && typeof details[key] !== 'boolean') fail('SAIL_CAPABILITY_STORE_INVALID', `${label}.${key} is invalid.`);
     }
@@ -275,6 +276,16 @@ function validateExecutionDetails(value, label, state) {
     if (state === 'active' && !details.executablePath && !details.steamAppId) {
         fail('SAIL_CAPABILITY_STORE_INVALID', `${label} has no approved launch identity.`);
     }
+}
+
+function validateLinuxRuntime(value) {
+    const runtime = assertExactKeys(value, new Set(['backend', 'runtimeId', 'dllOverrides']), 'Linux runtime');
+    if (!require('../runtime/proton/wine').windowsBackend(runtime.backend) || typeof runtime.runtimeId !== 'string'
+        || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(runtime.runtimeId)) {
+        fail('SAIL_CAPABILITY_INVALID', 'Invalid Linux Proton runtime selection.');
+    }
+    return { backend: runtime.backend, runtimeId: runtime.runtimeId,
+        ...(runtime.dllOverrides === undefined ? {} : { dllOverrides: require('../runtime/proton/environment').validateDllOverrides(runtime.dllOverrides) }) };
 }
 
 function validateExecutionProposals(value, label) {
@@ -321,21 +332,41 @@ function validateFilesystemProposals(value, label) {
     absolutePath(proposals.rootPath, `${label}.rootPath`);
 }
 
-function durableWriteJson(destination, value) {
-    fsExtra.ensureDirSync(path.dirname(destination));
+function durableWriteJson(destination, value, options = {}) {
+    const io = options.fs || fs;
+    const platform = options.platform || process.platform;
+    const directory = path.dirname(destination);
+    io.mkdirSync(directory, { recursive: true });
     const temporary = `${destination}.${process.pid}.${Date.now()}.${crypto.randomBytes(4).toString('hex')}.tmp`;
-    const descriptor = fs.openSync(temporary, 'wx');
+    let descriptor = null;
+    let published = false;
     try {
-        fs.writeFileSync(descriptor, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
-        fs.fsyncSync(descriptor);
-    } finally {
-        fs.closeSync(descriptor);
+        descriptor = io.openSync(temporary, 'wx', 0o600);
+        io.writeFileSync(descriptor, `${JSON.stringify(value, null, 2)}\n`, 'utf8');
+        io.fsyncSync(descriptor);
+        io.closeSync(descriptor);
+        descriptor = null;
+        // Same-directory rename preserves the old durable destination until
+        // the replacement is ready. Never remove it to emulate overwrite.
+        io.renameSync(temporary, destination);
+        published = true;
+        let directoryDescriptor;
+        try {
+            directoryDescriptor = io.openSync(directory, 'r');
+            io.fsyncSync(directoryDescriptor);
+        } catch (error) {
+            // Windows has no portable directory-fsync API in Node. Keep the
+            // established Windows behavior; Linux durability errors are real.
+            if (platform !== 'win32') throw error;
+        } finally {
+            if (directoryDescriptor !== undefined) io.closeSync(directoryDescriptor);
+        }
+    } catch (error) {
+        if (descriptor !== null) { try { io.closeSync(descriptor); } catch (_) {} }
+        try { io.unlinkSync(temporary); } catch (_) {}
+        error.durableWritePublished = published;
+        throw error;
     }
-    fsExtra.moveSync(temporary, destination, { overwrite: true });
-    try {
-        const directoryDescriptor = fs.openSync(path.dirname(destination), 'r');
-        try { fs.fsyncSync(directoryDescriptor); } finally { fs.closeSync(directoryDescriptor); }
-    } catch (_) {}
 }
 
 function pendingComponentNames(proposals) {
@@ -539,7 +570,7 @@ class CapabilityStore {
         const input = assertExactKeys(detailsInput, new Set([
             'executablePath', 'argv', 'workingDirectory', 'preLaunchScript',
             'postLaunchScript', 'companionPath', 'runAsAdmin', 'highPriority',
-            'playDetectionPath', 'steamAppId'
+            'playDetectionPath', 'steamAppId', 'linuxRuntime'
         ]), 'execution details');
         const executablePath = input.executablePath ? absolutePath(input.executablePath, 'execution executablePath') : '';
         const steamAppId = input.steamAppId ? boundedString(String(input.steamAppId), 'execution steamAppId', { min: 1, max: 10, pattern: /^[1-9]\d{0,9}$/ }) : '';
@@ -562,7 +593,8 @@ class CapabilityStore {
             highPriority: !!input.highPriority,
             playDetectionPath: input.playDetectionPath ? absolutePath(input.playDetectionPath, 'execution playDetectionPath') : '',
             playDetectionIdentity: input.playDetectionPath ? fileIdentity(input.playDetectionPath, 'file') : null,
-            steamAppId
+            steamAppId,
+            ...(input.linuxRuntime === undefined ? {} : { linuxRuntime: validateLinuxRuntime(input.linuxRuntime) })
         };
         const now = new Date().toISOString();
         this.revokeMatching('execution', scope, () => true, 'replaced');
@@ -600,7 +632,7 @@ class CapabilityStore {
         const input = assertExactKeys(detailsInput, new Set([
             'executablePath', 'argv', 'workingDirectory', 'preLaunchScript',
             'postLaunchScript', 'companionPath', 'runAsAdmin', 'highPriority',
-            'playDetectionPath', 'steamAppId'
+            'playDetectionPath', 'steamAppId', 'linuxRuntime'
         ]), 'trusted local execution details');
         const existingPath = (value, kind) => {
             if (!value) return '';
@@ -632,7 +664,8 @@ class CapabilityStore {
             runAsAdmin: input.runAsAdmin === true,
             highPriority: input.highPriority === true,
             playDetectionPath: existingPath(input.playDetectionPath, 'file'),
-            steamAppId: executablePath ? '' : steamAppId
+            steamAppId: executablePath ? '' : steamAppId,
+            ...(input.linuxRuntime === undefined ? {} : { linuxRuntime: validateLinuxRuntime(input.linuxRuntime) })
         }, boundedString(String(source || 'local-import'), 'trusted local source', {
             min: 1, max: 40, pattern: /^[A-Za-z0-9._-]+$/
         }));
@@ -852,6 +885,13 @@ class CapabilityStore {
         return revoked;
     }
 
+    protonRuntimeReferences() {
+        this.initialize();
+        return this.execution.records.filter(record => record.state !== 'revoked' && require('../runtime/proton/wine').windowsBackend(record.details?.linuxRuntime?.backend))
+            .map(record => ({ runtimeId: record.details.linuxRuntime.runtimeId, profileId: record.profileId,
+                libraryId: record.libraryId, gameId: record.gameId }));
+    }
+
     promoteTrustedLocalPending(sourceInputs = []) {
         this.initialize();
         const sources = new Set(sourceInputs.map(value => String(value)));
@@ -924,7 +964,8 @@ class CapabilityStore {
                 runAsAdmin: details.runAsAdmin === true,
                 highPriority: details.highPriority === true,
                 playDetectionPath: details.playDetectionPath || '',
-                steamAppId: details.steamAppId || ''
+                steamAppId: details.steamAppId || '',
+                ...(details.linuxRuntime ? { linuxRuntime: clone(details.linuxRuntime) } : {})
             };
         }
         const filesystemKeys = new Set();
@@ -1133,7 +1174,7 @@ class CapabilityStore {
         }
     }
 
-    resolve(requestInput, type, options = {}) {
+    #activeReference(requestInput, type) {
         this.initialize();
         const request = assertExactKeys(requestInput, new Set([
             'capabilityId', 'expectedRevision', 'profileId', 'libraryId', 'gameId', 'operation'
@@ -1147,17 +1188,17 @@ class CapabilityStore {
         const records = type === 'execution' ? this.execution.records : this.filesystem.records;
         const record = records.find(item => item.id === request.capabilityId);
         if (!record) fail('SAIL_CAPABILITY_NOT_FOUND', 'The capability reference was not found.');
+        if (record.type !== type) fail('SAIL_CAPABILITY_WRONG_TYPE', 'The capability has the wrong authority type.');
         if (!sameScope(record, expectedScope)) fail('SAIL_CAPABILITY_WRONG_SCOPE', 'The capability does not match the requested game, profile, or library.');
         if (record.state !== 'active') fail(record.state === 'revoked' ? 'SAIL_CAPABILITY_REPLAYED' : 'SAIL_CAPABILITY_PENDING_REVIEW', 'The capability is not active.');
         if (!Number.isSafeInteger(request.expectedRevision) || request.expectedRevision !== record.revision) {
             fail('SAIL_CAPABILITY_STALE_REVISION', 'The capability revision is stale.');
         }
         if (!record.operations.includes(request.operation)) fail('SAIL_CAPABILITY_WRONG_OPERATION', 'The capability does not allow this operation.');
-        this.validateCurrentIdentity(record);
-        const details = clone(record.details);
-        if (options.consume === false) {
-            return { details, capability: this.publicRecord(record), replacement: null };
-        }
+        return { request, record, records };
+    }
+
+    #consumeReference(record, records, type) {
         const now = new Date().toISOString();
         record.state = 'revoked';
         record.revokedReason = 'consumed';
@@ -1172,7 +1213,25 @@ class CapabilityStore {
             records.push(replacement);
         }
         this.persist(type);
-        return { details, replacement: replacement ? this.publicRecord(replacement) : null };
+        return replacement ? this.publicRecord(replacement) : null;
+    }
+
+    resolve(requestInput, type, options = {}) {
+        const { record, records } = this.#activeReference(requestInput, type);
+        this.validateCurrentIdentity(record);
+        const details = clone(record.details);
+        if (options.consume === false) {
+            return { details, capability: this.publicRecord(record), replacement: null };
+        }
+        return { details, replacement: this.#consumeReference(record, records, type) };
+    }
+
+    resolveNativeSessionTermination(requestInput) {
+        const { request, record, records } = this.#activeReference(requestInput, 'execution');
+        if (request.operation !== 'terminate') fail('SAIL_CAPABILITY_WRONG_OPERATION', 'Native session control requires termination permission.');
+        // Permission for an existing main-owned session grants no file/launch
+        // authority. Its original pathname is not a process-control target.
+        return { operation: 'terminate', replacement: this.#consumeReference(record, records, 'execution') };
     }
 
     resolveExecution(request) {

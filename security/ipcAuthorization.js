@@ -37,7 +37,7 @@ function createTrustedFrameAuthorizer({ getMainWindow, trustedEntryPath }) {
         const mainContents = win && !win.isDestroyed() ? win.webContents : null;
         const mainFrame = mainContents && mainContents.mainFrame;
 
-        if (!mainContents || !sender || !senderFrame) throw forbiddenIpcError();
+        if (!mainContents || !sender || !senderFrame || senderFrame.detached === true) throw forbiddenIpcError();
         if (sender !== mainContents || senderFrame !== mainFrame) throw forbiddenIpcError();
         if (typeof sender.isDestroyed === 'function' && sender.isDestroyed()) throw forbiddenIpcError();
         if (typeof senderFrame.isDestroyed === 'function' && senderFrame.isDestroyed()) throw forbiddenIpcError();

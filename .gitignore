@@ -12,3 +12,6 @@ Website/Main/_redirects
 Website/Main/googleccefb7efb7b33cb3.html
 Website/Main/robots.txt
 Website/Main/sitemap.xml
+
+# User-space native helper output; rebuilt for each Linux artifact.
+native/linux/x64/

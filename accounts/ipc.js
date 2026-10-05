@@ -40,13 +40,13 @@ function formatLaunchArguments(argv) {
         : value).join(' ');
 }
 
-function registerAccountIpc({ app, ipcMain, safeStorage, authorizeIpcEvent, dialog, validateSteamAppId, onSessionChanged }) {
+function registerAccountIpc({ app, ipcMain, safeStorage, authorizeIpcEvent, dialog, validateSteamAppId, onSessionChanged, localOnly = false, nativeSetup = null, assertProfileMutationAllowed = null }) {
     if (typeof authorizeIpcEvent !== 'function') throw new TypeError('Account IPC requires sender authorization.');
     if (!dialog || typeof dialog.showOpenDialog !== 'function' || typeof dialog.showMessageBox !== 'function') {
         throw new TypeError('Account IPC requires main-process native dialogs.');
     }
-    const accountService = new AccountService({ app, safeStorage });
-    const profileStore = new ProfileStore(app.getPath('userData'));
+    const accountService = localOnly ? null : new AccountService({ app, safeStorage });
+    const profileStore = new ProfileStore(app.getPath('userData'), { assertMutationAllowed: assertProfileMutationAllowed });
     const pendingExecutionSelections = new Map();
     const executionSelectionTtlMs = 30 * 60 * 1000;
     const maxPendingExecutionSelections = 32;
@@ -94,7 +94,7 @@ function registerAccountIpc({ app, ipcMain, safeStorage, authorizeIpcEvent, dial
         if (selection.profileId !== scope.profileId || selection.libraryId !== scope.libraryId) {
             throw executionSelectionError('That selection belongs to a different profile or library. Choose it again.');
         }
-        const identityKind = selection.purpose === 'save' ? 'directory' : 'file';
+        const identityKind = ['save', 'working-directory'].includes(selection.purpose) ? 'directory' : 'file';
         const currentIdentity = fileIdentity(selection.selectedPath, identityKind);
         if (!identityMatches(selection.selectedIdentity, currentIdentity)) {
             pendingExecutionSelections.delete(selectionId);
@@ -103,7 +103,7 @@ function registerAccountIpc({ app, ipcMain, safeStorage, authorizeIpcEvent, dial
         pendingExecutionSelections.delete(selectionId);
         return selection.selectedPath;
     };
-    const protectedSettingsStorage = new SafeStorageAdapter(
+    const protectedSettingsStorage = localOnly ? null : new SafeStorageAdapter(
         path.join(app.getPath('userData'), 'sail_local_settings.json'),
         safeStorage
     );
@@ -112,6 +112,7 @@ function registerAccountIpc({ app, ipcMain, safeStorage, authorizeIpcEvent, dial
     let pendingProtectedSettings = {};
     let pendingProtectedSettingsClear = false;
     const loadProtectedSettings = async () => {
+        if (localOnly) return {};
         if (protectedSettingsCache) return protectedSettingsCache;
         if (!protectedSettingsStorage.isEncryptionAvailable()) return { ...pendingProtectedSettings };
         if (!protectedSettingsPromise) {
@@ -166,6 +167,12 @@ function registerAccountIpc({ app, ipcMain, safeStorage, authorizeIpcEvent, dial
     };
     const saveProtectedSettings = async settings => {
         const extracted = extractProtectedLocalSettings(settings || {});
+        if (localOnly) {
+            const hasValue = value => typeof value === 'string' ? !!value.trim()
+                : value && typeof value === 'object' ? Object.values(value).some(hasValue) : false;
+            if (Object.values(extracted).some(hasValue)) throw new Error('Protected credentials are unavailable in the offline development profile.');
+            return {};
+        }
         if (!protectedSettingsStorage.isEncryptionAvailable()) {
             pendingProtectedSettings = { ...pendingProtectedSettings, ...extracted };
             return { ...pendingProtectedSettings };
@@ -185,6 +192,7 @@ function registerAccountIpc({ app, ipcMain, safeStorage, authorizeIpcEvent, dial
         return next;
     };
     const clearProtectedSettings = async () => {
+        if (localOnly) return {};
         const next = {};
         pendingProtectedSettings = {};
         protectedSettingsCache = null;
@@ -258,7 +266,9 @@ function registerAccountIpc({ app, ipcMain, safeStorage, authorizeIpcEvent, dial
         });
     };
 
-    ipcMain.handle('account-get-state', guarded('account-get-state', () => accountService.state()));
+    ipcMain.handle('account-get-state', guarded('account-get-state', () => localOnly
+        ? { signedIn: false, user: null, profile: null, unavailableReason: 'Accounts are unavailable in this offline development profile.' }
+        : accountService.state()));
     ipcMain.handle('account-sign-in', guarded('account-sign-in', async (_event, payload) => {
         const result = await accountService.signIn(payload && payload.identifier, payload && payload.password);
         notifySessionChanged();
@@ -399,9 +409,16 @@ function registerAccountIpc({ app, ipcMain, safeStorage, authorizeIpcEvent, dial
         state: profileStore.getState(),
         snapshot: profileStore.loadActiveSnapshot()
     })));
-    ipcMain.handle('profiles-capture-active', profileGuarded('profiles-capture-active', async (_event, snapshot) => {
-        await saveProtectedSettings(snapshot && snapshot.globalSettings || {});
-        return withProtectedSettings(profileStore.captureActiveSnapshot(snapshot || {}));
+    // Keep protected-setting awaits and durable snapshots in request order, even
+    // if a renderer reloads while an earlier capture is still in flight.
+    let captureInFlight = Promise.resolve();
+    ipcMain.handle('profiles-capture-active', profileGuarded('profiles-capture-active', (_event, snapshot) => {
+        const operation = captureInFlight.catch(() => {}).then(async () => {
+            await saveProtectedSettings(snapshot && snapshot.globalSettings || {});
+            return withProtectedSettings(profileStore.captureActiveSnapshot(snapshot || {}));
+        });
+        captureInFlight = operation;
+        return operation;
     }));
     ipcMain.handle('profiles-remove-game', profileGuarded('profiles-remove-game', (_event, payload) => {
         const input = exactPayload(payload, ['gameId'], 'Remove game from library');
@@ -537,11 +554,24 @@ function registerAccountIpc({ app, ipcMain, safeStorage, authorizeIpcEvent, dial
         const purpose = input.purpose === undefined ? 'base' : input.purpose;
         if (!['base', 'tracking'].includes(purpose)) throw executionSelectionError('The executable selection purpose is invalid.');
         const scope = input.gameId ? profileStore.authorityScope(input.gameId) : profileStore.activeScope();
-        const selectedPath = await chooseFile(dialog, {
+        if (nativeSetup && purpose !== 'base') throw executionSelectionError('Native process-name tracking is unavailable; the supervisor owns the selected game session.');
+        let selectedPath = await chooseFile(dialog, {
             title: purpose === 'tracking' ? 'Choose a process tracking executable' : 'Choose this game’s local executable',
-            filters: [{ name: purpose === 'tracking' ? 'Executables' : 'Executables and shortcuts', extensions: purpose === 'tracking' ? ['exe'] : ['exe', 'lnk', 'bat', 'cmd'] }]
+            ...(nativeSetup ? {} : { filters: [{ name: purpose === 'tracking' ? 'Executables' : 'Executables and shortcuts', extensions: purpose === 'tracking' ? ['exe'] : ['exe', 'lnk', 'bat', 'cmd'] }] })
         });
         if (!selectedPath) return { canceled: true };
+        let backend;
+        if (nativeSetup) {
+            const selected = require('../runtime/proton/executable').selectLocalExecutable(selectedPath, nativeSetup);
+            backend = selected.backend;
+            const canonical = selected.identity.realPath;
+            if (canonical !== path.resolve(selectedPath)) {
+                const decision = await dialog.showMessageBox({ type: 'question', buttons: ['Use this target', 'Cancel'], defaultId: 1, cancelId: 1,
+                    message: 'Use the executable this link points to?', detail: canonical });
+                if (decision.response !== 0) return { canceled: true };
+            }
+            selectedPath = canonical;
+        }
         pruneExecutionSelections();
         const selectionId = crypto.randomUUID();
         pendingExecutionSelections.set(selectionId, {
@@ -555,7 +585,7 @@ function registerAccountIpc({ app, ipcMain, safeStorage, authorizeIpcEvent, dial
             createdAt: Date.now()
         });
         const name = path.basename(selectedPath).slice(0, 160);
-        return { canceled: false, selectionId, label: purpose === 'tracking' ? `Play detection: ${name}` : 'Executable selected', name };
+        return { canceled: false, selectionId, label: purpose === 'tracking' ? `Play detection: ${name}` : 'Executable selected', name, ...(backend ? { backend } : {}) };
     }));
     ipcMain.handle('authority-select-filesystem', guarded('authority-select-filesystem', async (event, payload) => {
         const input = exactPayload(payload || {}, ['kind', 'pathKind', 'gameId'], 'Filesystem selection');
@@ -576,13 +606,278 @@ function registerAccountIpc({ app, ipcMain, safeStorage, authorizeIpcEvent, dial
         const name = path.basename(selectedPath).slice(0, 160);
         return { canceled: false, selectionId, label: `Save folder: ${name}`, name };
     }));
+    ipcMain.handle('proton-list-runtimes', guarded('proton-list-runtimes', (_event, payload) => {
+        const input = exactPayload(payload, ['gameId'], 'Proton versions');
+        if (input.gameId !== undefined) profileStore.authorityScope(input.gameId);
+        if (!nativeSetup?.protonManager) throw new Error('Proton setup is unavailable.');
+        return nativeSetup.protonManager.installedStatus();
+    }));
+    const compatibility = () => {
+        if (!nativeSetup?.protonManager?.downloads) throw Error('Compatibility management is unavailable.');
+        return nativeSetup.protonManager.downloads;
+    };
+    ipcMain.handle('proton-launch-log', guarded('proton-launch-log', (_event, payload) => {
+        const input = exactPayload(payload, ['gameId'], 'Compatibility launch log');
+        const scope = profileStore.authorityScope(input.gameId);
+        if (!nativeSetup?.launchLog) throw Error('Compatibility launch logs are unavailable.');
+        return nativeSetup.launchLog({ libraryKey: `${scope.profileId}:${scope.libraryId}`, gameId: String(input.gameId) })
+            || { available: false, text: '', hint: 'Compatibility monitoring is not ready yet.' };
+    }));
+    ipcMain.handle('compatibility-status', guarded('compatibility-status', async (_event, payload) => {
+        exactPayload(payload, [], 'Compatibility status');
+        const downloads = compatibility(), manager = downloads.manager;
+        const [runtime, system] = await Promise.all([manager.installedStatus(), downloads.requirements.inspect()]);
+        const setup = require('../runtime/proton/requirements').setupStatus({ system, ...runtime,
+            readiness: nativeSetup.getReadiness?.(), noticeDismissed: manager.setupNoticeDismissed() });
+        return { ...runtime, ...downloads.status(), setup };
+    }));
+    ipcMain.handle('compatibility-check', guarded('compatibility-check', async (_event, payload) => {
+        exactPayload(payload, [], 'Compatibility requirements');
+        return compatibility().requirements.inspect(true);
+    }));
+    ipcMain.handle('compatibility-setup', guarded('compatibility-setup', (_event, payload) => {
+        exactPayload(payload, [], 'Windows gaming setup');
+        const readiness = nativeSetup.getReadiness?.();
+        if (!readiness?.available || !readiness.scriptsAvailable || !readiness.windowsTrackingAvailable) throw Error('The installed launcher cannot track Windows games. Update Sail before setting up Windows gaming.');
+        return compatibility().startSetup();
+    }));
+    ipcMain.handle('compatibility-dismiss-setup', guarded('compatibility-dismiss-setup', (_event, payload) => {
+        exactPayload(payload, [], 'Windows gaming setup notice');
+        return compatibility().manager.dismissSetupNotice();
+    }));
+    ipcMain.handle('compatibility-releases', guarded('compatibility-releases', (_event, payload) => {
+        exactPayload(payload, [], 'Compatibility releases'); return compatibility().refresh();
+    }));
+    ipcMain.handle('compatibility-install', guarded('compatibility-install', (_event, payload) => {
+        const input = exactPayload(payload, ['releaseId'], 'Compatibility installation');
+        if (typeof input.releaseId !== 'string' || !/^(umu|proton):[0-9]{1,20}$/.test(input.releaseId)) throw Error('Invalid compatibility release.');
+        return compatibility().start(input.releaseId);
+    }));
+    ipcMain.handle('compatibility-cancel', guarded('compatibility-cancel', (_event, payload) => {
+        const input = exactPayload(payload, ['jobId'], 'Compatibility download');
+        if (!require('../runtime/native/protocol').UUID.test(input.jobId)) throw Error('Invalid compatibility download.');
+        return compatibility().cancel(input.jobId);
+    }));
+    ipcMain.handle('compatibility-default', guarded('compatibility-default', (_event, payload) => {
+        const input = exactPayload(payload, ['runtimeId'], 'Default compatibility version');
+        if (input.runtimeId !== '' && (typeof input.runtimeId !== 'string' || !require('../runtime/native/protocol').UUID.test(input.runtimeId))) throw Error('Invalid compatibility version.');
+        return compatibility().manager.setDefaultRuntime(input.runtimeId);
+    }));
+    ipcMain.handle('compatibility-remove', guarded('compatibility-remove', async (_event, payload) => {
+        const input = exactPayload(payload, ['installedId'], 'Managed compatibility removal');
+        if (typeof input.installedId !== 'string' || !/^(umu|proton):[A-Za-z0-9][A-Za-z0-9._-]{0,79}$/.test(input.installedId)) throw Error('Invalid managed compatibility version.');
+        const downloads = compatibility(), installed = downloads.status().installed.find(item => item.id === input.installedId);
+        if (!installed || !installed.removable) throw Error(installed?.reason || 'This Sail-managed version is unavailable.');
+        const decision = await dialog.showMessageBox({ type: 'question', buttons: ['Remove version', 'Cancel'], defaultId: 1, cancelId: 1,
+            message: `Remove ${installed.tag}?`, detail: 'This removes the unused version downloaded by Sail. Game files and Windows save folders are kept.' });
+        if (decision.response !== 0) return { canceled: true };
+        return downloads.remove(input.installedId);
+    }));
+    ipcMain.handle('proton-environment-status', guarded('proton-environment-status', (_event, payload) => {
+        const input = exactPayload(payload, ['gameId', 'runtimeId'], 'Windows environment status');
+        const scope = profileStore.authorityScope(input.gameId);
+        if (!nativeSetup?.protonManager) throw new Error('Proton setup is unavailable.');
+        return nativeSetup.protonManager.environmentStatus({ scope: { ...scope, gameId: String(input.gameId) },
+            runtimeId: input.runtimeId, snapshot: nativeSetup.runtimeSnapshot?.() });
+    }));
+    function protonSaveContext(gameId) {
+        if (!nativeSetup?.protonManager) throw Error('Proton save import is unavailable.');
+        const metadata = profileStore.activeGameMetadata(gameId), scope = profileStore.authorityScope(gameId);
+        const details = profileStore.localExecutionSetup(gameId).details;
+        if (!require('../runtime/proton/wine').windowsBackend(details.linuxRuntime?.backend) || profileStore.authorityStatus(gameId).execution.state !== 'active') {
+            throw Error('Save this game’s Proton launch setup before checking for saves.');
+        }
+        return { metadata, scope, details, manager: nativeSetup.protonManager };
+    }
+    function assertSaveImportIdle(context) {
+        const current = protonSaveContext(context.scope.gameId);
+        if (JSON.stringify(current.scope) !== JSON.stringify(context.scope) || current.metadata.steamAppId !== context.metadata.steamAppId
+            || current.details.executablePath !== context.details.executablePath || JSON.stringify(current.details.linuxRuntime) !== JSON.stringify(context.details.linuxRuntime)) throw Error('The game setup changed. Reopen its settings.');
+        const snapshot = nativeSetup.runtimeSnapshot?.() || {};
+        const work = [...Object.values(snapshot.activeSessions || {}), ...(snapshot.completedSessions || [])];
+        if (work.some(item => item.gameId === context.scope.gameId && item.libraryKey === `${context.scope.profileId}:${context.scope.libraryId}`)) {
+            throw Error('Close the game in Sail and finish saving its playtime before importing a save.');
+        }
+        assertProfileMutationAllowed?.({ type: 'remove-game', scope: context.scope });
+    }
+    async function protonSaveDiscovery(context) {
+        return require('../runtime/proton/saves').discoverSaves({ appId: context.metadata.steamAppId,
+            executable: context.details.executablePath, discoveryOptions: context.manager.discoveryOptions });
+    }
+    ipcMain.handle('proton-save-status', guarded('proton-save-status', async (_event, payload) => {
+        const input = exactPayload(payload, ['gameId'], 'Proton saves');
+        const context = protonSaveContext(input.gameId), status = await protonSaveDiscovery(context);
+        const current = protonSaveContext(input.gameId);
+        if (JSON.stringify(context.scope) !== JSON.stringify(current.scope)) throw Error('The active library changed.');
+        let busy = false;
+        try { assertSaveImportIdle(context); } catch (_) { busy = true; }
+        return { ...status, busy, candidates: status.candidates.map(({ id, label, busy }) => ({ id, label, busy })) };
+    }));
+    ipcMain.handle('proton-import-save', guarded('proton-import-save', async (_event, payload) => {
+        const input = exactPayload(payload, ['gameId', 'candidateId'], 'Steam save import');
+        if (typeof input.candidateId !== 'string' || !/^[a-f0-9]{64}$/.test(input.candidateId)) throw Error('Choose a detected Steam save.');
+        const context = protonSaveContext(input.gameId); assertSaveImportIdle(context);
+        const status = await protonSaveDiscovery(context);
+        const candidate = status.candidates.find(item => item.id === input.candidateId);
+        if (!candidate) throw Error('The Steam save changed or disappeared. Check for saves again.');
+        const decision = await dialog.showMessageBox({ type: 'question', buttons: ['Import Steam save', 'Cancel'], defaultId: 1, cancelId: 1,
+            message: 'Import your Geometry Dash save from Steam?',
+            detail: `Close Geometry Dash in Steam and Sail first. Progress, account state and Geode settings from this folder will replace Sail’s copy. Sail keeps a backup of its previous save; Steam’s files stay untouched. This is a one-time copy, not ongoing synchronization.\n\nSource: ${candidate.folder}` });
+        if (decision.response !== 0) return { canceled: true };
+        assertSaveImportIdle(context);
+        return require('../runtime/proton/saves').importSave({ prefix: context.manager.savePrefix(context.scope, context.details.linuxRuntime.runtimeId),
+            executable: context.details.executablePath, backend: context.details.linuxRuntime.backend, candidate, assertIdle: () => assertSaveImportIdle(context) });
+    }));
+    ipcMain.handle('wine-register-runtime', guarded('wine-register-runtime', async (event, payload) => {
+        const input = exactPayload(payload, ['gameId', 'discoveryId'], 'Installed Wine registration');
+        if (!nativeSetup?.protonManager) throw Error('Compatibility setup is unavailable.');
+        const initialScope = input.gameId !== undefined ? profileStore.authorityScope(input.gameId) : profileStore.activeScope();
+        const manager = nativeSetup.protonManager, status = await manager.installedStatus();
+        let selected, label = '';
+        if (input.discoveryId !== undefined) {
+            if (typeof input.discoveryId !== 'string' || !/^[a-f0-9]{64}$/.test(input.discoveryId)) throw Error('Invalid detected Wine version.');
+            const candidate = status.discovery.wine.find(item => item.id === input.discoveryId && item.available);
+            if (!candidate) throw Error('The detected Wine installation changed. Refresh Compatibility and select it again.');
+            selected = candidate.path; label = [candidate.label, candidate.version].filter(Boolean).join(' ');
+        } else selected = await chooseFile(dialog, { title: 'Choose an installed Wine executable (wine or wine64)' });
+        if (!selected) return { canceled: true };
+        const wine = require('../runtime/proton/wine'), before = wine.validateWineInstallation(selected, nativeSetup);
+        const decision = await dialog.showMessageBox({ type: 'question', buttons: ['Add this version', 'Cancel'], defaultId: 1, cancelId: 1,
+            message: 'Use this Wine installation for Windows games?',
+            detail: `Wine: ${before.winePath}\nLoader: ${before.loaderPath}\nServer: ${before.serverPath}\n\nEach game uses its own Wine environment, separate from Proton and your existing Wine prefix. Games and installers run as your user. ${manager.wineLaunchReadiness().reason}` });
+        if (decision.response !== 0) return { canceled: true };
+        authorizeIpcEvent(event, 'wine-register-runtime');
+        const currentScope = input.gameId !== undefined ? profileStore.authorityScope(input.gameId) : profileStore.activeScope();
+        if (initialScope.profileId !== currentScope.profileId || initialScope.libraryId !== currentScope.libraryId) throw Error('The active library changed during approval. Open Compatibility again.');
+        const current = wine.validateWineInstallation(before.winePath, { ...nativeSetup, expected: before.wineIdentity });
+        if (wine.installationId(before) !== wine.installationId(current)) throw Error('The Wine installation changed during approval. Choose it again.');
+        const registered = manager.registerWineRuntime(before.winePath, label);
+        return { canceled: false, ...await manager.installedStatus(), registeredRuntimeId: registered.registeredRuntimeId };
+    }));
+    ipcMain.handle('proton-register-runtime', guarded('proton-register-runtime', async (_event, payload) => {
+        const input = exactPayload(payload, ['gameId', 'discoveryId'], 'Installed Proton registration');
+        if (input.gameId !== undefined) profileStore.authorityScope(input.gameId);
+        if (!nativeSetup?.protonManager) throw new Error('Proton setup is unavailable.');
+        const manager = nativeSetup.protonManager;
+        const status = await manager.installedStatus();
+        let proton;
+        if (input.discoveryId !== undefined) {
+            if (typeof input.discoveryId !== 'string' || !/^[a-f0-9]{64}$/.test(input.discoveryId)) throw Error('Invalid detected Proton version.');
+            const candidate = status.discovery.proton.find(item => item.id === input.discoveryId && item.available);
+            if (!candidate) throw Error('The detected Proton version changed or disappeared. Reopen Compatibility and choose it again.');
+            proton = candidate.path;
+        } else proton = await chooseDirectory(dialog, { title: 'Choose an installed UMU-compatible Proton version' });
+        if (!proton) return { canceled: true };
+        const selectedInstallation = require('../runtime/proton/installation').validateProtonInstallation(proton, nativeSetup);
+        let umu = status.discovery.umu[0]?.path;
+        if (!umu) {
+            const explain = await dialog.showMessageBox({ type: 'info', buttons: ['Choose umu-run', 'Cancel'], defaultId: 0, cancelId: 1,
+                message: 'Proton needs the UMU launcher to run outside Steam.',
+                detail: 'Choose the separate umu-run executable. It is not the proton file inside a Proton installation. If UMU is not installed, cancel and install it first, or select an existing umu-run download.' });
+            if (explain.response !== 0) return { canceled: true };
+            umu = await chooseFile(dialog, { title: 'Choose umu-run (separate from the Proton folder)' });
+            if (!umu) return { canceled: true };
+        }
+        if (path.basename(umu) !== 'umu-run') throw Error('Choose the separate umu-run launcher, not the proton or wine executable.');
+        const approvedUmu = require('../runtime/native/protocol').validateNativeExecutable(umu, { ...nativeSetup, allowScripts: true });
+        const decision = await dialog.showMessageBox({ type: 'question', buttons: ['Add this version', 'Cancel'], defaultId: 1, cancelId: 1,
+            message: 'Use these installed compatibility tools for Windows games?', detail: `UMU: ${umu}\nProton: ${proton}` });
+        if (decision.response !== 0) return { canceled: true };
+        require('../runtime/native/protocol').validateNativeExecutable(umu, { ...nativeSetup, allowScripts: true, expected: approvedUmu });
+        const currentInstallation = require('../runtime/proton/installation').validateProtonInstallation(proton, nativeSetup);
+        if (require('../runtime/proton/discovery').installationId(currentInstallation) !== require('../runtime/proton/discovery').installationId(selectedInstallation)) throw Error('The Proton version changed during approval. Choose it again.');
+        const registered = manager.registerRuntime(umu, proton);
+        return { canceled: false, ...await manager.installedStatus(), registeredRuntimeId: registered.registeredRuntimeId };
+    }));
+    ipcMain.handle('authority-get-native-setup', guarded('authority-get-native-setup', (_event, payload) => {
+        if (!nativeSetup) throw new Error('Native setup is unavailable on this platform.');
+        const input = exactPayload(payload, ['gameId'], 'Native setup');
+        const saved = profileStore.localExecutionSetup(input.gameId);
+        let reason = '';
+        try {
+            const native = require('../runtime/native/protocol');
+            native.assertNativeOptions(saved.details); native.assertNativeOptions(saved.proposals);
+            if (saved.details.executablePath) require('../runtime/proton/executable').selectLocalExecutable(saved.details.executablePath, { ...nativeSetup, expected: saved.details.executableIdentity });
+        }
+        catch (error) { reason = error.message; }
+        if (!reason && saved.details.linuxRuntime?.backend === 'wine') reason = nativeSetup.protonManager?.wineLaunchReadiness().reason || '';
+        return { argv: saved.details.argv || [], workingDirectory: saved.details.workingDirectory || '',
+            executable: saved.details.executablePath || '', runtimeId: saved.details.linuxRuntime?.runtimeId || '',
+            backend: saved.details.linuxRuntime?.backend || 'native', dllOverrides: saved.details.linuxRuntime?.dllOverrides || '', reason };
+    }));
+    ipcMain.handle('authority-select-working-directory', guarded('authority-select-working-directory', async (event, payload) => {
+        if (!nativeSetup) throw new Error('Native working-directory selection is unavailable on this platform.');
+        const input = exactPayload(payload || {}, ['gameId'], 'Working-directory selection');
+        const scope = input.gameId ? profileStore.authorityScope(input.gameId) : profileStore.activeScope();
+        const selected = await chooseDirectory(dialog, { title: 'Approve this native game’s working directory' });
+        if (!selected) return { canceled: true };
+        const identity = require('../runtime/native/protocol').validateWorkingDirectory(selected, nativeSetup);
+        pruneExecutionSelections(); const selectionId = crypto.randomUUID();
+        pendingExecutionSelections.set(selectionId, { senderId: executionSelectionSenderId(event), selectedPath: identity.realPath,
+            selectedIdentity: identity, purpose: 'working-directory', gameId: input.gameId ? String(input.gameId) : '',
+            profileId: scope.profileId, libraryId: scope.libraryId, createdAt: Date.now() });
+        return { canceled: false, selectionId, label: identity.realPath };
+    }));
     ipcMain.handle('authority-configure-execution', guarded('authority-configure-execution', async (event, payload) => {
         const input = exactPayload(payload, [
             'gameId', 'argumentProposal', 'requestPreLaunchScript', 'requestPostLaunchScript',
             'requestCompanion', 'requestElevation', 'requestHighPriority', 'requestTrackingExecutable',
-            'requestRom', 'useSteamInstallation', 'baseSelectionId', 'capabilityId', 'expectedRevision'
+            'requestRom', 'useSteamInstallation', 'baseSelectionId', 'capabilityId', 'expectedRevision', ...(nativeSetup ? ['argv', 'workingDirectorySelectionId', 'runtimeId', 'dllOverrides'] : [])
         ], 'Execution setup');
         const metadata = profileStore.activeGameMetadata(input.gameId);
+        if (nativeSetup) {
+            const native = require('../runtime/native/protocol');
+            if (Object.entries(input).some(([key, value]) => (key.startsWith('request') || key === 'useSteamInstallation' || key === 'argumentProposal') && value)) {
+                throw new Error('Native setup requires literal argument arrays. Steam, ROM, scripts, companion, elevation, priority and process-name tracking are unavailable.');
+            }
+            const saved = profileStore.localExecutionSetup(input.gameId);
+            native.assertNativeOptions(saved.details); native.assertNativeOptions(saved.proposals);
+            const argv = native.validateArgv(input.argv || []);
+            let approved = null;
+            const reference = profileStore.authorityStatus(input.gameId).execution;
+            if (reference.state === 'active' && !(input.baseSelectionId && input.workingDirectorySelectionId)) {
+                approved = profileStore.resolveExecutionCapability({ gameId: input.gameId, capabilityId: reference.capabilityId,
+                    expectedRevision: reference.revision, operation: 'launch' }, { consume: false }).details;
+                require('../runtime/proton/executable').selectLocalExecutable(approved.executablePath, { ...nativeSetup, expected: approved.executableIdentity });
+                native.validateWorkingDirectory(approved.workingDirectory, { ...nativeSetup, expected: approved.workingDirectoryIdentity });
+            }
+            // Main-owned picker receipts or still-valid active permission only.
+            const executablePath = input.baseSelectionId
+                ? consumeExecutionSelection(event, input.baseSelectionId, { purpose: 'base', gameId: input.gameId })
+                : approved?.executablePath || await chooseFile(dialog, { title: 'Choose this game’s executable' });
+            if (!executablePath) return { canceled: true };
+            const selected = require('../runtime/proton/executable').selectLocalExecutable(executablePath, nativeSetup);
+            const executable = selected.identity;
+            let linuxRuntime;
+            if (selected.backend === 'proton-umu') {
+                if (!nativeSetup.protonManager) throw new Error('Proton setup is unavailable.');
+                const runtime = nativeSetup.protonManager.runtime(input.runtimeId);
+                linuxRuntime = { backend: require('../runtime/proton/wine').runtimeBackend(runtime), runtimeId: runtime.id, dllOverrides: require('../runtime/proton/environment').validateDllOverrides(input.dllOverrides) };
+            } else if (input.runtimeId || input.dllOverrides) throw new Error('Proton and Wine DLL overrides apply only to a Windows executable.');
+            if (!input.baseSelectionId && executable.realPath !== path.resolve(executablePath)) {
+                const decision = await dialog.showMessageBox({ type: 'question', buttons: ['Use this target', 'Cancel'], defaultId: 1, cancelId: 1,
+                    message: 'Use the executable this link points to?', detail: executable.realPath });
+                if (decision.response !== 0) return { canceled: true };
+            }
+            const workingDirectory = input.workingDirectorySelectionId
+                ? consumeExecutionSelection(event, input.workingDirectorySelectionId, { purpose: 'working-directory', gameId: input.gameId })
+                : approved?.workingDirectory || (linuxRuntime ? path.dirname(executable.realPath)
+                    : await chooseDirectory(dialog, { title: 'Approve this native game’s working directory' }));
+            if (linuxRuntime && !approved && !input.workingDirectorySelectionId) {
+                const decision = await dialog.showMessageBox({ type: 'question', buttons: ['Save launch setup', 'Cancel'], defaultId: 0, cancelId: 1,
+                    message: 'Save this Windows game’s launch setup?', detail: `Executable: ${executable.realPath}\nWorking folder: ${workingDirectory}\nYou can change the working folder in Manage Game.` });
+                if (decision.response !== 0) return { canceled: true };
+            }
+            if (!workingDirectory) return { canceled: true };
+            const cwd = native.validateWorkingDirectory(workingDirectory, nativeSetup);
+            require('../runtime/proton/executable').selectLocalExecutable(executable.realPath, { ...nativeSetup, expected: executable });
+            if (linuxRuntime) nativeSetup.protonManager.runtime(linuxRuntime.runtimeId);
+            if (approved) profileStore.resolveExecutionCapability({ gameId: input.gameId, capabilityId: reference.capabilityId, expectedRevision: reference.revision, operation: 'launch' }, { consume: false });
+            native.validateWorkingDirectory(cwd.realPath, { ...nativeSetup, expected: cwd });
+            const currentScope = profileStore.authorityScope(input.gameId);
+            if (currentScope.profileId !== metadata.profileId || currentScope.libraryId !== metadata.libraryId) throw executionSelectionError('The active profile or library changed while saving setup. Open the game again.');
+            return profileStore.createExecutionCapability(input.gameId, { executablePath: executable.realPath, argv, workingDirectory: cwd.realPath, ...(linuxRuntime ? { linuxRuntime } : {}) });
+        }
         const currentReference = input.capabilityId || input.expectedRevision !== undefined ? {
             gameId: input.gameId, capabilityId: input.capabilityId,
             expectedRevision: input.expectedRevision, operation: 'reveal'

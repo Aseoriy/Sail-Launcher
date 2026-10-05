@@ -82,7 +82,7 @@ function localAuthorityVersion(status) {
     });
 }
 
-function registerAchievementIpc({ app, ipcMain, BrowserWindow, Notification, dialog, authorizeIpcEvent, profileStore, resolveSteamInstallation }) {
+function registerAchievementIpc({ app, ipcMain, BrowserWindow, Notification, dialog, authorizeIpcEvent, profileStore, resolveSteamInstallation, enabled = true }) {
     if (typeof authorizeIpcEvent !== 'function') throw new TypeError('Achievement IPC requires sender authorization.');
     if (!profileStore || typeof profileStore.activeGameMetadata !== 'function') throw new TypeError('Achievement IPC requires the main-owned profile store.');
     const handle = (channel, handler) => ipcMain.handle(channel, (event, ...args) => {
@@ -179,9 +179,9 @@ function registerAchievementIpc({ app, ipcMain, BrowserWindow, Notification, dia
         }
         return { exePath, installFolder, achievementSources, approvedRoots, allowSteamData, steamRoot, steamAppId };
     };
-    const service = new AchievementService({
+    const service = enabled ? new AchievementService({
         app, BrowserWindow, Notification, dialog, resolveLocalAuthority
-    });
+    }) : null;
 
     handle('achievements-set-library', async (_event, payload) => {
         const input = exactObject(payload || {}, new Set([

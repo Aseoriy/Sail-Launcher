@@ -840,7 +840,12 @@ function legacySettings(value, diagnostics, path) {
         if (typeof input[key] === 'boolean') candidate[key] = input[key];
     }
     for (const key of Object.keys(NUMBER_SETTING_RULES)) {
-        if (typeof input[key] === 'number' && Number.isFinite(input[key])) candidate[key] = input[key];
+        if (typeof input[key] === 'number' && Number.isFinite(input[key])) {
+            // Local UI/legacy settings use percentages; v3 artifacts use ratios.
+            // Already admitted ratios retain their meaning (1 means 100%).
+            candidate[key] = key === 'glassOpacity' && input[key] >= 5 && input[key] <= 100
+                ? input[key] / 100 : input[key];
+        }
     }
     for (const key of Object.keys(ENUM_SETTING_RULES)) {
         if (typeof input[key] === 'string' && ENUM_SETTING_RULES[key].has(input[key])) candidate[key] = input[key];

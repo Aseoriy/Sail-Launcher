@@ -65,6 +65,7 @@ function hardenGuestPreferences(webPreferences) {
     webPreferences.allowRunningInsecureContent = false;
     webPreferences.enableRemoteModule = false;
     webPreferences.webviewTag = false;
+    if (require('../runtime/nativeSessionPolicy').disableSpellcheck()) webPreferences.spellcheck = false;
 }
 
 function isAllowedGuestNavigation(rawUrl) {

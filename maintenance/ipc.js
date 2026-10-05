@@ -112,10 +112,10 @@ function sanitizeJob(job) {
     return clone;
 }
 
-function registerMaintenanceIpc({ app, ipcMain, BrowserWindow, dialog, shell, findExecutable, authorizeIpcEvent, profileStore }) {
+function registerMaintenanceIpc({ app, ipcMain, BrowserWindow, dialog, shell, findExecutable, authorizeIpcEvent, profileStore, providerEnabled = true }) {
     if (typeof authorizeIpcEvent !== 'function') throw new TypeError('Maintenance IPC requires sender authorization.');
     if (!profileStore) throw new TypeError('Maintenance IPC requires the main-owned profile authority store.');
-    const service = new MaintenanceService({
+    const service = providerEnabled ? new MaintenanceService({
         baseDir: path.join(app.getPath('userData'), 'maintenance'),
         version: app.getVersion(),
         findExecutable,
@@ -125,7 +125,7 @@ function registerMaintenanceIpc({ app, ipcMain, BrowserWindow, dialog, shell, fi
                 if (!win.isDestroyed()) win.webContents.send('maintenance-job', publicJob);
             }
         }
-    });
+    }) : null;
     let enabled = false;
     const handle = (channel, handler, requiresEnabled = true) => ipcMain.handle(channel, (event, ...args) => {
         authorizeIpcEvent(event, channel);
@@ -313,7 +313,7 @@ function registerMaintenanceIpc({ app, ipcMain, BrowserWindow, dialog, shell, fi
         return { canceled: false, capability, label: path.basename(result.filePaths[0]) || 'Selected folder' };
     });
 
-    app.on('before-quit', () => service.stop());
+    app.once('will-quit', () => { if (service) service.stop(); });
     return service;
 }
 

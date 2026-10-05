@@ -4,10 +4,16 @@
   "version": "5.5.5",
   "description": "Pookie's custom launcher for games",
   "author": "Aseoriy",
-  "main": "main.js",
+  "main": "runtime/entry.cjs",
   "scripts": {
-    "start": "electron .",
-    "build": "electron-builder --win nsis",
+    "start": "node scripts/start.cjs",
+    "dev:linux": "node scripts/start-dev.cjs",
+    "build:native": "node scripts/build-native.cjs",
+    "install:electron": "install-electron",
+    "rebuild:linux": "electron-rebuild --version 44.2.0 --arch x64 --force --only register-scheme --sequential --build-from-source",
+    "build:linux:dir": "node scripts/build.cjs --linux --x64 --dir --publish never",
+    "test:linux-boot": "node tests/run-linux-boot.js",
+    "build": "node scripts/build.cjs --win nsis --publish never",
     "test": "node --test tests/*.test.js",
     "test:electron-security": "node tests/run-electron-security.js",
     "check": "node --check main.js && node --check cloudSync.js && node --check accounts/profileStore.js && node --check accounts/accountService.js && node --check accounts/sailCloud.js && node --check accounts/ipc.js && node --check security/ipcAuthorization.js && node --check security/navigationPolicy.js && node --check security/remoteData.js && node --check security/remoteDataWorker.js && node --check sync/syncV2.js && node --check maintenance/ludusavi.js && node --check runtime/recoveryJournal.js && node --check runtime/gameUninstall.js && node --check runtime/downloadHostResolvers.js && node --check runtime/systemBrowserResolver.js && node --check runtime/downloadJobCleanup.js && node --check runtime/downloadIpc.js && node --check runtime/downloadQuarantine.js && node --check runtime/browserDownloadIntents.js && node --check runtime/downloadWorkCoordinator.js && node --check runtime/ownedChildProcess.js && node --check runtime/ownedWorker.js && node --check runtime/archiveExtractWorker.js && node --check runtime/downloadPreparationWorker.js && node --check achievements/achievementLogic.js && node --check achievements/achievementParsers.js && node --check achievements/achievementDiscovery.js && node --check achievements/steamAchievements.js && node --check achievements/achievementService.js && node --check achievements/achievementView.js && node --check achievements/ipc.js && node --check ui/achievements.js && node --check ui/remoteJson.js && node --check ui/downloadSourceLogic.js && node --check ui/downloadQuarantine.js && node --test tests/*.test.js && npm --prefix cloudflare-worker run check"
@@ -27,8 +33,9 @@
     "ws": "8.21.1"
   },
   "devDependencies": {
-    "electron": "^29.1.0",
-    "electron-builder": "^24.13.3"
+    "electron": "44.2.0",
+    "electron-builder": "26.15.3",
+    "@electron/rebuild": "4.2.0"
   },
   "build": {
     "appId": "com.aseoriy.saillauncher",
@@ -45,12 +52,16 @@
       "ui/**/*",
       "index.html",
       "icon.ico",
+      "icon.png",
       "node_modules/**/*"
     ],
     "asarUnpack": [
       "node_modules/7zip-bin/**/*",
       "node_modules/7zip-min/node_modules/7zip-bin/**/*"
     ],
+    "linux": {
+      "extraResources": [{ "from": "native/linux/x64/sail-native", "to": "native/sail-native" }]
+    },
     "win": {
       "target": "nsis",
       "icon": "icon.ico"
