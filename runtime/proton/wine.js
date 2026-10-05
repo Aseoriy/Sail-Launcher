@@ -57,10 +57,12 @@ function validateWineInstallation(selected, options = {}) {
             'lib64/wine/wine', 'lib64/wine/wine64', 'lib64/wine/wine-preloader', 'lib64/wine/wine64-preloader',
             ...['lib', 'lib64'].flatMap(lib => ['x86_64-unix', 'i386-unix'].flatMap(arch =>
                 ['wine', 'wine64', 'wine-preloader', 'wine64-preloader'].map(name => `${lib}/wine/${arch}/${name}`)))].map(name => path.join(root, name));
+    // options.expected is the launcher's identity; loaders and the server are compared through installationId().
+    const { expected: _launcherIdentity, ...loaderOptions } = options;
     const loaders = [], seen = new Set();
     for (const candidate of files) {
         try {
-            const identity = loaderIdentity(candidate, options);
+            const identity = loaderIdentity(candidate, loaderOptions);
             if (!native.withinRoot(identity.realPath, root) || seen.has(identity.realPath)) continue;
             seen.add(identity.realPath); loaders.push(identity);
         } catch (error) {
@@ -76,7 +78,7 @@ function validateWineInstallation(selected, options = {}) {
             'lib/wine/x86_64-unix/wineserver', 'lib64/wine/x86_64-unix/wineserver'].map(name => path.join(root, name));
     let serverIdentity;
     for (const candidate of servers) {
-        try { const item = loaderIdentity(candidate, options); if (item.arch === 'x64' && native.withinRoot(item.realPath, root)) { serverIdentity = item; break; } }
+        try { const item = loaderIdentity(candidate, loaderOptions); if (item.arch === 'x64' && native.withinRoot(item.realPath, root)) { serverIdentity = item; break; } }
         catch (_) {}
     }
     if (!serverIdentity) throw Error('The selected Wine installation needs its own native 64-bit wineserver.');
