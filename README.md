@@ -1,14 +1,12 @@
 <div align="center">
   
-# *linux coming soon btw*
-  
 # Sail Launcher
 
-### A customizable Windows launcher for games, applications, emulators, saves, mods, and more.
+### A customizable launcher for games, applications, emulators, saves, mods, and more, on Windows and Linux.
 
 [![Latest Release](https://img.shields.io/github/v/release/Aseoriy/Sail-Launcher?style=flat-square)](https://github.com/Aseoriy/Sail-Launcher/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/Aseoriy/Sail-Launcher/total?style=flat-square)](https://github.com/Aseoriy/Sail-Launcher/releases)
-[![Platform](https://img.shields.io/badge/platform-Windows-0078D4?style=flat-square&logo=windows11&logoColor=white)](https://github.com/Aseoriy/Sail-Launcher)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-0078D4?style=flat-square)](https://github.com/Aseoriy/Sail-Launcher)
 [![Electron](https://img.shields.io/badge/built%20with-Electron-47848F?style=flat-square&logo=electron&logoColor=white)](https://www.electronjs.org/)
 [![GitHub Stars](https://img.shields.io/github/stars/Aseoriy/Sail-Launcher?style=flat-square)](https://github.com/Aseoriy/Sail-Launcher/stargazers)
 
@@ -63,7 +61,7 @@ Sail can manage regular Windows applications, non-Steam games, emulators, ROMs, 
 
 ## Installation
 
-Sail Launcher currently targets Windows.
+### Windows
 
 1. Open the [latest release](https://github.com/Aseoriy/Sail-Launcher/releases/latest).
 2. Download the Windows installer.
@@ -73,13 +71,24 @@ Sail Launcher currently targets Windows.
 
 Windows may display a security confirmation for applications downloaded outside the Microsoft Store. Confirm that the installer was downloaded from this repository before running it.
 
+### Linux (beta)
+
+Linux support is new. It is developed and tested on Kubuntu; other distributions with a recent glibc (Ubuntu 22.04 or newer, or similar) should work but are not yet verified.
+
+1. Open the [latest release](https://github.com/Aseoriy/Sail-Launcher/releases/latest).
+2. Download the `.deb` package (Debian, Ubuntu and derivatives) or the `.AppImage` (any distribution).
+3. Install the `.deb` with your package manager, or make the AppImage executable and run it.
+4. Open Sail Launcher.
+
+Windows games run through Proton using [UMU](https://github.com/Open-Wine-Components/umu-launcher). Sail can download GE-Proton and UMU for you in **Settings > Compatibility**, which needs Python 3 on your system. Native Linux games are launched directly. Standalone Wine support is experimental and turned off by default.
+
 ## Building from Source
 
 ### Requirements
 
-- Windows
+- Windows or Linux
 - Git
-- A current Node.js LTS release
+- Node.js 22 (see `.node-version`)
 - npm
 
 ### Setup
@@ -99,6 +108,20 @@ npm start
 | `npm test` | Run the automated test suite |
 | `npm run check` | Check important JavaScript files and run the tests |
 | `npm run build` | Create a Windows NSIS installer |
+
+On Linux, install the dependencies and Electron explicitly, then build the small native helper:
+
+```bash
+git clone https://github.com/Aseoriy/Sail-Launcher.git
+cd Sail-Launcher
+npm ci --ignore-scripts
+npm run install:electron
+npm run rebuild:linux
+npm run build:native
+npm start
+```
+
+Linux packages (`.AppImage` and `.deb`) are built with `npm run build:linux`.
 
 Packaged builds are written to the `dist` directory.
 
@@ -127,7 +150,7 @@ Bug reports and feature requests are welcome through [GitHub Issues](https://git
 A useful bug report should include:
 
 - The Sail Launcher version
-- Your Windows version
+- Your Windows version or Linux distribution
 - Steps that reproduce the issue
 - What you expected to happen
 - What happened instead
