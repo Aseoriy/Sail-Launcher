@@ -2,6 +2,17 @@ const { app, BrowserWindow, ipcMain: electronIpcMain, dialog, shell, screen, Tra
 const { createPlatformSupport, createSupportedIpcRegistrar } = require('./runtime/platformSupport');
 const nativeContext = require('./runtime/native/context').initializeNativeContext(app);
 const platformSupport = createPlatformSupport({ mode: nativeContext.mode, packaged: app.isPackaged && process.env.SAIL_ALLOW_MULTI_INSTANCE !== '1' });
+// On Linux, Electron waits for the file manager to close before shell.openPath resolves; hand the path to xdg-open and move on.
+if (process.platform === 'linux') {
+    shell.openPath = target => new Promise(resolve => {
+        if (typeof target !== 'string' || !path.isAbsolute(target)) return resolve('Invalid path.');
+        try {
+            const child = spawn('xdg-open', [target], { detached: true, stdio: 'ignore' });
+            child.once('error', error => resolve(error.message));
+            child.once('spawn', () => { child.unref(); resolve(''); });
+        } catch (error) { resolve(error.message); }
+    });
+}
 require('./runtime/nativeSessionPolicy').installNativeSessionPolicy({ app }, platformSupport);
 if (platformSupport.isolated && !require('./runtime/offlineNetwork').isInstalled()) {
     console.error('Linux Milestone 1 uses private data: run npm run dev:linux with Node 22.23.2.');
@@ -3001,7 +3012,10 @@ function getLinuxDownloads() {
         getStore: () => gateAProfileStore(), getManager: () => protonManager, registry: downloadJobDirectories, work: downloadWork,
         activeDownloads, dialog, authorize: authorizeIpcEvent, resolveExecution: resolveInstallationExecution, metadata: resolveSteamMetadataForDownload,
         emit: (channel, data) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, data); },
-        browserResolve: (pageUrl, sourceReferer) => resolveBuzzheavierWithSystemBrowser(pageUrl, 25000, sourceReferer)
+        // Installed Chromium first, then a hidden window of Sail's own browser engine, so no separate browser is needed.
+        browserResolve: (pageUrl, sourceReferer) => resolveBuzzheavierWithBrowser(pageUrl, 40000, sourceReferer),
+        resolveDirect: async (url, opts) => { const files = await resolveDirectUrl(url, opts); if (!files || !files.length) throw buildUnresolvedError(url); return files; },
+        removeDirectory: folder => removeOwnedInstallDirectory(folder, { protectedRoots: [app.getPath('userData'), app.getAppPath(), os.homedir()] })
     });
     linuxDownloads.initialize(); return linuxDownloads;
 }
@@ -3043,6 +3057,9 @@ registerLinuxDownloadHandle('linux-download-import', async (event, payload) => {
     if (!imports.some(item => require('./runtime/linuxGameDiscovery').archiveKind(item.file))) throw Error('Choose a ZIP, RAR, or 7z archive and its split volumes.');
     if (imports.reduce((total, item) => total + fs.statSync(item.file).size, 0) > 512 * 1024 ** 3) throw Error('These archives exceed the import size limit.');
     return downloads.run(event, options, imports);
+});
+registerLinuxDownloadHandle('linux-download-discard', (event, payload) => {
+    const input = exactGateAPayload(payload, ['id'], 'Remove unfinished download'); return getLinuxDownloads().discard(event, input);
 });
 registerLinuxDownloadHandle('linux-download-open', async (_event, payload) => {
     const input = exactGateAPayload(payload, ['id'], 'Open retained download'), downloads = getLinuxDownloads();

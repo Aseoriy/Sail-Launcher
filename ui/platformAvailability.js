@@ -11,11 +11,17 @@ function installPlatformAvailability(document, ipc) {
             element.style.cssText = 'position:fixed;bottom:16px;left:16px;max-width:520px;padding:12px 16px;background:var(--bg-color,#20232a);color:var(--text-color,#fff);border:1px solid var(--accent,#829ab1);border-radius:8px;z-index:100000;cursor:pointer;';
             element.tabIndex = 0;
             element.title = 'Click or press Escape to dismiss';
+            element.style.cursor = 'pointer';
             element.addEventListener('click', () => element.remove());
             element.addEventListener('keydown', event => { if (event.key === 'Escape') element.remove(); });
             document.body.append(element);
         }
-        element.textContent = message;
+        // The close mark makes it obvious the notice can be dismissed; it also leaves on its own.
+        element.textContent = `${message}   ✕`;
+        if (typeof setTimeout === 'function') {
+            clearTimeout(element.dismissTimer);
+            element.dismissTimer = setTimeout(() => element.remove(), 10000);
+        }
     }
     ipc.on('platform-operation-unavailable', (_event, message) => notice(message));
     window.addEventListener('unhandledrejection', event => {

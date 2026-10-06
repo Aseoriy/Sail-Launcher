@@ -98,7 +98,7 @@ function createSupportedIpcRegistrar(ipcMain, authorize, support) {
         'compatibility-dismiss-setup', 'proton-launch-log', 'proton-installation-status', 'proton-prerequisites',
         'proton-run-installer', 'proton-installation-cancel', 'proton-check-online-prerequisites',
         'proton-install-online-prerequisites', 'proton-cancel-online-prerequisites', 'proton-first-launch-plan', 'proton-first-launch-begin']);
-    const downloadHandles = new Set(['download-game', 'cancel-download', 'pick-download-folder', 'linux-download-import', 'linux-download-list', 'linux-download-adopt', 'linux-download-status', 'linux-download-configure', 'linux-download-open', 'get-download-quarantine-summary', 'clear-download-quarantine', 'open-download-quarantine', 'pause-download', 'open-folder-capability']);
+    const downloadHandles = new Set(['download-game', 'cancel-download', 'pick-download-folder', 'linux-download-import', 'linux-download-list', 'linux-download-adopt', 'linux-download-status', 'linux-download-configure', 'linux-download-open', 'linux-download-discard', 'get-download-quarantine-summary', 'clear-download-quarantine', 'open-download-quarantine', 'pause-download', 'open-folder-capability']);
     const discordHandles = new Set(['set-rpc-setting', 'update-rpc']);
     const achievementHandles = new Set(['achievements-import-steam', 'achievements-import-steam-schema', 'achievements-pick-source', 'achievements-read-artwork',
         'achievements-refresh-local', 'achievements-remove-source', 'achievements-review-source', 'achievements-set-library', 'achievements-set-preferences']);

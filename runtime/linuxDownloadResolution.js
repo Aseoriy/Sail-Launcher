@@ -34,4 +34,15 @@ async function resolve(link, options, work, services = {}) {
         return files.map(file => ({ url: downloadUrl(file.url).href, name: file.name || link.name, headers: headersFor(file) }));
     } finally { clearTimeout(timer); await work.setStop(null); }
 }
-module.exports = { resolve };
+// Files from Sail's full link resolver (FileCrypt containers, Cloudflare-protected hosts through a browser) become plain HTTPS transfers.
+function normalizeManagedFiles(files) {
+    if (!Array.isArray(files) || !files.length) throw Error('This host did not return a download. Try another mirror, or download it in your browser and use "Choose archive".');
+    if (files.length > 32) throw Error('This host returned more than 32 files. Download the archive parts separately and import them.');
+    return files.map(file => {
+        if (!file || file.kind === 'magnet' || /^magnet:/i.test(String(file.url || '')) || /\.torrent(?:[?#]|$)/i.test(String(file.url || ''))) {
+            throw Error('Torrent downloads are not supported on Linux yet. Download the game with a torrent app, then use "Choose archive".');
+        }
+        return { url: downloadUrl(file.url).href, name: file.name || '', headers: headersFor({ headers: Array.isArray(file.headers) ? file.headers : [] }) };
+    });
+}
+module.exports = { resolve, normalizeManagedFiles };

@@ -132,6 +132,8 @@ function systemChromiumCandidates(env = typeof process !== 'undefined' ? process
 }
 
 function findSystemChromiumExecutable(options = {}) {
+    // Lets people (and tests) force Sail's built-in browser engine instead of an installed browser.
+    if (String((options.env || (typeof process !== 'undefined' ? process.env : {})).SAIL_DISABLE_SYSTEM_BROWSER || '') === '1') return '';
     const existsSync = options.existsSync || fs.existsSync;
     return systemChromiumCandidates(options.env, platformOf(options)).find(candidate => {
         try { return existsSync(candidate); } catch (_) { return false; }

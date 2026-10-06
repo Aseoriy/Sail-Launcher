@@ -31,6 +31,11 @@ function installLinuxDownloads({ document, ipc, invoke, ready, onChanged, notice
             if (currentScope && currentScope !== `${result.scope.profileId}:${result.scope.libraryId}`) { setTimeout(() => refresh().catch(error => notice(error.message)), 0); return; }
             const rows = result.downloads; const previous = new Map(states);
             states.clear(); retained.replaceChildren();
+            if (rows.some(row => !row.gameId && row.phase !== 'canceled')) {
+                const heading = document.createElement('div'); heading.style.cssText = 'font-size:13px;font-weight:600;margin-top:8px;'; heading.textContent = 'Unfinished downloads';
+                const hint = document.createElement('div'); hint.style.cssText = 'font-size:12px;opacity:.7;'; hint.textContent = 'These downloads did not finish. Sail kept the files it already had; open the folder to look, or remove them to free the space.';
+                retained.append(heading, hint);
+            }
             for (const row of rows) {
                 if (row.gameId) states.set(String(row.gameId), row);
                 else if (row.phase !== 'canceled') {
@@ -39,6 +44,11 @@ function installLinuxDownloads({ document, ipc, invoke, ready, onChanged, notice
                     const open = document.createElement('button'); open.className = 'outline'; open.textContent = 'Open saved files';
                     open.onclick = () => invoke('linux-download-open', { id: row.id }).catch(error => notice(error.message));
                     item.append(text, open);
+                    if (['failed', 'interrupted'].includes(row.phase)) {
+                        const remove = document.createElement('button'); remove.className = 'outline'; remove.textContent = 'Remove';
+                        remove.onclick = async () => { remove.disabled = true; try { await invoke('linux-download-discard', { id: row.id }); await refresh(); } catch (error) { remove.disabled = false; notice(error.message); } };
+                        item.append(remove);
+                    }
                     if (row.canAdopt) {
                         const finish = document.createElement('button'); finish.className = 'outline'; finish.textContent = 'Finish setup';
                         finish.onclick = async () => { finish.disabled = true; try { const result = await invoke('linux-download-adopt', { id: row.id }); await onChanged(result); await refresh(); } catch (error) { notice(error.message); } finally { finish.disabled = false; } };

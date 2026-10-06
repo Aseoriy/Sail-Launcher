@@ -16733,6 +16733,9 @@
                 let rule = '';
                 try { rule = uieBuildRule(data[sel] || {}, skipGeom); } catch (e) {}
                 if (rule) blocks.push(sel + ' { ' + rule + ' }');
+                // A text gradient makes the glyphs transparent, so it must also win the background fight: app rules such as
+                // `#mainSidebar .sidebar-page-link.active-tab { background: ... !important }` would otherwise paint over it and leave invisible text.
+                if (rule && data[sel] && data[sel].textGrad && !/::/.test(sel)) blocks.push(sel + ':not(#uie-boost):not(#uie-boost) { ' + rule + ' }');
                 // "reflow" mode: track the widest game-card size override so the grid can match it.
                 if (/game-card/i.test(sel) && data[sel] && data[sel].w) cardW = Math.max(cardW, data[sel].w);
             }

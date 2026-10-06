@@ -11,8 +11,8 @@ const ACTIVE = new Set(['downloading', 'extracting', 'reviewing', 'publishing'])
 const safeError = error => String(error.message || error).replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 500);
 
 class LinuxDownloads {
-    constructor({ root, defaultRoot, getStore, getManager, registry, work, activeDownloads, dialog, authorize, resolveExecution, metadata, emit, browserResolve = null }) {
-        Object.assign(this, { root, defaultRoot, getStore, getManager, registry, work, activeDownloads, dialog, authorize, resolveExecution, metadata, emit, browserResolve });
+    constructor({ root, defaultRoot, getStore, getManager, registry, work, activeDownloads, dialog, authorize, resolveExecution, metadata, emit, browserResolve = null, removeDirectory = null, resolveDirect = null }) {
+        Object.assign(this, { root, defaultRoot, getStore, getManager, registry, work, activeDownloads, dialog, authorize, resolveExecution, metadata, emit, browserResolve, removeDirectory, resolveDirect });
         this.operations = new Map(); this.reviews = new Set(); this.records = new Map(); this.initialized = false;
     }
     initialize() {
@@ -127,6 +127,19 @@ class LinuxDownloads {
         const configured = await this.configure(event, { gameId: String(result.gameId) });
         return { ...configured, state: store.getState(), snapshot: store.loadActiveSnapshot() };
     }
+    // Removes an unfinished (failed, interrupted or stopped) download and the files Sail kept for it.
+    async discard(event, { id }) {
+        this.initialize(); const record = this.records.get(id);
+        if (!record || this.operations.has(id) || record.published === true || !['failed', 'canceled', 'interrupted'].includes(record.phase)) throw Error('Only unfinished downloads can be removed.');
+        this.authorize(event); this.sameScope(record);
+        if (fs.existsSync(record.folder)) {
+            this.validateFolder(record);
+            if (typeof this.removeDirectory !== 'function') throw Error('Removing downloads is unavailable.');
+            await this.removeDirectory(record.folder);
+        }
+        fs.rmSync(path.join(this.root, this.recordName(id)), { force: true }); this.records.delete(id);
+        return true;
+    }
     async cancelSaved(event, id) {
         const record = this.records.get(id);
         if (!record?.published || !this.operations.has(id)) return null;
@@ -193,7 +206,17 @@ class LinuxDownloads {
                 const links = options.links?.length ? options.links : [{ url: options.url, name: options.gameName }];
                 for (let index = 0; index < links.length; index++) {
                     progress({ state: 'downloading', label: `Downloading part ${index + 1}/${links.length}…`, part: index + 1, partCount: links.length });
-                    const resolved = await this.work.run(continuation, { type: 'linux-link-resolution', state: 'resolving' }, work => require('./linuxDownloadResolution').resolve(links[index], options, work, { browserResolve: this.browserResolve }));
+                    const resolved = await this.work.run(continuation, { type: 'linux-link-resolution', state: 'resolving' }, async work => {
+                        if (typeof this.resolveDirect !== 'function') return require('./linuxDownloadResolution').resolve(links[index], options, work, { browserResolve: this.browserResolve });
+                        // Sail's full resolver handles protected hosts; it can ask the user to pass a check in a browser window.
+                        const abort = new AbortController(); await work.setStop(() => abort.abort());
+                        try {
+                            const files = await this.resolveDirect(links[index].url, { sourceId: options.sourceId, name: links[index].name || options.gameName, referer: options.referer || '',
+                                skipDebrid: true, signal: abort.signal, onProgress: label => progress({ state: 'downloading', label: String(label || '').slice(0, 200), part: index + 1, partCount: links.length }) });
+                            abort.signal.throwIfAborted(); await work.checkpoint();
+                            return require('./linuxDownloadResolution').normalizeManagedFiles(files);
+                        } finally { await work.setStop(null); }
+                    });
                     for (let file = 0; file < resolved.length; file++) {
                         files.push(await this.work.run(continuation, { type: 'linux-transfer', state: 'downloading' }, work => require('./linuxDownloadTransfer').transfer({
                             url: resolved[file].url, headers: resolved[file].headers, fallback: resolved[file].name, directory: incoming, maxSpeed: options.maxSpeed, work,
