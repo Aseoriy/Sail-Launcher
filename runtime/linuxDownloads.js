@@ -11,8 +11,8 @@ const ACTIVE = new Set(['downloading', 'extracting', 'reviewing', 'publishing'])
 const safeError = error => String(error.message || error).replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 500);
 
 class LinuxDownloads {
-    constructor({ root, defaultRoot, getStore, getManager, registry, work, activeDownloads, dialog, authorize, resolveExecution, metadata, emit, browserResolve = null, removeDirectory = null, resolveDirect = null }) {
-        Object.assign(this, { root, defaultRoot, getStore, getManager, registry, work, activeDownloads, dialog, authorize, resolveExecution, metadata, emit, browserResolve, removeDirectory, resolveDirect });
+    constructor({ root, defaultRoot, getStore, getManager, registry, work, activeDownloads, dialog, authorize, resolveExecution, metadata, emit, browserResolve = null, removeDirectory = null, resolveDirect = null, browserDownload = null }) {
+        Object.assign(this, { root, defaultRoot, getStore, getManager, registry, work, activeDownloads, dialog, authorize, resolveExecution, metadata, emit, browserResolve, removeDirectory, resolveDirect, browserDownload });
         this.operations = new Map(); this.reviews = new Set(); this.records = new Map(); this.initialized = false;
     }
     initialize() {
@@ -169,6 +169,17 @@ class LinuxDownloads {
             backend: require('./proton/wine').windowsBackend(details.linuxRuntime?.backend) ? 'proton-umu' : 'native', root: path.dirname(details.executablePath) }, this.getManager() || {});
         this.getManager()?.installations.assertIdle(record.scope); record.phase = 'ready'; record.error = ''; this.write(record);
     }
+    // Hosts whose human check fails under automation: the installed browser downloads the file itself.
+    async browserTransfer(item, directory, work, progress) {
+        if (typeof this.browserDownload !== 'function') throw Error('This host needs a Chromium-based browser. Download it in your browser, then use "Choose archive".');
+        const controller = new AbortController(); await work.setStop(() => controller.abort());
+        try {
+            const result = await this.browserDownload({ ...item.assisted, directory, fallbackName: item.name, signal: controller.signal, onProgress: progress });
+            if (!result || !result.path) throw Error('No Chromium-based browser was found. Download it in your browser, then use "Choose archive".');
+            await work.checkpoint();
+            return result.path;
+        } finally { await work.setStop(null); }
+    }
     async run(event, options, imports = null) {
         this.initialize(); if (this.records.has(options.id) || this.operations.has(options.id)) throw Error('Start a new download to retry. Previously saved files were kept.');
         const initialScope = this.scope(), wc = event.sender;
@@ -218,9 +229,10 @@ class LinuxDownloads {
                         } finally { await work.setStop(null); }
                     });
                     for (let file = 0; file < resolved.length; file++) {
-                        files.push(await this.work.run(continuation, { type: 'linux-transfer', state: 'downloading' }, work => require('./linuxDownloadTransfer').transfer({
-                            url: resolved[file].url, headers: resolved[file].headers, fallback: resolved[file].name, directory: incoming, maxSpeed: options.maxSpeed, work,
-                            progress: data => progress({ state: 'downloading', label: `Downloading part ${index + 1}/${links.length}…`, part: index + 1, partCount: links.length, file: file + 1, fileCount: resolved.length, ...data }) })));
+                        const report = data => progress({ state: 'downloading', label: `Downloading part ${index + 1}/${links.length}…`, part: index + 1, partCount: links.length, file: file + 1, fileCount: resolved.length, ...data });
+                        files.push(await this.work.run(continuation, { type: 'linux-transfer', state: 'downloading' }, work => resolved[file].assisted
+                            ? this.browserTransfer(resolved[file], incoming, work, report)
+                            : require('./linuxDownloadTransfer').transfer({ url: resolved[file].url, headers: resolved[file].headers, fallback: resolved[file].name, directory: incoming, maxSpeed: options.maxSpeed, work, progress: report })));
                     }
                 }
             }

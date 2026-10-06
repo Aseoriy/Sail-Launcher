@@ -988,6 +988,12 @@ async function resolveWithSystemChromium(rawUrl, expression, options = {}) {
 
 module.exports = {
     DEFAULT_VERIFICATION_RESOURCE_HOSTS,
+    connectCdp,
+    delayWithSignal,
+    requestJson,
+    reserveLoopbackPort,
+    throwIfAborted,
+    waitForPageTarget,
     POPUP_GUARD_SOURCE,
     VERIFICATION_OBSERVER_SOURCE,
     VERIFICATION_STATE_EXPRESSION,

@@ -117,6 +117,7 @@ const {
     resolveWithSystemChromium,
     verificationNeedsAttention
 } = require('./runtime/systemBrowserResolver');
+const { downloadInSystemBrowser } = require('./runtime/systemBrowserDownload');
 const DownloadSourceLogic = require('./ui/downloadSourceLogic');
 const DownloadSizeLogic = require('./ui/downloadSizeLogic');
 const { DebridRetryLinkStore, debridRetryRequestKey } = require('./runtime/debridRetryLinks');
@@ -3015,6 +3016,21 @@ function getLinuxDownloads() {
         // Installed Chromium first, then a hidden window of Sail's own browser engine, so no separate browser is needed.
         browserResolve: (pageUrl, sourceReferer) => resolveBuzzheavierWithBrowser(pageUrl, 40000, sourceReferer),
         resolveDirect: async (url, opts) => { const files = await resolveDirectUrl(url, opts); if (!files || !files.length) throw buildUnresolvedError(url); return files; },
+        browserDownload: async args => {
+            try {
+                return await downloadInSystemBrowser({
+                    url: args.url, referer: args.referer, directory: args.directory, fallbackName: args.fallbackName, signal: args.signal, onProgress: args.onProgress,
+                    executablePath: findSystemChromiumExecutable(), tempRoot: path.join(app.getPath('temp'), 'SailLauncherVerificationBrowser'),
+                    parentBounds: mainWindow && !mainWindow.isDestroyed() ? mainWindow.getBounds() : null,
+                    blockedHosts: adBlockEnabled ? AD_BLOCK_HOSTS : [], allowedResourceHosts: [...HUMAN_VERIFICATION_RESOURCE_HOSTS],
+                    isAllowedUrl: parsed => managedHostPageAllowed(args.provider, parsed, args.url)
+                });
+            } catch (error) {
+                // Hosts bounce the tab back to the linking site once a file has expired; stop instead of re-running the check.
+                if (error && error.redirectedAway) throw buildLinkDownError(args.url, (args.provider || 'host') + '-redirected-away');
+                throw error;
+            }
+        },
         removeDirectory: folder => removeOwnedInstallDirectory(folder, { protectedRoots: [app.getPath('userData'), app.getAppPath(), os.homedir()] })
     });
     linuxDownloads.initialize(); return linuxDownloads;
@@ -5077,6 +5093,9 @@ function managedHostPageAllowed(provider, parsed, sourceUrl) {
     try { return parsed.origin === new URL(sourceUrl).origin; } catch (_) { return false; }
 }
 
+// Hosts whose Cloudflare check is run by the installed browser on Linux (see linuxDownloads.browserTransfer).
+const LINUX_BROWSER_DOWNLOAD_PROVIDERS = new Set(['fileditch']);
+
 function managedHostInitialLoad(provider, rawUrl, referer) {
     let pageUrl = rawUrl;
     if (provider === 'akirabox') {
@@ -5154,6 +5173,12 @@ async function resolveWithManagedHostBrowser(rawUrl, provider, referer, onProgre
         try { onProgress(label); } catch (_) {}
     };
     const systemBrowser = findSystemChromiumExecutable();
+    // Cloudflare's check on these hosts is unreliable while a debugger is attached to the page, so on Linux the
+    // installed browser runs it and downloads the file itself (see linuxDownloads.browserTransfer).
+    if (process.platform === 'linux' && LINUX_BROWSER_DOWNLOAD_PROVIDERS.has(provider) && systemBrowser) {
+        reportProgress('Opening your browser for the verification check…');
+        return [{ kind: 'browser', name: '', assisted: { url: initial.url, referer: referer || '', provider } }];
+    }
     reportProgress('Waiting for the secure verification window…');
     console.info('[download-resolver] Opening a visible ' + provider + ' verification handoff in '
         + (systemBrowser ? 'the system browser.' : 'the Electron fallback.'));

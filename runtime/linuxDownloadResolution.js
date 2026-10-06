@@ -42,6 +42,11 @@ function normalizeManagedFiles(files) {
         if (!file || file.kind === 'magnet' || /^magnet:/i.test(String(file.url || '')) || /\.torrent(?:[?#]|$)/i.test(String(file.url || ''))) {
             throw Error('Torrent downloads are not supported on Linux yet. Download the game with a torrent app, then use "Choose archive".');
         }
+        // The page is opened in the installed browser, which saves the file itself (see runtime/systemBrowserDownload.js).
+        if (file.assisted) {
+            const referer = file.assisted.referer ? downloadUrl(file.assisted.referer).href : '';
+            return { assisted: { url: downloadUrl(file.assisted.url).href, referer, provider: /^[a-z0-9]{2,24}$/.test(String(file.assisted.provider || '')) ? file.assisted.provider : '' }, name: file.name || '' };
+        }
         return { url: downloadUrl(file.url).href, name: file.name || '', headers: headersFor({ headers: Array.isArray(file.headers) ? file.headers : [] }) };
     });
 }
