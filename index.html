@@ -10124,16 +10124,38 @@
             }
         }
 
+        function currentMotionRate() {
+            return document.body.classList.contains('reduce-motion') ? 1000 : (Number(globalSettings.animationSpeed) || 1);
+        }
+
         function tuneMotionForTarget(target) {
             if (!target || !target.getAnimations) return;
-            const osReduceMotion = document.body.classList.contains('reduce-motion');
+            const rate = currentMotionRate();
             target.getAnimations().forEach(animation => {
-                try { animation.playbackRate = osReduceMotion ? 1000 : globalSettings.animationSpeed; } catch (_) {}
+                if (animation.playbackRate === rate) return;
+                try { animation.playbackRate = rate; } catch (_) {}
             });
         }
 
-        document.addEventListener('animationstart', event => tuneMotionForTarget(event.target), true);
-        document.addEventListener('transitionrun', event => tuneMotionForTarget(event.target), true);
+        // Animations start at normal speed, so nothing needs changing at 1x. Otherwise the many animation and
+        // transition events a page change fires are handled together once per frame; adjusting each one on its
+        // own forces a style recalculation per event.
+        const motionTuneTargets = new Set();
+        let motionTuneFrame = 0;
+        function queueMotionTune(target) {
+            if (!target || !target.getAnimations || currentMotionRate() === 1) return;
+            motionTuneTargets.add(target);
+            if (motionTuneFrame) return;
+            motionTuneFrame = requestAnimationFrame(() => {
+                motionTuneFrame = 0;
+                const targets = Array.from(motionTuneTargets);
+                motionTuneTargets.clear();
+                targets.forEach(tuneMotionForTarget);
+            });
+        }
+
+        document.addEventListener('animationstart', event => queueMotionTune(event.target), true);
+        document.addEventListener('transitionrun', event => queueMotionTune(event.target), true);
         document.getElementById('lessAnimationsToggle').addEventListener('change', event => {
             globalSettings.lessAnimations = event.target.checked;
             applyMotionSettings();
@@ -18327,7 +18349,8 @@
             }
         });
 
-        pollGamepads();
+        // Poll only while a controller is connected; the connect/disconnect events above start and stop the loop.
+        if (Array.from(navigator.getGamepads()).some(Boolean)) gamepadInterval = requestAnimationFrame(pollGamepads);
 
         let mouseHideTimeout = null;
         window.addEventListener('mousedown', () => { document.body.classList.remove('gamepad-nav-active'); });
@@ -19193,6 +19216,37 @@
             }
             setTimeout(() => document.body.classList.remove('launcher-entering'), 700);
         }
+        // The first paint of the Settings page costs one-off GPU work (about 120 ms) that would otherwise land on
+        // the first click. Do it once, invisibly, while the launcher is idle after start-up.
+        function prewarmSettingsPage() {
+            const modal = document.getElementById('settingsModal');
+            if (!modal || document.visibilityState !== 'visible' || document.querySelector('.modal.show')) return;
+            const inlineStyle = modal.getAttribute('style');
+            const finish = () => {
+                document.removeEventListener('pointerdown', finish, true);
+                document.removeEventListener('keydown', finish, true);
+                if (modal.dataset.prewarm !== '1') return;
+                delete modal.dataset.prewarm;
+                modal.classList.remove('show');
+                modal.inert = false;
+                if (inlineStyle === null) modal.removeAttribute('style'); else modal.setAttribute('style', inlineStyle);
+            };
+            modal.dataset.prewarm = '1';
+            modal.inert = true;
+            modal.style.setProperty('opacity', '0.001', 'important');
+            modal.style.setProperty('pointer-events', 'none', 'important');
+            modal.classList.add('show');
+            // A real click or key press ends the warm-up first, so it can never interfere with opening Settings.
+            document.addEventListener('pointerdown', finish, true);
+            document.addEventListener('keydown', finish, true);
+            requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(finish, 350)));
+        }
+        function schedulePrewarmSettingsPage() {
+            setTimeout(() => {
+                if (typeof requestIdleCallback === 'function') requestIdleCallback(prewarmSettingsPage, { timeout: 4000 });
+                else prewarmSettingsPage();
+            }, 3500);
+        }
         initApp()
             .then(async () => {
                 window.sailLocalBootReady = true;
@@ -19200,7 +19254,7 @@
                 await desktopProtocol.initialize();
             })
             .catch(error => { console.error('Launcher initialization failed:', error); platformAvailability.notice('Launcher initialization failed. See the development log.'); })
-            .finally(finishStartupExperience);
+            .finally(() => { finishStartupExperience(); schedulePrewarmSettingsPage(); });
     </script>
 
     <!-- ============================================================

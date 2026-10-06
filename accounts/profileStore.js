@@ -546,6 +546,22 @@ class ProfileStore {
         this.faultInjector = typeof options.faultInjector === 'function' ? options.faultInjector : () => {};
         this.capabilityStore = null;
         this.assertMutationAllowed = typeof options.assertMutationAllowed === 'function' ? options.assertMutationAllowed : null;
+        this.libraryDocuments = new Map();
+    }
+
+    // Read-only view of a library file. Library writes replace the file, so its identity, size and
+    // modification time change whenever the contents do; until then the parsed document is reused.
+    // Callers must not modify the result.
+    readLibraryDocument(file) {
+        const stat = fs.statSync(file, { bigint: true });
+        const signature = `${stat.ino}:${stat.size}:${stat.mtimeNs}`;
+        const cached = this.libraryDocuments.get(file);
+        if (cached && cached.signature === signature) return cached.document;
+        const document = fsExtra.readJsonSync(file);
+        this.libraryDocuments.delete(file);
+        this.libraryDocuments.set(file, { signature, document });
+        if (this.libraryDocuments.size > 4) this.libraryDocuments.delete(this.libraryDocuments.keys().next().value);
+        return document;
     }
 
     atomicWrite(destination, value) {
@@ -1720,7 +1736,7 @@ class ProfileStore {
         const normalizedGameId = cleanId(gameId, '');
         if (!normalizedGameId) fail('SAIL_PROFILE_GAME_NOT_FOUND', 'Game was not found.');
         const profile = this.activeProfile();
-        const document = fsExtra.readJsonSync(this.libraryPath(profile.id, this.state.activeLibraryId));
+        const document = this.readLibraryDocument(this.libraryPath(profile.id, this.state.activeLibraryId));
         if (!document.library.games.some(game => game.id === normalizedGameId)) {
             fail('SAIL_PROFILE_GAME_NOT_FOUND', 'Game was not found in the active library.');
         }
@@ -1729,7 +1745,7 @@ class ProfileStore {
 
     activeGameMetadata(gameId) {
         const scope = this.authorityScope(gameId);
-        const document = fsExtra.readJsonSync(this.libraryPath(scope.profileId, scope.libraryId));
+        const document = this.readLibraryDocument(this.libraryPath(scope.profileId, scope.libraryId));
         const game = document.library.games.find(item => item.id === scope.gameId);
         return { ...clone(game), profileId: scope.profileId, libraryId: scope.libraryId };
     }

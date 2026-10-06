@@ -1,6 +1,6 @@
 'use strict';
 
-const { mergeAchievementData, normalizeAchievementItem } = require('./achievementLogic');
+const { AchievementAccumulator, normalizeAchievementItem } = require('./achievementLogic');
 
 const STEAM_API_BASE = 'https://api.steampowered.com';
 
@@ -147,10 +147,12 @@ function pairGlobalAchievementMetadata(apiItems, communityItems, appId) {
     const tokenMatches = (left, right) => left === right
         || left.length >= 5 && right.length >= 5 && (left.startsWith(right) || right.startsWith(left));
     const candidates = [];
+    // Each name is split into tokens once, not once per pair of entries.
+    const allDetailTokens = details.map(detail => tokens(`${detail.displayName} ${detail.description}`));
     percentages.forEach((item, apiIndex) => {
         const apiTokens = tokens(item.name);
         details.forEach((detail, detailIndex) => {
-            const detailTokens = tokens(`${detail.displayName} ${detail.description}`);
+            const detailTokens = allDetailTokens[detailIndex];
             const matched = apiTokens.filter(token => detailTokens.some(candidate => tokenMatches(token, candidate))).length;
             const textCoverage = apiTokens.length ? matched / apiTokens.length : 0;
             const percentDistance = Math.abs(item.percent - Number(detail.percent));
@@ -265,7 +267,7 @@ function normalizeSteamData(appId, schemaItems, playerItems, now = Date.now()) {
         String(item.apiname || item.name || '').toLowerCase(),
         item
     ]));
-    let data = null;
+    const merged = new AchievementAccumulator(appId);
     for (const schema of Array.isArray(schemaItems) ? schemaItems : []) {
         const id = String(schema.name || schema.apiname || '').trim();
         if (!id) continue;
@@ -281,13 +283,13 @@ function normalizeSteamData(appId, schemaItems, playerItems, now = Date.now()) {
             unlockTime: progress.unlocktime,
             source: 'steam'
         });
-        data = mergeAchievementData(data, { appId: String(appId), updatedAt: now, lastSteamRefreshAt: now, items: [item] }, appId);
+        merged.add({ appId: String(appId), updatedAt: now, lastSteamRefreshAt: now, items: [item] });
         progressById.delete(id.toLowerCase());
     }
     for (const progress of progressById.values()) {
         const id = String(progress.apiname || progress.name || '').trim();
         if (!id) continue;
-        data = mergeAchievementData(data, {
+        merged.add({
             appId: String(appId),
             updatedAt: now,
             lastSteamRefreshAt: now,
@@ -298,9 +300,9 @@ function normalizeSteamData(appId, schemaItems, playerItems, now = Date.now()) {
                 unlockTime: progress.unlocktime,
                 source: 'steam'
             })]
-        }, appId);
+        });
     }
-    return data || {
+    return merged.result() || {
         schemaVersion: 1,
         appId: String(appId),
         updatedAt: now,

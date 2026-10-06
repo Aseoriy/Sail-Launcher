@@ -37,8 +37,12 @@ function booleanValue(value) {
     return Number.isFinite(numeric) && numeric > 0;
 }
 
+const ASCII_ONLY = /^[\x00-\x7f]*$/;
+
 function achievementKey(value) {
-    return cleanText(value).toLocaleLowerCase('en-US');
+    const text = cleanText(value);
+    // Locale-aware lowercasing is far slower and only differs from the plain form for non-ASCII text.
+    return ASCII_ONLY.test(text) ? text.toLowerCase() : text.toLocaleLowerCase('en-US');
 }
 
 function achievementMatchKeys(value) {
@@ -65,6 +69,77 @@ function findAchievementMapKey(byId, id) {
         if (achievementMatchKeys(existing).some(key => incomingKeys.has(key))) return existing;
     }
     return achievementKey(id);
+}
+
+// Keyed collection of achievements. Besides exact keys it finds entries whose ids differ only by a numeric
+// or "ach_" prefix, using an index of every alias instead of scanning all entries for each lookup.
+class AchievementIndex {
+    constructor(items = []) {
+        this.byId = new Map();
+        this.order = [];
+        this.rank = new Map();
+        this.nextRank = 0;
+        this.aliases = new Map();
+        for (const item of items) this.set(achievementKey(item.id), item);
+    }
+
+    // Same answer as findAchievementMapKey: an exact alias match, else the earliest-added entry sharing an alias.
+    find(id) {
+        const keys = achievementMatchKeys(id);
+        for (const key of keys) {
+            if (this.byId.has(key)) return key;
+        }
+        let best = null;
+        let bestRank = Infinity;
+        for (const key of keys) {
+            const owners = this.aliases.get(key);
+            if (!owners) continue;
+            for (const owner of owners) {
+                const rank = this.rank.get(owner);
+                if (rank < bestRank) { bestRank = rank; best = owner; }
+            }
+        }
+        return best !== null ? best : achievementKey(id);
+    }
+
+    set(key, item) {
+        if (!this.byId.has(key)) {
+            this.rank.set(key, this.nextRank++);
+            this.order.push(key);
+            for (const alias of achievementMatchKeys(key)) {
+                const owners = this.aliases.get(alias);
+                if (owners) owners.push(key); else this.aliases.set(alias, [key]);
+            }
+        }
+        this.byId.set(key, item);
+    }
+
+    delete(key) {
+        if (!this.byId.delete(key)) return;
+        this.rank.delete(key);
+        this.order = this.order.filter(candidate => candidate !== key);
+        for (const alias of achievementMatchKeys(key)) {
+            const owners = (this.aliases.get(alias) || []).filter(candidate => candidate !== key);
+            if (owners.length) this.aliases.set(alias, owners); else this.aliases.delete(alias);
+        }
+    }
+
+    items() {
+        return this.order.map(key => this.byId.get(key)).filter(Boolean);
+    }
+}
+
+function mergeItemsIntoIndex(index, incomingItems) {
+    const becameSynthetic = [];
+    for (const item of incomingItems) {
+        const key = index.find(item.id);
+        if (!key) continue;
+        const current = index.byId.get(key);
+        const merged = pickMetadata(current, current ? { ...item, id: current.id } : item);
+        index.set(key, merged);
+        if (isSyntheticAchievementItem(merged)) becameSynthetic.push(key);
+    }
+    return becameSynthetic;
 }
 
 function normalizeIconUrl(value) {
@@ -191,17 +266,9 @@ function mergeAchievementData(existingData, incomingData, fallbackAppId = '') {
     if (!existing) return incoming;
     if (!incoming) return existing;
 
-    const byId = new Map(existing.items.map(item => [achievementKey(item.id), item]));
-    const order = existing.items.map(item => achievementKey(item.id));
-    for (const item of incoming.items) {
-        const key = findAchievementMapKey(byId, item.id);
-        if (!key) continue;
-        if (!byId.has(key)) order.push(key);
-        const current = byId.get(key);
-        const mergedItem = pickMetadata(current, current ? { ...item, id: current.id } : item);
-        byId.set(key, mergedItem);
-    }
-    const items = order.map(key => byId.get(key)).filter(Boolean);
+    const index = new AchievementIndex(existing.items);
+    mergeItemsIntoIndex(index, incoming.items);
+    const items = index.items();
     return {
         schemaVersion: ACHIEVEMENT_SCHEMA_VERSION,
         appId: incoming.appId || existing.appId || cleanText(fallbackAppId),
@@ -210,6 +277,43 @@ function mergeAchievementData(existingData, incomingData, fallbackAppId = '') {
         lastLocalScanAt: Math.max(existing.lastLocalScanAt || 0, incoming.lastLocalScanAt || 0) || null,
         items
     };
+}
+
+// Folds many chunks into one result, giving what repeated mergeAchievementData(result, chunk) calls give,
+// without normalizing and re-indexing the growing result for every chunk.
+class AchievementAccumulator {
+    constructor(fallbackAppId = '') {
+        this.fallbackAppId = fallbackAppId;
+        this.index = null;
+        this.meta = null;
+        this.pendingSynthetic = [];
+    }
+
+    add(chunk) {
+        // Normalizing the accumulated data on every merge drops entries that merged into a Steam cache counter.
+        if (this.index) {
+            for (const key of this.pendingSynthetic) this.index.delete(key);
+            this.pendingSynthetic = [];
+        }
+        const incoming = normalizeAchievementData(chunk, this.fallbackAppId);
+        if (!incoming) return;
+        if (!this.index) {
+            this.index = new AchievementIndex(incoming.items);
+            this.meta = { appId: incoming.appId, updatedAt: incoming.updatedAt, lastSteamRefreshAt: incoming.lastSteamRefreshAt, lastLocalScanAt: incoming.lastLocalScanAt };
+            return;
+        }
+        this.pendingSynthetic = mergeItemsIntoIndex(this.index, incoming.items);
+        this.meta = {
+            appId: incoming.appId || this.meta.appId || cleanText(this.fallbackAppId),
+            updatedAt: Math.max(this.meta.updatedAt || 0, incoming.updatedAt || 0),
+            lastSteamRefreshAt: Math.max(this.meta.lastSteamRefreshAt || 0, incoming.lastSteamRefreshAt || 0) || null,
+            lastLocalScanAt: Math.max(this.meta.lastLocalScanAt || 0, incoming.lastLocalScanAt || 0) || null
+        };
+    }
+
+    result() {
+        return this.index ? { schemaVersion: ACHIEVEMENT_SCHEMA_VERSION, ...this.meta, items: this.index.items() } : null;
+    }
 }
 
 function diffNewUnlocks(previousData, nextData) {
@@ -240,6 +344,7 @@ function achievementDataEqual(left, right) {
 
 module.exports = {
     ACHIEVEMENT_SCHEMA_VERSION,
+    AchievementAccumulator,
     achievementDataEqual,
     achievementKey,
     achievementMatchKeys,

@@ -133,6 +133,8 @@ class AchievementService {
             : null;
         this.games = new Map();
         this.baselines = new Map();
+        // Achievement data objects are replaced, never edited, so lookups are indexed once per object.
+        this.artworkIndexes = new WeakMap();
         this.signatures = new Map();
         this.watchers = new Map();
         this.refreshTimers = new Map();
@@ -298,6 +300,19 @@ class AchievementService {
         this.signatures.delete(id);
     }
 
+    artworkItem(data, steamAppId, itemId) {
+        if (!data || typeof data !== 'object') return null;
+        const appId = String(steamAppId || '');
+        let index = this.artworkIndexes.get(data);
+        if (!index || index.appId !== appId) {
+            const normalized = normalizeAchievementData(data, appId);
+            index = { appId, items: new Map() };
+            for (const item of normalized ? normalized.items : []) if (!index.items.has(String(item.id))) index.items.set(String(item.id), item);
+            this.artworkIndexes.set(data, index);
+        }
+        return index.items.get(itemId) || null;
+    }
+
     readLocalArtwork(payload = {}) {
         if (!this.trackingEnabled) return { available: false };
         const gameId = String(payload.gameId || '');
@@ -308,7 +323,9 @@ class AchievementService {
 
         let game;
         try {
-            game = this.resolveScanGame(storedGame);
+            // Only the approved locations matter here; leaving the achievement list out avoids
+            // re-normalizing every achievement for each icon that is requested.
+            game = this.resolveScanGame({ ...storedGame, achievementData: null });
         } catch (_) {
             this.invalidateLocalAuthority(gameId);
             return { available: false };
@@ -318,9 +335,7 @@ class AchievementService {
             return { available: false };
         }
 
-        const data = this.baselines.get(gameId) || storedGame.achievementData;
-        const normalized = normalizeAchievementData(data, storedGame.steamAppId);
-        const item = normalized && normalized.items.find(candidate => String(candidate.id) === itemId);
+        const item = this.artworkItem(this.baselines.get(gameId) || storedGame.achievementData, storedGame.steamAppId, itemId);
         if (!item) return { available: false };
         const candidates = variant === 'locked'
             ? [item.iconGrayPath, item.iconPath]

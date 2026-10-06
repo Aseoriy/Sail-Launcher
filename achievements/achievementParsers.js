@@ -5,7 +5,7 @@ const path = require('path');
 const { resolveApprovedPath } = require('./achievementDiscovery');
 const {
     booleanValue,
-    mergeAchievementData,
+    AchievementAccumulator,
     normalizeAchievementItem,
     normalizeTimestamp
 } = require('./achievementLogic');
@@ -236,15 +236,16 @@ function primitiveRecord(id, value, source = 'local') {
 }
 
 function dedupeItems(items) {
-    let data = null;
+    const merged = new AchievementAccumulator();
     for (const item of items) {
         if (!item) continue;
-        data = mergeAchievementData(data, {
+        merged.add({
             schemaVersion: 1,
             updatedAt: 0,
             items: [item]
         });
     }
+    const data = merged.result();
     return data ? data.items : [];
 }
 

@@ -213,7 +213,8 @@ function registerAchievementIpc({ app, ipcMain, BrowserWindow, Notification, dia
         ]), 'Achievement artwork request');
         if (!isCurrentLibrary(input.libraryKey)) return { available: false, stale: true };
         const gameId = boundedString(String(input.gameId || ''), 'gameId', 128, ID_PATTERN);
-        profileStore.activeGameMetadata(gameId);
+        // Confirms the game is in the active library without copying its whole record.
+        profileStore.authorityScope(gameId);
         const itemId = boundedString(String(input.itemId || ''), 'itemId', 512);
         if (!['locked', 'unlocked'].includes(input.variant)) invalid('Achievement artwork variant is invalid.');
         return service.readLocalArtwork({ gameId, itemId, variant: input.variant });
