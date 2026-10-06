@@ -11239,10 +11239,8 @@
             updateMuteStatusRow();
 
             if (globalSettings.glassOpacity === undefined) globalSettings.glassOpacity = 40;
-            const opacitySlider = document.getElementById('glassOpacitySlider');
-            if (opacitySlider) opacitySlider.value = globalSettings.glassOpacity;
-            const opacityValueText = document.getElementById('glassOpacityValue');
-            if (opacityValueText) opacityValueText.innerText = `${globalSettings.glassOpacity}%`;
+            // Saved profiles keep this as a ratio (0.55) while the slider uses percent; applyGlassOpacity converts.
+            applyGlassOpacity();
             document.getElementById('glassOpacityContainer').style.display = globalSettings.glassmorphicUi ? 'block' : 'none';
             applyGlassOpacity();
             

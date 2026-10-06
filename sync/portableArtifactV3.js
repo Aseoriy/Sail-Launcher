@@ -129,7 +129,8 @@ const SETTINGS_KEYS = new Set([
     ...Object.keys(ENUM_SETTING_RULES),
     'theme', 'steamId', 'favoriteFriends', 'dismissedAlerts', 'buttonLocations', 'syncV2'
 ]);
-const BUTTON_LOCATION_KEYS = new Set(['sailHub', 'systemSpecs']);
+// One entry per movable action button (matches BUTTON_LABELS in the launcher UI).
+const BUTTON_LOCATION_KEYS = new Set(['bigPicture', 'sailHub', 'plugins', 'surpriseMe', 'stats', 'systemSpecs', 'settings', 'selectMode', 'addGame']);
 const SYNC_KEYS = new Set([
     'enabled', 'conflictMode', 'configChangeMode', 'configIntervalMinutes',
     'configOnStartup', 'configBeforeExit', 'saveBeforeLaunch', 'saveAfterExit',
@@ -479,7 +480,7 @@ function validateSettings(value, path) {
         for (const key of BUTTON_LOCATION_KEYS) {
             if (locations[key] === undefined) continue;
             output.buttonLocations[key] = stringValue(locations[key], `${path}.buttonLocations.${key}`, {
-                pattern: /^(?:hidden|top|bottom|header|sidebar)$/,
+                pattern: /^(?:hidden|top|bottom|dropdown|header|sidebar)$/,
                 max: 20
             });
         }
@@ -858,7 +859,7 @@ function legacySettings(value, diagnostics, path) {
         trackUnknownKeys(input.buttonLocations, `${path}.buttonLocations`, BUTTON_LOCATION_KEYS, diagnostics);
         candidate.buttonLocations = {};
         for (const key of BUTTON_LOCATION_KEYS) {
-            if (typeof input.buttonLocations[key] === 'string' && /^(?:hidden|top|bottom|header|sidebar)$/.test(input.buttonLocations[key])) {
+            if (typeof input.buttonLocations[key] === 'string' && /^(?:hidden|top|bottom|dropdown|header|sidebar)$/.test(input.buttonLocations[key])) {
                 candidate.buttonLocations[key] = input.buttonLocations[key];
             }
         }
