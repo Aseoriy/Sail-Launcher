@@ -11,9 +11,11 @@ class ProtonProvider {
             launchMetadata: plan.metadata, resolve: () => plan.resolve(resolve()) });
     }
     launch({ scope, gameName, resolve }) {
+        // An old supervisor is refused before any permission is resolved.
+        if (!this.native.available || !this.native.scriptsAvailable || !(this.native.windowsTrackingAvailable || this.native.wineTrackingAvailable)) throw nativeError('SAIL_PROTON_UNAVAILABLE', 'The installed supervisor cannot track Windows game images. Rebuild or update Sail before launching.');
         const details = resolve(), wine = details.linuxRuntime?.backend === 'wine';
         this.manager.assertLaunchReady(details.linuxRuntime?.backend);
-        if (!this.native.available || !this.native.scriptsAvailable || !(wine ? this.native.wineTrackingAvailable : this.native.windowsTrackingAvailable)) throw nativeError('SAIL_PROTON_UNAVAILABLE', 'The installed supervisor cannot track Windows game images. Rebuild or update Sail before launching.');
+        if (!(wine ? this.native.wineTrackingAvailable : this.native.windowsTrackingAvailable)) throw nativeError('SAIL_PROTON_UNAVAILABLE', 'The installed supervisor cannot track Windows game images. Rebuild or update Sail before launching.');
         const plan = this.manager.prepare({ scope, details });
         return this.native.launch({ gameId: scope.gameId, libraryKey: `${scope.profileId}:${scope.libraryId}`, gameName,
             launchMetadata: plan.metadata, resolve: () => plan.resolve(resolve()) });

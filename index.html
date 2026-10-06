@@ -4423,9 +4423,13 @@
                             <button id="downloadSearchBtn" onclick="runDownloadSearch()" style="padding: 12px 28px; border-radius: 8px; font-size: 15px;">Search</button>
                         </div>
                         <div id="linuxDownloadHint" hidden style="font-size:12px;opacity:.75;">Linux supports direct HTTPS transfers, ZIP, RAR, and 7z archives. For browser verification or torrents, download separately, then import the archive. Setup uses this game’s Proton environment.</div>
-                        <div id="linuxArchiveImportControls" style="display:none;gap:10px;align-items:center;flex-wrap:wrap;">
-                            <input id="linuxArchiveGameName" hidden aria-label="Imported game name" placeholder="Name for imported game" maxlength="240" style="flex:1;min-width:180px;">
-                            <button id="importLinuxGameArchive" class="outline" hidden>Import archive…</button>
+                        <div id="linuxArchiveImportControls" style="display:none;flex-direction:column;gap:8px;">
+                            <div style="font-size:13px;font-weight:600;">Add a game you already downloaded</div>
+                            <div style="font-size:12px;opacity:.7;">Have a ZIP, RAR or 7z of a game, for example one you downloaded in your browser? Type the game's name, then choose the archive. Sail unpacks it and sets it up for you.</div>
+                            <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+                                <input type="text" id="linuxArchiveGameName" hidden aria-label="Game name for the imported archive" placeholder="Game name" maxlength="240" style="flex:1;min-width:180px;">
+                                <button id="importLinuxGameArchive" class="outline" hidden>Choose archive…</button>
+                            </div>
                         </div>
                         <div id="linuxRetainedDownloads" hidden aria-label="Saved Linux downloads"></div>
                         <div id="downloadSourceToggles" style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center;">
@@ -5659,7 +5663,8 @@
                     Cloud Sync</div>
                 <div class="settings-tab" tabindex="0" onclick="switchSettingsTab('library')"><span class="app-ic" data-ic="book"></span>
                     Library Management</div>
-                <div class="settings-tab" id="settingsTabCompatibility" hidden style="display:none;" tabindex="0" onclick="switchSettingsTab('compatibility')">Compatibility</div>
+                <div class="settings-tab" id="settingsTabCompatibility" hidden style="display:none;" tabindex="0" onclick="switchSettingsTab('compatibility')"><span class="app-ic" data-ic="joystick"></span>
+                    Compatibility</div>
                 <div class="settings-tab" id="settingsTabMaintenance" tabindex="0" onclick="switchSettingsTab('maintenance')" style="display:none;"><span class="app-ic" data-ic="wrench"></span>
                     Maintenance</div>
                 <div class="settings-tab" tabindex="0" onclick="switchSettingsTab('experimental')"><span class="app-ic" data-ic="flask"></span>
@@ -5671,21 +5676,22 @@
             <div id="tab-compatibility" class="settings-pane" hidden style="display:none;">
                 <div class="account-card">
                     <h3>Windows game compatibility</h3>
-                    <p>Set up tools for Windows games, then choose a version per game when needed.</p>
+                    <p>Sail runs Windows games on Linux with Proton or Wine. Pick the one new games should use; you can still change it for each game in Manage Game.</p>
+                    <label for="compatibilityDefault">Default compatibility version</label>
+                    <select id="compatibilityDefault" style="width:100%;margin-top:7px;"><option value="">Loading…</option></select>
+                    <p style="font-size:12px;opacity:.75;">Installed versions from Steam, Heroic and other launchers are listed too. Choosing one adds it to Sail after you confirm.</p>
+                    <p id="compatibilityUmu"></p>
+                    <h4 style="margin:18px 0 6px;">Setup status</h4>
                     <p id="compatibilitySetupSummary" role="status" aria-live="polite">Checking Windows gaming setup…</p>
                     <div style="display:flex;gap:8px;flex-wrap:wrap;">
                         <button id="compatibilitySetup" disabled>Set up Windows gaming</button>
                         <button id="compatibilityCheck" class="outline">Recheck requirements</button>
                     </div>
-                    <details style="margin:14px 0;" open>
-                        <summary>Setup checklist</summary>
+                    <details id="compatibilityChecklistDetails" style="margin:14px 0;">
+                        <summary>Show what was checked</summary>
                         <div id="compatibilityChecklist"></div>
                     </details>
-                    <p style="font-size:12px;opacity:.75;">Sail downloads UMU and GE-Proton here. You can also select installed Wine below. System Python and graphics packages are checked below. Each game uses its own Windows environment.</p>
-                    <label for="compatibilityDefault">Default compatibility version</label>
-                    <select id="compatibilityDefault" style="width:100%;margin-top:7px;"><option value="">Loading…</option></select>
-                    <p style="font-size:12px;opacity:.75;">Used when setting up new Windows games. Existing games keep their selected version; you can change it in Manage Game.</p>
-                    <p id="compatibilityUmu"></p>
+                    <p style="font-size:12px;opacity:.75;">Setup downloads UMU and GE-Proton for you. You can also use versions you already have installed. Python and graphics packages are checked in the setup status above. Each game uses its own separate Windows environment.</p>
                 </div>
                 <div class="account-card" style="margin-top:14px;">
                     <h3>Download versions</h3>
@@ -7027,6 +7033,8 @@
     <script>
         const ipcRenderer = require('electron').ipcRenderer;
         const localOnlyPreview = process.env.SAIL_DEV_ISOLATED === '1' || process.platform === 'linux';
+        // Linux enables features one by one; Windows is never restricted.
+        const featureAvailable = name => !localOnlyPreview || !!platformAvailability.support?.features?.[name]?.available;
         let localProfileLoaded = false;
         const platformAvailability = require('./ui/platformAvailability').installPlatformAvailability(document, ipcRenderer);
         const desktopProtocol = require('./ui/desktopProtocol').installDesktopProtocol({
@@ -7099,7 +7107,7 @@
             }
         }
         ipcRenderer.on('native-runtime-state', (_event, state) => receiveNativeState(state));
-        function previewUnavailable(feature) { platformAvailability.notice(`${feature} is unavailable in this offline Linux boot milestone. Local library and settings remain available.`); }
+        function previewUnavailable(feature) { platformAvailability.notice(`${feature} isn't available on Linux yet. Your library and settings still work.`); }
         const fs = require('fs-extra');
         const path = require('path');
         const os = require('os');
@@ -7383,9 +7391,10 @@
         const { createClient: createSupabaseClient } = require('@supabase/supabase-js');
         const SAIL_SUPABASE_URL = 'https://vglpzpffejwgttlqrums.supabase.co';
         const SAIL_SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_BaNykIu4jFs-B1hVAd2Y1A_71t1BK2e';
-        const alertSupabase = localOnlyPreview ? null : createSupabaseClient(SAIL_SUPABASE_URL, SAIL_SUPABASE_PUBLISHABLE_KEY, {
+        let alertSupabaseClient = null;
+        const getAlertSupabase = () => alertSupabaseClient || (featureAvailable('remoteContent') ? (alertSupabaseClient = createSupabaseClient(SAIL_SUPABASE_URL, SAIL_SUPABASE_PUBLISHABLE_KEY, {
             auth: { persistSession: false, autoRefreshToken: true, detectSessionInUrl: false }
-        });
+        })) : null);
         let alertAdminAuthorized = false;
         let alertVersionTargets = [];
         { const label = document.getElementById('aboutVersionLabel'); if (label) label.textContent = `Sail Launcher ${APP_VERSION}`; }
@@ -7408,7 +7417,7 @@
         }
 
         function syncThemeToIframe() {
-            if (localOnlyPreview) return;
+            if (!featureAvailable('remoteContent')) return;
             const webview = document.getElementById('storeIframe');
             if (!webview) return;
             const styles = getComputedStyle(document.body);
@@ -7738,8 +7747,16 @@
 
         let installedPlugins = []; // Track loaded plugin manifests
 
+        // Plugins run with full access, so refuse the ones that cannot work on this system instead of failing later.
+        function pluginUnsupportedReason(manifest) {
+            const platforms = Array.isArray(manifest && manifest.platforms) ? manifest.platforms.map(String) : null;
+            if (platforms && !platforms.includes(process.platform)) return `This plugin supports ${platforms.join(', ')} only.`;
+            if (process.platform !== 'win32' && /\.exe$/i.test(String(manifest && manifest.main || ''))) return 'This plugin is a Windows program and cannot run on this system.';
+            return '';
+        }
+
         async function loadPlugins() {
-            if (localOnlyPreview) return;
+            if (!featureAvailable('plugins')) return;
             installedPlugins = [];
             try {
                 const userDataPath = await ipcRenderer.invoke('get-user-data');
@@ -7755,7 +7772,9 @@
                                 const manifest = fs.readJsonSync(manifestPath);
                                 manifest._folderName = entry.name;
                                 manifest._path = pluginPath;
+                                manifest._unsupported = pluginUnsupportedReason(manifest);
                                 installedPlugins.push(manifest);
+                                if (manifest._unsupported) { console.log('[Plugin] Skipping', entry.name + ':', manifest._unsupported); continue; }
 
                                 // Skip disabled plugins
                                 if (globalSettings.disabledPlugins && globalSettings.disabledPlugins.includes(entry.name)) {
@@ -7811,8 +7830,8 @@
             }
             const rows = installedPlugins.slice(0, 256).map(p => {
                 const disabled = globalSettings.disabledPlugins && globalSettings.disabledPlugins.includes(p._folderName);
-                const statusColor = disabled ? '#ef4444' : '#10b981';
-                const statusText = disabled ? 'Disabled' : 'Enabled';
+                const statusColor = disabled || p._unsupported ? '#ef4444' : '#10b981';
+                const statusText = p._unsupported ? 'Not compatible' : disabled ? 'Disabled' : 'Enabled';
                 const folderName = String(p._folderName || '').slice(0, 255);
                 const status = SafeDom.element(document, 'span', { text: statusText });
                 status.style.color = statusColor;
@@ -7925,6 +7944,8 @@
                     return alert('Invalid plugin: no plugin.json found in the archive.');
                 }
                 const manifest = fs.readJsonSync(path.join(pluginRoot, 'plugin.json'));
+                const unsupported = pluginUnsupportedReason(manifest);
+                if (unsupported) { fs.removeSync(tempDir); prog.done(false); return alert(unsupported); }
                 const folderName = (manifest.name || 'plugin-' + Date.now()).toLowerCase().replace(/[^a-z0-9-]/g, '-');
                 const finalPath = path.join(pluginsDir, folderName);
                 if (fs.existsSync(finalPath)) fs.removeSync(finalPath);
@@ -8020,7 +8041,7 @@
         }
 
         async function checkPluginUpdates() {
-            if (localOnlyPreview) { previewUnavailable('Plugin updates'); return; }
+            if (!featureAvailable('plugins')) { previewUnavailable('Plugin updates'); return; }
             try {
                 if (installedPlugins.length === 0) return;
                 const remoteItems = await fetchRemotePlugins();
@@ -8086,6 +8107,8 @@
                                 if (fs.existsSync(path.join(pluginRoot, 'plugin.json'))) {
                                     const manifestPath = path.join(pluginRoot, 'plugin.json');
                                     const manifest = fs.readJsonSync(manifestPath);
+                                    const unsupported = pluginUnsupportedReason(manifest);
+                                    if (unsupported) { fs.removeSync(tempDir); throw new Error(unsupported); }
                                     manifest._sourceUrl = fileUrl;
                                     fs.writeJsonSync(manifestPath, manifest, { spaces: 2 });
 
@@ -8259,7 +8282,7 @@
         }
 
         async function checkForUpdates(silent = false, triggerBtn = null, options = {}) {
-            if (localOnlyPreview) { if (!silent) previewUnavailable('Installer updates'); return; }
+            if (!featureAvailable('remoteContent')) { if (!silent) previewUnavailable('Installer updates'); return; }
             const button = triggerBtn || document.getElementById('checkUpdateBtn');
             const originalLabel = button ? button.innerText : 'Check Updates';
             const forceInstall = !!options.forceInstall;
@@ -8472,7 +8495,7 @@
 
         // On startup: if we just applied an update, celebrate & tidy up.
         function checkUpdateCompleted() {
-            if (localOnlyPreview) return;
+            if (!featureAvailable('remoteContent')) return;
             const pv = globalSettings.pendingUpdateVersion;
             if (!pv) return;
             const cur = APP_VERSION.replace(/^v/i, '');
@@ -8488,7 +8511,7 @@
         // ===================== Supporters (live from Sail Hub) =====================
         let _supportersCache = null;
         window.openSupportersModal = function () {
-            if (localOnlyPreview) { previewUnavailable('Live supporters'); return; }
+            if (!featureAvailable('remoteContent')) { previewUnavailable('Live supporters'); return; }
             const modal = document.getElementById('supportersModal');
             modal.classList.add('show');
             const list = document.getElementById('supList');
@@ -8510,7 +8533,7 @@
         // Fetch the Sail Hub supporters page and pull out its embedded SUPPORTERS array
         // (the page renders client-side from a plain JS array, so we parse that directly).
         function fetchSupporters() {
-            if (localOnlyPreview) return Promise.reject(new Error('SAIL_OFFLINE: Live supporters are unavailable in this milestone.'));
+            if (!featureAvailable('remoteContent')) return Promise.reject(new Error('SAIL_OFFLINE: Live supporters are unavailable in this milestone.'));
             return new Promise((resolve, reject) => {
                 const https = require('https');
                 https.get('https://sailhub.fyi/supporters', { headers: { 'User-Agent': 'Sail-Launcher' } }, (res) => {
@@ -8590,7 +8613,8 @@
         }
 
         async function checkRemoteAlerts() {
-            if (localOnlyPreview) return;
+            if (!featureAvailable('remoteContent')) return;
+            const alertSupabase = getAlertSupabase();
             const container = document.getElementById('launcherAlertContainer');
             if (!container) return;
             try {
@@ -9526,7 +9550,7 @@
         }
 
         function queueAccountControlPlaneSync() {
-            if (localOnlyPreview) return;
+            if (!featureAvailable('accounts')) return;
             if (!accountUiState.signedIn || !accountSyncEnabledOnThisPc()) return;
             clearTimeout(accountControlPlaneTimer);
             accountControlPlaneTimer = setTimeout(() => syncLocalAccountControlPlane(true), 5000);
@@ -11299,14 +11323,14 @@
             syncSidebarToggleAccessibility();
 
             await autostartControl.initialize();
-            if (!localOnlyPreview) ipcRenderer.send('set-rpc-setting', globalSettings.disableDiscordRpc);
+            if (featureAvailable('discord')) ipcRenderer.send('set-rpc-setting', globalSettings.disableDiscordRpc);
             ipcRenderer.send('set-exit-behavior', globalSettings.exitWhenClosed);
             ipcRenderer.send('set-devtools-setting', globalSettings.enableDevTools);
 
             renderQuickPathsManager();
             renderSidebar(); renderGames(); pushNavState();
 
-            if (!localOnlyPreview && window.SailAchievements) {
+            if (featureAvailable('achievements') && window.SailAchievements) {
                 await window.SailAchievements.initialize({
                     getGames: () => myGames,
                     getSettings: () => globalSettings,
@@ -11333,7 +11357,7 @@
 
             // Check for active announcements/alerts
             checkRemoteAlerts();
-            if (!localOnlyPreview) setInterval(checkRemoteAlerts, 10 * 60 * 1000);
+            if (featureAvailable('remoteContent')) setInterval(checkRemoteAlerts, 10 * 60 * 1000);
 
             const autoId = await ipcRenderer.invoke('get-auto-launch');
             if (autoId) {
@@ -11458,7 +11482,7 @@
             await loadPlugins();
 
             // Auto-check for plugin updates on startup
-            if (!localOnlyPreview) setTimeout(() => checkPluginUpdates(), 3000);
+            if (featureAvailable('plugins')) setTimeout(() => checkPluginUpdates(), 3000);
 
             // --- SAIL HUB: Handle one-click installs from the website ---
             ipcRenderer.on('hub-install', async (e, { action, fileUrl }) => {
@@ -11540,6 +11564,8 @@
 
                                     const manifestPath = path.join(pluginRoot, 'plugin.json');
                                     const manifest = fs.readJsonSync(manifestPath);
+                                    const unsupported = pluginUnsupportedReason(manifest);
+                                    if (unsupported) { fs.removeSync(tempDir); throw new Error(unsupported); }
                                     manifest._sourceUrl = fileUrl;
                                     fs.writeJsonSync(manifestPath, manifest, { spaces: 2 });
 
@@ -11582,7 +11608,7 @@
             await linuxDownloadsUi.refresh().catch(error => platformAvailability.notice(error.message));
 
             // Auto-check for updates silently on startup
-            if (!localOnlyPreview) setTimeout(() => checkForUpdates(true), 3000);
+            if (featureAvailable('remoteContent')) setTimeout(() => checkForUpdates(true), 3000);
 
             // Intercept click & keyboard focus events on select elements for custom select dropdown modal in glassmorphic mode
             document.addEventListener('mousedown', (e) => {
@@ -11934,7 +11960,7 @@
                 profileCaptureTimer = setTimeout(() => {
                     flushLocalProfile().catch(error => platformAvailability.notice(`Local changes were not saved: ${error.message}`));
                 }, 750);
-                if (!localOnlyPreview && window.SailAchievements) window.SailAchievements.scheduleLibrarySync();
+                if (featureAvailable('achievements') && window.SailAchievements) window.SailAchievements.scheduleLibrarySync();
                 return true;
             } catch (e) {
                 console.error('Could not save the launcher library:', e);
@@ -12808,7 +12834,7 @@
         };
 
         async function fetchFriends() {
-            if (localOnlyPreview) {
+            if (!featureAvailable('remoteContent')) {
                 document.getElementById('friendsListContainer').textContent = 'Friends are unavailable in the offline preview.';
                 return;
             }
@@ -14108,7 +14134,8 @@
 
         let tabTransitionTimeout = null;
         async function switchMainTab(tab) {
-            if (localOnlyPreview && tab !== 'library' && !(['downloads', 'downloadsmgr'].includes(tab) && platformAvailability.support?.features.downloads.available)) { previewUnavailable('This integration'); return; }
+            const tabFeatures = { store: 'plugins', workshop: 'workshop', achievements: 'achievements', maintenance: 'maintenance', sources: 'remoteContent', downloads: 'downloads', downloadsmgr: 'downloads' };
+            if (localOnlyPreview && tab !== 'library' && !featureAvailable(tabFeatures[tab])) { previewUnavailable({ store: 'Mods', workshop: 'Steam Workshop', achievements: 'Achievements', maintenance: 'The maintenance center' }[tab] || 'This integration'); return; }
             if (tab === 'maintenance' && globalSettings.maintenanceEnabled !== true) tab = 'library';
             viewingGameIndex = null;
             
@@ -15515,7 +15542,7 @@
                 delete runtimeLaunchGraceUntil[index];
                 if (activeGameIndex === index) {
                     activeGameIndex = null;
-                    if (!localOnlyPreview) ipcRenderer.send('update-rpc', null);
+                    if (featureAvailable('discord')) ipcRenderer.send('update-rpc', null);
                 }
                 if (viewingGameIndex === index) updateGamePageActionBar(); else renderGames();
                 if (event.provider === 'linux-native') {
@@ -15569,7 +15596,7 @@
                 processRuntimePostExitJob(index, job).catch(error => console.error('Recovered post-exit work failed:', safeSyncErrorMessage(error)));
             }
             if (Object.keys(sessionStartTimes).length) {
-                if (!localOnlyPreview) ipcRenderer.send('update-rpc', myGames[activeGameIndex] && myGames[activeGameIndex].name || null);
+                if (featureAvailable('discord')) ipcRenderer.send('update-rpc', myGames[activeGameIndex] && myGames[activeGameIndex].name || null);
                 if (viewingGameIndex !== null) updateGamePageActionBar(); else renderGames();
             }
         }

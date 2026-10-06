@@ -3,6 +3,8 @@ const fs = require('node:fs'), path = require('node:path'), https = require('nod
 const { pipeline } = require('node:stream/promises');
 const { Transform } = require('node:stream');
 const { isPublicAddress } = require('../security/remoteData');
+// File hosts commonly refuse unusual user agents, so use an ordinary desktop browser identity.
+const BROWSER_UA = 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36';
 const LIMIT = 512 * 1024 ** 3;
 function downloadUrl(value) {
     const raw = String(value), url = new URL(raw);
@@ -22,7 +24,7 @@ async function responseFor(value, signal, redirects = 0, options = {}) {
     if (!addresses.length || addresses.some(item => !isPublicAddress(item.address))) throw Error('The download host must resolve to public internet addresses.');
     const address = addresses[0];
     const response = await new Promise((resolve, reject) => {
-        const request = https.request(url, { signal, method: options.method || 'GET', headers: { 'User-Agent': 'Sail-Launcher/5.5.4', ...options.headers, 'Accept-Encoding': 'identity' },
+        const request = https.request(url, { signal, method: options.method || 'GET', headers: { 'User-Agent': BROWSER_UA, ...options.headers, 'Accept-Encoding': 'identity' },
             lookup: (_host, options, callback) => options.all ? callback(null, [address]) : callback(null, address.address, address.family) }, resolve);
         request.setTimeout(60000, () => request.destroy(Error('The download stopped responding.'))); request.once('error', reject); request.end(options.body);
     });
@@ -92,4 +94,4 @@ async function resolverRequest(method, url, options, signal) {
         return { url: fetched.url.href, status: response.statusCode, headers: response.headers, body: Buffer.concat(chunks).toString('utf8') };
     } finally { response.destroy(); }
 }
-module.exports = { transfer, downloadUrl, resolverRequest };
+module.exports = { transfer, downloadUrl, resolverRequest, BROWSER_UA };

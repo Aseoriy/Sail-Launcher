@@ -50,8 +50,17 @@ function createPlatformSupport({ platform = process.platform, arch = process.arc
         accounts: 'Accounts and protected credentials', cloudSync: 'Cloud synchronization',
         saveDiscovery: 'Save discovery and backup', achievements: 'Achievement discovery',
         plugins: 'Plugin execution', desktopIntegration: 'Protocol registration',
-        remoteContent: 'Remote content and browser integrations', discord: 'Discord integration'
-    })) features[key] = { available: !restricted, reason: restricted ? `${label} is unavailable in this offline Linux boot milestone.` : '' };
+        remoteContent: 'Remote content and browser integrations', discord: 'Discord integration',
+        workshop: 'Steam Workshop downloads', maintenance: 'The maintenance center'
+    })) features[key] = { available: !restricted, reason: restricted ? (isolated ? `${label} is unavailable in this offline Linux boot milestone.` : `${label} is not available on Linux yet.`) : '' };
+    // The normal Linux app trusts remote content the same way the Windows app does; only isolated development modes stay offline.
+    if (platform === 'linux' && arch === 'x64' && mode === 'normal' && !isolated) {
+        features.remoteContent = { available: true, reason: '' };
+        features.discord = { available: true, reason: '' };
+        features.plugins = { available: true, reason: '' };
+        features.workshop = { available: true, reason: '' };
+        features.achievements = { available: true, reason: '' };
+    }
     if (platform === 'linux') {
         features.downloads = { available: localDesktop, reason: localDesktop ? '' : 'Linux downloads and archive import are unavailable in this platform mode.' };
         const available = localDesktop && packaged;
@@ -90,6 +99,18 @@ function createSupportedIpcRegistrar(ipcMain, authorize, support) {
         'proton-run-installer', 'proton-installation-cancel', 'proton-check-online-prerequisites',
         'proton-install-online-prerequisites', 'proton-cancel-online-prerequisites', 'proton-first-launch-plan', 'proton-first-launch-begin']);
     const downloadHandles = new Set(['download-game', 'cancel-download', 'pick-download-folder', 'linux-download-import', 'linux-download-list', 'linux-download-adopt', 'linux-download-status', 'linux-download-configure', 'linux-download-open', 'get-download-quarantine-summary', 'clear-download-quarantine', 'open-download-quarantine', 'pause-download', 'open-folder-capability']);
+    const discordHandles = new Set(['set-rpc-setting', 'update-rpc']);
+    const achievementHandles = new Set(['achievements-import-steam', 'achievements-import-steam-schema', 'achievements-pick-source', 'achievements-read-artwork',
+        'achievements-refresh-local', 'achievements-remove-source', 'achievements-review-source', 'achievements-set-library', 'achievements-set-preferences']);
+    const workshopHandles = new Set(['search-steam-workshop', 'download-workshop-item']);
+    const pluginHandles = new Set(['hub-download-file', 'extract-zip', 'extract-rar', 'extract-7z', 'create-zip', 'open-file-dialog', 'save-file-dialog']);
+    const accountHandles = new Set(['account-alert-admin-state', 'account-change-password', 'account-delete-remote-profile', 'account-list-remote',
+        'account-password-verification', 'account-publish-alert', 'account-reset-password', 'account-sign-in', 'account-sign-out', 'account-sign-up',
+        'account-upload-avatar', 'account-upsert-remote', 'account-cloud-delete-file', 'account-cloud-disconnect', 'account-cloud-download-file',
+        'account-cloud-link-start', 'account-cloud-list-files', 'account-cloud-list-versions', 'account-cloud-storage-status', 'account-cloud-upload-file',
+        'profiles-clear-avatar', 'profiles-set-avatar', 'profiles-clear-protected-settings', 'profiles-export-control-plane', 'profiles-merge-control-plane',
+        'profiles-export-local-backup-file', 'profiles-import-local-backup-file', 'profiles-export-portable-file', 'profiles-import-portable-file',
+        'profiles-create-portable-download-transfer', 'profiles-create-portable-upload-transfer', 'profiles-import-portable-transfer']);
     const recoveryHandles = new Set(['kill-game-process', 'runtime-recovery-state', 'runtime-session-pending', 'runtime-session-acknowledge']);
     const discoveryHandles = new Set(['import-steam-games']);
     const shortcutHandles = new Set(['create-shortcut']);
@@ -97,6 +118,11 @@ function createSupportedIpcRegistrar(ipcMain, authorize, support) {
     const autostartHandles = new Set(['get-autostart', 'set-autostart']);
     const dialogHandles = new Set(LOCAL_DIALOG_CHANNELS);
     const allowed = channel => (support.features.downloads.available && downloadHandles.has(channel)) || LOCAL_HANDLES.has(channel) || (support.features.nativeGames.available && nativeHandles.has(channel))
+        || (support.features.accounts.available && accountHandles.has(channel))
+        || (support.features.discord.available && discordHandles.has(channel))
+        || (support.features.plugins.available && pluginHandles.has(channel))
+        || (support.features.workshop.available && workshopHandles.has(channel))
+        || (support.features.achievements.available && achievementHandles.has(channel))
         || (support.features.nativeRecovery.available && recoveryHandles.has(channel))
         || (support.features.steamDiscovery.available && discoveryHandles.has(channel))
         || (support.features.desktopShortcuts.available && shortcutHandles.has(channel))
@@ -105,6 +131,11 @@ function createSupportedIpcRegistrar(ipcMain, authorize, support) {
         || (support.features.localDialogs.available && dialogHandles.has(channel))
         || (support.features.externalLinks.available && channel === 'open-url');
     const reason = channel => nativeHandles.has(channel) ? support.features.nativeGames.reason :
+        accountHandles.has(channel) ? support.features.accounts.reason :
+        discordHandles.has(channel) ? support.features.discord.reason :
+        pluginHandles.has(channel) ? support.features.plugins.reason :
+        workshopHandles.has(channel) ? support.features.workshop.reason :
+        achievementHandles.has(channel) ? support.features.achievements.reason :
         discoveryHandles.has(channel) ? support.features.steamDiscovery.reason :
         shortcutHandles.has(channel) ? support.features.desktopShortcuts.reason :
         protocolHandles.has(channel) ? support.features.desktopIntegration.reason :
@@ -127,7 +158,7 @@ function createSupportedIpcRegistrar(ipcMain, authorize, support) {
         on(channel, handler) {
             ipcMain.on(channel, (event, ...args) => {
                 try { authorize(event, channel); } catch (_) { return; }
-                if (!LOCAL_EVENTS.has(channel)) {
+                if (!LOCAL_EVENTS.has(channel) && !(support.features.discord.available && discordHandles.has(channel))) {
                     event.sender.send('platform-operation-unavailable', unsupportedError(channel).message);
                     return;
                 }

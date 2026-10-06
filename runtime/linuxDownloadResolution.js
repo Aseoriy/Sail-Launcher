@@ -1,6 +1,6 @@
 'use strict';
 const hosts = require('./downloadHostResolvers');
-const { downloadUrl, resolverRequest } = require('./linuxDownloadTransfer');
+const { downloadUrl, resolverRequest, BROWSER_UA } = require('./linuxDownloadTransfer');
 function headersFor(file) {
     const output = {};
     for (const header of file.headers || []) {
@@ -10,10 +10,12 @@ function headersFor(file) {
     }
     return output;
 }
-async function resolve(link, options, work) {
+// services.browserResolve lets BuzzHeavier-style hosts fall back to the user's installed Chromium browser.
+async function resolve(link, options, work, services = {}) {
     const url = downloadUrl(link.url), controller = new AbortController();
     await work.setStop(() => controller.abort()); const timer = setTimeout(() => controller.abort(), 120000);
-    const dependencies = { userAgent: 'Mozilla/5.0 Sail-Launcher/5.5.4', sourceName: link.name || options.gameName,
+    const dependencies = { userAgent: BROWSER_UA, sourceName: link.name || options.gameName,
+        ...(typeof services.browserResolve === 'function' ? { browserResolve: services.browserResolve } : {}),
         referer: options.referer || url.href, signal: controller.signal,
         request: (method, target, settings = {}) => resolverRequest(method, target, settings, controller.signal) };
     const handlers = [

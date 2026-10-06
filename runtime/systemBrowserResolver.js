@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const http = require('node:http');
 const net = require('node:net');
 const path = require('node:path');
-const { spawn } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 const WebSocket = require('ws');
 
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
@@ -88,7 +88,32 @@ const POPUP_GUARD_SOURCE = `(function(){
     },true);
 })()`;
 
-function systemChromiumCandidates(env = process.env) {
+const LINUX_CHROMIUM_PATHS = [
+    '/usr/bin/google-chrome-stable', '/usr/bin/google-chrome', '/opt/google/chrome/chrome',
+    '/usr/bin/chromium', '/usr/bin/chromium-browser',
+    '/usr/bin/microsoft-edge-stable', '/usr/bin/microsoft-edge', '/opt/microsoft/msedge/msedge',
+    '/usr/bin/brave-browser', '/opt/brave.com/brave/brave',
+    '/usr/bin/vivaldi-stable', '/usr/bin/vivaldi', '/opt/vivaldi/vivaldi'
+];
+
+// Headless Chromium announces itself as "HeadlessChrome"; hosts then refuse it. Use the installed browser's
+// own major version in an ordinary desktop user agent instead.
+function chromiumUserAgent(executablePath) {
+    try {
+        const output = spawnSync(executablePath, ['--version'], { encoding: 'utf8', timeout: 5000 }).stdout || '';
+        const major = /(\d{2,3})\.\d+\.\d+\.\d+/.exec(output);
+        if (major) return `Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${major[1]}.0.0.0 Safari/537.36`;
+    } catch (_) { /* The default user agent is used. */ }
+    return '';
+}
+
+const platformOf = options => (options && options.platform) || (typeof process !== 'undefined' ? process.platform : '');
+
+function systemChromiumCandidates(env = typeof process !== 'undefined' ? process.env : {}, platform = platformOf()) {
+    if (platform === 'linux') {
+        const override = String(env.SAIL_CHROMIUM_PATH || '');
+        return [...new Set([override && path.isAbsolute(override) && override, ...LINUX_CHROMIUM_PATHS].filter(Boolean))];
+    }
     const local = String(env.LOCALAPPDATA || '');
     const programFiles = String(env.ProgramFiles || env.PROGRAMFILES || '');
     const programFilesX86 = String(env['ProgramFiles(x86)'] || env['PROGRAMFILES(X86)'] || '');
@@ -108,7 +133,7 @@ function systemChromiumCandidates(env = process.env) {
 
 function findSystemChromiumExecutable(options = {}) {
     const existsSync = options.existsSync || fs.existsSync;
-    return systemChromiumCandidates(options.env).find(candidate => {
+    return systemChromiumCandidates(options.env, platformOf(options)).find(candidate => {
         try { return existsSync(candidate); } catch (_) { return false; }
     }) || '';
 }
@@ -355,7 +380,11 @@ function systemChromiumLaunchArgs(debugPort, profileDirectory, options = {}) {
         width: 1200,
         height: 850
     };
+    // Wayland cannot place a window off screen, so the invisible pass runs headless on Linux.
+    const headless = platformOf(options) === 'linux' && !visible;
     return [
+        ...(headless ? ['--headless=new', '--hide-scrollbars', '--mute-audio'] : []),
+        ...(headless && options.userAgent ? ['--user-agent=' + options.userAgent] : []),
         '--remote-debugging-port=' + debugPort,
         '--remote-debugging-address=127.0.0.1',
         `--user-data-dir=${profileDirectory}`,
@@ -507,7 +536,10 @@ async function resolveWithSystemChromium(rawUrl, expression, options = {}) {
         // Reserve a random fixed loopback port so the host sees an ordinary browser.
         const debugPort = await reserveLoopbackPort();
         throwIfAborted(signal);
-        child = spawnImpl(executablePath, systemChromiumLaunchArgs(debugPort, profileDirectory, options), {
+        const linuxHost = options.platform === 'linux' || (options.platform === undefined && typeof process !== 'undefined' && process.platform === 'linux');
+        const launchOptions = linuxHost && options.visible !== true && !options.userAgent
+            ? { ...options, userAgent: chromiumUserAgent(executablePath) } : options;
+        child = spawnImpl(executablePath, systemChromiumLaunchArgs(debugPort, profileDirectory, launchOptions), {
             stdio: 'ignore',
             windowsHide: options.visible !== true
         });

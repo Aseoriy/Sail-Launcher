@@ -11,8 +11,8 @@ const ACTIVE = new Set(['downloading', 'extracting', 'reviewing', 'publishing'])
 const safeError = error => String(error.message || error).replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 500);
 
 class LinuxDownloads {
-    constructor({ root, defaultRoot, getStore, getManager, registry, work, activeDownloads, dialog, authorize, resolveExecution, metadata, emit }) {
-        Object.assign(this, { root, defaultRoot, getStore, getManager, registry, work, activeDownloads, dialog, authorize, resolveExecution, metadata, emit });
+    constructor({ root, defaultRoot, getStore, getManager, registry, work, activeDownloads, dialog, authorize, resolveExecution, metadata, emit, browserResolve = null }) {
+        Object.assign(this, { root, defaultRoot, getStore, getManager, registry, work, activeDownloads, dialog, authorize, resolveExecution, metadata, emit, browserResolve });
         this.operations = new Map(); this.reviews = new Set(); this.records = new Map(); this.initialized = false;
     }
     initialize() {
@@ -193,7 +193,7 @@ class LinuxDownloads {
                 const links = options.links?.length ? options.links : [{ url: options.url, name: options.gameName }];
                 for (let index = 0; index < links.length; index++) {
                     progress({ state: 'downloading', label: `Downloading part ${index + 1}/${links.length}…`, part: index + 1, partCount: links.length });
-                    const resolved = await this.work.run(continuation, { type: 'linux-link-resolution', state: 'resolving' }, work => require('./linuxDownloadResolution').resolve(links[index], options, work));
+                    const resolved = await this.work.run(continuation, { type: 'linux-link-resolution', state: 'resolving' }, work => require('./linuxDownloadResolution').resolve(links[index], options, work, { browserResolve: this.browserResolve }));
                     for (let file = 0; file < resolved.length; file++) {
                         files.push(await this.work.run(continuation, { type: 'linux-transfer', state: 'downloading' }, work => require('./linuxDownloadTransfer').transfer({
                             url: resolved[file].url, headers: resolved[file].headers, fallback: resolved[file].name, directory: incoming, maxSpeed: options.maxSpeed, work,

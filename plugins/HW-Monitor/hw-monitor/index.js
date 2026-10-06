@@ -4,6 +4,7 @@
 module.exports = function(SailAPI) {
     const os = require('os');
     const { execFile } = require('child_process');
+    const fs = require('fs');
 
     const widget = document.createElement('div');
     widget.id = 'hw-monitor-widget';
@@ -72,20 +73,43 @@ module.exports = function(SailAPI) {
         return 0;
     }
 
-    function getRam() { return ((os.totalmem() - os.freemem()) / os.totalmem()) * 100; }
+    function getRam() {
+        // Linux keeps file cache in "free" memory, so use MemAvailable like system monitors do.
+        if (process.platform === 'linux') {
+            try {
+                const info = fs.readFileSync('/proc/meminfo', 'utf8');
+                const total = Number(/MemTotal:\s+(\d+)/.exec(info)[1]), available = Number(/MemAvailable:\s+(\d+)/.exec(info)[1]);
+                if (total > 0) return (1 - available / total) * 100;
+            } catch (_) { /* Fall back to the generic reading. */ }
+        }
+        return ((os.totalmem() - os.freemem()) / os.totalmem()) * 100;
+    }
+
+    // AMD and some Intel GPUs report load through sysfs on Linux when nvidia-smi is not available.
+    function sysfsGpuLoad() {
+        try {
+            for (const card of fs.readdirSync('/sys/class/drm')) {
+                if (!/^card\d+$/.test(card)) continue;
+                const value = Number.parseFloat(fs.readFileSync(`/sys/class/drm/${card}/device/gpu_busy_percent`, 'utf8'));
+                if (Number.isFinite(value)) return value;
+            }
+        } catch (_) { /* No readable GPU load. */ }
+        return -1;
+    }
 
     let gpuQueryInFlight = false;
     function updateGpu(gpuEl) {
         if (!gpuEl || gpuQueryInFlight) return;
         gpuQueryInFlight = true;
-        execFile('nvidia-smi.exe', ['--query-gpu=utilization.gpu', '--format=csv,noheader,nounits'], {
+        execFile(process.platform === 'win32' ? 'nvidia-smi.exe' : 'nvidia-smi', ['--query-gpu=utilization.gpu', '--format=csv,noheader,nounits'], {
             timeout: 2000,
             windowsHide: true,
             maxBuffer: 64 * 1024
         }, (error, stdout) => {
             gpuQueryInFlight = false;
             if (!gpuEl.isConnected) return;
-            const gpu = error ? -1 : Number.parseFloat(String(stdout).trim());
+            let gpu = error ? -1 : Number.parseFloat(String(stdout).trim());
+            if (!(gpu >= 0) && process.platform === 'linux') gpu = sysfsGpuLoad();
             if (Number.isFinite(gpu) && gpu >= 0) {
                 gpuEl.textContent = Math.round(gpu) + '%';
                 colorize(gpuEl, gpu);

@@ -87,8 +87,24 @@ function resolveApprovedPath(targetPath, options = {}, expectedKind = '') {
     }
 }
 
+// Steam's data folder differs by install type (native, Debian/Ubuntu package, Flatpak). The first real one wins.
+function findLinuxSteamRoot(options = {}) {
+    const fileSystem = options.fs || fs;
+    const home = String(options.home || (options.env && options.env.HOME) || require('os').homedir() || '');
+    if (!home) return '';
+    for (const relative of ['.local/share/Steam', '.steam/steam', '.steam/debian-installation', '.var/app/com.valvesoftware.Steam/.local/share/Steam']) {
+        const candidate = path.join(home, relative);
+        try {
+            if (!fileSystem.statSync(path.join(candidate, 'steamapps')).isDirectory()) continue;
+            return fileSystem.realpathSync.native ? fileSystem.realpathSync.native(candidate) : fileSystem.realpathSync(candidate);
+        } catch (_) { /* Try the next install type. */ }
+    }
+    return '';
+}
+
 function findSteamRoot(options = {}) {
     if (Object.prototype.hasOwnProperty.call(options, 'steamRoot')) return options.steamRoot || '';
+    if (process.platform === 'linux') return findLinuxSteamRoot(options);
     if (process.platform !== 'win32') return '';
     const run = options.execFileSync || childProcess.execFileSync;
     try {

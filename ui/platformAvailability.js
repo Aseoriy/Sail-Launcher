@@ -50,23 +50,33 @@ function installPlatformAvailability(document, ipc) {
         if (support.features.spellcheck && !support.features.spellcheck.available) label.title += ` ${support.features.spellcheck.reason}`;
         label.setAttribute('role', 'status');
         const title = document.querySelector('.titlebar-title');
-        if (title) { title.style.minWidth = '0'; title.style.flex = '1 1 auto'; title.append(label); }
+        // The status label only helps in development modes; the normal app keeps the header clean.
+        if (title && support.mode !== 'normal') { title.style.minWidth = '0'; title.style.flex = '1 1 auto'; title.append(label); }
         const controls = document.querySelector('.titlebar-controls');
         if (controls) controls.style.flexShrink = '0';
-        const unavailableControls = '#autoStartToggle, #steamApiKeyInput, #steamIdInput, #discordTokenInput, '
-            + '[id^="custom-google-"], [id^="custom-onedrive-"], [id^="custom-dropbox-"], '
-            + '#browseExeBtn, #browseSaveBtn, #browseDriveBtn, #browseEmulatorBtn, #browseRomBtn';
-        document.querySelectorAll(unavailableControls).forEach(element => {
-            if (element.id === 'browseExeBtn' && support.features.nativeGames.available) return;
-            if (element.id === 'autoStartToggle' && support.features.autostart.available) return;
-            element.disabled = true;
-            element.title = 'Unavailable in this offline preview. Local library metadata and appearance settings can be edited.';
-        });
+        const features = support.features;
+        // Controls stay disabled only while the feature behind them is unavailable.
+        const groups = [
+            ['#autoStartToggle', features.autostart],
+            ['#steamApiKeyInput, #steamIdInput, #discordTokenInput', features.accounts],
+            ['[id^="custom-google-"], [id^="custom-onedrive-"], [id^="custom-dropbox-"]', features.cloudSync],
+            ['#browseExeBtn', features.nativeGames],
+            ['#browseSaveBtn, #browseDriveBtn, #browseEmulatorBtn, #browseRomBtn', features.saveDiscovery]
+        ];
+        for (const [selector, feature] of groups) {
+            if (feature && feature.available) continue;
+            document.querySelectorAll(selector).forEach(element => {
+                element.disabled = true;
+                element.title = (feature && feature.reason) || 'Unavailable on this platform.';
+            });
+        }
         document.addEventListener('click', event => {
             const button = event.target.closest('#pluginsBtn, #syncNowButton, .cloud-card button');
             if (!button) return;
+            const feature = button.id === 'pluginsBtn' ? features.plugins : features.cloudSync;
+            if (feature.available) return;
             event.preventDefault(); event.stopImmediatePropagation();
-            notice(button.id === 'pluginsBtn' ? support.features.plugins.reason : support.features.cloudSync.reason);
+            notice(feature.reason);
         }, true);
         if (!support.trayAvailable) notice('Tray unavailable. Closing the window exits Sail for this session. Your saved close preference is unchanged.');
         return support;

@@ -105,9 +105,12 @@ function localArtworkPath(value, options = {}) {
     return null;
 }
 
+// Source paths can come from Windows layouts (emulator files, Wine prefixes), so split on either separator.
+const anyBasename = filePath => String(filePath || '').split(/[\\/]/).filter(Boolean).pop() || '';
+
 function sourceAppId(options = {}) {
     const sourceFilePath = String(options.sourceFilePath || '');
-    const basename = path.basename(sourceFilePath);
+    const basename = anyBasename(sourceFilePath);
     const schema = basename.match(/^UserGameStatsSchema_(\d+)\.bin$/i);
     if (schema) return schema[1];
     if (String(sourceFilePath).replace(/\\/g, '/').toLowerCase().includes('/librarycache/')) {
@@ -500,7 +503,7 @@ const PARSER_REGISTRY = [
     {
         id: 'razor1911',
         matches(filePath) {
-            return path.basename(filePath).toLowerCase() === 'achievement';
+            return anyBasename(filePath).toLowerCase() === 'achievement';
         },
         parse: parseRazor1911
     },

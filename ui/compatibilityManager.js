@@ -10,6 +10,7 @@ function installCompatibilityManager({ document, invoke, ready, open }) {
     const cancelButton = document.getElementById('compatibilityCancel'), browse = document.getElementById('compatibilityBrowse');
     const setupButton = document.getElementById('compatibilitySetup'), checkButton = document.getElementById('compatibilityCheck');
     const summary = document.getElementById('compatibilitySetupSummary'), checklist = document.getElementById('compatibilityChecklist');
+    const checklistDetails = document.getElementById('compatibilityChecklistDetails');
     const banner = document.getElementById('compatibilitySetupBanner'), bannerText = document.getElementById('compatibilitySetupBannerText');
     let supported = false, data = null, timer = null, requesting = null, action = false, fingerprint = '', runtimeFingerprint = '', checklistFingerprint = '';
     const bytes = value => `${(value / 1024 ** 2).toFixed(value < 10 * 1024 ** 2 ? 1 : 0)} MB`;
@@ -36,6 +37,8 @@ function installCompatibilityManager({ document, invoke, ready, open }) {
             const checklistState = JSON.stringify(setup.checks);
             if (checklistState !== checklistFingerprint) {
                 checklistFingerprint = checklistState; checklist.replaceChildren();
+                // Show the details only when something needs attention.
+                if (checklistDetails) checklistDetails.open = !setup.toolsReady;
                 const states = { detected: 'Detected', missing: 'Needed', warning: 'Check', unchecked: 'On launch' };
                 for (const item of setup.checks) {
                     const row = element('div'); row.className = 'compatibility-row';
@@ -56,7 +59,14 @@ function installCompatibilityManager({ document, invoke, ready, open }) {
         if (next !== fingerprint) {
             fingerprint = next; installed.replaceChildren(); detected.replaceChildren();
             defaultSelect.replaceChildren(option('', 'Ask when setting up a Windows game'));
-            for (const runtime of data.runtimes || []) defaultSelect.append(option(runtime.id, runtime.label + (runtime.ready ? '' : ' — unavailable'), !runtime.ready));
+            const group = (label, items) => { if (!items.length) return; const box = element('optgroup'); box.label = label; box.append(...items); defaultSelect.append(box); };
+            group('Ready to use', (data.runtimes || []).map(runtime => option(runtime.id, runtime.label + (runtime.ready ? '' : ' — unavailable'), !runtime.ready)));
+            // Versions installed outside Sail are added (after confirmation) when chosen.
+            group('Installed on this PC', [
+                ...(data.discovery?.proton || []).filter(runtime => !runtime.registeredRuntimeId && runtime.available).map(runtime => option('detected:' + runtime.id, runtime.label)),
+                ...(data.discovery?.wine || []).filter(runtime => !runtime.registeredRuntimeId && runtime.available)
+                    .map(runtime => option('wine:' + runtime.id, 'Wine · ' + runtime.label + (runtime.version ? ' ' + runtime.version : '')))
+            ]);
             defaultSelect.value = data.defaultRuntimeId || '';
             if (!defaultSelect.value && data.defaultRuntimeId) {
                 defaultSelect.append(option(data.defaultRuntimeId, 'Previous default — unavailable', true)); defaultSelect.value = data.defaultRuntimeId;
@@ -144,7 +154,17 @@ function installCompatibilityManager({ document, invoke, ready, open }) {
     kind.onchange = releaseOptions;
     installButton.onclick = () => run(() => invoke('compatibility-install', { releaseId: versions.value }));
     cancelButton.onclick = () => run(() => invoke('compatibility-cancel', { jobId: data.job.id }));
-    defaultSelect.onchange = () => run(() => invoke('compatibility-default', { runtimeId: defaultSelect.value }));
+    defaultSelect.onchange = () => run(async () => {
+        const value = defaultSelect.value;
+        let runtimeId = value;
+        if (value.startsWith('detected:') || value.startsWith('wine:')) {
+            const wine = value.startsWith('wine:');
+            const result = await invoke(wine ? 'wine-register-runtime' : 'proton-register-runtime', { discoveryId: value.slice(wine ? 5 : 9) });
+            if (result.canceled || !result.registeredRuntimeId) { fingerprint = ''; return; }
+            runtimeId = result.registeredRuntimeId;
+        }
+        await invoke('compatibility-default', { runtimeId });
+    });
     browse.onclick = () => run(() => invoke('proton-register-runtime', {}));
     const browseWine = document.getElementById('compatibilityBrowseWine');
     if (browseWine) browseWine.onclick = () => run(() => invoke('wine-register-runtime', {}));

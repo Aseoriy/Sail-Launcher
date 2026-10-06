@@ -1217,6 +1217,13 @@ ipcMain.handle('download-workshop-item', async (e, payload) => {
     if (!/^\d{1,12}$/.test(appId) || !/^\d{1,20}$/.test(itemId) || String(game.steamAppId || '') !== appId) {
         throw new Error('Steam Workshop download does not match the active game.');
     }
+    if (process.platform === 'linux') {
+        try {
+            const folder = await require('./runtime/linuxSteamCmd').downloadWorkshopItem({
+                directory: path.join(app.getPath('userData'), 'steamcmd'), appId, itemId, home: app.getPath('home') });
+            return { success: true, location: gateAProfileStore().createDirectoryCapability(input.gameId, folder, 'folder-open') };
+        } catch (error) { return { success: false, error: error.message }; }
+    }
     return new Promise((resolve) => {
         const steamCmdDir = path.join(app.getPath('userData'), 'steamcmd');
         const steamCmdExe = path.join(steamCmdDir, 'steamcmd.exe');
@@ -2361,12 +2368,24 @@ ipcMain.handle('save-file-dialog', async (e, opts) => {
     const r = await dialog.showSaveDialog({ title: opts.title, defaultPath: opts.defaultPath, filters: opts.filters || [] });
     return r.canceled ? null : r.filePath;
 });
+// On Linux the renderer-facing archive tools only touch Sail's own data and temp folders (plugins, themes, imports).
+function assertSailArchivePath(...targets) {
+    if (process.platform !== 'linux') return;
+    const roots = [app.getPath('userData'), app.getPath('temp')].map(root => fs.realpathSync(root));
+    for (const target of targets) {
+        const resolved = path.resolve(String(target || ''));
+        const parent = fs.realpathSync(fs.existsSync(resolved) ? resolved : path.dirname(resolved));
+        if (!roots.some(root => parent === root || parent.startsWith(root + path.sep))) throw new Error('Archives can only be handled inside Sail\'s own folders.');
+    }
+}
 ipcMain.handle('extract-zip', async (e, { zipPath, destPath }) => {
+    assertSailArchivePath(zipPath, destPath);
     await extractArchive(zipPath, destPath);
     return true;
 });
 
 ipcMain.handle('extract-rar', async (e, { rarPath, destPath }) => {
+    assertSailArchivePath(rarPath, destPath);
     try {
         if (!fs.existsSync(destPath)) {
             fs.mkdirSync(destPath, { recursive: true });
@@ -2382,6 +2401,7 @@ ipcMain.handle('extract-rar', async (e, { rarPath, destPath }) => {
 });
 
 ipcMain.handle('extract-7z', async (e, { archivePath, destPath }) => {
+    assertSailArchivePath(archivePath, destPath);
     return new Promise((resolve, reject) => {
         _7z.unpack(archivePath, destPath, (err) => {
             if (err) reject(err);
@@ -2390,6 +2410,15 @@ ipcMain.handle('extract-7z', async (e, { archivePath, destPath }) => {
     });
 });
 ipcMain.handle('create-zip', async (e, { sourceDir, destPath }) => {
+    if (process.platform === 'linux') {
+        // Plugin export: the bundled 7-Zip builds the archive; no shell is involved.
+        assertSailArchivePath(sourceDir);
+        const source = path.resolve(String(sourceDir || '')), target = path.resolve(String(destPath || ''));
+        if (!/\.zip$/i.test(target)) throw new Error('Choose a .zip file name.');
+        fs.rmSync(target, { force: true });
+        await runOwnedChildProcess(_7z.getConfig().binaryPath, ['a', '-tzip', target, path.join(source, '*')], null);
+        return true;
+    }
     return new Promise((resolve, reject) => {
         const cmd = `powershell -Command "Compress-Archive -Path '${sourceDir}\\*' -DestinationPath '${destPath}' -Force"`;
         exec(cmd, { windowsHide: true }, (err) => { if (err) reject(err); else resolve(true); });
@@ -2971,7 +3000,8 @@ function getLinuxDownloads() {
         root: path.join(app.getPath('userData'), 'runtime', 'linux-downloads'), defaultRoot: path.join(app.getPath('userData'), 'SailDownloads'),
         getStore: () => gateAProfileStore(), getManager: () => protonManager, registry: downloadJobDirectories, work: downloadWork,
         activeDownloads, dialog, authorize: authorizeIpcEvent, resolveExecution: resolveInstallationExecution, metadata: resolveSteamMetadataForDownload,
-        emit: (channel, data) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, data); }
+        emit: (channel, data) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, data); },
+        browserResolve: (pageUrl, sourceReferer) => resolveBuzzheavierWithSystemBrowser(pageUrl, 25000, sourceReferer)
     });
     linuxDownloads.initialize(); return linuxDownloads;
 }
@@ -7020,6 +7050,11 @@ else {
                 return new Map([...scopes].map(([id, games]) => [id, games.size]));
             }
         });
+        // Linux accounts and stored tokens need a real keyring; Electron's plaintext fallback is never accepted.
+        if (process.platform === 'linux' && !platformSupport.isolated) {
+            const storage = require('./runtime/protectedStorage').assessProtectedStorage(safeStorage);
+            platformSupport.features.accounts = { available: storage.available, reason: storage.reason };
+        }
         accountServices = registerAccountIpc({
             app,
             ipcMain: supportedIpcMain,
@@ -7035,7 +7070,7 @@ else {
                 getReadiness: () => ({ available: !!nativeProvider?.available, scriptsAvailable: !!nativeProvider?.scriptsAvailable,
                     windowsTrackingAvailable: !!nativeProvider?.windowsTrackingAvailable, wineTrackingAvailable: !!nativeProvider?.wineTrackingAvailable, reason: nativeProvider?.reason || '' }),
                 runtimeSnapshot: () => runtimeRecovery.snapshot(), launchLog: scope => nativeProvider?.logs.read(scope) } : null,
-            safeStorage,
+            safeStorage: process.platform === 'linux' ? require('./runtime/protectedStorage').protectStorage(safeStorage) : safeStorage,
             authorizeIpcEvent,
             dialog,
             validateSteamAppId: isLocallyInstalledSteamAppId,
