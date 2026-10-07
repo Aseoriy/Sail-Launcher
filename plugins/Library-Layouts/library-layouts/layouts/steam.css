@@ -17,23 +17,37 @@ body.sl-steam { --sl-green-a: #75b022; --sl-green-b: #588a1b; --sl-sel: #3d4450;
 body.sl-steam.sl-colors { background: linear-gradient(180deg, #1b2838 0%, #16202d 100%) fixed; }
 body.sl-steam::before, body.sl-steam::after { display: none !important; }
 
-/* ---- Title bar: the Sail menu and the top tabs ---- */
-body.sl-steam .custom-titlebar { background: var(--sl-top) !important; backdrop-filter: none !important; border-bottom: 1px solid rgba(0, 0, 0, .55); }
-body.sl-steam .tb-version, body.sl-steam .tb-brand-name { display: none; }
-body.sl-steam .titlebar-title { min-width: 0; flex: 1 1 auto; overflow: hidden; }
-body.sl-steam .tb-brand { order: -1; flex: none; white-space: nowrap; margin-left: 4px !important; -webkit-app-region: no-drag; }
-body.sl-steam .sl-menu-btn {
-    appearance: none; display: inline-flex; align-items: center; gap: 6px; height: 45px; padding: 0 12px; margin: 0; background: transparent !important; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; transform: none !important;
-    color: #fff !important; font: inherit; font-size: 16px; font-weight: 600; letter-spacing: .01em; text-transform: none; cursor: pointer;
+/* ---- Title bar: two rows, like Steam. Menu bar on top, back/forward and the page tabs underneath ---- */
+body.sl-steam { --sl-menu-h: 26px; --sl-nav-h: 46px; --sl-bar-h: 72px; }
+body.sl-steam .custom-titlebar { display: grid !important; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: var(--sl-menu-h) var(--sl-nav-h); height: var(--sl-bar-h); align-items: stretch; background: var(--sl-top) !important; backdrop-filter: none !important; border-bottom: 1px solid rgba(0, 0, 0, .55); }
+body.sl-steam.big-picture-mode .custom-titlebar, body.sl-steam.big-picture-mode .sl-bottom, body.sl-steam.big-picture-mode #mainSidebar, body.sl-steam.big-picture-mode .sl-shelf, body.sl-steam.big-picture-mode .sl-all-title { display: none !important; }
+body.sl-steam .tb-version, body.sl-steam .tb-brand { display: none !important; }
+body.sl-steam .sl-menubar { grid-column: 1; grid-row: 1; display: flex; align-items: stretch; min-width: 0; padding-left: 4px; -webkit-app-region: no-drag; width: max-content; }
+body.sl-steam .sl-menubar-btn {
+    appearance: none; display: inline-flex; align-items: center; gap: 7px; height: var(--sl-menu-h); padding: 0 11px; margin: 0; background: transparent !important; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; transform: none !important;
+    color: #c6d4df !important; font: inherit; font-size: 13px; font-weight: 500; letter-spacing: 0; text-transform: none; cursor: pointer;
 }
-body.sl-steam .sl-menu-btn:hover, body.sl-steam .sl-menu-btn[aria-expanded="true"] { background: rgba(255, 255, 255, .08) !important; }
+body.sl-steam .sl-menubar-btn:hover, body.sl-steam .sl-menubar-btn[aria-expanded="true"] { background: rgba(255, 255, 255, .09) !important; color: #fff !important; }
+body.sl-steam .sl-menubar-logo { width: 16px; height: 16px; object-fit: contain; }
+body.sl-steam .titlebar-controls { grid-column: 2; grid-row: 1; height: var(--sl-menu-h); }
+body.sl-steam .titlebar-controls .titlebar-btn { width: 44px; font-size: 13px; }
+body.sl-steam .titlebar-controls #supportersBtn { margin-right: 8px !important; }
+body.sl-steam .account-pill { height: 22px; padding: 0 8px 0 4px; margin-right: 6px; gap: 6px; background: transparent !important; border: 0 !important; box-shadow: none !important; border-radius: 2px !important; color: #c6d4df !important; }
+body.sl-steam .account-pill:hover { background: rgba(255, 255, 255, .09) !important; }
+body.sl-steam .account-pill-avatar { width: 18px; height: 18px; font-size: 9px; }
+body.sl-steam .account-pill-label { font-size: 12px; font-weight: 500; max-width: 140px; }
+body.sl-steam .titlebar-title { grid-column: 1 / -1; grid-row: 2; height: var(--sl-nav-h); min-width: 0; padding-left: 8px; overflow: hidden; gap: 4px; }
+body.sl-steam .titlebar-title .nav-arrow { width: 32px; height: 32px; flex: none; }
 body.sl-steam #topHeaderActionButtonsContainer, body.sl-steam #topHeaderDropdownContainer { display: none !important; }
-body.sl-steam .sl-top-nav { display: flex !important; flex-direction: row !important; align-items: stretch; gap: 0; width: auto; padding: 0; margin: 0 0 0 6px; border: 0 !important; background: none !important; box-shadow: none !important; height: 45px; flex: 0 1 auto; min-width: 0; overflow: hidden; -webkit-app-region: no-drag; }
+/* Everything under the title bar that was positioned for the old 45px bar. */
+body.sl-steam.dedicated-settings-page #settingsModal { top: var(--sl-bar-h) !important; height: calc(100vh - var(--sl-bar-h)) !important; }
+body.sl-steam #accountModal { top: var(--sl-bar-h); height: calc(100% - var(--sl-bar-h)); }
+body.sl-steam .sl-top-nav { display: flex !important; flex-direction: row !important; align-items: stretch; gap: 0; width: auto; padding: 0; margin: 0 0 0 6px; border: 0 !important; background: none !important; box-shadow: none !important; height: var(--sl-nav-h); flex: 0 1 auto; min-width: 0; overflow: hidden; -webkit-app-region: no-drag; }
 body.sl-steam .sl-top-nav .sidebar-kicker { display: none !important; }
 body.sl-steam .sl-top-nav .sidebar-page-link {
-    display: inline-flex; align-items: center; justify-content: center; flex: none; width: auto; height: 45px; padding: 0 16px; margin: 0;
+    display: inline-flex; align-items: center; justify-content: center; flex: none; width: auto; height: var(--sl-nav-h); padding: 0 17px; margin: 0;
     background: transparent !important; border: 0 !important; border-bottom: 2px solid transparent !important; border-radius: 0 !important; box-shadow: none !important; backdrop-filter: none !important; transform: none !important;
-    color: #dcdedf !important; font-size: 16px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; white-space: nowrap;
+    color: #dcdedf !important; font-size: 19px; font-weight: 600; letter-spacing: .02em; text-transform: uppercase; white-space: nowrap;
 }
 body.sl-steam .sl-top-nav .sidebar-page-link .sidebar-page-icon, body.sl-steam .sl-top-nav .sidebar-page-link .sidebar-page-meta { display: none; }
 body.sl-steam .sl-top-nav .sidebar-page-link { opacity: .9 !important; }
@@ -42,23 +56,27 @@ body.sl-steam .sl-top-nav .sidebar-page-link:hover { color: #fff !important; bac
 body.sl-steam .sl-top-nav .sidebar-page-link.active-tab { color: #1a9fff !important; border-bottom-color: #1a9fff !important; background: transparent !important; }
 body.sl-steam .sl-top-nav .sl-tab-off { display: none !important; }
 body.sl-steam .sl-more {
-    appearance: none; display: inline-grid; place-items: center; flex: none; width: 36px; height: 45px; padding: 0; margin: 0; background: transparent !important; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; transform: none !important;
+    appearance: none; display: inline-grid; place-items: center; flex: none; width: 36px; height: var(--sl-nav-h); padding: 0; margin: 0; background: transparent !important; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; transform: none !important;
     color: #dcdedf !important; cursor: pointer;
 }
 body.sl-steam .sl-more:hover { color: #fff !important; background: rgba(255, 255, 255, .06) !important; }
 body.sl-steam .sl-more[hidden] { display: none; }
-@media (max-width: 1500px) {
-    body.sl-steam .sl-top-nav .sidebar-page-link { padding: 0 12px; font-size: 14.5px; }
+@media (max-width: 1400px) {
+    body.sl-steam .sl-top-nav .sidebar-page-link { padding: 0 13px; font-size: 16.5px; }
 }
-@media (max-width: 1150px) {
-    body.sl-steam .sl-top-nav .sidebar-page-link { padding: 0 9px; font-size: 13px; letter-spacing: .02em; }
+@media (max-width: 1100px) {
+    body.sl-steam .sl-top-nav .sidebar-page-link { padding: 0 9px; font-size: 14px; letter-spacing: .01em; }
 }
 
 /* The menus: the Sail menu and the tab overflow. They live on the body so nothing clips them. */
-.sl-menu { position: fixed; z-index: 100000; min-width: 220px; padding: 4px 0; background: #3d4450; border: 1px solid #1a1d23; box-shadow: 0 10px 30px rgba(0, 0, 0, .55); border-radius: 2px; font-family: "Motiva Sans", "Segoe UI", "Noto Sans", Arial, sans-serif; }
+.sl-menu { position: fixed; z-index: 100000; min-width: 230px; padding: 4px 0; background: #3d4450; border: 1px solid #1a1d23; box-shadow: 0 10px 30px rgba(0, 0, 0, .55); border-radius: 2px; font-family: "Motiva Sans", "Segoe UI", "Noto Sans", Arial, sans-serif; }
 .sl-menu[hidden] { display: none; }
-.sl-menu .sl-menu-item { appearance: none; display: block; width: 100%; padding: 8px 20px; background: transparent !important; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; transform: none !important; color: #dcdedf !important; font: inherit; font-size: 14px; font-weight: 400; letter-spacing: 0; text-align: left; text-transform: none; cursor: pointer; }
+.sl-menu .sl-menu-item { appearance: none; display: block; width: 100%; padding: 7px 24px; background: transparent !important; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; transform: none !important; color: #dcdedf !important; font: inherit; font-size: 14px; font-weight: 400; letter-spacing: 0; text-align: left; text-transform: none; cursor: pointer; }
 .sl-menu .sl-menu-item:hover, .sl-menu .sl-menu-item:focus-visible { background: #1a9fff !important; color: #fff !important; outline: 0; }
+.sl-menu .sl-menu-check { display: none; width: 16px; margin-left: -8px; text-align: center; font-size: 12px; }
+.sl-menu.sl-menu-checks .sl-menu-check { display: inline-block; }
+.sl-menu .sl-menu-item:disabled { opacity: .4; cursor: default; }
+.sl-menu .sl-menu-item:disabled:hover { background: transparent !important; color: #dcdedf !important; }
 .sl-menu .sl-menu-sep { height: 1px; margin: 4px 0; background: rgba(255, 255, 255, .12); }
 
 /* ---- Left panel becomes the game list ---- */
@@ -176,3 +194,35 @@ body.sl-steam .sl-bottom { display: flex; align-items: center; flex: none; heigh
 body.sl-steam .sl-bottom .sl-spacer { flex: 1; }
 body.sl-steam .sl-bottom-btn { appearance: none; display: inline-flex; align-items: center; gap: 7px; height: 26px; padding: 0 10px; background: transparent !important; border: 0 !important; border-radius: 2px !important; box-shadow: none !important; transform: none !important; color: #8f98a0 !important; font: inherit; font-size: 12.5px; font-weight: 500; letter-spacing: 0; text-transform: none; cursor: pointer; }
 body.sl-steam .sl-bottom-btn:hover { color: #fff !important; background: rgba(255, 255, 255, .06) !important; }
+
+/* ---- Manage Game as a properties window ---- */
+body.sl-steam #gameSettingsModal { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; background: rgba(0, 0, 0, .6) !important; }
+body.sl-steam #gameSettingsModal .modal-content {
+    position: relative; display: block; width: min(980px, 94vw) !important; max-width: none; height: min(680px, 88vh); max-height: none; padding: 0 !important; overflow: hidden !important;
+    background: #1b2838 !important; border: 1px solid #0b0f14 !important; border-radius: 2px !important; box-shadow: 0 24px 70px rgba(0, 0, 0, .75) !important; color: #c6d4df;
+}
+body.sl-steam #gameSettingsModal .modal-content > h2 { display: none; }
+body.sl-steam #gameSettingsModal .close-x { position: absolute; top: 8px; right: 10px; z-index: 5; width: 30px; height: 30px; padding: 0; background: transparent !important; border: 0 !important; box-shadow: none !important; color: #8f98a0 !important; font-size: 16px; }
+body.sl-steam #gameSettingsModal .close-x:hover { color: #fff !important; background: rgba(255, 255, 255, .08) !important; }
+.sl-props { display: grid; grid-template-columns: 240px minmax(0, 1fr); height: 100%; }
+.sl-props-nav { display: flex; flex-direction: column; min-height: 0; overflow-y: auto; background: #171d25; border-right: 1px solid rgba(0, 0, 0, .5); padding: 0 0 12px; }
+.sl-props-game { display: flex; align-items: center; gap: 10px; padding: 16px 14px 14px; margin-bottom: 6px; border-bottom: 1px solid rgba(255, 255, 255, .06); }
+.sl-props-art { flex: none; width: 46px; height: 22px; background: #0e141b center / cover no-repeat; border-radius: 2px; }
+.sl-props-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 600; color: #fff; }
+.sl-props-tab { appearance: none; display: block; width: 100%; padding: 9px 18px; background: transparent !important; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; transform: none !important; color: #c6d4df !important; font: inherit; font-size: 14px; font-weight: 400; letter-spacing: 0; text-align: left; text-transform: none; cursor: pointer; }
+.sl-props-tab[hidden] { display: none; }
+.sl-props-tab:hover { background: rgba(255, 255, 255, .06) !important; }
+.sl-props-tab.is-active { background: #3d4450 !important; color: #fff !important; }
+.sl-props-main { display: flex; flex-direction: column; min-width: 0; min-height: 0; height: 100%; }
+body.sl-steam .sl-props-main h2.sl-props-title { display: block; flex: none; margin: 0; padding: 20px 56px 10px 30px; border: 0; font-size: 24px; font-weight: 300; letter-spacing: 0; color: #fff; }
+.sl-props-body { flex: 1; min-height: 0; overflow-y: auto; padding: 0 30px 24px; scrollbar-width: thin; scrollbar-color: #3d4450 transparent; }
+.sl-props-body > [data-sl-page]:not(.sl-pane-on) { display: none !important; }
+.sl-props-foot { display: flex; align-items: center; gap: 10px; flex: none; padding: 12px 30px; background: #16202d; border-top: 1px solid rgba(0, 0, 0, .45); }
+.sl-props-foot[hidden] { display: none; }
+body.sl-steam .sl-props-foot #localExecutionSetupStatus { order: 1; flex: 1; margin: 0 !important; min-width: 0; font-size: 12px; opacity: .85; }
+body.sl-steam .sl-props-foot #discardLocalExecutionBtn { order: 2; width: auto !important; margin: 0 !important; }
+body.sl-steam .sl-props-foot #approveLocalExecutionBtn { order: 3; width: auto !important; margin: 0 !important; padding: 8px 20px; background: linear-gradient(to bottom, #1a9fff, #1478c8) !important; border: 0 !important; color: #fff !important; font-weight: 600; }
+body.sl-steam .sl-props-body input[type="text"], body.sl-steam .sl-props-body select { background: #0e141b !important; border: 1px solid #2a3a4d !important; border-radius: 2px !important; color: #c6d4df !important; }
+body.sl-steam .sl-props-body label { color: #c6d4df; }
+body.sl-steam .sl-props-body [style*="border-top"] { border-top-color: rgba(255, 255, 255, .08) !important; }
+body.sl-steam .sl-props-body button.outline, body.sl-steam .sl-props-body button.danger-outline { border-radius: 2px !important; }

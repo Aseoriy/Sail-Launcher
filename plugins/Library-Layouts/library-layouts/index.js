@@ -19,6 +19,16 @@ module.exports = function (SailAPI) {
     })();
     const saveSettings = () => { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(settings)); } catch (_) { /* Settings simply do not persist. */ } };
 
+    // The friends panel can be switched from the settings, the menu bar and the bottom bar; they all land here.
+    function setFriends(on) {
+        settings.friends = !!on;
+        saveSettings();
+        const current = controller.current();
+        if (current) current.ensureClasses();
+        const box = document.getElementById('sl-opt-friends');
+        if (box) box.checked = settings.friends;
+    }
+
     const html = document.documentElement;
     const body = document.body;
     let entryHandle = null;
@@ -87,9 +97,9 @@ module.exports = function (SailAPI) {
                 if (glassOn) body.classList.add('glassmorphic-mode');
             });
 
-            // The brand becomes a menu holding every Sail button, like the first menu in Steam.
-            const menu = buildMenu();
-            undo.push(() => menu.destroy());
+            // The menu bar along the top, like Steam's, holds every Sail button.
+            const menubar = buildMenubar();
+            undo.push(() => menubar.destroy());
 
             // Page tabs move up into the title bar, and fold into a "..." menu when there is not room.
             const nav = document.getElementById('sidebarNavHeader');
@@ -112,6 +122,10 @@ module.exports = function (SailAPI) {
             sidebar.append(panel.element);
             undo.push(() => { panel.destroy(); panel.element.remove(); });
 
+            // The Manage Game dialog becomes a properties window with a page list on the left.
+            const properties = buildProperties();
+            undo.push(() => properties.destroy());
+
             // Game page extras.
             const stats = buildStats();
             undo.push(() => stats.destroy());
@@ -126,7 +140,7 @@ module.exports = function (SailAPI) {
             const covers = coverSwapper();
             undo.push(() => covers.destroy());
 
-            const refresh = frame(() => { panel.render(); stats.update(); covers.apply(); home.update(); bottom.update(); if (tabs) tabs.fit(); });
+            const refresh = frame(() => { panel.render(); properties.update(); stats.update(); covers.apply(); home.update(); bottom.update(); if (tabs) tabs.fit(); });
             // The launcher swaps views a moment after it announces a move, so look again once that has finished.
             let settle = 0;
             const afterNavigate = () => { refresh(); clearTimeout(settle); settle = setTimeout(refresh, 220); };
@@ -197,59 +211,75 @@ module.exports = function (SailAPI) {
         return { element, render, destroy() {} };
     }
 
-    // The brand becomes the first menu: every Sail button in one place, grouped the way Steam groups its menus.
-    function buildMenu() {
-        const brand = document.querySelector('.tb-brand');
-        const button = el('button', { type: 'button', class: 'sl-menu-btn', 'aria-haspopup': 'menu', 'aria-expanded': 'false' }, ['Sail', svg(['M6 9l6 6 6-6'], 11)]);
-        brand.append(button);
-        const menu = el('div', { class: 'sl-menu', role: 'menu', hidden: true });
-        document.body.append(menu);
-        const GROUPS = [
-            [['settings', 'Settings'], ['plugins', 'Plugins'], ['layouts', 'Library Layouts…']],
-            [['addGame', 'Add a Game…'], ['selectMode', 'Select Games'], ['surpriseMe', 'Surprise Me']],
-            [['bigPicture', 'Big Picture Mode'], ['stats', 'Statistics'], ['systemSpecs', 'System Specs'], ['sailHub', 'Sail Hub']],
-            [['exit', 'Exit']]
-        ];
+    // The menu bar along the very top, like Steam's: Sail, View, Friends, Games, Help. Every entry presses a
+    // button the launcher already has, so nothing here can do more than the buttons it replaces.
+    function buildMenubar() {
+        const titleBar = document.querySelector('.custom-titlebar');
+        const logo = document.querySelector('.tb-logo');
+        const bar = el('div', { class: 'sl-menubar', role: 'menubar' });
+        const popup = el('div', { class: 'sl-menu', role: 'menu', hidden: true });
         const findButton = id => id === 'exit' ? document.getElementById('closeBtn') : Array.from(document.querySelectorAll(`[data-btn-id="${id}"]`)).find(node => !node.closest('.sl-menu'));
-        function close() { menu.hidden = true; button.setAttribute('aria-expanded', 'false'); }
-        function open() {
-            const items = [];
-            GROUPS.forEach((group, index) => {
-                const rows = group.filter(([id]) => id === 'layouts' || findButton(id));
-                if (!rows.length) return;
-                if (items.length) items.push(el('div', { class: 'sl-menu-sep', role: 'separator' }));
-                for (const [id, label] of rows) {
-                    const item = el('button', { type: 'button', class: 'sl-menu-item', role: 'menuitem', text: label });
-                    item.addEventListener('click', () => {
-                        close();
-                        if (id === 'layouts') { const current = entryRef(); if (current) current.open(); return; }
-                        const target = findButton(id);
-                        if (target) target.click();
-                    });
-                    items.push(item);
-                }
-            });
-            menu.replaceChildren(...items);
-            const box = button.getBoundingClientRect();
-            menu.style.left = `${Math.max(4, box.left)}px`;
-            menu.style.top = `${box.bottom + 2}px`;
-            menu.hidden = false;
-            button.setAttribute('aria-expanded', 'true');
+        const item = (label, run, extra = {}) => ({ label, run, ...extra });
+        const SEP = { sep: true };
+        const viaButton = (label, id) => item(label, () => { const target = findButton(id); if (target) target.click(); }, { disabled: !findButton(id) });
+        const viaId = (label, id) => item(label, () => { const target = document.getElementById(id); if (target) target.click(); }, { disabled: !document.getElementById(id) });
+        const listView = () => { const grid = document.getElementById('gameGrid'); return !!grid && grid.classList.contains('list-view'); };
+        const MENUS = [
+            ['Sail', () => [viaId('Account & Profiles…', 'accountPill'), SEP, viaButton('Settings', 'settings'), viaButton('Plugins', 'plugins'), item('Library Layouts…', () => { const handle = entryRef(); if (handle) handle.open(); }), SEP, viaButton('Exit', 'exit')]],
+            ['View', () => [viaButton('Big Picture Mode', 'bigPicture'), SEP, viaId(listView() ? 'Cover grid' : 'List view', 'viewToggleBtn'), item('Downloads', () => SailAPI.showTab('downloadmanager')), item('Library home', () => SailAPI.showTab('library'))]],
+            ['Friends', () => [item('Friends & Chat', () => setFriends(!settings.friends), { checked: settings.friends }), SEP, viaId('Account & Profiles…', 'accountPill')]],
+            ['Games', () => [viaButton('Add a Game…', 'addGame'), viaButton('Select Games', 'selectMode'), viaButton('Surprise Me', 'surpriseMe'), SEP, viaButton('Statistics', 'stats')]],
+            ['Help', () => [viaButton('System Specs', 'systemSpecs'), viaButton('Sail Hub', 'sailHub'), SEP, viaId('Supporters', 'supportersBtn')]]
+        ];
+        let current = -1;
+        const buttons = MENUS.map(([label], index) => {
+            const mark = index === 0 && logo ? el('img', { class: 'sl-menubar-logo', src: logo.src, alt: '' }) : null;
+            const button = el('button', { type: 'button', class: 'sl-menubar-btn', role: 'menuitem', 'aria-haspopup': 'menu', 'aria-expanded': 'false' }, [mark, label]);
+            button.addEventListener('click', () => { if (current === index && !popup.hidden) close(); else open(index); });
+            // Once one menu is open, sliding to another opens it, as in every desktop menu bar.
+            button.addEventListener('mouseenter', () => { if (!popup.hidden && current !== index) open(index); });
+            bar.append(button);
+            return button;
+        });
+        function close() {
+            popup.hidden = true;
+            if (current >= 0) buttons[current].setAttribute('aria-expanded', 'false');
+            current = -1;
         }
-        button.addEventListener('click', event => { event.stopPropagation(); if (menu.hidden) open(); else close(); });
-        const onDocument = event => { if (!menu.hidden && !menu.contains(event.target)) close(); };
+        function open(index) {
+            if (current >= 0) buttons[current].setAttribute('aria-expanded', 'false');
+            current = index;
+            const entries = MENUS[index][1]();
+            popup.classList.toggle('sl-menu-checks', entries.some(entry => 'checked' in entry));
+            popup.replaceChildren(...entries.map(entry => {
+                if (entry.sep) return el('div', { class: 'sl-menu-sep', role: 'separator' });
+                const row = el('button', { type: 'button', class: 'sl-menu-item', role: 'menuitem', disabled: entry.disabled }, [el('span', { class: 'sl-menu-check', text: entry.checked ? '✓' : '' }), entry.label]);
+                row.addEventListener('click', () => { close(); entry.run(); });
+                return row;
+            }));
+            const box = buttons[index].getBoundingClientRect();
+            popup.style.left = `${Math.max(4, box.left)}px`;
+            popup.style.top = `${box.bottom}px`;
+            popup.hidden = false;
+            buttons[index].setAttribute('aria-expanded', 'true');
+        }
+        const onDocument = event => { if (!popup.hidden && !popup.contains(event.target) && !bar.contains(event.target)) close(); };
         const onKey = event => {
-            if (menu.hidden) return;
-            if (event.key === 'Escape') { close(); button.focus(); return; }
+            if (popup.hidden) return;
+            if (event.key === 'Escape') { const was = current; close(); buttons[was].focus(); return; }
+            if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') { event.preventDefault(); open((current + (event.key === 'ArrowRight' ? 1 : -1) + buttons.length) % buttons.length); return; }
             if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
-            const rows = Array.from(menu.querySelectorAll('.sl-menu-item'));
+            const rows = Array.from(popup.querySelectorAll('.sl-menu-item:not(:disabled)'));
+            if (!rows.length) return;
             const at = rows.indexOf(document.activeElement);
             event.preventDefault();
             rows[(at + (event.key === 'ArrowDown' ? 1 : -1) + rows.length) % rows.length].focus();
         };
         document.addEventListener('click', onDocument);
         document.addEventListener('keydown', onKey, true);
-        return { destroy() { document.removeEventListener('click', onDocument); document.removeEventListener('keydown', onKey, true); menu.remove(); button.remove(); } };
+        document.body.append(popup);
+        titleBar.prepend(bar);
+        return { destroy() { document.removeEventListener('click', onDocument); document.removeEventListener('keydown', onKey, true); popup.remove(); bar.remove(); } };
     }
 
     // Keeps the page tabs on one line: the ones that do not fit move into a "..." menu.
@@ -275,8 +305,7 @@ module.exports = function (SailAPI) {
                 hidden.unshift(shown[i]);
             }
         }
-        more.addEventListener('click', event => {
-            event.stopPropagation();
+        more.addEventListener('click', () => {
             if (!menu.hidden) { menu.hidden = true; return; }
             menu.replaceChildren(...hidden.map(tab => {
                 const item = el('button', { type: 'button', class: 'sl-menu-item', role: 'menuitem', text: (tab.querySelector('.sidebar-page-label') || tab).textContent.trim() });
@@ -288,7 +317,7 @@ module.exports = function (SailAPI) {
             menu.style.top = `${box.bottom + 2}px`;
             menu.hidden = false;
         });
-        const onDocument = event => { if (!menu.hidden && !menu.contains(event.target)) menu.hidden = true; };
+        const onDocument = event => { if (!menu.hidden && !menu.contains(event.target) && !more.contains(event.target)) menu.hidden = true; };
         document.addEventListener('click', onDocument);
         const refit = frame(fit);
         const resize = typeof ResizeObserver === 'function' ? new ResizeObserver(refit) : null;
@@ -309,14 +338,7 @@ module.exports = function (SailAPI) {
         const downloads = el('button', { type: 'button', class: 'sl-bottom-btn' }, [svg(['M12 4v11', 'M7 11l5 5 5-5', 'M5 20h14'], 14), downloadText]);
         downloads.addEventListener('click', () => SailAPI.showTab('downloadmanager'));
         const friends = el('button', { type: 'button', class: 'sl-bottom-btn' }, ['Friends & Chat', svg(['M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'], 14)]);
-        friends.addEventListener('click', () => {
-            settings.friends = !settings.friends;
-            saveSettings();
-            const current = controller.current();
-            if (current) current.ensureClasses();
-            const box = document.getElementById('sl-opt-friends');
-            if (box) box.checked = settings.friends;
-        });
+        friends.addEventListener('click', () => setFriends(!settings.friends));
         const bar = el('div', { class: 'sl-bottom' }, [add, el('span', { class: 'sl-spacer' }), downloads, el('span', { class: 'sl-spacer' }), friends]);
         document.querySelector('.app-container').after(bar);
         function update() {
@@ -358,6 +380,101 @@ module.exports = function (SailAPI) {
             shelf.replaceChildren(el('h2', { class: 'sl-shelf-title', text: 'Recent Games' }), el('div', { class: 'sl-shelf-row' }, cards));
         }
         return { update, destroy() { shelf.remove(); title.remove(); } };
+    }
+
+    // Manage Game as a properties window: the same controls, grouped into pages listed on the left.
+    // The launcher's own elements are moved, never copied, so everything it wires up keeps working; put back on undo.
+    function buildProperties() {
+        const modal = document.getElementById('gameSettingsModal');
+        const content = modal && modal.querySelector('.modal-content');
+        if (!content) return { update() {}, destroy() {} };
+        const kids = Array.from(content.children);
+        const holds = (kid, id) => kid.id === id || !!kid.querySelector(`#${id}`);
+        const PAGES = [
+            { id: 'general', label: 'General', parts: ['perGameAdminToggle', 'highPriorityToggle', 'launchArgsInput', 'companionAppInput', 'preLaunchInput', 'postLaunchInput'], save: true },
+            { id: 'compat', label: 'Compatibility', parts: ['nativeLaunchFields', 'protonSetupPanel', 'linuxDownloadedGamePanel', 'protonInstallationPanel', 'protonLaunchLogPanel'], save: true },
+            { id: 'saves', label: 'Saves', parts: ['protonSavesPanel', 'manualGameConfigSyncSection', 'saveVersionSection'] },
+            { id: 'files', label: 'Installed Files', parts: ['browseLocalFilesBtn', 'backupGameBtn', 'uninstallGameSection'] },
+            { id: 'library', label: 'Library', parts: ['editFromPageBtn'] }
+        ];
+        const footIds = ['approveLocalExecutionBtn', 'discardLocalExecutionBtn', 'localExecutionSetupStatus'];
+        const chrome = kids.filter(kid => kid.classList.contains('close-x') || kid.tagName === 'H2');
+        const footer = kids.filter(kid => !chrome.includes(kid) && footIds.some(id => holds(kid, id)));
+        const panes = kids.filter(kid => !chrome.includes(kid) && !footer.includes(kid));
+        const pageOf = pane => (PAGES.find(page => page.parts.some(id => holds(pane, id))) || PAGES[0]).id;
+
+        const nameLine = el('span', { class: 'sl-props-name' });
+        const art = el('span', { class: 'sl-props-art' });
+        const nav = el('nav', { class: 'sl-props-nav', 'aria-label': 'Properties pages' }, [el('div', { class: 'sl-props-game' }, [art, nameLine])]);
+        const title = el('h2', { class: 'sl-props-title' });
+        const body = el('div', { class: 'sl-props-body' });
+        const foot = el('div', { class: 'sl-props-foot' });
+        const main = el('div', { class: 'sl-props-main' }, [title, body, foot]);
+        const layout = el('div', { class: 'sl-props' }, [nav, main]);
+        const tabs = new Map();
+        let page = 'general';
+        for (const entry of PAGES) {
+            const tab = el('button', { type: 'button', class: 'sl-props-tab', 'data-page': entry.id, text: entry.label });
+            tab.addEventListener('click', () => show(entry.id));
+            nav.append(tab);
+            tabs.set(entry.id, tab);
+        }
+        for (const pane of panes) { pane.setAttribute('data-sl-page', pageOf(pane)); body.append(pane); }
+        for (const part of footer) foot.append(part);
+        content.append(layout);
+
+        // The launcher shows and hides its own panels with the hidden attribute or an inline display: follow that.
+        const showing = pane => !pane.hidden && pane.style.display !== 'none';
+        const hasContent = entry => entry.id === 'general' || panes.some(pane => pane.getAttribute('data-sl-page') === entry.id && showing(pane));
+        function show(id) {
+            page = id;
+            const entry = PAGES.find(item => item.id === id);
+            title.textContent = entry.label;
+            for (const pane of panes) pane.classList.toggle('sl-pane-on', pane.getAttribute('data-sl-page') === id);
+            for (const [key, tab] of tabs) tab.classList.toggle('is-active', key === id);
+            foot.hidden = !entry.save;
+            body.scrollTop = 0;
+        }
+        function update() {
+            for (const entry of PAGES) {
+                const tab = tabs.get(entry.id);
+                const want = !hasContent(entry);
+                if (tab.hidden !== want) tab.hidden = want;
+            }
+            if (tabs.get(page).hidden) show('general');
+            const id = SailAPI.getActiveGameId();
+            const game = id ? SailAPI.getGame(id) : null;
+            const cover = id ? SailAPI.getCover(id, 'header') : '';
+            const name = game ? game.name : 'Manage Game';
+            if (nameLine.textContent !== name) nameLine.textContent = name;
+            const wanted = cover || '';
+            if (art.dataset.src !== wanted) { art.dataset.src = wanted; art.style.backgroundImage = wanted ? `url("${wanted.replace(/"/g, '%22')}")` : ''; }
+        }
+        const refresh = frame(update);
+        const watch = new MutationObserver(records => { if (records.some(record => !nav.contains(record.target))) refresh(); });
+        watch.observe(content, { subtree: true, attributes: true, attributeFilter: ['hidden', 'style'] });
+        // A fresh start on the first page each time the dialog opens.
+        let wasOpen = modal.classList.contains('show');
+        const opening = new MutationObserver(() => {
+            const open = modal.classList.contains('show');
+            if (open && !wasOpen) { show('general'); update(); }
+            wasOpen = open;
+        });
+        opening.observe(modal, { attributes: true, attributeFilter: ['class'] });
+        show('general');
+        update();
+
+        return {
+            update,
+            destroy() {
+                watch.disconnect();
+                opening.disconnect();
+                for (const pane of panes) { pane.removeAttribute('data-sl-page'); pane.classList.remove('sl-pane-on'); }
+                // Back in the original order, then the page chrome goes away.
+                for (const kid of kids) content.append(kid);
+                layout.remove();
+            }
+        };
     }
 
     // The gear and its panel stay available whichever layout is on, including Off, so there is always a way back.
