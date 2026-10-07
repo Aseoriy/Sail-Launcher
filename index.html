@@ -7774,6 +7774,7 @@
             openGame: id => { const index = myGames.findIndex(game => String(game.id) === String(id)); if (index >= 0) openGamePage(index); },
             showTab: name => { const button = document.getElementById(sailTabButtons[name]); if (button) button.click(); },
             // Each returns a function that stops listening.
+            getDownloadSummary: () => { const live = ['queued', 'resolving', 'downloading', 'processing', 'extracting', 'installer_running']; let active = 0, total = 0; if (typeof dlQueue === 'undefined') return { active, total }; for (const item of dlQueue.values()) { total++; if (live.includes(item.state)) active++; } return { active, total }; },
             onLibraryChange: callback => { const listener = () => { try { callback(); } catch (e) { console.error(e); } }; sailEvents.addEventListener('library', listener); return () => sailEvents.removeEventListener('library', listener); },
             onNavigate: callback => { const listener = () => { try { callback(); } catch (e) { console.error(e); } }; sailEvents.addEventListener('navigate', listener); return () => sailEvents.removeEventListener('navigate', listener); },
             registerTheme: (themeObj) => {

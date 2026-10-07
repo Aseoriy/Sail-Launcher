@@ -17,32 +17,49 @@ body.sl-steam { --sl-green-a: #75b022; --sl-green-b: #588a1b; --sl-sel: #3d4450;
 body.sl-steam.sl-colors { background: linear-gradient(180deg, #1b2838 0%, #16202d 100%) fixed; }
 body.sl-steam::before, body.sl-steam::after { display: none !important; }
 
-/* ---- Title bar and top tabs ---- */
+/* ---- Title bar: the Sail menu and the top tabs ---- */
 body.sl-steam .custom-titlebar { background: var(--sl-top) !important; backdrop-filter: none !important; border-bottom: 1px solid rgba(0, 0, 0, .55); }
-body.sl-steam .tb-version { display: none; }
-body.sl-steam .tb-brand-name { font-size: 13px; font-weight: 600; letter-spacing: .02em; }
-body.sl-steam .sl-top-nav { display: flex !important; flex-direction: row !important; align-items: stretch; gap: 0; width: auto; padding: 0; margin: 0 0 0 14px; border: 0 !important; background: none !important; box-shadow: none !important; height: 45px; -webkit-app-region: no-drag; }
+body.sl-steam .tb-version, body.sl-steam .tb-brand-name { display: none; }
+body.sl-steam .titlebar-title { min-width: 0; flex: 1 1 auto; overflow: hidden; }
+body.sl-steam .tb-brand { order: -1; flex: none; white-space: nowrap; margin-left: 4px !important; -webkit-app-region: no-drag; }
+body.sl-steam .sl-menu-btn {
+    appearance: none; display: inline-flex; align-items: center; gap: 6px; height: 45px; padding: 0 12px; margin: 0; background: transparent !important; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; transform: none !important;
+    color: #fff !important; font: inherit; font-size: 16px; font-weight: 600; letter-spacing: .01em; text-transform: none; cursor: pointer;
+}
+body.sl-steam .sl-menu-btn:hover, body.sl-steam .sl-menu-btn[aria-expanded="true"] { background: rgba(255, 255, 255, .08) !important; }
+body.sl-steam #topHeaderActionButtonsContainer, body.sl-steam #topHeaderDropdownContainer { display: none !important; }
+body.sl-steam .sl-top-nav { display: flex !important; flex-direction: row !important; align-items: stretch; gap: 0; width: auto; padding: 0; margin: 0 0 0 6px; border: 0 !important; background: none !important; box-shadow: none !important; height: 45px; flex: 0 1 auto; min-width: 0; overflow: hidden; -webkit-app-region: no-drag; }
 body.sl-steam .sl-top-nav .sidebar-kicker { display: none !important; }
 body.sl-steam .sl-top-nav .sidebar-page-link {
-    display: inline-flex; align-items: center; justify-content: center; width: auto; height: 45px; padding: 0 14px; margin: 0;
+    display: inline-flex; align-items: center; justify-content: center; flex: none; width: auto; height: 45px; padding: 0 16px; margin: 0;
     background: transparent !important; border: 0 !important; border-bottom: 2px solid transparent !important; border-radius: 0 !important; box-shadow: none !important; backdrop-filter: none !important; transform: none !important;
-    color: #b8b6b4 !important; font-size: 12.5px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; white-space: nowrap;
+    color: #dcdedf !important; font-size: 16px; font-weight: 700; letter-spacing: .03em; text-transform: uppercase; white-space: nowrap;
 }
-body.sl-steam .sl-top-nav .sidebar-page-link .sidebar-page-icon { display: none; }
-body.sl-steam .sl-top-nav .sidebar-page-link:hover { color: #fff !important; background: rgba(255, 255, 255, .04) !important; }
-body.sl-steam .sl-top-nav .sidebar-page-link.active-tab { color: #fff !important; border-bottom-color: #1a9fff !important; background: transparent !important; }
-
-/* Narrower windows (or other title bar plugins) leave less room: keep the tabs and the window controls on screen. */
-body.sl-steam .tb-brand { flex: none; white-space: nowrap; }
-body.sl-steam .titlebar-title { min-width: 0; flex: 1 1 auto; overflow: hidden; }
-body.sl-steam .sl-top-nav { flex: 0 1 auto; min-width: 0; overflow: hidden; }
+body.sl-steam .sl-top-nav .sidebar-page-link .sidebar-page-icon, body.sl-steam .sl-top-nav .sidebar-page-link .sidebar-page-meta { display: none; }
+body.sl-steam .sl-top-nav .sidebar-page-link { opacity: .9 !important; }
+body.sl-steam .sl-top-nav .sidebar-page-link.active-tab, body.sl-steam .sl-top-nav .sidebar-page-link:hover { opacity: 1 !important; }
+body.sl-steam .sl-top-nav .sidebar-page-link:hover { color: #fff !important; background: rgba(255, 255, 255, .05) !important; }
+body.sl-steam .sl-top-nav .sidebar-page-link.active-tab { color: #1a9fff !important; border-bottom-color: #1a9fff !important; background: transparent !important; }
+body.sl-steam .sl-top-nav .sl-tab-off { display: none !important; }
+body.sl-steam .sl-more {
+    appearance: none; display: inline-grid; place-items: center; flex: none; width: 36px; height: 45px; padding: 0; margin: 0; background: transparent !important; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; transform: none !important;
+    color: #dcdedf !important; cursor: pointer;
+}
+body.sl-steam .sl-more:hover { color: #fff !important; background: rgba(255, 255, 255, .06) !important; }
+body.sl-steam .sl-more[hidden] { display: none; }
 @media (max-width: 1500px) {
-    body.sl-steam .tb-brand-name { display: none; }
-    body.sl-steam .sl-top-nav .sidebar-page-link { padding: 0 10px; font-size: 12px; letter-spacing: .03em; }
+    body.sl-steam .sl-top-nav .sidebar-page-link { padding: 0 12px; font-size: 14.5px; }
 }
 @media (max-width: 1150px) {
-    body.sl-steam .sl-top-nav .sidebar-page-link { padding: 0 7px; font-size: 11px; }
+    body.sl-steam .sl-top-nav .sidebar-page-link { padding: 0 9px; font-size: 13px; letter-spacing: .02em; }
 }
+
+/* The menus: the Sail menu and the tab overflow. They live on the body so nothing clips them. */
+.sl-menu { position: fixed; z-index: 100000; min-width: 220px; padding: 4px 0; background: #3d4450; border: 1px solid #1a1d23; box-shadow: 0 10px 30px rgba(0, 0, 0, .55); border-radius: 2px; font-family: "Motiva Sans", "Segoe UI", "Noto Sans", Arial, sans-serif; }
+.sl-menu[hidden] { display: none; }
+.sl-menu .sl-menu-item { appearance: none; display: block; width: 100%; padding: 8px 20px; background: transparent !important; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; transform: none !important; color: #dcdedf !important; font: inherit; font-size: 14px; font-weight: 400; letter-spacing: 0; text-align: left; text-transform: none; cursor: pointer; }
+.sl-menu .sl-menu-item:hover, .sl-menu .sl-menu-item:focus-visible { background: #1a9fff !important; color: #fff !important; outline: 0; }
+.sl-menu .sl-menu-sep { height: 1px; margin: 4px 0; background: rgba(255, 255, 255, .12); }
 
 /* ---- Left panel becomes the game list ---- */
 body.sl-steam #mainSidebar { display: flex !important; flex-direction: column; overflow: hidden; background: var(--sl-list) !important; backdrop-filter: none !important; border-right: 1px solid rgba(0, 0, 0, .5) !important; box-shadow: none !important; padding: 0 !important; }
@@ -56,9 +73,14 @@ body.sl-steam .sl-panel { order: 1; flex: 1; min-height: 0; display: flex; flex-
 body.sl-steam .sl-foot { order: 4; margin-top: 0; background: rgba(0, 0, 0, .25); }
 .sl-panel-top { display: flex; flex-direction: column; gap: 8px; padding: 10px 8px 8px; }
 body.sl-steam .sl-home {
+    flex: 1;
     appearance: none; display: flex; align-items: center; gap: 9px; width: 100%; padding: 7px 10px; background: transparent !important; border: 0 !important; border-radius: 2px !important; box-shadow: none !important; transform: none !important;
     color: #c6d4df !important; font: inherit; font-size: 14px; font-weight: 500; text-align: left; cursor: pointer; text-transform: none; letter-spacing: 0;
 }
+body.sl-steam .sl-home-row { display: flex; align-items: center; gap: 2px; }
+body.sl-steam .sl-viewtoggle { appearance: none; display: inline-grid; place-items: center; flex: none; width: 30px; height: 30px; padding: 0; background: transparent !important; border: 0 !important; border-radius: 2px !important; box-shadow: none !important; transform: none !important; color: #8f98a0 !important; cursor: pointer; }
+body.sl-steam .sl-viewtoggle:hover { background: rgba(255, 255, 255, .06) !important; color: #fff !important; }
+body.sl-steam .sl-filter { width: 100%; padding: 6px 8px; background: rgba(0, 0, 0, .35) !important; border: 1px solid rgba(255, 255, 255, .06) !important; border-radius: 2px !important; color: #c6d4df !important; font: inherit; font-size: 13px; }
 body.sl-steam .sl-home:hover { background: rgba(255, 255, 255, .06) !important; }
 body.sl-steam .sl-home.is-active { background: var(--sl-sel) !important; color: #fff !important; }
 .sl-search-wrap { position: relative; display: flex; align-items: center; gap: 7px; padding: 0 9px; background: rgba(0, 0, 0, .35); border: 1px solid rgba(255, 255, 255, .06); border-radius: 2px; color: #8f98a0; }
@@ -70,8 +92,8 @@ body.sl-steam .sl-home.is-active { background: var(--sl-sel) !important; color: 
     appearance: none; display: flex; align-items: center; gap: 6px; width: 100%; padding: 8px 12px 4px; background: transparent !important; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; transform: none !important;
     color: #8f98a0 !important; font: inherit; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; text-align: left; cursor: pointer;
 }
-.sl-group svg { transition: transform .2s; }
-.sl-group.is-closed svg { transform: rotate(-90deg); }
+.sl-group .sl-dash { display: inline-block; width: 12px; text-align: center; }
+.sl-group .sl-count { font-weight: 400; opacity: .75; }
 .sl-group:hover { color: #c6d4df !important; }
 .sl-row {
     appearance: none; display: flex; align-items: center; gap: 9px; width: 100%; height: 28px; padding: 0 12px 0 14px; background: transparent !important; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; transform: none !important;
@@ -91,11 +113,10 @@ body.sl-steam:not(.sl-friends) #socialSidebar, body.sl-steam:not(.sl-friends) #s
 
 /* ---- Main area ---- */
 body.sl-steam .main-content-area { background: transparent !important; }
-body.sl-steam #libraryView .header { margin-bottom: 8px; }
-body.sl-steam #topTitle { display: none; }
-body.sl-steam #actionButtonsGroup { margin-left: auto; }
-body.sl-steam #actionButtonsGroup button { padding: 6px 12px; font-size: 12px; border-radius: 2px !important; }
-body.sl-steam .toolbar { padding: 8px 0; }
+body.sl-steam #libraryView .header, body.sl-steam #actionButtonsGroup, body.sl-steam #topTitle { display: none !important; }
+body.sl-steam #continuePlayingCard, body.sl-steam #compatibilitySetupBanner:empty { display: none !important; }
+body.sl-steam #libraryView .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 0 10px; margin: 0; background: none !important; border: 0 !important; box-shadow: none !important; }
+body.sl-steam #libraryView .toolbar label.library-toolbar-control:has(#sortFilter), body.sl-steam #libraryView .toolbar #searchInput, body.sl-steam #libraryView .toolbar .search-bar, body.sl-steam #libraryView .toolbar #libraryResultCount, body.sl-steam #libraryView .toolbar #viewToggleBtn, body.sl-steam #libraryView .toolbar #sortFilter { display: none !important; }
 body.sl-steam .search-bar, body.sl-steam select, body.sl-steam input[type="text"] { border-radius: 2px !important; background: rgba(0, 0, 0, .3); }
 body.sl-steam .continue-card { border-radius: 2px !important; border: 1px solid rgba(255, 255, 255, .08); box-shadow: none !important; }
 body.sl-steam .account-card, body.sl-steam .gp-expandable, body.sl-steam .gp-info-box { border-radius: 2px !important; background: rgba(0, 0, 0, .22) !important; border: 1px solid rgba(255, 255, 255, .06) !important; box-shadow: none !important; }
@@ -135,3 +156,23 @@ body.sl-steam .gp-action-bar > button.outline { height: 34px; padding: 0 10px; f
 body.sl-steam .gp-action-bar > div:empty { flex: 1; }
 body.sl-steam #gpStatusText { font-size: 12px; color: #8f98a0; }
 body.sl-steam .gp-expandable-header { color: #66c0f4; font-size: 13px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+
+/* ---- Home: the recent games shelf ---- */
+.sl-shelf[hidden] { display: none; }
+.sl-shelf { margin: 0 0 18px; }
+.sl-shelf-title, .sl-all-title { margin: 0 0 10px; font-size: 13px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #dcdedf; }
+/* One row only: extra rows collapse to nothing, so a card is never cut in half. */
+.sl-shelf-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); grid-template-rows: auto; grid-auto-rows: 0; gap: 14px; overflow: hidden; }
+.sl-shelf-card { appearance: none; display: flex; flex-direction: column; gap: 5px; min-width: 0; padding: 0; background: transparent !important; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; transform: none !important; color: #c6d4df !important; font: inherit; text-align: left; text-transform: none; letter-spacing: 0; cursor: pointer; }
+.sl-shelf-when { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #8f98a0; }
+.sl-shelf-art { position: relative; display: block; aspect-ratio: 460 / 215; overflow: hidden; background: #0e141b; border: 1px solid rgba(255, 255, 255, .06); border-radius: 2px; transition: transform .18s ease, box-shadow .18s ease; }
+.sl-shelf-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.sl-shelf-letter { display: grid; place-items: center; height: 100%; font-size: 40px; font-weight: 700; color: #3d4450; }
+.sl-shelf-card:hover .sl-shelf-art, .sl-shelf-card:focus-visible .sl-shelf-art { transform: scale(1.025); box-shadow: 0 8px 24px rgba(0, 0, 0, .55); }
+.sl-shelf-card b { font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---- Bottom bar ---- */
+body.sl-steam .sl-bottom { display: flex; align-items: center; flex: none; height: 32px; padding: 0 10px; background: var(--sl-top); border-top: 1px solid rgba(0, 0, 0, .55); font-size: 12.5px; }
+body.sl-steam .sl-bottom .sl-spacer { flex: 1; }
+body.sl-steam .sl-bottom-btn { appearance: none; display: inline-flex; align-items: center; gap: 7px; height: 26px; padding: 0 10px; background: transparent !important; border: 0 !important; border-radius: 2px !important; box-shadow: none !important; transform: none !important; color: #8f98a0 !important; font: inherit; font-size: 12.5px; font-weight: 500; letter-spacing: 0; text-transform: none; cursor: pointer; }
+body.sl-steam .sl-bottom-btn:hover { color: #fff !important; background: rgba(255, 255, 255, .06) !important; }
