@@ -85,7 +85,7 @@ const NUMBER_SETTING_RULES = Object.freeze({
 
 const ENUM_SETTING_RULES = Object.freeze({
     language: new Set(['english', 'spanish', 'french', 'german', 'japanese', 'koreana', 'schinese']),
-    tileShape: new Set(['default', 'square', 'rounded', 'circle', 'wide']),
+    tileShape: new Set(['default', 'square', 'rounded', 'circle', 'wide', 'squircle', 'pill']),
     tileSize: new Set(['small', 'medium', 'large']),
     friendsBarSide: new Set(['left', 'right']),
     mainSidebarSide: new Set(['left', 'right']),

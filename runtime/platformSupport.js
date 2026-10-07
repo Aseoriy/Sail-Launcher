@@ -12,7 +12,7 @@ const LOCAL_HANDLES = new Set([
     'profiles-update', 'profiles-delete', 'profiles-unlock', 'profiles-switch',
     'profiles-create-library', 'profiles-switch-library', 'profiles-create-preset',
     'profiles-switch-preset', 'authority-get-game-status',
-    'downloaded-game-uninstall-status', 'authority-get-device-root-status'
+    'downloaded-game-uninstall-status', 'authority-get-device-root-status', 'onboarding-state', 'onboarding-finish'
 ]);
 const LOCAL_EVENTS = new Set([
     'set-exit-behavior', 'set-devtools-setting', 'window-min',

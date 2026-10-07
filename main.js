@@ -118,6 +118,7 @@ const {
     verificationNeedsAttention
 } = require('./runtime/systemBrowserResolver');
 const { downloadInSystemBrowser } = require('./runtime/systemBrowserDownload');
+const { createOnboardingState } = require('./runtime/onboardingState');
 const DownloadSourceLogic = require('./ui/downloadSourceLogic');
 const DownloadSizeLogic = require('./ui/downloadSizeLogic');
 const { DebridRetryLinkStore, debridRetryRequestKey } = require('./runtime/debridRetryLinks');
@@ -1148,6 +1149,18 @@ ipcMain.on('restart-app', () => {
 
 ipcMain.handle('get-user-data', () => app.getPath('userData'));
 ipcMain.handle('get-auto-launch', () => desktopActivation.rendererReady());
+
+// First-run setup (Linux only for now). The result is remembered per device, outside the synced settings.
+const onboardingState = createOnboardingState({
+    file: path.join(app.getPath('userData'), 'runtime', 'onboarding.json'),
+    force: args.includes('--onboarding') || process.env.SAIL_ONBOARDING === '1'
+});
+ipcMain.handle('onboarding-state', () => onboardingState.status());
+ipcMain.handle('onboarding-finish', (_event, payload) => {
+    const input = exactGateAPayload(payload, ['skipped'], 'Setup result');
+    if (typeof input.skipped !== 'boolean') throw new Error('The setup result is invalid.');
+    return onboardingState.finish({ skipped: input.skipped });
+});
 
 ipcMain.handle('search-steam-workshop', async (e, payload) => {
     const input = exactGateAPayload(payload, ['gameId', 'steamAppId', 'query', 'page'], 'Steam Workshop search');

@@ -6,6 +6,7 @@
     <link rel="stylesheet" href="maintenance/maintenance.css">
     <link rel="stylesheet" href="ui/achievements.css">
     <link rel="stylesheet" href="ui/launchStatus.css">
+    <link rel="stylesheet" href="ui/onboarding.css">
     <style>
         :root {
             --bg-color: #09090b;
@@ -5719,6 +5720,11 @@
             </div>
 
             <div id="tab-appearance" class="settings-pane active">
+                <div class="account-card" id="setupAgainCard" style="margin-bottom:16px;display:none;">
+                    <h3>First-time setup</h3>
+                    <p>Pick a theme, card layout and a few defaults again.</p>
+                    <button class="outline" id="runSetupAgainBtn" hidden>Run setup again</button>
+                </div>
                 <div class="account-card" style="margin-bottom:16px;">
                     <h3>Motion</h3>
                     <p>Reduce decorative movement or adjust how quickly Sail animations play.</p>
@@ -7059,6 +7065,21 @@
             open: () => { openModal('settingsModal'); window.switchSettingsTab('compatibility'); }
         });
         document.getElementById('manageCompatibilityBtn').onclick = () => compatibilityManager.show().catch(error => platformAvailability.notice(error.message));
+        // First-run setup (Linux only while it is being tuned).
+        const onboarding = process.platform === 'linux' ? require('./ui/onboarding').installOnboarding({
+            document, ipc: ipcRenderer, invoke: invokeAccount,
+            hooks: {
+                libraryChanged: result => { applyLauncherSnapshot(result); if (localProfileLoaded) renderGames(); },
+                addGame: () => { const button = document.getElementById('addGameBtn'); if (button) button.click(); },
+                closed: () => schedulePrewarmSettingsPage()
+            }
+        }) : null;
+        function startOnboarding() {
+            if (!onboarding) return;
+            // Let the start-up animation finish before covering the launcher.
+            setTimeout(() => onboarding.maybeOpen().catch(error => console.error('Setup could not start:', error)), 650);
+        }
+        { const again = document.getElementById('runSetupAgainBtn'); const card = document.getElementById('setupAgainCard'); if (card && onboarding) card.style.display = ''; if (again) { again.hidden = !onboarding; if (onboarding) again.addEventListener('click', () => { closeModal('settingsModal'); setTimeout(() => onboarding.open({ rerun: true }), 380); }); } }
         const protonFirstLaunchUi = require('./ui/protonFirstLaunch').createProtonFirstLaunch({
             invoke: invokeAccount, getScope: () => currentRuntimeLibraryKey(),
             getSetup: gameId => invokeAccount('authority-get-native-setup', { gameId }),
@@ -19220,7 +19241,7 @@
         // the first click. Do it once, invisibly, while the launcher is idle after start-up.
         function prewarmSettingsPage() {
             const modal = document.getElementById('settingsModal');
-            if (!modal || document.visibilityState !== 'visible' || document.querySelector('.modal.show')) return;
+            if (!modal || document.visibilityState !== 'visible' || document.querySelector('.modal.show') || document.body.classList.contains('onboarding-open')) return;
             const inlineStyle = modal.getAttribute('style');
             const finish = () => {
                 document.removeEventListener('pointerdown', finish, true);
@@ -19254,7 +19275,7 @@
                 await desktopProtocol.initialize();
             })
             .catch(error => { console.error('Launcher initialization failed:', error); platformAvailability.notice('Launcher initialization failed. See the development log.'); })
-            .finally(() => { finishStartupExperience(); schedulePrewarmSettingsPage(); });
+            .finally(() => { finishStartupExperience(); schedulePrewarmSettingsPage(); startOnboarding(); });
     </script>
 
     <!-- ============================================================
