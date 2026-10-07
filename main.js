@@ -2389,9 +2389,13 @@ ipcMain.on('move-to-display-fullscreen', (e, displayId) => {
 registerLocalDesktopIpc({ ipcMain, dialog, shell, BrowserWindow });
 
 // --- Plugin Manager IPC Handlers ---
+// Archives the person just chose in the file picker may be unpacked even though they live outside Sail's folders.
+const pickedArchives = new Map();
 ipcMain.handle('open-file-dialog', async (e, opts) => {
     const r = await dialog.showOpenDialog({ title: opts.title, properties: ['openFile'], filters: opts.filters || [] });
-    return r.canceled ? null : r.filePaths[0];
+    if (r.canceled) return null;
+    try { pickedArchives.set(fs.realpathSync(r.filePaths[0]), Date.now() + 10 * 60 * 1000); } catch (_) { /* Not remembered; it simply cannot be unpacked. */ }
+    return r.filePaths[0];
 });
 ipcMain.handle('save-file-dialog', async (e, opts) => {
     const r = await dialog.showSaveDialog({ title: opts.title, defaultPath: opts.defaultPath, filters: opts.filters || [] });
@@ -2407,14 +2411,25 @@ function assertSailArchivePath(...targets) {
         if (!roots.some(root => parent === root || parent.startsWith(root + path.sep))) throw new Error('Archives can only be handled inside Sail\'s own folders.');
     }
 }
+// The archive itself may be one the person picked; wherever it is unpacked must stay inside Sail's folders.
+function assertArchiveSource(source) {
+    if (process.platform !== 'linux') return;
+    try {
+        const real = fs.realpathSync(path.resolve(String(source || '')));
+        if ((pickedArchives.get(real) || 0) > Date.now()) return;
+    } catch (_) { /* Falls through to the folder check. */ }
+    assertSailArchivePath(source);
+}
 ipcMain.handle('extract-zip', async (e, { zipPath, destPath }) => {
-    assertSailArchivePath(zipPath, destPath);
+    assertArchiveSource(zipPath);
+    assertSailArchivePath(destPath);
     await extractArchive(zipPath, destPath);
     return true;
 });
 
 ipcMain.handle('extract-rar', async (e, { rarPath, destPath }) => {
-    assertSailArchivePath(rarPath, destPath);
+    assertArchiveSource(rarPath);
+    assertSailArchivePath(destPath);
     try {
         if (!fs.existsSync(destPath)) {
             fs.mkdirSync(destPath, { recursive: true });
@@ -2430,7 +2445,8 @@ ipcMain.handle('extract-rar', async (e, { rarPath, destPath }) => {
 });
 
 ipcMain.handle('extract-7z', async (e, { archivePath, destPath }) => {
-    assertSailArchivePath(archivePath, destPath);
+    assertArchiveSource(archivePath);
+    assertSailArchivePath(destPath);
     return new Promise((resolve, reject) => {
         _7z.unpack(archivePath, destPath, (err) => {
             if (err) reject(err);
