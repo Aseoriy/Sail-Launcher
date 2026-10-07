@@ -221,7 +221,7 @@ body .ob-root button:not(#obReset) {
 .ob-motion-dot { position: absolute; top: 9px; left: 10px; width: 16px; height: 16px; border-radius: 50%; background: var(--accent); }
 .ob-motion-card[data-mode="full"] .ob-motion-dot { animation: obDotFull 2.6s var(--ob-ease) infinite alternate; }
 .ob-motion-card[data-mode="calm"] .ob-motion-dot { animation: obDotCalm 1.6s ease-out infinite alternate; }
-@keyframes obDotFull { 0% { transform: translateX(0) scale(1); } 45% { transform: translateX(150px) scale(1.25, .8); } 70% { transform: translateX(190px) scale(.9); } 100% { transform: translateX(210px) scale(1); } }
+@keyframes obDotFull { 0% { transform: translateX(0) scale(1); } 45% { transform: translateX(96px) scale(1.25, .8); } 70% { transform: translateX(118px) scale(.9); } 100% { transform: translateX(126px) scale(1); } }
 @keyframes obDotCalm { from { opacity: .35; } to { opacity: 1; } }
 .ob-speed { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 14px; }
 .ob-speed output { font-variant-numeric: tabular-nums; font-size: 13px; font-weight: 700; min-width: 3.4ch; text-align: right; }
@@ -271,19 +271,24 @@ body .ob-root button:not(#obReset) {
 .ob-mock-body { display: grid; grid-template-columns: 150px 1fr auto; min-height: 0; }
 .ob-mock-side { padding: 12px 8px; border-right: 1px solid var(--ob-line); display: flex; flex-direction: column; gap: 3px; background: color-mix(in srgb, #000 14%, var(--bg-color)); }
 .ob-mock-nav { display: flex; align-items: center; gap: 8px; padding: 7px 9px; border-radius: 7px; color: var(--ob-muted); font-weight: 600; transition: opacity .3s, max-height .35s var(--ob-ease), padding .35s var(--ob-ease), margin .35s; max-height: 34px; overflow: hidden; }
-.ob-mock-nav i { width: 11px; height: 11px; border-radius: 3px; background: currentColor; opacity: .55; flex: none; }
+.ob-mock .app-ic { font-size: 13px; width: 14px; height: 14px; flex: none; opacity: .8; }
+.ob-mock .app-ic svg { width: 13px; height: 13px; }
 .ob-mock-nav.is-active { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--text-color); }
-.ob-mock-nav.is-active i { background: var(--accent); opacity: 1; }
+.ob-mock-nav.is-active .app-ic { color: var(--accent); opacity: 1; }
 .ob-mock-nav.is-off { opacity: 0; max-height: 0; padding-top: 0; padding-bottom: 0; }
 .ob-mock-main { padding: 14px 16px; min-width: 0; overflow: hidden; display: flex; flex-direction: column; gap: 10px; }
 .ob-mock-title { flex: none; font-size: 15px; font-weight: 700; letter-spacing: -.01em; color: var(--text-color); }
 .ob-mock-hero { flex: none; position: relative; border-radius: 10px; padding: 12px 14px; min-height: 66px; overflow: hidden; background: linear-gradient(100deg, rgba(6, 6, 10, .88) 24%, rgba(6, 6, 10, .3) 70%, transparent), linear-gradient(135deg, hsl(262 60% 45%), hsl(200 70% 38%)); color: #fff; transition: opacity .35s, max-height .45s var(--ob-ease), padding .45s var(--ob-ease), margin .45s; max-height: 90px; }
 .ob-mock-hero small { display: block; color: var(--accent); font-weight: 700; letter-spacing: .1em; font-size: 8.5px; text-transform: uppercase; margin-bottom: 3px; }
 .ob-mock-hero b { font-size: 15px; display: block; }
-.ob-mock-hero span { display: inline-block; margin-top: 6px; padding: 4px 10px; border-radius: 6px; background: var(--accent); color: var(--ob-on-accent); font-weight: 700; font-size: 10px; }
+.ob-mock-hero span { display: inline-flex; align-items: center; gap: 4px; margin-top: 6px; padding: 4px 10px; border-radius: 6px; background: var(--accent); color: var(--ob-on-accent); font-weight: 700; font-size: 10px; }
 .ob-mock-hero.is-off { opacity: 0; max-height: 0; padding-top: 0; padding-bottom: 0; min-height: 0; margin-top: -10px; }
 .ob-mock-grid { display: grid; gap: 10px; grid-template-columns: repeat(var(--cols, 3), minmax(0, 1fr)); align-content: start; transition: gap .3s; }
-.ob-game { position: relative; border-radius: var(--ob-radius, 12px); overflow: hidden; background: var(--card-bg); border: 1px solid var(--ob-line); animation: obGameIn .6s var(--ob-ease) both; animation-delay: calc(var(--n) * 50ms + 250ms); transition: border-radius .35s var(--ob-ease); }
+.ob-game { position: relative; border-radius: var(--ob-radius, 12px); overflow: hidden; background: var(--card-bg); border: 1px solid var(--ob-line); transition: border-radius .35s var(--ob-ease), transform .3s var(--ob-ease), box-shadow .3s; }
+.ob-mock-grid.is-replay .ob-game { animation: obGameIn .6s var(--ob-ease) backwards; animation-delay: calc(var(--n) * 50ms + 120ms); }
+body:not(.less-animations) .ob-game:hover { transform: translateY(-4px); box-shadow: 0 12px 22px -12px rgba(0, 0, 0, .7); }
+.ob-mock[data-fav="first"] .ob-game.is-fav { order: -1; }
+.ob-star { position: absolute; top: 6px; right: 7px; z-index: 2; color: #facc15; font-size: 13px; line-height: 1; text-shadow: 0 1px 3px rgba(0, 0, 0, .6); }
 @keyframes obGameIn { from { opacity: 0; transform: translateY(12px) scale(.96); } to { opacity: 1; transform: none; } }
 .ob-cover { position: relative; display: block; width: 100%; aspect-ratio: var(--ob-cover, 16 / 9); background: linear-gradient(160deg, hsl(var(--h) 72% 56%), hsl(calc(var(--h) + 46) 62% 26%)); overflow: hidden; transition: aspect-ratio .4s var(--ob-ease); }
 .ob-cover::before { content: ""; position: absolute; left: -10%; right: -10%; bottom: 0; height: 52%; background: hsl(calc(var(--h) + 30) 55% 16% / .7); clip-path: polygon(0 100%, 0 62%, 22% 28%, 38% 54%, 58% 12%, 80% 50%, 100% 30%, 100% 100%); }
@@ -308,19 +313,23 @@ body .ob-root button:not(#obReset) {
 .ob-mock-friends b { display: block; color: var(--accent); margin-bottom: 8px; font-size: 12px; }
 .ob-mock-friends span { display: block; font-weight: 500; font-size: 10px; color: var(--ob-faint); }
 .ob-mock.is-glass .ob-game, .ob-mock.is-glass .ob-mock-side, .ob-mock.is-glass .ob-mock-friends { background: color-mix(in srgb, var(--card-bg) 40%, transparent); backdrop-filter: blur(14px) saturate(160%); border-color: color-mix(in srgb, var(--text-color) 12%, transparent); }
+.ob-desktop { position: absolute; inset: -22px; border-radius: 30px; overflow: hidden; background: linear-gradient(165deg, #1e3a8a 0%, #7c3aed 52%, #db2777 100%); box-shadow: 0 30px 60px -28px rgba(0, 0, 0, .6); }
+.ob-desktop::before { content: ""; position: absolute; left: -5%; right: -5%; bottom: 0; height: 46%; background: rgba(15, 10, 40, .55); clip-path: polygon(0 100%, 0 56%, 16% 24%, 30% 50%, 50% 8%, 70% 46%, 86% 22%, 100% 48%, 100% 100%); }
+.ob-desktop::after { content: ""; position: absolute; width: 90px; height: 90px; right: 14%; top: 10%; border-radius: 50%; background: rgba(255, 226, 190, .85); }
+.ob-mock[data-window="see-through"] { background: color-mix(in srgb, var(--bg-color) var(--ob-opacity, 40%), transparent); backdrop-filter: blur(18px) saturate(150%); transition: background-color .35s; }
+.ob-mock[data-window="see-through"] .ob-mock-bar { background: color-mix(in srgb, #000 22%, transparent); }
 .ob-mock.is-glass { background: radial-gradient(ellipse 70% 60% at 25% 0%, color-mix(in srgb, var(--accent) 24%, transparent), transparent 70%), radial-gradient(ellipse 60% 55% at 100% 100%, color-mix(in srgb, var(--accent) 16%, transparent), transparent 70%), var(--bg-color); }
+.ob-mock.is-glass[data-window="see-through"] { background: radial-gradient(ellipse 70% 60% at 25% 0%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 70%), color-mix(in srgb, var(--bg-color) var(--ob-opacity, 40%), transparent); }
 
 /* Colours glide to the new theme instead of snapping. */
 .ob-root, .ob-mock, .ob-mock-bar, .ob-mock-side, .ob-mock-friends, .ob-game, .ob-card, .ob-pick, .ob-motion-card, .ob-seg, .ob-row, .ob-title, .ob-eyebrow, .ob-lede { transition-property: background-color, border-color, color, box-shadow; transition-duration: .5s; transition-timing-function: ease; }
-.ob-mock.is-ping { animation: obPing .5s var(--ob-ease); }
-@keyframes obPing { 0% { transform: scale(1); } 35% { transform: scale(1.012); } 100% { transform: scale(1); } }
 
 /* Less animations: keep the layout, drop the flourishes. */
 body.less-animations .ob-hero-mark img, body.less-animations .ob-wave, body.less-animations .ob-sparks i, body.less-animations .ob-motion-card[data-mode="full"] .ob-motion-dot { animation: none; }
 body.less-animations .ob-sparks { display: none; }
 body.less-animations .ob-step.is-in, body.less-animations .ob-step.is-in > .ob-rise { animation-duration: .2s; animation-delay: 0s; }
 body.less-animations .ob-tilt { transition: none; }
-body.less-animations .ob-mock.is-ping { animation: none; }
+body.less-animations .ob-mock-grid.is-replay .ob-game { animation-duration: .22s; animation-delay: 0s; }
 
 /* Narrow windows: setup stays usable without the preview. */
 @media (max-width: 960px) {
@@ -333,3 +342,20 @@ body.less-animations .ob-mock.is-ping { animation: none; }
     .ob-lede { margin-bottom: 16px; }
     .ob-block { margin-bottom: 16px; }
 }
+
+/* Short notices acted out inside the preview */
+.ob-mock-callout { position: absolute; right: 14px; bottom: 14px; z-index: 5; display: flex; align-items: center; gap: 10px; padding: 10px 14px 10px 10px; min-width: 190px; border-radius: 12px; background: color-mix(in srgb, var(--card-bg) 92%, #000); border: 1px solid var(--ob-line); box-shadow: 0 14px 30px -12px rgba(0, 0, 0, .7); opacity: 0; transform: translateX(28px) scale(.97); transition: opacity .3s, transform .5s var(--ob-ease); pointer-events: none; }
+.ob-mock-callout.is-on { opacity: 1; transform: none; }
+.ob-callout-icon { width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; background: color-mix(in srgb, var(--accent) 20%, transparent); color: var(--accent); }
+.ob-callout-icon .app-ic { font-size: 16px; width: 16px; height: 16px; opacity: 1; }
+.ob-callout-icon .app-ic svg { width: 16px; height: 16px; }
+.ob-mock-callout b { display: block; font-size: 11.5px; color: var(--text-color); }
+.ob-mock-callout span { display: block; font-size: 10px; color: var(--ob-faint); margin-top: 1px; }
+
+/* Collapsible group (transparency only matters with glass on) */
+.ob-collapse { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .45s var(--ob-ease), opacity .3s; opacity: 0; }
+.ob-collapse[data-open="true"] { grid-template-rows: 1fr; opacity: 1; }
+.ob-collapse > div { overflow: hidden; min-height: 0; }
+.ob-speed[data-off="true"] { opacity: .4; }
+.ob-row .ob-speed { margin-top: 10px; width: 100%; }
+.ob-row-text { flex: 1; }

@@ -1156,6 +1156,7 @@ const onboardingState = createOnboardingState({
     force: args.includes('--onboarding') || process.env.SAIL_ONBOARDING === '1'
 });
 ipcMain.handle('onboarding-state', () => onboardingState.status());
+ipcMain.handle('onboarding-hide-rerun', () => onboardingState.hideRerun());
 ipcMain.handle('onboarding-finish', (_event, payload) => {
     const input = exactGateAPayload(payload, ['skipped'], 'Setup result');
     if (typeof input.skipped !== 'boolean') throw new Error('The setup result is invalid.');

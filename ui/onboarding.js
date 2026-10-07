@@ -23,6 +23,8 @@ const THEMES = [
 const CONTROLS = {
     theme: { id: 'themeSelect' },
     glass: { id: 'legacyUiToggle', invert: true },
+    translucent: { id: 'disableTranslucencyToggle', invert: true },
+    glassOpacity: { id: 'glassOpacitySlider', range: true },
     emojiIcons: { id: 'emojiIconsToggle' },
     tileSize: { id: 'tileSizeSelect' },
     tileShape: { id: 'tileShapeSelect' },
@@ -57,10 +59,19 @@ const SETUP_STEPS = [
     { id: 'games', tab: 'Games', eyebrow: 'Games', title: 'Get your games in', lede: 'Sail can run Windows games on Linux and pick up games you already have.' }
 ];
 
+// The last one is a favorite, so "Favorites first" has something to move.
 const SAMPLE_GAMES = [
-    ['Starfall', 'Adventure', 262], ['Hollow Pines', 'Survival', 148], ['Rally Dust', 'Racing', 24],
-    ['Neon Quarter', 'Action', 318], ['Tidebreak', 'Puzzle', 196], ['Paper Kingdom', 'Strategy', 42]
+    ['Hollow Pines', 'Survival', 148], ['Neon Quarter', 'Action', 318], ['Paper Kingdom', 'Strategy', 42],
+    ['Rally Dust', 'Racing', 24], ['Starfall', 'Adventure', 262], ['Tidebreak', 'Puzzle', 196]
 ];
+const FAVORITE_GAME = 'Tidebreak';
+
+// Short notices the preview can act out for settings that have no visible control of their own.
+const DEMOS = {
+    achievement: { icon: 'trophy', title: 'Achievement unlocked', sub: 'First Blood' },
+    discord: { icon: 'gamepad', title: 'Playing Starfall', sub: 'Shown on your Discord profile' },
+    autostart: { icon: 'rocket', title: 'Sail is running', sub: 'Opened when you logged in' }
+};
 
 function h(document, tag, props = {}, children = []) {
     const node = document.createElement(tag);
@@ -144,6 +155,8 @@ function readModel(document) {
     return {
         theme: readSetting(document, 'theme') || 'theme-midnight',
         glass: readSetting(document, 'glass') !== false,
+        translucent: readSetting(document, 'translucent') !== false,
+        glassOpacity: Math.max(5, Math.min(90, Number(readSetting(document, 'glassOpacity')) || 40)),
         emojiIcons: readSetting(document, 'emojiIcons') === true,
         tileSize: readSetting(document, 'tileSize') || 'medium',
         tileShape: ['square', 'squircle'].includes(readSetting(document, 'tileShape')) ? readSetting(document, 'tileShape') : 'default',
@@ -200,6 +213,7 @@ function describeChoices(model, extras = {}) {
     const items = [
         theme ? theme.name : 'Custom theme',
         model.glass ? 'Glass effects' : 'Flat surfaces',
+        model.glass ? (model.translucent ? `${100 - model.glassOpacity}% transparent window` : 'Solid window') : null,
         model.emojiIcons ? 'Emoji icons' : 'Line icons',
         `${cards}, ${model.tileSize}, ${corners}`,
         model.lessAnimations ? 'Calm motion' : 'Full motion'
@@ -209,7 +223,7 @@ function describeChoices(model, extras = {}) {
     if (hidden.length) items.push(`Hidden: ${hidden.join(', ')}`);
     if (extras.windowsGames === 'ready') items.push('Windows games ready');
     if (extras.steamAdded > 0) items.push(`${extras.steamAdded} Steam game${extras.steamAdded === 1 ? '' : 's'} added`);
-    return items;
+    return items.filter(Boolean);
 }
 
 // ---- Reusable controls -----------------------------------------------------------------
@@ -294,51 +308,91 @@ function pickGroup(document, { label, options, value, onChange }) {
 
 // ---- Live preview --------------------------------------------------------------------------
 
-function buildPreview(document, logoUrl) {
-    const nav = [['library', 'Library'], ['pageMods', 'Mods'], ['pageWorkshop', 'Workshop'], ['pageDownloads', 'Game Downloads'], ['pageManager', 'Downloads'], ['achievements', 'Achievements']];
-    const navItems = nav.map(([key, label], index) => h(document, 'div', { class: `ob-mock-nav${index === 0 ? ' is-active' : ''}`, 'data-page': key }, [h(document, 'i'), label]));
-    const hero = h(document, 'div', { class: 'ob-mock-hero' }, [h(document, 'small', { text: 'Continue playing' }), h(document, 'b', { text: 'Starfall' }), h(document, 'span', { text: 'Play' })]);
+function buildPreview(document, window, logoUrl) {
+    // Icons are the launcher's own, so they follow the Line icons / Emoji switch exactly as the real app does.
+    const icon = name => {
+        const node = h(document, 'span', { class: 'app-ic', 'data-ic': name, 'aria-hidden': 'true' });
+        if (typeof window.paintIcons === 'function') window.paintIcons(node);
+        return node;
+    };
+    const nav = [['library', 'Library', 'book'], ['pageMods', 'Mods', 'puzzle'], ['pageWorkshop', 'Workshop', 'wrench'], ['pageDownloads', 'Game Downloads', 'download'], ['pageManager', 'Downloads', 'inbox'], ['achievements', 'Achievements', 'trophy']];
+    const navItems = nav.map(([key, label, name], index) => h(document, 'div', { class: `ob-mock-nav${index === 0 ? ' is-active' : ''}`, 'data-page': key }, [icon(name), label]));
+    const hero = h(document, 'div', { class: 'ob-mock-hero' }, [h(document, 'small', { text: 'Continue playing' }), h(document, 'b', { text: 'Starfall' }), h(document, 'span', {}, [icon('play'), ' Play'])]);
     const games = SAMPLE_GAMES.map(([name, genre, hue], index) => {
-        const card = h(document, 'div', { class: 'ob-game' }, [
+        const favorite = name === FAVORITE_GAME;
+        const card = h(document, 'div', { class: `ob-game${favorite ? ' is-fav' : ''}` }, [
             h(document, 'span', { class: 'ob-cover' }),
+            favorite ? h(document, 'span', { class: 'ob-star', text: '★' }) : null,
             h(document, 'span', { class: 'ob-game-name' }, [name, h(document, 'small', { text: genre })])
         ]);
         card.style.setProperty('--h', String(hue));
         card.style.setProperty('--n', String(index));
         return card;
     });
-    const grid = h(document, 'div', { class: 'ob-mock-grid' }, games);
+    const grid = h(document, 'div', { class: 'ob-mock-grid is-replay' }, games);
     const friends = h(document, 'div', { class: 'ob-mock-friends' }, [h(document, 'b', { text: 'Friends' }), h(document, 'span', { text: 'No one online' })]);
+    const calloutIcon = h(document, 'span', { class: 'ob-callout-icon' });
+    const calloutTitle = h(document, 'b'), calloutSub = h(document, 'span');
+    const callout = h(document, 'div', { class: 'ob-mock-callout', 'aria-hidden': 'true' }, [calloutIcon, h(document, 'div', {}, [calloutTitle, calloutSub])]);
     const mock = h(document, 'div', { class: 'ob-mock', 'aria-hidden': 'true' }, [
         h(document, 'div', { class: 'ob-mock-bar' }, [h(document, 'img', { src: logoUrl, alt: '' }), 'Sail Launcher', h(document, 'span', { class: 'grow' }), h(document, 'span', { class: 'win' }, [h(document, 'i'), h(document, 'i'), h(document, 'i')])]),
         h(document, 'div', { class: 'ob-mock-body' }, [
             h(document, 'div', { class: 'ob-mock-side' }, navItems),
             h(document, 'div', { class: 'ob-mock-main' }, [h(document, 'div', { class: 'ob-mock-title', text: 'Library' }), hero, grid]),
             friends
-        ])
+        ]),
+        callout
     ]);
-    const tilt = h(document, 'div', { class: 'ob-tilt' }, [mock]);
+    // A stand-in wallpaper, so a see-through window has something to show.
+    const desktop = h(document, 'div', { class: 'ob-desktop', 'aria-hidden': 'true' });
+    const tilt = h(document, 'div', { class: 'ob-tilt' }, [desktop, mock]);
     const scale = h(document, 'div', { class: 'ob-scale' }, [tilt]);
     const fit = h(document, 'div', { class: 'ob-fit' }, [scale]);
+
+    let favoriteOrder = null;
     function update(model) {
         mock.dataset.style = model.cardStyle;
         mock.dataset.size = model.tileSize;
         mock.dataset.shape = model.tileShape;
+        mock.dataset.window = model.glass && model.translucent ? 'see-through' : 'solid';
+        mock.style.setProperty('--ob-opacity', `${model.glassOpacity}%`);
         mock.classList.toggle('is-glass', model.glass);
         hero.classList.toggle('is-off', !model.continuePlaying);
         friends.classList.toggle('is-off', !model.pages.friends);
         for (const item of navItems) if (item.dataset.page in model.pages) item.classList.toggle('is-off', !model.pages[item.dataset.page]);
+        const order = model.favoritesFirst ? 'first' : 'off';
+        if (favoriteOrder !== null && favoriteOrder !== order) {
+            // Slide the cards to their new places instead of snapping.
+            const before = games.map(card => [card.offsetLeft, card.offsetTop]);
+            mock.dataset.fav = order;
+            games.forEach((card, i) => {
+                const dx = before[i][0] - card.offsetLeft, dy = before[i][1] - card.offsetTop;
+                if ((dx || dy) && typeof card.animate === 'function') card.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }], { duration: 420, easing: 'cubic-bezier(.16, 1, .3, 1)' });
+            });
+        } else mock.dataset.fav = order;
+        favoriteOrder = order;
     }
-    let pingTimer = 0;
-    // A small pulse so a change is easy to notice in the preview.
-    function ping() {
-        mock.classList.remove('is-ping');
-        void mock.offsetWidth;
-        mock.classList.add('is-ping');
-        clearTimeout(pingTimer);
-        pingTimer = setTimeout(() => mock.classList.remove('is-ping'), 520);
+    // Plays the cards' entrance again, so Full or Calm, and the speed, can be seen rather than imagined.
+    function replay() {
+        grid.classList.remove('is-replay');
+        void grid.offsetWidth;
+        grid.classList.add('is-replay');
     }
-    return { element: fit, tilt, update, ping };
+    let demoTimer = 0;
+    // Acts out a notice (achievement, Discord status, start at login) for a moment.
+    function demo(kind) {
+        const spec = DEMOS[kind];
+        if (!spec) return;
+        calloutIcon.replaceChildren(icon(spec.icon));
+        calloutTitle.textContent = spec.title;
+        calloutSub.textContent = spec.sub;
+        callout.classList.remove('is-on');
+        void callout.offsetWidth;
+        callout.classList.add('is-on');
+        clearTimeout(demoTimer);
+        demoTimer = setTimeout(() => callout.classList.remove('is-on'), 3200);
+    }
+    return { element: fit, tilt, update, replay, demo };
 }
 
 // ---- The setup screen ----------------------------------------------------------------
@@ -379,7 +433,7 @@ function installOnboarding({ document, window = document.defaultView, ipc, invok
             wave('w2', 'M0 100 C 180 60 360 60 540 100 S 900 140 1080 100 S 1440 60 1620 100 S 1980 140 2160 100 S 2520 60 2700 100 S 2880 100 2880 100 V170 H0Z'),
             wave('w1', 'M0 110 C 240 70 480 70 720 110 S 1200 150 1440 110 S 1920 70 2160 110 S 2640 150 2880 110 V170 H0Z')
         ]);
-        const preview = buildPreview(document, logoUrl);
+        const preview = buildPreview(document, window, logoUrl);
         const stage = h(document, 'div', { class: 'ob-stage' });
         const nav = h(document, 'div', { class: 'ob-nav' });
         const tabs = h(document, 'div', { class: 'ob-tabs', role: 'tablist', 'aria-label': 'Setup steps' });
@@ -401,7 +455,6 @@ function installOnboarding({ document, window = document.defaultView, ipc, invok
         }
         function refresh() {
             preview.update(readModel(document));
-            preview.ping();
             window.requestAnimationFrame(syncAccent);
         }
         function change(key, value) { writeSetting(document, key, value); refresh(); }
@@ -480,9 +533,18 @@ function installOnboarding({ document, window = document.defaultView, ipc, invok
             const known = THEMES.some(theme => theme.id === model.theme);
             setRadioState(buttons, model.theme, b => b.dataset.value);
             if (!known) buttons.forEach(b => { b.tabIndex = 0; });
-            const glass = switchRow(document, { title: 'Glass effects', sub: 'Frosted, see-through panels. Turn this off for flat surfaces that are a little lighter on your GPU.', checked: model.glass, onChange: value => change('glass', value) });
+            // Window transparency only applies while glass effects are on.
+            const transparency = h(document, 'div', { class: 'ob-collapse', 'data-open': model.glass ? 'true' : 'false' });
+            const glass = switchRow(document, { title: 'Glass effects', sub: 'Frosted panels. Turn this off for flat surfaces that are a little lighter on your GPU.', checked: model.glass, onChange: value => { transparency.dataset.open = value ? 'true' : 'false'; change('glass', value); } });
+            const seeThrough = switchRow(document, { title: 'See-through window', sub: 'Lets your desktop show through the launcher. Off gives a solid window.', checked: model.translucent, onChange: value => { slider.disabled = !value; slider.parentElement.dataset.off = value ? 'false' : 'true'; change('translucent', value); } });
+            const readout = h(document, 'output', { text: `${100 - model.glassOpacity}%` });
+            const slider = h(document, 'input', { type: 'range', class: 'ob-range', min: '10', max: '95', step: '5', value: String(100 - model.glassOpacity), 'aria-label': 'Window transparency', disabled: !model.translucent });
+            // Settings stores how opaque the window is; this shows how transparent it is.
+            slider.addEventListener('input', () => { readout.textContent = `${slider.value}%`; writeSetting(document, 'glassOpacity', 100 - Number(slider.value)); preview.update(readModel(document)); });
+            const sliderRow = h(document, 'div', { class: 'ob-speed', 'data-off': model.translucent ? 'false' : 'true' }, [slider, readout]);
+            transparency.append(h(document, 'div', {}, [seeThrough.element, h(document, 'div', { class: 'ob-row' }, [h(document, 'div', { class: 'ob-row-text' }, [h(document, 'div', { class: 'ob-row-title', text: 'Transparency' }), h(document, 'div', { class: 'ob-row-sub', text: 'Lower is more solid. Higher shows more of your desktop.' }), sliderRow])])]));
             const icons = segmented(document, { label: 'Icon style', options: [{ value: 'line', label: 'Line icons' }, { value: 'emoji', label: 'Emoji' }], value: model.emojiIcons ? 'emoji' : 'line', onChange: value => change('emojiIcons', value === 'emoji') });
-            const el = stepFrame(SETUP_STEPS[0], [block('Theme', grid), block('', h(document, 'div', {}, [glass.element])), block('Icons', icons.element, 'Line icons follow the theme colours. Emoji is the classic look.')]);
+            const el = stepFrame(SETUP_STEPS[0], [block('Theme', grid), block('', h(document, 'div', {}, [glass.element, transparency])), block('Icons', icons.element, 'Line icons follow the theme colours. Emoji is the classic look.')]);
             return { el, focus: buttons.find(b => b.tabIndex === 0) || buttons[0] };
         };
 
@@ -521,23 +583,23 @@ function installOnboarding({ document, window = document.defaultView, ipc, invok
             const group = h(document, 'div', { class: 'ob-motion', role: 'radiogroup', 'aria-label': 'Motion' }, [full, calm]);
             const cards = [full, calm];
             const sync = () => setRadioState(cards, readSetting(document, 'lessAnimations') ? 'calm' : 'full', b => b.dataset.value);
-            full.addEventListener('click', () => { change('lessAnimations', false); sync(); });
-            calm.addEventListener('click', () => { change('lessAnimations', true); sync(); });
+            full.addEventListener('click', () => { change('lessAnimations', false); sync(); preview.replay(); });
+            calm.addEventListener('click', () => { change('lessAnimations', true); sync(); preview.replay(); });
             radioGroup(document, group);
             sync();
             const slider = h(document, 'input', { type: 'range', class: 'ob-range', min: '0.5', max: '2', step: '0.1', value: String(model.animationSpeed), 'aria-label': 'Animation speed' });
             const readout = h(document, 'output', { text: `${model.animationSpeed.toFixed(1)}×` });
             slider.addEventListener('input', () => { readout.textContent = `${Number(slider.value).toFixed(1)}×`; writeSetting(document, 'animationSpeed', slider.value); });
-            slider.addEventListener('change', () => refresh());
+            slider.addEventListener('change', () => { refresh(); preview.replay(); });
             const speed = h(document, 'div', { class: 'ob-speed' }, [slider, readout]);
             const rows = h(document, 'div', { class: 'ob-block' });
             if (features.autostart && features.autostart.available && control(document, 'autostart')) {
-                rows.append(switchRow(document, { title: 'Start Sail when I log in', sub: 'Opens the launcher with your desktop.', checked: !!readSetting(document, 'autostart'), onChange: value => change('autostart', value) }).element);
+                rows.append(switchRow(document, { title: 'Start Sail when I log in', sub: 'Opens the launcher with your desktop.', checked: !!readSetting(document, 'autostart'), onChange: value => { change('autostart', value); if (value) preview.demo('autostart'); } }).element);
             }
             if (features.discord && features.discord.available) {
-                rows.append(switchRow(document, { title: 'Show what I am playing on Discord', sub: 'Needs the Discord app to be running.', checked: readSetting(document, 'discord') !== false, onChange: value => change('discord', value) }).element);
+                rows.append(switchRow(document, { title: 'Show what I am playing on Discord', sub: 'Needs the Discord app to be running.', checked: readSetting(document, 'discord') !== false, onChange: value => { change('discord', value); if (value) preview.demo('discord'); } }).element);
             }
-            rows.append(switchRow(document, { title: 'Achievement popups', sub: 'A small notice when you unlock something.', checked: readSetting(document, 'achievementPopups') !== false, onChange: value => change('achievementPopups', value) }).element);
+            rows.append(switchRow(document, { title: 'Achievement popups', sub: 'A small notice when you unlock something.', checked: readSetting(document, 'achievementPopups') !== false, onChange: value => { change('achievementPopups', value); if (value) preview.demo('achievement'); } }).element);
             const el = stepFrame(SETUP_STEPS[2], [block('Animations', group), block('Speed', speed, 'Slower is 0.5×, faster is 2×. Settings has the same slider.'), rows]);
             return { el, focus: full.getAttribute('aria-checked') === 'true' ? full : calm };
         };

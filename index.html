@@ -5720,10 +5720,11 @@
             </div>
 
             <div id="tab-appearance" class="settings-pane active">
-                <div class="account-card" id="setupAgainCard" style="margin-bottom:16px;display:none;">
+                <div class="account-card" id="setupAgainCard" style="margin-bottom:16px;display:none;position:relative;">
                     <h3>First-time setup</h3>
                     <p>Pick a theme, card layout and a few defaults again.</p>
                     <button class="outline" id="runSetupAgainBtn" hidden>Run setup again</button>
+                    <button class="outline" id="hideSetupAgainBtn" aria-label="Hide this card" title="Hide this card" style="position:absolute;top:10px;right:10px;padding:2px 9px;font-size:13px;line-height:1.4;">✕</button>
                 </div>
                 <div class="account-card" style="margin-bottom:16px;">
                     <h3>Motion</h3>
@@ -7079,7 +7080,7 @@
             // Let the start-up animation finish before covering the launcher.
             setTimeout(() => onboarding.maybeOpen().catch(error => console.error('Setup could not start:', error)), 650);
         }
-        { const again = document.getElementById('runSetupAgainBtn'); const card = document.getElementById('setupAgainCard'); if (card && onboarding) card.style.display = ''; if (again) { again.hidden = !onboarding; if (onboarding) again.addEventListener('click', () => { closeModal('settingsModal'); setTimeout(() => onboarding.open({ rerun: true }), 380); }); } }
+        { const again = document.getElementById('runSetupAgainBtn'); const card = document.getElementById('setupAgainCard'); if (card && onboarding) ipcRenderer.invoke('onboarding-state').then(status => { if (status && status.available && !status.rerunHidden) card.style.display = ''; }).catch(() => {}); const hideAgain = document.getElementById('hideSetupAgainBtn'); if (hideAgain && card) hideAgain.addEventListener('click', () => { card.style.display = 'none'; ipcRenderer.invoke('onboarding-hide-rerun').catch(() => {}); }); if (again) { again.hidden = !onboarding; if (onboarding) again.addEventListener('click', () => { closeModal('settingsModal'); setTimeout(() => onboarding.open({ rerun: true }), 380); }); } }
         const protonFirstLaunchUi = require('./ui/protonFirstLaunch').createProtonFirstLaunch({
             invoke: invokeAccount, getScope: () => currentRuntimeLibraryKey(),
             getSetup: gameId => invokeAccount('authority-get-native-setup', { gameId }),
