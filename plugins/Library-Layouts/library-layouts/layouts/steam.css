@@ -254,3 +254,81 @@ body.sl-steam .sl-props-body button.outline, body.sl-steam .sl-props-body button
 /* Links styled as buttons (for example in the account window) have no colour of their own in the launcher. */
 body.sl-steam a.outline { color: #1a9fff; border: 1px solid #454c57; border-radius: 2px !important; }
 body.sl-steam a.outline:hover { color: #fff; background: rgba(255, 255, 255, .06); }
+
+/* ---- Profile page: covers the area under the title bar, opened from the account menu ---- */
+body.sl-steam .app-container { position: relative; }
+.sl-profile { position: absolute; inset: 0; z-index: 30; overflow-y: auto; background: var(--bg-color, #2d333c); color: #c6cbd2; font-family: "Motiva Sans", "Segoe UI", "Noto Sans", Arial, sans-serif; scrollbar-width: thin; scrollbar-color: #3d4450 transparent; }
+.sl-profile[hidden] { display: none; }
+.sl-profile button { font: inherit; text-transform: none; letter-spacing: 0; cursor: pointer; }
+.sl-pf-hero { position: relative; display: flex; align-items: center; gap: 28px; padding: 38px 56px 34px; overflow: hidden; isolation: isolate; background: #242830; }
+.sl-pf-hero::before { content: ""; position: absolute; inset: -50px; z-index: -2; background: var(--sl-pf-bg, linear-gradient(135deg, #1a9fff55, #242830)) center / cover; filter: blur(36px) saturate(1.3) brightness(.7); }
+.sl-pf-hero::after { content: ""; position: absolute; inset: 0; z-index: -1; background: linear-gradient(180deg, rgba(23, 29, 36, .3), rgba(45, 51, 60, .96)); }
+.sl-pf-avatar { flex: none; width: 150px; height: 150px; object-fit: cover; border-radius: 4px; border: 3px solid rgba(255, 255, 255, .16); box-shadow: 0 10px 30px rgba(0, 0, 0, .45); background: #3a414b; }
+.sl-pf-letter { display: grid; place-items: center; font-size: 64px; font-weight: 300; color: #fff; background: #3a414b; }
+.sl-pf-id { min-width: 0; }
+.sl-pf-id h1 { margin: 0; font-size: 36px; font-weight: 400; line-height: 1.15; color: #fff; overflow-wrap: anywhere; text-shadow: 0 2px 12px rgba(0, 0, 0, .5); }
+.sl-pf-sub { margin: 6px 0 0; font-size: 15px; color: #aab3be; }
+.sl-pf-badges { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.sl-pf-badge { padding: 4px 10px; font-size: 12px; font-weight: 600; letter-spacing: .02em; border-radius: 2px; color: #c6cbd2; background: rgba(255, 255, 255, .1); }
+.sl-pf-badge.is-on { color: #8fd04a; background: rgba(75, 198, 49, .16); }
+.sl-pf-badge.is-off { color: #e8b04a; background: rgba(232, 176, 74, .16); }
+.sl-pf-badge.is-live { color: #fff; background: linear-gradient(90deg, #4bc631, #18b14d); }
+.sl-pf-actions { display: flex; flex-direction: column; gap: 8px; margin-left: auto; flex: none; }
+.sl-pf-btn { appearance: none; padding: 9px 20px; background: #3d4450 !important; border: 0 !important; border-radius: 2px !important; box-shadow: none !important; transform: none !important; color: #dcdedf !important; font-size: 14px; font-weight: 500; white-space: nowrap; }
+.sl-pf-btn:hover { background: #4c5564 !important; color: #fff !important; }
+.sl-pf-btn.is-primary { background: linear-gradient(90deg, #1a9fff, #1478c8) !important; color: #fff !important; }
+.sl-pf-btn.is-primary:hover { background: linear-gradient(90deg, #47b0ff, #1a8ae6) !important; }
+.sl-pf-close { appearance: none; position: absolute; top: 12px; right: 16px; display: grid; place-items: center; width: 32px; height: 32px; padding: 0; background: transparent !important; border: 0 !important; border-radius: 2px !important; box-shadow: none !important; color: #aab3be !important; }
+.sl-pf-close:hover { background: rgba(255, 255, 255, .1) !important; color: #fff !important; }
+.sl-pf-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1px; background: #171d24; border-block: 1px solid #171d24; }
+.sl-pf-stat { display: flex; flex-direction: column; gap: 2px; padding: 18px 28px; background: #242830; }
+.sl-pf-stat b { font-size: 30px; font-weight: 300; line-height: 1.1; color: #fff; }
+.sl-pf-stat span { font-size: 11px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: #8f98a0; }
+.sl-pf-stat small { font-size: 12px; color: #6f7883; }
+.sl-pf-cols { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 32px; padding: 28px 56px 56px; align-items: start; }
+.sl-pf-h { margin: 0 0 12px; font-size: 13px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: #dcdedf; }
+.sl-pf-section { margin-bottom: 30px; }
+.sl-pf-list { display: flex; flex-direction: column; gap: 6px; }
+.sl-pf-game, .sl-pf-bar, .sl-pf-trophy, .sl-pf-fav { appearance: none; background: transparent !important; border: 0 !important; border-radius: 2px !important; box-shadow: none !important; transform: none !important; color: #c6cbd2 !important; text-align: left; }
+.sl-pf-game { display: grid; grid-template-columns: 120px minmax(0, 1fr); align-items: center; gap: 14px; padding: 8px; background: #242830 !important; }
+.sl-pf-game:hover, .sl-pf-bar:hover, .sl-pf-trophy:hover { background: #2f3640 !important; }
+.sl-pf-cap { width: 120px; height: 45px; object-fit: cover; border-radius: 2px; background: #1c212b; }
+.sl-pf-cap.sl-pf-letter { font-size: 20px; }
+.sl-pf-gname { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.sl-pf-gname b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; font-weight: 500; color: #fff; }
+.sl-pf-gname small { font-size: 12px; color: #8f98a0; }
+.sl-pf-bar { display: grid; grid-template-columns: 190px minmax(0, 1fr) 92px; align-items: center; gap: 14px; padding: 8px 10px; }
+.sl-pf-bname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+.sl-pf-bval { font-size: 12px; color: #8f98a0; text-align: right; }
+.sl-pf-meter { display: block; height: 8px; overflow: hidden; border-radius: 2px; background: #171d24; }
+.sl-pf-meter i { display: block; height: 100%; background: linear-gradient(90deg, #1a9fff, #66c0f4); }
+.sl-pf-meter.is-good i { background: linear-gradient(90deg, #4bc631, #18b14d); }
+.sl-pf-meter.is-warn i { background: linear-gradient(90deg, #e8b04a, #e0762f); }
+.sl-pf-favs { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px, 1fr)); gap: 12px; }
+.sl-pf-fav { display: flex; flex-direction: column; gap: 6px; padding: 0; min-width: 0; }
+.sl-pf-fav span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: #aab3be; }
+.sl-pf-poster { width: 100%; aspect-ratio: 2 / 3; object-fit: cover; border-radius: 2px; background: #1c212b; transition: transform .18s ease, box-shadow .18s ease; }
+.sl-pf-poster.sl-pf-letter { font-size: 40px; }
+.sl-pf-fav:hover .sl-pf-poster, .sl-pf-fav:focus-visible .sl-pf-poster { transform: scale(1.04); box-shadow: 0 8px 24px rgba(0, 0, 0, .55); }
+.sl-pf-empty { margin: 0; padding: 14px 16px; font-size: 13px; color: #8f98a0; background: #242830; border-radius: 2px; }
+.sl-pf-side { display: flex; flex-direction: column; gap: 16px; }
+.sl-pf-card { padding: 16px 18px 14px; background: #242830; border-radius: 2px; }
+.sl-pf-card .sl-pf-empty { padding: 0; background: none; }
+.sl-pf-line { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 7px 0; font-size: 13px; border-bottom: 1px solid rgba(255, 255, 255, .05); }
+.sl-pf-line:last-child { border-bottom: 0; }
+.sl-pf-line > span { color: #8f98a0; }
+.sl-pf-line b { font-weight: 500; color: #e6e9ed; overflow-wrap: anywhere; text-align: right; }
+.sl-pf-email { display: inline-flex; align-items: center; gap: 10px; min-width: 0; }
+.sl-pf-link { appearance: none; padding: 0; background: none !important; border: 0 !important; box-shadow: none !important; color: #1a9fff !important; font-size: 12px; }
+.sl-pf-link:hover { color: #66c0f4 !important; text-decoration: underline; }
+.sl-pf-usage { display: flex; flex-direction: column; gap: 8px; padding: 6px 0 8px; font-size: 13px; }
+.sl-pf-trophy { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; padding: 7px 8px; margin-top: 2px; font-size: 13px; }
+.sl-pf-trophy span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sl-pf-trophy b { flex: none; font-weight: 500; color: #8f98a0; }
+@media (max-width: 1100px) {
+    .sl-pf-cols { grid-template-columns: minmax(0, 1fr); padding: 24px 28px 48px; }
+    .sl-pf-hero { flex-wrap: wrap; padding: 28px; }
+    .sl-pf-actions { flex-direction: row; margin-left: 0; }
+    .sl-pf-bar { grid-template-columns: 120px minmax(0, 1fr) 84px; }
+}
+body.sl-steam.big-picture-mode .sl-profile { display: none !important; }

@@ -33,6 +33,24 @@ module.exports = function (SailAPI) {
     const body = document.body;
     let entryHandle = null;
     const entryRef = () => entryHandle;
+    let profileHandle = null;
+    const profileRef = () => profileHandle;
+
+    // Playtime is stored in seconds. These are shared by the game page stats and the profile page.
+    function formatDay(ms) {
+        if (!ms) return 'Never';
+        const days = Math.floor((new Date().setHours(0, 0, 0, 0) - new Date(ms).setHours(0, 0, 0, 0)) / 86400000);
+        if (days <= 0) return 'Today';
+        if (days === 1) return 'Yesterday';
+        return new Date(ms).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+    }
+    function formatPlaytime(seconds) {
+        if (!seconds) return '0 minutes';
+        if (seconds < 3600) return `${Math.max(1, Math.round(seconds / 60))} minutes`;
+        return `${(seconds / 3600).toFixed(1)} hours`;
+    }
+    const formatNumber = value => Number(value || 0).toLocaleString();
+    const formatBytes = bytes => bytes >= 1073741824 ? `${(bytes / 1073741824).toFixed(1)} GB` : bytes >= 1048576 ? `${(bytes / 1048576).toFixed(0)} MB` : `${Math.max(0, Math.round(bytes / 1024))} KB`;
 
     function el(tag, props = {}, children = []) {
         const node = document.createElement(tag);
@@ -132,6 +150,10 @@ module.exports = function (SailAPI) {
             const stats = buildStats();
             undo.push(() => stats.destroy());
 
+            // Your profile page, opened from the account menu.
+            const profile = buildProfilePage();
+            undo.push(() => profile.destroy());
+
             // Bottom bar and the home page's shelf and header.
             const bottom = buildBottomBar();
             undo.push(() => bottom.destroy());
@@ -142,7 +164,7 @@ module.exports = function (SailAPI) {
             const covers = coverSwapper();
             undo.push(() => covers.destroy());
 
-            const refresh = frame(() => { panel.render(); properties.update(); stats.update(); covers.apply(); home.update(); bottom.update(); if (tabs) tabs.fit(); });
+            const refresh = frame(() => { panel.render(); properties.update(); profile.update(); stats.update(); covers.apply(); home.update(); bottom.update(); if (tabs) tabs.fit(); });
             // The launcher swaps views a moment after it announces a move, so look again once that has finished.
             let settle = 0;
             const afterNavigate = () => { refresh(); clearTimeout(settle); settle = setTimeout(refresh, 220); };
@@ -260,12 +282,14 @@ module.exports = function (SailAPI) {
         ];
         // The profile button's own dropdown, laid out like Steam's account menu.
         const ACCOUNT = { align: 'right', anchor: pill, items: () => {
+            const viewProfile = item('View My Profile', () => { const page = profileRef(); if (page) page.open(); }, { disabled: !profileRef() });
             if (!signedIn()) return [
+                viewProfile,
                 call('Log In…', 'showAccountAuthMode', inAccount(() => window.showAccountAuthMode('login'))),
                 call('Create Account…', 'showAccountAuthMode', inAccount(() => window.showAccountAuthMode('signup')))];
-            const section = name => call({ profile: 'View My Profile', library: 'Library & Presets', security: 'Security' }[name], 'showAccountSection', inAccount(() => window.showAccountSection(name)));
+            const section = name => call({ library: 'Library & Presets', security: 'Security' }[name], 'showAccountSection', inAccount(() => window.showAccountSection(name)));
             return [
-                section('profile'),
+                viewProfile,
                 call('Account Details:', 'showAccountSection', inAccount(() => window.showAccountSection('overview')), { value: text('accountDisplayName') }),
                 section('library'), section('security'), SEP,
                 call('Manage on Sail Hub…', 'openSailHubAccountManager', () => window.openSailHubAccountManager()),
@@ -464,6 +488,176 @@ module.exports = function (SailAPI) {
         return { update, destroy() { shelf.remove(); title.remove(); } };
     }
 
+    // Your profile page: who you are in Sail and what is in your library. It covers the app area under the title bar
+    // (it is not a window), closes when you go anywhere else, and only reads what the launcher already shows.
+    function buildProfilePage() {
+        const host = document.querySelector('.app-container');
+        if (!host || typeof SailAPI.getAccount !== 'function') return { open() {}, update() {}, destroy() {} };
+        const page = el('section', { class: 'sl-profile', hidden: true, role: 'region', 'aria-label': 'Your profile' });
+        host.append(page);
+        let isOpen = false;
+        let showEmail = false;
+
+        const openAccount = section => {
+            if (typeof window.openAccountModal !== 'function') return;
+            window.openAccountModal();
+            if (section && typeof window.showAccountSection === 'function') window.showAccountSection(section);
+        };
+        const button = (label, run, primary) => { const node = el('button', { type: 'button', class: `sl-pf-btn${primary ? ' is-primary' : ''}`, text: label }); node.addEventListener('click', run); return node; };
+        const maskEmail = email => { const [name, domain] = String(email).split('@'); return domain ? `${name.charAt(0)}••••@${domain}` : '••••'; };
+        const letterTile = (name, cls) => el('span', { class: cls, text: (name || '?').trim().charAt(0).toUpperCase() || '?' });
+        const capsule = (game, kind, cls) => {
+            const url = SailAPI.getCover(game.id, kind);
+            if (!url) return letterTile(game.name, `${cls} sl-pf-letter`);
+            const image = el('img', { class: cls, src: url, alt: '', loading: 'lazy' });
+            image.addEventListener('error', () => image.replaceWith(letterTile(game.name, `${cls} sl-pf-letter`)), { once: true });
+            return image;
+        };
+        const open = game => { close(); SailAPI.openGame(game.id); };
+        const section = (title, ...children) => el('section', { class: 'sl-pf-section' }, [el('h2', { class: 'sl-pf-h', text: title }), ...children]);
+        const card = (title, ...children) => el('section', { class: 'sl-pf-card' }, [el('h3', { class: 'sl-pf-h', text: title }), ...children]);
+        const line = (label, value) => el('div', { class: 'sl-pf-line' }, [el('span', { text: label }), typeof value === 'string' ? el('b', { text: value }) : value]);
+        const meter = (ratio, tone) => el('span', { class: `sl-pf-meter${tone ? ` is-${tone}` : ''}` }, [el('i', { style: `width:${Math.max(0, Math.min(100, ratio * 100)).toFixed(1)}%` })]);
+        const empty = text => el('p', { class: 'sl-pf-empty', text });
+
+        function render() {
+            const account = SailAPI.getAccount();
+            const games = SailAPI.getGames();
+            const totalSeconds = games.reduce((sum, game) => sum + game.playtime, 0);
+            const unlocked = games.reduce((sum, game) => sum + game.achievements.unlocked, 0);
+            const trophies = games.reduce((sum, game) => sum + game.achievements.total, 0);
+            const completed = games.filter(game => game.achievements.total > 0 && game.achievements.unlocked === game.achievements.total);
+            const favorites = games.filter(game => game.isFavorite);
+            const recent = games.filter(game => game.lastPlayed).sort((a, b) => b.lastPlayed - a.lastPlayed).slice(0, 5);
+            const topPlayed = games.filter(game => game.playtime > 0).sort((a, b) => b.playtime - a.playtime).slice(0, 5);
+            const topTrophies = games.filter(game => game.achievements.total > 0).sort((a, b) => b.achievements.unlocked - a.achievements.unlocked || b.achievements.total - a.achievements.total).slice(0, 3);
+            const playing = games.find(game => game.isRunning);
+
+            // Header: avatar, name and where you stand.
+            const avatar = account.avatar
+                ? el('img', { class: 'sl-pf-avatar', src: account.avatar, alt: '' })
+                : letterTile(account.displayName, 'sl-pf-avatar sl-pf-letter');
+            if (avatar.tagName === 'IMG') avatar.addEventListener('error', () => avatar.replaceWith(letterTile(account.displayName, 'sl-pf-avatar sl-pf-letter')), { once: true });
+            const since = account.memberSince ? `Member since ${new Date(account.memberSince).toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}` : '';
+            const subtitle = account.signedIn ? [account.username && account.username !== account.displayName ? `@${account.username}` : '', since].filter(Boolean).join(' · ') : 'Local profile · not signed in to Sail';
+            const badges = [el('span', { class: `sl-pf-badge ${account.signedIn ? 'is-on' : ''}`, text: account.signedIn ? 'Signed in' : 'Local only' })];
+            if (account.signedIn) badges.push(el('span', { class: `sl-pf-badge ${account.syncEnabled ? 'is-on' : 'is-off'}`, text: account.syncEnabled ? 'Sail Cloud sync on' : 'Sail Cloud sync paused' }));
+            if (playing) badges.push(el('span', { class: 'sl-pf-badge is-live', text: `Playing ${playing.name}` }));
+            const actions = account.signedIn
+                ? [button('Edit profile', () => openAccount('profile'), true), button('Manage on Sail Hub', () => { if (typeof window.openSailHubAccountManager === 'function') window.openSailHubAccountManager(); })]
+                : [button('Log in or create an account', () => openAccount(''), true)];
+            const closeButton = el('button', { type: 'button', class: 'sl-pf-close', 'aria-label': 'Close profile', title: 'Close' }, [svg(['M6 6l12 12', 'M18 6L6 18'], 16)]);
+            closeButton.addEventListener('click', close);
+            const hero = el('header', { class: 'sl-pf-hero' }, [
+                closeButton,
+                avatar,
+                el('div', { class: 'sl-pf-id' }, [el('h1', { text: account.displayName }), subtitle ? el('p', { class: 'sl-pf-sub', text: subtitle }) : null, el('div', { class: 'sl-pf-badges' }, badges)]),
+                el('div', { class: 'sl-pf-actions' }, actions)
+            ]);
+            if (account.avatar) hero.style.setProperty('--sl-pf-bg', `url("${account.avatar.replace(/"/g, '%22')}")`);
+
+            // The numbers.
+            const stat = (value, label, hint) => el('div', { class: 'sl-pf-stat' }, [el('b', { text: value }), el('span', { text: label }), hint ? el('small', { text: hint }) : null]);
+            const stats = el('div', { class: 'sl-pf-stats' }, [
+                stat(formatNumber(games.length), 'Games'),
+                stat((totalSeconds / 3600).toLocaleString(undefined, { maximumFractionDigits: 1 }), 'Hours played'),
+                stat(trophies ? `${formatNumber(unlocked)}` : '0', 'Achievements', trophies ? `of ${formatNumber(trophies)} (${Math.round(unlocked / trophies * 100)}%)` : 'none tracked yet'),
+                stat(formatNumber(completed.length), 'Completed', 'every achievement'),
+                stat(formatNumber(favorites.length), 'Favorites')
+            ]);
+
+            // Left column: what you have been playing.
+            const recentRows = recent.map(game => {
+                const row = el('button', { type: 'button', class: 'sl-pf-game' }, [capsule(game, 'header', 'sl-pf-cap'), el('span', { class: 'sl-pf-gname' }, [el('b', { text: game.name }), el('small', { text: `Last played ${formatDay(game.lastPlayed).toLowerCase()} · ${formatPlaytime(game.playtime)} on record` })])]);
+                row.addEventListener('click', () => open(game));
+                return row;
+            });
+            const mostRows = topPlayed.map(game => {
+                const row = el('button', { type: 'button', class: 'sl-pf-bar' }, [el('span', { class: 'sl-pf-bname', text: game.name }), meter(game.playtime / topPlayed[0].playtime), el('span', { class: 'sl-pf-bval', text: formatPlaytime(game.playtime) })]);
+                row.addEventListener('click', () => open(game));
+                return row;
+            });
+            const showcase = favorites.slice(0, 8).map(game => {
+                const tile = el('button', { type: 'button', class: 'sl-pf-fav', title: game.name }, [capsule(game, 'portrait', 'sl-pf-poster'), el('span', { text: game.name })]);
+                tile.addEventListener('click', () => open(game));
+                return tile;
+            });
+            const main = el('div', { class: 'sl-pf-main' }, [
+                section('Recent activity', recentRows.length ? el('div', { class: 'sl-pf-list' }, recentRows) : empty('Nothing played yet. Launch a game and it will show up here.')),
+                section('Most played', mostRows.length ? el('div', { class: 'sl-pf-list' }, mostRows) : empty('Playtime is recorded while you play.')),
+                section('Favorites', showcase.length ? el('div', { class: 'sl-pf-favs' }, showcase) : empty('Star a game on its page to pin it here.'))
+            ]);
+
+            // Right column: the details behind the profile.
+            const emailRow = account.email ? line('Email', el('span', { class: 'sl-pf-email' }, [el('b', { text: showEmail ? account.email : maskEmail(account.email) }), (() => { const toggle = el('button', { type: 'button', class: 'sl-pf-link', text: showEmail ? 'Hide' : 'Show' }); toggle.addEventListener('click', () => { showEmail = !showEmail; update(); }); return toggle; })()])) : null;
+            const accountCard = card('Account',
+                line('Display name', account.displayName),
+                account.signedIn && account.username ? line('Username', account.username) : null,
+                emailRow,
+                account.memberSince ? line('Member since', new Date(account.memberSince).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' })) : null,
+                line('Status', account.signedIn ? 'Signed in' : 'Using a local profile'));
+            const launcherCard = card('Launcher profile',
+                line('Active profile', account.launcherProfile || 'Default'),
+                account.launcherProfileCount ? line('Profiles on this PC', formatNumber(account.launcherProfileCount)) : null);
+            const cards = [accountCard, launcherCard];
+            if (account.signedIn) {
+                const storage = account.storage;
+                cards.push(card('Sail Cloud',
+                    line('Sync on this PC', account.syncEnabled ? 'On' : 'Paused'),
+                    storage && storage.quota ? el('div', { class: 'sl-pf-usage' }, [el('span', { text: `${formatBytes(storage.used)} of ${formatBytes(storage.quota)} used` }), meter(storage.used / storage.quota, storage.used / storage.quota > .9 ? 'warn' : '')]) : el('p', { class: 'sl-pf-empty', text: 'Storage usage is not available right now.' })));
+            }
+            cards.push(card('Achievements',
+                trophies ? el('div', { class: 'sl-pf-usage' }, [el('span', { text: `${formatNumber(unlocked)} of ${formatNumber(trophies)} unlocked` }), meter(unlocked / trophies, 'good')]) : empty('No achievement data yet.'),
+                ...topTrophies.map(game => { const row = el('button', { type: 'button', class: 'sl-pf-trophy' }, [el('span', { text: game.name }), el('b', { text: `${game.achievements.unlocked}/${game.achievements.total}` })]); row.addEventListener('click', () => open(game)); return row; })));
+            const side = el('aside', { class: 'sl-pf-side' }, cards);
+
+            const scroll = page.scrollTop;
+            page.replaceChildren(hero, stats, el('div', { class: 'sl-pf-cols' }, [main, side]));
+            page.scrollTop = scroll;
+        }
+        function update() { if (isOpen) render(); }
+        function openPage() {
+            isOpen = true;
+            page.hidden = false;
+            render();
+            page.scrollTop = 0;
+            const closeButton = page.querySelector('.sl-pf-close');
+            if (closeButton) closeButton.focus({ preventScroll: true });
+            // Fetch the latest account details; the page redraws itself when they arrive.
+            try { if (typeof window.refreshAccountState === 'function') Promise.resolve(window.refreshAccountState()).catch(() => {}); } catch (_) { /* The details already on screen are used. */ }
+        }
+        function close() {
+            if (!isOpen) return;
+            isOpen = false;
+            showEmail = false;
+            page.hidden = true;
+            page.replaceChildren();
+        }
+        const onKey = event => {
+            if (!isOpen || event.key !== 'Escape') return;
+            if (document.querySelector('.modal.show:not(.closing)') || document.querySelector('.sl-menu:not([hidden])')) return;
+            close();
+        };
+        // Any other page is a way out: the tabs, back/forward and anything else that navigates.
+        const onTab = event => { if (isOpen && event.target.closest('.sl-top-nav .sidebar-page-link, #navBackBtn, #navFwdBtn')) close(); };
+        document.addEventListener('keydown', onKey);
+        document.addEventListener('click', onTab, true);
+        const offNavigate = SailAPI.onNavigate(close);
+        const offAccount = typeof SailAPI.onAccountChange === 'function' ? SailAPI.onAccountChange(update) : () => {};
+        profileHandle = { open: openPage };
+        return {
+            update,
+            destroy() {
+                document.removeEventListener('keydown', onKey);
+                document.removeEventListener('click', onTab, true);
+                offNavigate();
+                offAccount();
+                profileHandle = null;
+                page.remove();
+            }
+        };
+    }
+
     // Manage Game as a properties window: the same controls, grouped into pages listed on the left.
     // The launcher's own elements are moved, never copied, so everything it wires up keeps working; put back on undo.
     function buildProperties() {
@@ -603,25 +797,13 @@ module.exports = function (SailAPI) {
         const wrap = el('div', { class: 'sl-stats' }, [last.node, time.node, trophies.node]);
         const anchor = bar && (bar.querySelector('#gpStopBtn') || bar.querySelector('#gpPlayBtn'));
         if (bar && anchor) anchor.after(wrap);
-        function day(ms) {
-            if (!ms) return 'Never';
-            const days = Math.floor((new Date().setHours(0, 0, 0, 0) - new Date(ms).setHours(0, 0, 0, 0)) / 86400000);
-            if (days <= 0) return 'Today';
-            if (days === 1) return 'Yesterday';
-            return new Date(ms).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
-        }
-        function hours(seconds) {
-            if (!seconds) return '0 minutes';
-            if (seconds < 3600) return `${Math.max(1, Math.round(seconds / 60))} minutes`;
-            return `${(seconds / 3600).toFixed(1)} hours`;
-        }
         function update() {
             const id = SailAPI.getActiveGameId();
             const game = id ? SailAPI.getGame(id) : null;
             wrap.hidden = !game;
             if (!game) return;
-            last.value.textContent = day(game.lastPlayed);
-            time.value.textContent = hours(game.playtime);
+            last.value.textContent = formatDay(game.lastPlayed);
+            time.value.textContent = formatPlaytime(game.playtime);
             trophies.node.hidden = !game.achievements.total;
             trophies.value.textContent = `${game.achievements.unlocked} / ${game.achievements.total}`;
         }

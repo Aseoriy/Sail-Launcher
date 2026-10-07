@@ -7775,6 +7775,31 @@
             showTab: name => { const button = document.getElementById(sailTabButtons[name]); if (button) button.click(); },
             // Each returns a function that stops listening.
             getDownloadSummary: () => { const live = ['queued', 'resolving', 'downloading', 'processing', 'extracting', 'installer_running']; let active = 0, total = 0; if (typeof dlQueue === 'undefined') return { active, total }; for (const item of dlQueue.values()) { total++; if (live.includes(item.state)) active++; } return { active, total }; },
+            // A summary of the signed-in account and active launcher profile, for plugins that draw their own profile page.
+            // Nothing secret is included: no tokens, no file paths. The avatar is whatever the launcher already validated and drew.
+            getAccount: () => {
+                const state = typeof accountUiState === 'undefined' ? null : accountUiState;
+                const signedIn = !!(state && state.signedIn && state.user);
+                const profile = signedIn ? (state.profile || {}) : {};
+                let local = null;
+                try { local = activeLauncherProfile(); } catch (e) { }
+                const storage = signedIn && typeof remoteControlPlane !== 'undefined' ? remoteControlPlane.storage : null;
+                const image = document.querySelector('#accountAvatarLarge img');
+                const created = Date.parse(profile.created_at || '');
+                return {
+                    signedIn,
+                    displayName: String(signedIn ? (profile.username || state.user.email || 'Sail User') : (local && local.name) || 'Local profile'),
+                    username: signedIn ? String(profile.username || '') : '',
+                    email: signedIn ? String(state.user.email || '') : '',
+                    memberSince: Number.isFinite(created) ? created : 0,
+                    avatar: image ? image.src : '',
+                    launcherProfile: local ? String(local.name || '') : '',
+                    launcherProfileCount: launcherProfileState && Array.isArray(launcherProfileState.profiles) ? launcherProfileState.profiles.length : 0,
+                    syncEnabled: typeof accountSyncEnabledOnThisPc === 'function' ? !!accountSyncEnabledOnThisPc() : true,
+                    storage: storage && !storage.unavailable ? { used: Number(storage.used_bytes) || 0, quota: Number(storage.quota_bytes) || 0, plan: String(storage.plan || '') } : null
+                };
+            },
+            onAccountChange: callback => { const listener = () => { try { callback(); } catch (e) { console.error(e); } }; sailEvents.addEventListener('account', listener); return () => sailEvents.removeEventListener('account', listener); },
             onLibraryChange: callback => { const listener = () => { try { callback(); } catch (e) { console.error(e); } }; sailEvents.addEventListener('library', listener); return () => sailEvents.removeEventListener('library', listener); },
             onNavigate: callback => { const listener = () => { try { callback(); } catch (e) { console.error(e); } }; sailEvents.addEventListener('navigate', listener); return () => sailEvents.removeEventListener('navigate', listener); },
             registerTheme: (themeObj) => {
@@ -9340,6 +9365,7 @@
             renderLauncherProfileControls();
             onProfileSelectionChanged();
             renderSyncConfidence();
+            emitSailEvent('account');
         }
 
         async function refreshAccountState() {
