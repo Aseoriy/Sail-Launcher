@@ -3,10 +3,10 @@
 .sl-foot { position: sticky; bottom: 0; margin-top: auto; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 10px; font-size: 11px; opacity: .85; background: var(--sl-foot-bg, transparent); border-top: 1px solid var(--border-color, rgba(255,255,255,.08)); z-index: 5; }
 .sl-gear { appearance: none; display: inline-grid; place-items: center; width: 26px; height: 26px; padding: 0; background: transparent !important; border: 1px solid transparent !important; border-radius: 4px !important; color: inherit !important; box-shadow: none !important; transform: none !important; cursor: pointer; }
 .sl-gear:hover { background: rgba(255,255,255,.1) !important; }
-.sl-settings { position: absolute; left: 8px; right: 8px; bottom: 40px; display: flex; flex-direction: column; gap: 10px; padding: 12px; background: #1b2838 !important; color: #c6d4df; border: 1px solid #3d4b5c; border-radius: 4px; box-shadow: 0 10px 30px rgba(0,0,0,.55); font-size: 12px; z-index: 50; }
+.sl-settings { position: absolute; left: 8px; right: 8px; bottom: 40px; display: flex; flex-direction: column; gap: 10px; padding: 12px; background: #2d333c !important; color: #c6cbd2; border: 1px solid #454c57; border-radius: 4px; box-shadow: 0 10px 30px rgba(0,0,0,.55); font-size: 12px; z-index: 50; }
 .sl-settings[hidden] { display: none; }
 .sl-settings-title { font-weight: 700; letter-spacing: .06em; text-transform: uppercase; font-size: 11px; color: #8f98a0; }
-.sl-select { width: 100%; padding: 6px 8px; background: #101822; color: #c6d4df; border: 1px solid #3d4b5c; border-radius: 3px; font: inherit; }
+.sl-select { width: 100%; padding: 6px 8px; background: #25262c; color: #c6cbd2; border: 1px solid #454c57; border-radius: 3px; font: inherit; }
 .sl-opt { display: flex; gap: 8px; align-items: flex-start; cursor: pointer; }
 .sl-opt input[type="checkbox"] { appearance: auto !important; -webkit-appearance: checkbox !important; display: inline-block !important; position: static !important; opacity: 1 !important; width: 15px !important; height: 15px !important; margin: 1px 0 0 !important; flex: none; accent-color: #66c0f4; cursor: pointer; }
 .sl-opt b { display: block; font-weight: 600; font-size: 12px; }

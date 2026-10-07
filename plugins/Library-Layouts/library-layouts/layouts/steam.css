@@ -2,19 +2,19 @@
 
 /* ---- Colours (only with "Steam colours") ---- */
 body.sl-steam.sl-colors {
-    --bg-color: #1b2838;
-    --card-bg: #16202d;
-    --text-color: #c6d4df;
-    --border-color: #2a3a4d;
+    --bg-color: #2d333c;
+    --card-bg: #242830;
+    --text-color: #c6cbd2;
+    --border-color: #3d444d;
     --accent: #1a9fff;
     --accent-hover: #47b0ff;
     --accent2: #66c0f4;
-    --sl-top: #171a21;
-    --sl-list: #171d25;
+    --sl-top: #171d24;
+    --sl-list: #242830;
 }
 body.sl-steam:not(.sl-colors) { --sl-top: rgba(0, 0, 0, .35); --sl-list: rgba(0, 0, 0, .22); }
-body.sl-steam { --sl-green-a: #75b022; --sl-green-b: #588a1b; --sl-sel: #3d4450; --sl-muted: #8f98a0; font-family: "Motiva Sans", "Segoe UI", "Noto Sans", Arial, sans-serif; }
-body.sl-steam.sl-colors { background: linear-gradient(180deg, #1b2838 0%, #16202d 100%) fixed; }
+body.sl-steam { --sl-green-a: #75b022; --sl-green-b: #588a1b; --sl-sel: #3e4046; --sl-muted: #8f98a0; font-family: "Motiva Sans", "Segoe UI", "Noto Sans", Arial, sans-serif; }
+body.sl-steam.sl-colors { background: #2d333c; }
 body.sl-steam::before, body.sl-steam::after { display: none !important; }
 
 /* ---- Title bar: two rows, like Steam. Menu bar on top, back/forward and the page tabs underneath ---- */
@@ -25,21 +25,27 @@ body.sl-steam .tb-version, body.sl-steam .tb-brand { display: none !important; }
 body.sl-steam .sl-menubar { grid-column: 1; grid-row: 1; display: flex; align-items: stretch; min-width: 0; padding-left: 4px; -webkit-app-region: no-drag; width: max-content; }
 body.sl-steam .sl-menubar-btn {
     appearance: none; display: inline-flex; align-items: center; gap: 7px; height: var(--sl-menu-h); padding: 0 11px; margin: 0; background: transparent !important; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; transform: none !important;
-    color: #c6d4df !important; font: inherit; font-size: 13px; font-weight: 500; letter-spacing: 0; text-transform: none; cursor: pointer;
+    color: #c6cbd2 !important; font: inherit; font-size: 13px; font-weight: 500; letter-spacing: 0; text-transform: none; cursor: pointer;
 }
 body.sl-steam .sl-menubar-btn:hover, body.sl-steam .sl-menubar-btn[aria-expanded="true"] { background: rgba(255, 255, 255, .09) !important; color: #fff !important; }
 body.sl-steam .sl-menubar-logo { width: 16px; height: 16px; object-fit: contain; }
 body.sl-steam .titlebar-controls { grid-column: 2; grid-row: 1; height: var(--sl-menu-h); }
 body.sl-steam .titlebar-controls .titlebar-btn { width: 44px; font-size: 13px; }
 body.sl-steam .titlebar-controls #supportersBtn { margin-right: 8px !important; }
-body.sl-steam .account-pill { height: 22px; padding: 0 8px 0 4px; margin-right: 6px; gap: 6px; background: transparent !important; border: 0 !important; box-shadow: none !important; border-radius: 2px !important; color: #c6d4df !important; }
+body.sl-steam .account-pill { height: 22px; padding: 0 8px 0 4px; margin-right: 6px; gap: 6px; background: transparent !important; border: 0 !important; box-shadow: none !important; border-radius: 2px !important; color: #c6cbd2 !important; }
 body.sl-steam .account-pill:hover { background: rgba(255, 255, 255, .09) !important; }
 body.sl-steam .account-pill-avatar { width: 18px; height: 18px; font-size: 9px; }
 body.sl-steam .account-pill-label { font-size: 12px; font-weight: 500; max-width: 140px; }
 body.sl-steam .titlebar-title { grid-column: 1 / -1; grid-row: 2; height: var(--sl-nav-h); min-width: 0; padding-left: 8px; overflow: hidden; gap: 4px; }
 body.sl-steam .titlebar-title .nav-arrow { width: 32px; height: 32px; flex: none; }
 body.sl-steam #topHeaderActionButtonsContainer, body.sl-steam #topHeaderDropdownContainer { display: none !important; }
-/* Everything under the title bar that was positioned for the old 45px bar. */
+/* Everything under the title bar that was positioned for the old 45px bar. Dialogs get the room below the bar,
+   so their top edge and close button are never hidden behind it. */
+body.sl-steam .modal:not(#settingsModal):not(#accountModal) { top: var(--sl-bar-h); height: calc(100% - var(--sl-bar-h)); }
+/* The launcher's dialogs are content-box with 30px padding and some set their own max-height, so leave that much extra. */
+body.sl-steam .modal:not(#settingsModal) .modal-content { max-height: calc(100vh - var(--sl-bar-h) - 100px) !important; }
+body.sl-steam .modal:not(#settingsModal) .modal-content { border-radius: 4px !important; box-shadow: 0 24px 70px rgba(0, 0, 0, .7); }
+body.sl-steam.sl-colors .modal:not(#settingsModal) .modal-content { background: var(--bg-color); }
 body.sl-steam.dedicated-settings-page #settingsModal { top: var(--sl-bar-h) !important; height: calc(100vh - var(--sl-bar-h)) !important; }
 body.sl-steam #accountModal { top: var(--sl-bar-h); height: calc(100% - var(--sl-bar-h)); }
 body.sl-steam .sl-top-nav { display: flex !important; flex-direction: row !important; align-items: stretch; gap: 0; width: auto; padding: 0; margin: 0 0 0 6px; border: 0 !important; background: none !important; box-shadow: none !important; height: var(--sl-nav-h); flex: 0 1 auto; min-width: 0; overflow: hidden; -webkit-app-region: no-drag; }
@@ -47,11 +53,10 @@ body.sl-steam .sl-top-nav .sidebar-kicker { display: none !important; }
 body.sl-steam .sl-top-nav .sidebar-page-link {
     display: inline-flex; align-items: center; justify-content: center; flex: none; width: auto; height: var(--sl-nav-h); padding: 0 17px; margin: 0;
     background: transparent !important; border: 0 !important; border-bottom: 2px solid transparent !important; border-radius: 0 !important; box-shadow: none !important; backdrop-filter: none !important; transform: none !important;
-    color: #dcdedf !important; font-size: 19px; font-weight: 600; letter-spacing: .02em; text-transform: uppercase; white-space: nowrap;
+    color: #eaeaea !important; font-size: 19px; font-weight: 600; letter-spacing: .02em; text-transform: uppercase; white-space: nowrap;
 }
 body.sl-steam .sl-top-nav .sidebar-page-link .sidebar-page-icon, body.sl-steam .sl-top-nav .sidebar-page-link .sidebar-page-meta { display: none; }
-body.sl-steam .sl-top-nav .sidebar-page-link { opacity: .9 !important; }
-body.sl-steam .sl-top-nav .sidebar-page-link.active-tab, body.sl-steam .sl-top-nav .sidebar-page-link:hover { opacity: 1 !important; }
+body.sl-steam .sl-top-nav .sidebar-page-link { opacity: 1 !important; }
 body.sl-steam .sl-top-nav .sidebar-page-link:hover { color: #fff !important; background: rgba(255, 255, 255, .05) !important; }
 body.sl-steam .sl-top-nav .sidebar-page-link.active-tab { color: #1a9fff !important; border-bottom-color: #1a9fff !important; background: transparent !important; }
 body.sl-steam .sl-top-nav .sl-tab-off { display: none !important; }
@@ -93,17 +98,17 @@ body.sl-steam .sl-foot { order: 4; margin-top: 0; background: rgba(0, 0, 0, .25)
 body.sl-steam .sl-home {
     flex: 1;
     appearance: none; display: flex; align-items: center; gap: 9px; width: 100%; padding: 7px 10px; background: transparent !important; border: 0 !important; border-radius: 2px !important; box-shadow: none !important; transform: none !important;
-    color: #c6d4df !important; font: inherit; font-size: 14px; font-weight: 500; text-align: left; cursor: pointer; text-transform: none; letter-spacing: 0;
+    color: #c6cbd2 !important; font: inherit; font-size: 14px; font-weight: 500; text-align: left; cursor: pointer; text-transform: none; letter-spacing: 0;
 }
 body.sl-steam .sl-home-row { display: flex; align-items: center; gap: 2px; }
 body.sl-steam .sl-viewtoggle { appearance: none; display: inline-grid; place-items: center; flex: none; width: 30px; height: 30px; padding: 0; background: transparent !important; border: 0 !important; border-radius: 2px !important; box-shadow: none !important; transform: none !important; color: #8f98a0 !important; cursor: pointer; }
 body.sl-steam .sl-viewtoggle:hover { background: rgba(255, 255, 255, .06) !important; color: #fff !important; }
-body.sl-steam .sl-filter { width: 100%; padding: 6px 8px; background: rgba(0, 0, 0, .35) !important; border: 1px solid rgba(255, 255, 255, .06) !important; border-radius: 2px !important; color: #c6d4df !important; font: inherit; font-size: 13px; }
+body.sl-steam .sl-filter { width: 100%; padding: 7px 8px; background: #25262c !important; border: 1px solid transparent !important; border-radius: 2px !important; color: #c6cbd2 !important; font: inherit; font-size: 13px; }
 body.sl-steam .sl-home:hover { background: rgba(255, 255, 255, .06) !important; }
 body.sl-steam .sl-home.is-active { background: var(--sl-sel) !important; color: #fff !important; }
-.sl-search-wrap { position: relative; display: flex; align-items: center; gap: 7px; padding: 0 9px; background: rgba(0, 0, 0, .35); border: 1px solid rgba(255, 255, 255, .06); border-radius: 2px; color: #8f98a0; }
+.sl-search-wrap { position: relative; display: flex; align-items: center; gap: 7px; padding: 0 9px; background: #25262c; border: 1px solid transparent; border-radius: 2px; color: #8f98a0; }
 .sl-search-wrap:focus-within { border-color: #1a9fff; }
-.sl-search { flex: 1; min-width: 0; padding: 6px 0 !important; background: transparent !important; border: 0 !important; box-shadow: none !important; outline: 0; color: #c6d4df !important; font: inherit; font-size: 13px; }
+.sl-search { flex: 1; min-width: 0; padding: 6px 0 !important; background: transparent !important; border: 0 !important; box-shadow: none !important; outline: 0; color: #c6cbd2 !important; font: inherit; font-size: 13px; }
 .sl-search::placeholder { color: #8f98a0; }
 .sl-list { flex: 1; min-height: 0; overflow-y: auto; padding: 2px 0 8px; scrollbar-width: thin; scrollbar-color: #3d4450 transparent; }
 .sl-group {
@@ -112,16 +117,16 @@ body.sl-steam .sl-home.is-active { background: var(--sl-sel) !important; color: 
 }
 .sl-group .sl-dash { display: inline-block; width: 12px; text-align: center; }
 .sl-group .sl-count { font-weight: 400; opacity: .75; }
-.sl-group:hover { color: #c6d4df !important; }
+.sl-group:hover { color: #c6cbd2 !important; }
 .sl-row {
     appearance: none; display: flex; align-items: center; gap: 9px; width: 100%; height: 28px; padding: 0 12px 0 14px; background: transparent !important; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; transform: none !important;
-    color: #c6d4df !important; font: inherit; font-size: 14px; font-weight: 400; text-align: left; text-transform: none; letter-spacing: 0; cursor: pointer;
+    color: #c6cbd2 !important; font: inherit; font-size: 14px; font-weight: 400; text-align: left; text-transform: none; letter-spacing: 0; cursor: pointer;
 }
 .sl-row:hover { background: rgba(255, 255, 255, .06) !important; }
 .sl-row.is-active { background: var(--sl-sel) !important; color: #fff !important; }
 .sl-row.is-running .sl-name { color: #a4d007; }
-.sl-thumb { width: 20px; height: 20px; flex: none; object-fit: cover; border-radius: 2px; background: #0e141b; }
-.sl-thumb-letter { display: inline-grid; place-items: center; font-size: 11px; font-weight: 700; color: #8f98a0; background: #232f3f; }
+.sl-thumb { width: 20px; height: 20px; flex: none; object-fit: cover; border-radius: 2px; background: #1c212b; }
+.sl-thumb-letter { display: inline-grid; place-items: center; font-size: 11px; font-weight: 700; color: #8f98a0; background: #3a414b; }
 .sl-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sl-state { flex: none; font-size: 10px; font-weight: 700; color: #a4d007; text-transform: uppercase; letter-spacing: .04em; }
 .sl-empty { padding: 14px 14px; font-size: 12.5px; color: #8f98a0; }
@@ -143,7 +148,7 @@ body.sl-steam button.outline { border-radius: 2px !important; }
 
 /* Cover grid */
 body.sl-steam #gameGrid { gap: 14px; }
-body.sl-steam .game-card { border-radius: 2px !important; box-shadow: none !important; border: 1px solid rgba(255, 255, 255, .06) !important; background: #0e141b !important; transition: transform .18s ease, box-shadow .18s ease; }
+body.sl-steam .game-card { border-radius: 2px !important; box-shadow: none !important; border: 1px solid rgba(255, 255, 255, .06) !important; background: #1c212b !important; transition: transform .18s ease, box-shadow .18s ease; }
 body.sl-steam .game-card:hover { transform: scale(1.035) !important; box-shadow: 0 8px 24px rgba(0, 0, 0, .55) !important; z-index: 2; }
 body.sl-steam .game-card .card-banner, body.sl-steam .game-card .no-image { border-radius: 0 !important; }
 body.sl-steam.sl-portrait #gameGrid:not(.list-view) { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)) !important; }
@@ -153,23 +158,24 @@ body.sl-steam.sl-portrait #gameGrid:not(.list-view) .game-card:hover .card-text-
 
 /* ---- Game page ---- */
 body.sl-steam #gpBackBtn { display: none; }
-body.sl-steam .gp-header { position: relative; height: 340px; margin: 0 -40px; border-radius: 0 !important; overflow: hidden; background: #0e141b; }
+body.sl-steam .gp-header { position: relative; height: 340px; margin: 0 -40px; border-radius: 0 !important; overflow: hidden; background: #1c212b; }
 body.sl-steam .gp-banner { position: absolute; inset: 0; width: 100%; height: 100% !important; object-fit: cover; border-radius: 0 !important; }
-body.sl-steam .gp-header::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0, 0, 0, 0) 30%, rgba(23, 29, 37, .72) 78%, var(--bg-color) 100%); pointer-events: none; }
+body.sl-steam .gp-header::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0, 0, 0, 0) 30%, rgba(45, 51, 60, .72) 78%, var(--bg-color) 100%); pointer-events: none; }
 body.sl-steam .gp-header-content { position: absolute; left: 40px; bottom: 24px; z-index: 2; }
 body.sl-steam .gp-title { font-size: 40px; font-weight: 700; letter-spacing: -.01em; text-shadow: 0 2px 14px rgba(0, 0, 0, .7); margin: 0; }
-body.sl-steam .gp-action-bar { display: flex; align-items: center; gap: 10px; row-gap: 10px; padding: 14px 40px; margin: 0 -40px 18px; background: rgba(14, 20, 27, .55); border-bottom: 1px solid rgba(255, 255, 255, .05); flex-wrap: wrap; }
+body.sl-steam .gp-action-bar { display: flex; align-items: center; gap: 10px; row-gap: 10px; padding: 14px 40px; margin: 0 -40px 18px; background: rgba(23, 29, 36, .6); border-bottom: 1px solid rgba(255, 255, 255, .05); flex-wrap: wrap; }
 body.sl-steam #gpPlayBtn, body.sl-steam .gp-play-btn {
-    display: inline-flex; align-items: center; gap: 8px; min-width: 132px; height: 46px; padding: 0 26px; justify-content: center;
-    background: linear-gradient(to bottom, var(--sl-green-a) 5%, var(--sl-green-b) 95%) !important; border: 0 !important; border-radius: 2px !important; box-shadow: none !important;
-    color: #fff !important; font-size: 17px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; transform: none !important;
+    display: inline-flex; align-items: center; gap: 9px; min-width: 150px; height: 46px; padding: 0 28px; justify-content: center;
+    background: linear-gradient(90deg, #4bc631 0%, #18b14d 100%) !important; border: 0 !important; border-radius: 4px !important; box-shadow: none !important;
+    color: #fff !important; font-size: 19px; font-weight: 500; letter-spacing: .03em; text-transform: uppercase; transform: none !important;
 }
-body.sl-steam #gpPlayBtn:hover { background: linear-gradient(to bottom, #8bd02a 5%, #669d20 95%) !important; }
+body.sl-steam #gpPlayBtn:hover { background: linear-gradient(90deg, #5fd844 0%, #22c35c 100%) !important; }
+body.sl-steam #gpPlayBtn:active { background: linear-gradient(90deg, #3fae28 0%, #139b43 100%) !important; }
 body.sl-steam #gpStopBtn { height: 46px; border-radius: 2px !important; }
 .sl-stats { display: flex; align-items: center; gap: 20px; margin: 0 8px; }
 .sl-stats[hidden] { display: none; }
 .sl-stat small { display: block; font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #8f98a0; margin-bottom: 2px; }
-.sl-stat b { font-size: 14px; font-weight: 500; color: #c6d4df; }
+.sl-stat b { font-size: 14px; font-weight: 500; color: #c6cbd2; }
 body.sl-steam .gp-action-bar > button.outline { height: 34px; padding: 0 10px; font-size: 12px; white-space: nowrap; }
 body.sl-steam .gp-action-bar > div:empty { flex: 1; }
 body.sl-steam #gpStatusText { font-size: 12px; color: #8f98a0; }
@@ -181,9 +187,9 @@ body.sl-steam .gp-expandable-header { color: #66c0f4; font-size: 13px; font-weig
 .sl-shelf-title, .sl-all-title { margin: 0 0 10px; font-size: 13px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #dcdedf; }
 /* One row only: extra rows collapse to nothing, so a card is never cut in half. */
 .sl-shelf-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); grid-template-rows: auto; grid-auto-rows: 0; gap: 14px; overflow: hidden; }
-.sl-shelf-card { appearance: none; display: flex; flex-direction: column; gap: 5px; min-width: 0; padding: 0; background: transparent !important; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; transform: none !important; color: #c6d4df !important; font: inherit; text-align: left; text-transform: none; letter-spacing: 0; cursor: pointer; }
+.sl-shelf-card { appearance: none; display: flex; flex-direction: column; gap: 5px; min-width: 0; padding: 0; background: transparent !important; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; transform: none !important; color: #c6cbd2 !important; font: inherit; text-align: left; text-transform: none; letter-spacing: 0; cursor: pointer; }
 .sl-shelf-when { font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: #8f98a0; }
-.sl-shelf-art { position: relative; display: block; aspect-ratio: 460 / 215; overflow: hidden; background: #0e141b; border: 1px solid rgba(255, 255, 255, .06); border-radius: 2px; transition: transform .18s ease, box-shadow .18s ease; }
+.sl-shelf-art { position: relative; display: block; aspect-ratio: 460 / 215; overflow: hidden; background: #1c212b; border: 1px solid rgba(255, 255, 255, .06); border-radius: 2px; transition: transform .18s ease, box-shadow .18s ease; }
 .sl-shelf-art img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .sl-shelf-letter { display: grid; place-items: center; height: 100%; font-size: 40px; font-weight: 700; color: #3d4450; }
 .sl-shelf-card:hover .sl-shelf-art, .sl-shelf-card:focus-visible .sl-shelf-art { transform: scale(1.025); box-shadow: 0 8px 24px rgba(0, 0, 0, .55); }
@@ -198,18 +204,18 @@ body.sl-steam .sl-bottom-btn:hover { color: #fff !important; background: rgba(25
 /* ---- Manage Game as a properties window ---- */
 body.sl-steam #gameSettingsModal { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; background: rgba(0, 0, 0, .6) !important; }
 body.sl-steam #gameSettingsModal .modal-content {
-    position: relative; display: block; width: min(980px, 94vw) !important; max-width: none; height: min(680px, 88vh); max-height: none; padding: 0 !important; overflow: hidden !important;
-    background: #1b2838 !important; border: 1px solid #0b0f14 !important; border-radius: 2px !important; box-shadow: 0 24px 70px rgba(0, 0, 0, .75) !important; color: #c6d4df;
+    position: relative; display: block; width: min(980px, 94vw) !important; max-width: none; height: min(680px, calc(100vh - var(--sl-bar-h) - 40px)); max-height: none !important; padding: 0 !important; overflow: hidden !important;
+    background: #2d333c !important; border: 1px solid #14181f !important; border-radius: 2px !important; box-shadow: 0 24px 70px rgba(0, 0, 0, .75) !important; color: #c6cbd2;
 }
 body.sl-steam #gameSettingsModal .modal-content > h2 { display: none; }
 body.sl-steam #gameSettingsModal .close-x { position: absolute; top: 8px; right: 10px; z-index: 5; width: 30px; height: 30px; padding: 0; background: transparent !important; border: 0 !important; box-shadow: none !important; color: #8f98a0 !important; font-size: 16px; }
 body.sl-steam #gameSettingsModal .close-x:hover { color: #fff !important; background: rgba(255, 255, 255, .08) !important; }
 .sl-props { display: grid; grid-template-columns: 240px minmax(0, 1fr); height: 100%; }
-.sl-props-nav { display: flex; flex-direction: column; min-height: 0; overflow-y: auto; background: #171d25; border-right: 1px solid rgba(0, 0, 0, .5); padding: 0 0 12px; }
+.sl-props-nav { display: flex; flex-direction: column; min-height: 0; overflow-y: auto; background: #242830; border-right: 1px solid rgba(0, 0, 0, .5); padding: 0 0 12px; }
 .sl-props-game { display: flex; align-items: center; gap: 10px; padding: 16px 14px 14px; margin-bottom: 6px; border-bottom: 1px solid rgba(255, 255, 255, .06); }
-.sl-props-art { flex: none; width: 46px; height: 22px; background: #0e141b center / cover no-repeat; border-radius: 2px; }
+.sl-props-art { flex: none; width: 46px; height: 22px; background: #1c212b center / cover no-repeat; border-radius: 2px; }
 .sl-props-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; font-weight: 600; color: #fff; }
-.sl-props-tab { appearance: none; display: block; width: 100%; padding: 9px 18px; background: transparent !important; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; transform: none !important; color: #c6d4df !important; font: inherit; font-size: 14px; font-weight: 400; letter-spacing: 0; text-align: left; text-transform: none; cursor: pointer; }
+.sl-props-tab { appearance: none; display: block; width: 100%; padding: 9px 18px; background: transparent !important; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; transform: none !important; color: #c6cbd2 !important; font: inherit; font-size: 14px; font-weight: 400; letter-spacing: 0; text-align: left; text-transform: none; cursor: pointer; }
 .sl-props-tab[hidden] { display: none; }
 .sl-props-tab:hover { background: rgba(255, 255, 255, .06) !important; }
 .sl-props-tab.is-active { background: #3d4450 !important; color: #fff !important; }
@@ -217,12 +223,12 @@ body.sl-steam #gameSettingsModal .close-x:hover { color: #fff !important; backgr
 body.sl-steam .sl-props-main h2.sl-props-title { display: block; flex: none; margin: 0; padding: 20px 56px 10px 30px; border: 0; font-size: 24px; font-weight: 300; letter-spacing: 0; color: #fff; }
 .sl-props-body { flex: 1; min-height: 0; overflow-y: auto; padding: 0 30px 24px; scrollbar-width: thin; scrollbar-color: #3d4450 transparent; }
 .sl-props-body > [data-sl-page]:not(.sl-pane-on) { display: none !important; }
-.sl-props-foot { display: flex; align-items: center; gap: 10px; flex: none; padding: 12px 30px; background: #16202d; border-top: 1px solid rgba(0, 0, 0, .45); }
+.sl-props-foot { display: flex; align-items: center; gap: 10px; flex: none; padding: 12px 30px; background: #242830; border-top: 1px solid rgba(0, 0, 0, .45); }
 .sl-props-foot[hidden] { display: none; }
 body.sl-steam .sl-props-foot #localExecutionSetupStatus { order: 1; flex: 1; margin: 0 !important; min-width: 0; font-size: 12px; opacity: .85; }
 body.sl-steam .sl-props-foot #discardLocalExecutionBtn { order: 2; width: auto !important; margin: 0 !important; }
 body.sl-steam .sl-props-foot #approveLocalExecutionBtn { order: 3; width: auto !important; margin: 0 !important; padding: 8px 20px; background: linear-gradient(to bottom, #1a9fff, #1478c8) !important; border: 0 !important; color: #fff !important; font-weight: 600; }
-body.sl-steam .sl-props-body input[type="text"], body.sl-steam .sl-props-body select { background: #0e141b !important; border: 1px solid #2a3a4d !important; border-radius: 2px !important; color: #c6d4df !important; }
-body.sl-steam .sl-props-body label { color: #c6d4df; }
+body.sl-steam .sl-props-body input[type="text"], body.sl-steam .sl-props-body select { background: #1c212b !important; border: 1px solid #3d444d !important; border-radius: 2px !important; color: #c6cbd2 !important; }
+body.sl-steam .sl-props-body label { color: #c6cbd2; }
 body.sl-steam .sl-props-body [style*="border-top"] { border-top-color: rgba(255, 255, 255, .08) !important; }
 body.sl-steam .sl-props-body button.outline, body.sl-steam .sl-props-body button.danger-outline { border-radius: 2px !important; }
