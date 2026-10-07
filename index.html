@@ -4611,6 +4611,19 @@
         </div>
     </div>
 
+    <div id="pluginSettingsModal" class="modal" style="z-index: 10060;">
+        <div class="modal-content" style="width: 520px; max-height: 85vh; display: flex; flex-direction: column;">
+            <button class="close-x" onclick="closePluginSettings()" aria-label="Close plugin settings">✕</button>
+            <h2 style="margin-top:0; border-bottom: 1px solid var(--border-color); padding-bottom: 10px;"><span id="pluginSettingsTitle">Plugin</span> <small id="pluginSettingsVersion" style="font-size: 12px; opacity: .6; font-weight: 400;"></small></h2>
+            <div id="pluginSettingsBody" class="plugin-settings-body"></div>
+            <p style="opacity: .55; font-size: 11px; margin: 4px 0 0;">Saved on this PC as you change them. A plugin applies most changes straight away.</p>
+            <div style="display: flex; gap: 10px; margin-top: 12px;">
+                <button class="outline" onclick="resetPluginSettings()" style="flex-grow: 1;">Reset to defaults</button>
+                <button onclick="closePluginSettings()" style="flex-grow: 1;">Done</button>
+            </div>
+        </div>
+    </div>
+
     <div id="oskModal" class="modal" style="z-index: 10050;">
         <div class="modal-content"
             style="width: 700px; text-align: center; background: rgba(15,15,20,0.95); backdrop-filter: blur(20px);">
@@ -7133,6 +7146,13 @@
         const fs = require('fs-extra');
         const path = require('path');
         const os = require('os');
+        // Per-plugin settings live on this PC only, outside the plugin folder so updating a plugin keeps them.
+        const pluginSettings = require('./ui/pluginSettings');
+        let pluginSettingsDirectory = '';
+        const pluginSettingsStore = pluginSettings.createPluginSettingsStore({ fs, path, getDirectory: () => pluginSettingsDirectory });
+        window.addEventListener('pagehide', () => pluginSettingsStore.flush());
+        let pluginSettingsFolder = '';
+        let pluginSettingsForm = null;
         const remoteData = require('./ui/remoteJson').createRemoteDataClient(ipcRenderer);
         const SafeDom = require('./ui/safeDom');
         const DownloadSourceLogic = require('./ui/downloadSourceLogic');
@@ -7766,7 +7786,7 @@
         }
         const sailTabButtons = { library: 'tabLibrary', mods: 'tabStore', workshop: 'tabWorkshop', downloads: 'tabDownloads', downloadmanager: 'tabDownloadsMgr', achievements: 'tabAchievements' };
         window.SailAPI = {
-            apiVersion: 2,
+            apiVersion: 3,
             getGames: () => myGames.map(sailPublicGame),
             getGame: id => { const index = myGames.findIndex(game => String(game.id) === String(id)); return index < 0 ? null : sailPublicGame(myGames[index], index); },
             getActiveGameId: () => { const page = document.getElementById('gamePageView'); return page && page.style.display === 'block' && myGames[viewingGameIndex] ? String(myGames[viewingGameIndex].id) : null; },
@@ -7844,6 +7864,7 @@
         function stopPlugin(folderName) {
             const instance = runningPlugins.get(folderName);
             runningPlugins.delete(folderName);
+            pluginSettingsStore.dropListeners(folderName);
             if (instance) { try { instance.dispose(); } catch (e) { console.error("[Plugin] dispose failed for", folderName, e); } }
         }
         function startPlugin(manifest) {
@@ -7854,7 +7875,12 @@
                     delete require.cache[require.resolve(mainFile)];
                     const pluginModule = require(mainFile);
                     if (typeof pluginModule === 'function') {
-                        const instance = pluginModule(window.SailAPI);
+                        // The second argument is this plugin's own context: its settings, with a way to open their dialog.
+                        const context = {
+                            name: String(manifest.name || manifest._folderName), folder: manifest._folderName, version: String(manifest.version || ''),
+                            settings: pluginSettingsStore.controller(manifest._folderName, { open: () => openPluginSettings(manifest._folderName) })
+                        };
+                        const instance = pluginModule(window.SailAPI, context);
                         if (instance && typeof instance.dispose === 'function') runningPlugins.set(manifest._folderName, instance);
                     }
                 } else if (manifest.main.endsWith('.exe')) {
@@ -7876,6 +7902,7 @@
             try {
                 const userDataPath = await ipcRenderer.invoke('get-user-data');
                 const pluginsDir = path.join(userDataPath, 'plugins');
+                pluginSettingsDirectory = path.join(userDataPath, 'plugin-settings');
                 fs.ensureDirSync(pluginsDir);
                 const entries = fs.readdirSync(pluginsDir, { withFileTypes: true });
                 for (const entry of entries) {
@@ -7889,6 +7916,7 @@
                                 manifest._path = pluginPath;
                                 manifest._unsupported = pluginUnsupportedReason(manifest);
                                 installedPlugins.push(manifest);
+                                pluginSettingsStore.register(entry.name, manifest.settings);
                                 if (manifest._unsupported) { console.log('[Plugin] Skipping', entry.name + ':', manifest._unsupported); continue; }
 
                                 // Skip disabled plugins
@@ -7936,6 +7964,10 @@
                 status.style.color = statusColor;
                 const toggle = SafeDom.element(document, 'button', { className: 'outline', text: disabled ? 'Enable' : 'Disable' });
                 toggle.addEventListener('click', () => togglePlugin(folderName));
+                const options = pluginSettingsStore.hasSettings(folderName)
+                    ? SafeDom.element(document, 'button', { className: 'outline', text: 'Settings', ariaLabel: `Settings for ${folderName}` })
+                    : null;
+                if (options) options.addEventListener('click', () => openPluginSettings(folderName));
                 const remove = SafeDom.element(document, 'button', { className: 'danger-outline', text: '🗑️', ariaLabel: `Delete ${folderName}` });
                 remove.addEventListener('click', () => deletePlugin(folderName));
                 return SafeDom.element(document, 'div', { className: 'plugin-row' }, [
@@ -7944,10 +7976,30 @@
                         SafeDom.element(document, 'div', { className: 'plugin-byline', text: `v${String(p.version || '?').slice(0, 64)} by ${String(p.author || 'Unknown').slice(0, 128)}` }),
                         SafeDom.element(document, 'div', { className: 'plugin-description', text: String(p.description || '').slice(0, 4096) })
                     ]),
-                    SafeDom.element(document, 'div', { className: 'plugin-actions' }, [status, toggle, remove])
+                    SafeDom.element(document, 'div', { className: 'plugin-actions' }, [status, options, toggle, remove].filter(Boolean))
                 ]);
             });
             list.replaceChildren(...rows);
+        }
+
+        // A plugin's own settings window, drawn from the options its plugin.json lists.
+        function openPluginSettings(folderName) {
+            const manifest = installedPlugins.find(item => item._folderName === folderName);
+            if (!manifest || !pluginSettingsStore.hasSettings(folderName)) return;
+            pluginSettingsFolder = folderName;
+            document.getElementById('pluginSettingsTitle').textContent = String(manifest.name || folderName).slice(0, 128);
+            document.getElementById('pluginSettingsVersion').textContent = `v${String(manifest.version || '?').slice(0, 32)}`;
+            if (pluginSettingsForm) pluginSettingsForm.destroy();
+            pluginSettingsForm = pluginSettings.renderPluginSettingsForm(document, document.getElementById('pluginSettingsBody'), pluginSettingsStore, folderName);
+            openModal('pluginSettingsModal');
+        }
+        function resetPluginSettings() {
+            if (pluginSettingsFolder) pluginSettingsStore.reset(pluginSettingsFolder);
+        }
+        function closePluginSettings() {
+            if (pluginSettingsForm) { pluginSettingsForm.destroy(); pluginSettingsForm = null; }
+            pluginSettingsStore.flush();
+            closeModal('pluginSettingsModal');
         }
 
         function togglePlugin(folderName) {
@@ -7973,6 +8025,7 @@
             const pluginPath = path.join(userDataPath, 'plugins', folderName);
             try {
                 stopPlugin(folderName);
+                pluginSettingsStore.remove(folderName);
                 fs.removeSync(pluginPath);
                 installedPlugins = installedPlugins.filter(p => p._folderName !== folderName);
                 globalSettings.disabledPlugins = (globalSettings.disabledPlugins || []).filter(n => n !== folderName);
@@ -8064,6 +8117,7 @@
                 manifest._path = finalPath;
                 installedPlugins = installedPlugins.filter(p => p._folderName !== folderName);
                 installedPlugins.push(manifest);
+                pluginSettingsStore.register(folderName, manifest.settings);
                 const disabled = (globalSettings.disabledPlugins || []).includes(folderName);
                 let started = false;
                 if (!unsupported && !disabled && (!wasInstalled || wasRunning)) {

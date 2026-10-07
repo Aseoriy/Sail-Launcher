@@ -40,7 +40,7 @@ body.sl-steam .account-pill .sl-caret { display: inline-flex; align-items: cente
 body.sl-steam .account-pill[aria-expanded="true"] { background: rgba(255, 255, 255, .12) !important; }
 body.sl-steam .titlebar-title { grid-column: 1 / -1; grid-row: 2; height: var(--sl-nav-h); min-width: 0; padding-left: 8px; overflow: hidden; gap: 4px; }
 body.sl-steam .titlebar-title .nav-arrow { width: 32px; height: 32px; flex: none; }
-body.sl-steam #topHeaderActionButtonsContainer, body.sl-steam #topHeaderDropdownContainer { display: none !important; }
+body.sl-steam:not(.sl-keep-buttons) #topHeaderActionButtonsContainer, body.sl-steam:not(.sl-keep-buttons) #topHeaderDropdownContainer { display: none !important; }
 /* Everything under the title bar that was positioned for the old 45px bar. Dialogs get the room below the bar,
    so their top edge and close button are never hidden behind it. */
 body.sl-steam .modal:not(#settingsModal):not(#accountModal) { top: var(--sl-bar-h); height: calc(100% - var(--sl-bar-h)); }
@@ -77,17 +77,18 @@ body.sl-steam .sl-more[hidden] { display: none; }
     body.sl-steam .sl-top-nav .sidebar-page-link { padding: 0 9px; letter-spacing: .01em; }
 }
 /* Steam's names for the pages, drawn from the label's data attribute (see buildTabNames). */
-body.sl-steam .sl-top-nav .sidebar-page-label[data-sl-name] { font-size: 0; }
-body.sl-steam .sl-top-nav .sidebar-page-label[data-sl-name]::after { content: attr(data-sl-name); font-size: var(--sl-tab-fs); }
-/* Steam's order: Store, Library, Community, then the rest. */
-body.sl-steam .sl-top-nav #tabDownloads { order: 1; }
-body.sl-steam .sl-top-nav #tabLibrary { order: 2; }
-body.sl-steam .sl-top-nav #tabStore { order: 3; }
-body.sl-steam .sl-top-nav #tabWorkshop { order: 4; }
-body.sl-steam .sl-top-nav #tabAchievements { order: 5; }
-body.sl-steam .sl-top-nav #tabMaintenance { order: 6; }
+body.sl-steam:not(.sl-sail-names) .sl-top-nav .sidebar-page-label[data-sl-name] { font-size: 0; }
+body.sl-steam:not(.sl-sail-names) .sl-top-nav .sidebar-page-label[data-sl-name]::after { content: attr(data-sl-name); font-size: var(--sl-tab-fs); }
+/* Steam's order: Store, Library, Community, then the rest (Sail's own order when its own names are chosen). */
+body.sl-steam:not(.sl-sail-names) .sl-top-nav #tabDownloads { order: 1; }
+body.sl-steam:not(.sl-sail-names) .sl-top-nav #tabLibrary { order: 2; }
+body.sl-steam:not(.sl-sail-names) .sl-top-nav #tabStore { order: 3; }
+body.sl-steam:not(.sl-sail-names) .sl-top-nav #tabWorkshop { order: 4; }
+body.sl-steam:not(.sl-sail-names) .sl-top-nav #tabDownloadsMgr { order: 5; }
+body.sl-steam:not(.sl-sail-names) .sl-top-nav #tabAchievements { order: 6; }
+body.sl-steam:not(.sl-sail-names) .sl-top-nav #tabMaintenance { order: 7; }
 /* Downloads has its own button in the bottom bar, as in Steam, so it is not a tab as well. */
-body.sl-steam .sl-top-nav #tabDownloadsMgr { display: none !important; }
+body.sl-steam:not(.sl-downloads-tab) .sl-top-nav #tabDownloadsMgr { display: none !important; }
 
 /* The menus: the Sail menu and the tab overflow. They live on the body so nothing clips them. */
 /* The title bar is a window-drag region and swallows real clicks inside it, so the popups that overlap it must opt out. */
@@ -155,7 +156,11 @@ body.sl-steam:not(.sl-friends) #socialSidebar, body.sl-steam:not(.sl-friends) #s
 
 /* ---- Main area ---- */
 body.sl-steam .main-content-area { background: transparent !important; }
-body.sl-steam #libraryView .header, body.sl-steam #actionButtonsGroup, body.sl-steam #topTitle { display: none !important; }
+body.sl-steam #topTitle { display: none !important; }
+body.sl-steam:not(.sl-keep-buttons) #libraryView .header, body.sl-steam:not(.sl-keep-buttons) #actionButtonsGroup { display: none !important; }
+body.sl-steam.sl-keep-buttons #libraryView .header { margin-bottom: 8px; }
+body.sl-steam.sl-keep-buttons #actionButtonsGroup { margin-left: auto; }
+body.sl-steam.sl-keep-buttons #actionButtonsGroup button { padding: 6px 12px; font-size: 12px; border-radius: 2px !important; }
 body.sl-steam #continuePlayingCard, body.sl-steam #compatibilitySetupBanner:empty { display: none !important; }
 body.sl-steam #libraryView .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 0 10px; margin: 0; background: none !important; border: 0 !important; box-shadow: none !important; }
 body.sl-steam #libraryView .toolbar label.library-toolbar-control:has(#sortFilter), body.sl-steam #libraryView .toolbar #searchInput, body.sl-steam #libraryView .toolbar .search-bar, body.sl-steam #libraryView .toolbar #libraryResultCount, body.sl-steam #libraryView .toolbar #viewToggleBtn, body.sl-steam #libraryView .toolbar #sortFilter { display: none !important; }
@@ -333,3 +338,7 @@ body.sl-steam .app-container { position: relative; }
     .sl-pf-bar { grid-template-columns: 120px minmax(0, 1fr) 84px; }
 }
 body.sl-steam.big-picture-mode .sl-profile { display: none !important; }
+
+/* Options: hide the recent games shelf or the bottom bar. */
+body.sl-steam.sl-no-shelf .sl-shelf { display: none !important; }
+body.sl-steam.sl-no-bottom .sl-bottom { display: none !important; }

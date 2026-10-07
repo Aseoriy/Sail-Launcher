@@ -1,33 +1,32 @@
 // Library Layouts for Sail Launcher
 // Re-arranges the launcher like other popular clients. Everything it changes is put back when it is switched off.
 
-module.exports = function (SailAPI) {
+module.exports = function (SailAPI, context) {
     const fs = require('fs');
     const path = require('path');
     const { ipcRenderer } = require('electron');
 
-    if (!SailAPI || !(SailAPI.apiVersion >= 2)) {
+    // Settings come from Sail's plugin settings (see "settings" in plugin.json), so they are edited in Sail's own
+    // dialog from the Plugin Manager, the gear below the game list or the Sail menu.
+    if (!SailAPI || !(SailAPI.apiVersion >= 3) || !context || !context.settings) {
         console.warn('[Library Layouts] This version of Sail is too old for layout plugins. Update Sail to use it.');
         return { dispose() {} };
     }
+    const prefs = context.settings;
 
-    const STORAGE_KEY = 'sail-library-layouts';
-    const DEFAULTS = { layout: 'steam', colors: true, portrait: true, friends: false };
-    const LAYOUTS = [{ id: 'steam', label: 'Steam-style' }, { id: 'off', label: 'Off (Sail default)' }];
-    const settings = (() => {
-        try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}') }; } catch (_) { return { ...DEFAULTS }; }
+    // Earlier versions kept their options in the browser's storage; carry them over once.
+    (function migrateOldSettings() {
+        try {
+            const old = JSON.parse(localStorage.getItem('sail-library-layouts') || 'null');
+            if (!old || typeof old !== 'object') return;
+            const carry = { layout: 'layout', colors: 'colors', portrait: 'tallCovers', friends: 'friends' };
+            for (const [from, to] of Object.entries(carry)) if (from in old && !prefs.isSet(to)) prefs.set(to, old[from]);
+            localStorage.removeItem('sail-library-layouts');
+        } catch (_) { /* Nothing to carry over. */ }
     })();
-    const saveSettings = () => { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(settings)); } catch (_) { /* Settings simply do not persist. */ } };
 
     // The friends panel can be switched from the settings, the menu bar and the bottom bar; they all land here.
-    function setFriends(on) {
-        settings.friends = !!on;
-        saveSettings();
-        const current = controller.current();
-        if (current) current.ensureClasses();
-        const box = document.getElementById('sl-opt-friends');
-        if (box) box.checked = settings.friends;
-    }
+    function setFriends(on) { prefs.set('friends', !!on); }
 
     const html = document.documentElement;
     const body = document.body;
@@ -80,8 +79,10 @@ module.exports = function (SailAPI) {
     // ---- The Steam-style layout -------------------------------------------------------------
     function steamLayout() {
         const undo = [];
-        const classes = () => ['sl-steam', settings.colors && 'sl-colors', settings.portrait && 'sl-portrait', settings.friends && 'sl-friends'].filter(Boolean);
-        const everyClass = ['sl-steam', 'sl-colors', 'sl-portrait', 'sl-friends'];
+        const classes = () => ['sl-steam', prefs.get('colors') && 'sl-colors', prefs.get('tallCovers') && 'sl-portrait', prefs.get('friends') && 'sl-friends',
+            prefs.get('actionButtons') === 'sail' && 'sl-keep-buttons', prefs.get('tabNames') === 'sail' && 'sl-sail-names', prefs.get('downloadsTab') && 'sl-downloads-tab',
+            !prefs.get('recentShelf') && 'sl-no-shelf', !prefs.get('bottomBar') && 'sl-no-bottom'].filter(Boolean);
+        const everyClass = ['sl-steam', 'sl-colors', 'sl-portrait', 'sl-friends', 'sl-keep-buttons', 'sl-sail-names', 'sl-downloads-tab', 'sl-no-shelf', 'sl-no-bottom'];
 
         // The launcher rebuilds the body's class list when the theme changes, so keep ours on, and keep glass off.
         let hadGlass = body.classList.contains('glassmorphic-mode');
@@ -271,7 +272,7 @@ module.exports = function (SailAPI) {
                 viaButton('Statistics', 'stats'), SEP,
                 viaButton('Big Picture Mode', 'bigPicture')] },
             { label: 'Friends', items: () => [
-                item('Friends & Chat', () => setFriends(!settings.friends), { checked: settings.friends }), SEP,
+                item('Friends & Chat', () => setFriends(!prefs.get('friends')), { checked: prefs.get('friends') }), SEP,
                 sortBy('Sort by Status', 'status'), sortBy('Sort by Name', 'name'), sortBy('Sort by Platform', 'platform')] },
             { label: 'Games', items: () => [
                 viaButton('Add a Game…', 'addGame'), viaButton('Select Games', 'selectMode'), SEP,
@@ -414,7 +415,7 @@ module.exports = function (SailAPI) {
         more.addEventListener('click', () => {
             if (!menu.hidden) { menu.hidden = true; return; }
             menu.replaceChildren(...hidden.map(tab => {
-                const item = el('button', { type: 'button', class: 'sl-menu-item', role: 'menuitem', text: (tab.querySelector('.sidebar-page-label[data-sl-name]') || tab.querySelector('.sidebar-page-label') || tab).getAttribute('data-sl-name') || (tab.querySelector('.sidebar-page-label') || tab).textContent.trim() });
+                const item = el('button', { type: 'button', class: 'sl-menu-item', role: 'menuitem', text: (!body.classList.contains('sl-sail-names') && (tab.querySelector('.sidebar-page-label') || tab).getAttribute('data-sl-name')) || (tab.querySelector('.sidebar-page-label') || tab).textContent.trim() });
                 item.addEventListener('click', () => { menu.hidden = true; tab.click(); });
                 return item;
             }));
@@ -432,8 +433,9 @@ module.exports = function (SailAPI) {
         const watch = new MutationObserver(refit);
         watch.observe(titleBar, { childList: true });
         window.addEventListener('resize', refit);
+        document.addEventListener('sl-settings', refit);
         refit();
-        return { fit: refit, destroy() { document.removeEventListener('click', onDocument); window.removeEventListener('resize', refit); watch.disconnect(); if (resize) resize.disconnect(); nav.querySelectorAll('.sl-tab-off').forEach(tab => tab.classList.remove('sl-tab-off')); more.remove(); menu.remove(); } };
+        return { fit: refit, destroy() { document.removeEventListener('click', onDocument); window.removeEventListener('resize', refit); document.removeEventListener('sl-settings', refit); watch.disconnect(); if (resize) resize.disconnect(); nav.querySelectorAll('.sl-tab-off').forEach(tab => tab.classList.remove('sl-tab-off')); more.remove(); menu.remove(); } };
     }
 
     // The strip along the bottom: add a game, downloads, friends.
@@ -444,7 +446,7 @@ module.exports = function (SailAPI) {
         const downloads = el('button', { type: 'button', class: 'sl-bottom-btn' }, [svg(['M12 4v11', 'M7 11l5 5 5-5', 'M5 20h14'], 14), downloadText]);
         downloads.addEventListener('click', () => SailAPI.showTab('downloadmanager'));
         const friends = el('button', { type: 'button', class: 'sl-bottom-btn' }, ['Friends & Chat', svg(['M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'], 14)]);
-        friends.addEventListener('click', () => setFriends(!settings.friends));
+        friends.addEventListener('click', () => setFriends(!prefs.get('friends')));
         const bar = el('div', { class: 'sl-bottom' }, [add, el('span', { class: 'sl-spacer' }), downloads, el('span', { class: 'sl-spacer' }), friends]);
         document.querySelector('.app-container').after(bar);
         function update() {
@@ -753,40 +755,18 @@ module.exports = function (SailAPI) {
         };
     }
 
-    // The gear and its panel stay available whichever layout is on, including Off, so there is always a way back.
+    // The gear stays available whichever layout is on, including Off, so there is always a way back to the settings.
     function buildEntry() {
-        const gear = el('button', { type: 'button', class: 'sl-gear', title: 'Library Layouts', 'aria-label': 'Library Layouts settings' }, [svg(['M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z', 'M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z'], 15)]);
-        const panel = buildSettingsPanel();
-        gear.addEventListener('click', event => { event.stopPropagation(); panel.toggle(); });
-        const element = el('div', { class: 'sl-foot' }, [el('span', { text: 'Layouts' }), gear, panel.element]);
+        const gear = el('button', { type: 'button', class: 'sl-gear', title: 'Library Layouts settings', 'aria-label': 'Library Layouts settings' }, [svg(['M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z', 'M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z'], 15)]);
+        gear.addEventListener('click', () => prefs.open());
+        const element = el('div', { class: 'sl-foot' }, [el('span', { text: 'Layouts' }), gear]);
         document.getElementById('mainSidebar').append(element);
         const style = el('style', { id: 'sl-base-style' });
         style.textContent = fs.readFileSync(path.join(__dirname, 'layouts', 'base.css'), 'utf8');
         document.head.append(style);
-        const handle = { element, open() { panel.show(); }, destroy() { panel.destroy(); element.remove(); style.remove(); } };
+        const handle = { element, open() { prefs.open(); }, destroy() { element.remove(); style.remove(); } };
         entryHandle = handle;
         return handle;
-    }
-
-    function buildSettingsPanel() {
-        const toggles = [
-            ['colors', 'Steam colours', 'Dark blue-grey instead of your Sail theme.'],
-            ['portrait', 'Tall covers', 'Poster art on the home page when a game has it.'],
-            ['friends', 'Friends panel', 'Show the panel on the right.']
-        ];
-        const layout = el('select', { class: 'sl-select', 'aria-label': 'Layout' }, LAYOUTS.map(item => el('option', { value: item.id, text: item.label })));
-        layout.value = settings.layout;
-        layout.addEventListener('change', () => { settings.layout = layout.value; saveSettings(); applyLayout(); });
-        const rows = toggles.map(([key, label, hint]) => {
-            const box = el('input', { type: 'checkbox', id: `sl-opt-${key}` });
-            box.checked = !!settings[key];
-            box.addEventListener('change', () => { settings[key] = box.checked; saveSettings(); const active = controller.current(); if (active) active.ensureClasses(); document.dispatchEvent(new Event('sl-settings')); });
-            return el('label', { class: 'sl-opt', for: `sl-opt-${key}` }, [box, el('span', {}, [el('b', { text: label }), el('small', { text: hint })])]);
-        });
-        const element = el('div', { class: 'sl-settings', hidden: true, role: 'dialog', 'aria-label': 'Library Layouts settings' }, [el('div', { class: 'sl-settings-title', text: 'Library Layouts' }), layout, ...rows]);
-        const close = event => { if (!element.hidden && !element.contains(event.target)) element.hidden = true; };
-        document.addEventListener('click', close);
-        return { element, toggle() { element.hidden = !element.hidden; }, show() { element.hidden = false; }, destroy() { document.removeEventListener('click', close); } };
     }
 
     // Last played, play time and achievements next to the Play button.
@@ -818,7 +798,7 @@ module.exports = function (SailAPI) {
                 const image = card.querySelector('img.card-banner');
                 const game = games[Number(card.dataset.masterIndex)];
                 if (!image || !game || image.dataset.slOriginal !== undefined) continue;
-                const url = settings.portrait ? SailAPI.getCover(game.id, 'portrait') : '';
+                const url = prefs.get('tallCovers') ? SailAPI.getCover(game.id, 'portrait') : '';
                 if (!url) continue;
                 image.dataset.slOriginal = image.getAttribute('src') || '';
                 image.addEventListener('error', () => { if (image.dataset.slOriginal) image.src = image.dataset.slOriginal; }, { once: true });
@@ -844,19 +824,27 @@ module.exports = function (SailAPI) {
     function applyLayout() {
         const previous = controller.current();
         if (previous) { previous.unmount(); controller.set(null); }
-        if (settings.layout === 'steam') {
+        if (prefs.get('layout') === 'steam') {
             const next = steamLayout();
             try { next.mount(); controller.set(next); } catch (error) { console.error('[Library Layouts] Could not start the layout:', error); try { next.unmount(); } catch (_) { /* Already undone as far as it went. */ } }
         }
     }
     const entry = buildEntry();
     applyLayout();
+    // Changes made in Sail's settings dialog (or by anything else) apply straight away.
+    const stopListening = prefs.onChange(id => {
+        if (id === 'layout') { applyLayout(); return; }
+        const current = controller.current();
+        if (current) current.ensureClasses();
+        document.dispatchEvent(new Event('sl-settings'));
+    });
 
     return {
         dispose() {
             const current = controller.current();
             if (current) current.unmount();
             controller.set(null);
+            stopListening();
             entry.destroy();
         }
     };

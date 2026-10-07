@@ -1,8 +1,122 @@
 {
     "name": "Library Layouts",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "author": "Aseoriy",
-    "description": "Re-lays out the whole launcher like other popular game clients: top tabs, a game list on the left, a cover-art home page and a hero game page. Starts with a Steam-style layout. Switch it on or off live from the gear in the game list.",
+    "description": "Re-lays out the whole launcher like other popular game clients: a menu bar and top tabs, a game list on the left, a cover-art home page and a hero game page. Starts with a Steam-style layout. Everything it does can be tuned in its settings.",
     "main": "index.js",
-    "platforms": ["win32", "linux"]
+    "platforms": [
+        "win32",
+        "linux"
+    ],
+    "settings": [
+        {
+            "type": "heading",
+            "label": "Layout"
+        },
+        {
+            "id": "layout",
+            "type": "select",
+            "label": "Layout",
+            "description": "Steam-style rearranges the whole launcher. Off puts Sail back exactly as it was.",
+            "default": "steam",
+            "options": [
+                {
+                    "value": "steam",
+                    "label": "Steam-style"
+                },
+                {
+                    "value": "off",
+                    "label": "Off (Sail default)"
+                }
+            ]
+        },
+        {
+            "type": "heading",
+            "label": "Buttons and pages"
+        },
+        {
+            "id": "actionButtons",
+            "type": "select",
+            "label": "Action buttons",
+            "description": "Settings, Plugins, Big Picture, Add a Game and the rest. The menu bar always has them too.",
+            "default": "menu",
+            "options": [
+                {
+                    "value": "menu",
+                    "label": "In the menu bar, like Steam"
+                },
+                {
+                    "value": "sail",
+                    "label": "Where Sail's own settings put them"
+                }
+            ]
+        },
+        {
+            "id": "tabNames",
+            "type": "select",
+            "label": "Page names",
+            "description": "Steam's names for the pages (Store, Community) or Sail's own (Game Downloads, Mods).",
+            "default": "steam",
+            "options": [
+                {
+                    "value": "steam",
+                    "label": "Steam's names"
+                },
+                {
+                    "value": "sail",
+                    "label": "Sail's own names"
+                }
+            ]
+        },
+        {
+            "id": "downloadsTab",
+            "type": "toggle",
+            "label": "Downloads tab",
+            "description": "Steam has no Downloads tab; the bottom bar opens it. Turn this on to also show it with the other tabs.",
+            "default": false
+        },
+        {
+            "type": "heading",
+            "label": "Look"
+        },
+        {
+            "id": "colors",
+            "type": "toggle",
+            "label": "Steam colours",
+            "description": "Steam's slate greys and blue instead of your Sail theme.",
+            "default": true
+        },
+        {
+            "id": "tallCovers",
+            "type": "toggle",
+            "label": "Tall covers",
+            "description": "Poster art on the home page when a game has it.",
+            "default": true
+        },
+        {
+            "type": "heading",
+            "label": "Home page and panels"
+        },
+        {
+            "id": "recentShelf",
+            "type": "toggle",
+            "label": "Recent games shelf",
+            "description": "A row of the games you played last above your library.",
+            "default": true
+        },
+        {
+            "id": "bottomBar",
+            "type": "toggle",
+            "label": "Bottom bar",
+            "description": "Add a Game, Downloads and Friends & Chat along the bottom.",
+            "default": true
+        },
+        {
+            "id": "friends",
+            "type": "toggle",
+            "label": "Friends panel",
+            "description": "Show the friends list on the right.",
+            "default": false
+        }
+    ]
 }
