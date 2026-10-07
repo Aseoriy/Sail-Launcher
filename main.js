@@ -1150,11 +1150,14 @@ ipcMain.on('restart-app', () => {
 ipcMain.handle('get-user-data', () => app.getPath('userData'));
 ipcMain.handle('get-auto-launch', () => desktopActivation.rendererReady());
 
-// First-run setup (Linux only for now). The result is remembered per device, outside the synced settings.
+// First-run setup. The result is remembered per device, outside the synced settings.
 const onboardingState = createOnboardingState({
     file: path.join(app.getPath('userData'), 'runtime', 'onboarding.json'),
-    force: args.includes('--onboarding') || process.env.SAIL_ONBOARDING === '1'
+    force: args.includes('--onboarding') || process.env.SAIL_ONBOARDING === '1',
+    // Launcher data from before the setup existed means this is not a new install.
+    existingInstall: () => ['SailProfiles/state.json', 'sail_library.json'].some(name => fs.existsSync(path.join(app.getPath('userData'), name)))
 });
+try { onboardingState.initialize(); } catch (error) { console.error('Setup state could not be prepared:', error.message); }
 ipcMain.handle('onboarding-state', () => onboardingState.status());
 ipcMain.handle('onboarding-hide-rerun', () => onboardingState.hideRerun());
 ipcMain.handle('onboarding-finish', (_event, payload) => {

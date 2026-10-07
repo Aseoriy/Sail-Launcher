@@ -7066,15 +7066,15 @@
             open: () => { openModal('settingsModal'); window.switchSettingsTab('compatibility'); }
         });
         document.getElementById('manageCompatibilityBtn').onclick = () => compatibilityManager.show().catch(error => platformAvailability.notice(error.message));
-        // First-run setup (Linux only while it is being tuned).
-        const onboarding = process.platform === 'linux' ? require('./ui/onboarding').installOnboarding({
+        // First-run setup.
+        const onboarding = require('./ui/onboarding').installOnboarding({
             document, ipc: ipcRenderer, invoke: invokeAccount,
             hooks: {
                 libraryChanged: result => { applyLauncherSnapshot(result); if (localProfileLoaded) renderGames(); },
                 addGame: () => { const button = document.getElementById('addGameBtn'); if (button) button.click(); },
                 closed: () => schedulePrewarmSettingsPage()
             }
-        }) : null;
+        });
         function startOnboarding() {
             if (!onboarding) return;
             // Let the start-up animation finish before covering the launcher.

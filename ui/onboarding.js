@@ -1,6 +1,6 @@
 'use strict';
 
-// First-run setup for the Linux launcher. Every choice is applied by driving the matching control in
+// First-run setup. Every choice is applied by driving the matching control in
 // Settings, so validation, saving and live updates behave exactly as if the person had used Settings.
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -56,7 +56,7 @@ const SETUP_STEPS = [
     { id: 'look', tab: 'Look', eyebrow: 'Look', title: 'Pick a theme', lede: 'These are the colours Sail uses. You can build your own theme later.' },
     { id: 'library', tab: 'Library', eyebrow: 'Library', title: 'Set up your library', lede: 'How games are shown. The preview updates as you choose.' },
     { id: 'feel', tab: 'Motion', eyebrow: 'Motion and extras', title: 'How should it move?', lede: 'Animations are part of the look, but they are optional.' },
-    { id: 'games', tab: 'Games', eyebrow: 'Games', title: 'Get your games in', lede: 'Sail can run Windows games on Linux and pick up games you already have.' }
+    { id: 'games', tab: 'Games', eyebrow: 'Games', title: 'Get your games in', lede: 'Sail can pick up games you already have.' }
 ];
 
 // The last one is a favorite, so "Favorites first" has something to move.
@@ -417,6 +417,10 @@ function installOnboarding({ document, window = document.defaultView, ipc, invok
         let support = null;
         try { support = await ipc.invoke('platform-get-support'); } catch (_) { /* Optional rows stay hidden. */ }
         const features = support && support.features || {};
+        // Windows has no compatibility layer to set up, and its Steam scan is not gated by the Linux feature flags.
+        const onWindows = !!support && support.platform === 'win32';
+        const showWindowsGames = !onWindows;
+        const steamAvailable = onWindows || !!(features.steamDiscovery && features.steamDiscovery.available);
         const bodyClasses = document.body.classList;
         bodyClasses.add('onboarding-open');
         const appContainer = document.querySelector('.app-container');
@@ -605,7 +609,8 @@ function installOnboarding({ document, window = document.defaultView, ipc, invok
         };
 
         steps.games = () => {
-            const el = stepFrame(SETUP_STEPS[3], []);
+            const meta = onWindows ? SETUP_STEPS[3] : { ...SETUP_STEPS[3], lede: 'Sail can run Windows games on Linux and pick up games you already have.' };
+            const el = stepFrame(meta, []);
             const cleanup = [];
             const note = text => el.append(h(document, 'p', { class: 'ob-hint ob-rise', text }));
 
@@ -656,11 +661,10 @@ function installOnboarding({ document, window = document.defaultView, ipc, invok
                 try { await call('compatibility-setup', {}); } catch (error) { winState.textContent = String(error && error.message || 'Setup could not start.'); winState.dataset.tone = 'bad'; winButton.disabled = false; return; }
                 refreshWindows();
             });
-            el.append(winCard);
-            refreshWindows();
+            if (showWindowsGames) { el.append(winCard); refreshWindows(); }
 
             // Steam library
-            if (features.steamDiscovery && features.steamDiscovery.available) {
+            if (steamAvailable) {
                 const steamState = h(document, 'div', { class: 'ob-card-state', text: 'Finds installed games in your Steam libraries and adds them here.' });
                 const steamButton = h(document, 'button', { type: 'button', class: 'ob-btn is-quiet', text: 'Look for Steam games' });
                 steamButton.addEventListener('click', async () => {
@@ -670,10 +674,11 @@ function installOnboarding({ document, window = document.defaultView, ipc, invok
                         const added = Number(result && result.importedCount) || 0;
                         if (added && typeof hooks.libraryChanged === 'function') hooks.libraryChanged(result);
                         state.steamAdded += added;
-                        if (!result || !result.dataRootsFound) { steamState.textContent = 'Steam was not found on this computer.'; }
+                        if (added) { steamState.textContent = `Added ${added} game${added === 1 ? '' : 's'} from Steam.`; steamState.dataset.tone = 'good'; }
+                        else if (onWindows) { steamState.textContent = 'No new Steam games were found. Steam may not be installed on this computer.'; }
+                        else if (!result || !result.dataRootsFound) { steamState.textContent = 'Steam was not found on this computer.'; }
                         else if (!result.scannedCount) { steamState.textContent = 'No installed Steam games were found.'; }
-                        else if (!added) { steamState.textContent = 'Your Steam games are already in the library.'; steamState.dataset.tone = 'good'; }
-                        else { steamState.textContent = `Added ${added} game${added === 1 ? '' : 's'} from Steam.`; steamState.dataset.tone = 'good'; }
+                        else { steamState.textContent = 'Your Steam games are already in the library.'; steamState.dataset.tone = 'good'; }
                     } catch (error) { steamState.textContent = 'The scan did not finish. You can try again from the Library page.'; steamState.dataset.tone = 'bad'; }
                     steamButton.disabled = false;
                 });
@@ -682,9 +687,9 @@ function installOnboarding({ document, window = document.defaultView, ipc, invok
                     h(document, 'div', { class: 'ob-card-actions' }, [steamButton])
                 ]));
             }
-            note('You can skip both. Windows games can be set up later from Settings, and games can be added from the Library page.');
+            note(onWindows ? 'You can skip this. Games can be added any time from the Library page.' : 'You can skip both. Windows games can be set up later from Settings, and games can be added from the Library page.');
             Array.from(el.children).forEach((child, i) => child.style.setProperty('--i', String(i)));
-            return { el, focus: winButton.hidden ? el.querySelector('button') : winButton, cleanup: () => cleanup.forEach(fn => fn()) };
+            return { el, focus: showWindowsGames && !winButton.hidden ? winButton : el.querySelector('button'), cleanup: () => cleanup.forEach(fn => fn()) };
         };
 
         steps.done = () => {

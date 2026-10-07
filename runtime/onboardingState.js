@@ -9,7 +9,8 @@ const SETUP_VERSION = 1;
 
 // Remembers, on this device only, whether the first-run setup was finished or skipped. It is deliberately
 // not part of the synced settings: finishing setup on one computer says nothing about another.
-function createOnboardingState({ file, force = false, platform = process.platform, io = fs, write = durableWriteJson }) {
+// `existingInstall` tells it whether this device already had launcher data before the setup existed.
+function createOnboardingState({ file, force = false, platform = process.platform, io = fs, write = durableWriteJson, existingInstall = () => false }) {
     function read() {
         try {
             const value = JSON.parse(io.readFileSync(file, 'utf8'));
@@ -27,7 +28,7 @@ function createOnboardingState({ file, force = false, platform = process.platfor
     }
     function status() {
         const state = read();
-        const available = platform === 'linux';
+        const available = true;
         return {
             available,
             completed: state.completed,
@@ -36,19 +37,25 @@ function createOnboardingState({ file, force = false, platform = process.platfor
             shouldShow: available && (force || !state.completed || state.version < SETUP_VERSION)
         };
     }
+    // Decided once, the first time this version runs here. Someone who already used Sail is not shown a setup
+    // they never asked for; a new install is, and keeps being shown it until it is finished or skipped.
+    function initialize() {
+        if (io.existsSync(file)) return status();
+        const existing = !!existingInstall();
+        write(file, { protocol: PROTOCOL, completed: existing, skipped: existing, completedAt: existing ? new Date().toISOString() : '', version: existing ? SETUP_VERSION : 0, rerunHidden: false, existing });
+        return status();
+    }
     function finish({ skipped = false } = {}) {
-        if (platform !== 'linux') throw new Error('The first-run setup is not available on this platform.');
         write(file, { protocol: PROTOCOL, completed: true, skipped: skipped === true, completedAt: new Date().toISOString(), version: SETUP_VERSION, rerunHidden: read().rerunHidden });
         return { ...status(), shouldShow: false };
     }
     // The "Run setup again" card in Settings can be dismissed for good.
     function hideRerun() {
-        if (platform !== 'linux') throw new Error('The first-run setup is not available on this platform.');
         const state = read();
         write(file, { protocol: PROTOCOL, completed: state.completed, skipped: state.skipped, completedAt: state.completedAt, version: state.version, rerunHidden: true });
         return status();
     }
-    return { status, finish, hideRerun };
+    return { initialize, status, finish, hideRerun };
 }
 
 module.exports = { SETUP_VERSION, createOnboardingState };
