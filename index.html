@@ -7713,6 +7713,7 @@
             document.getElementById('navBackBtn').style.pointerEvents = navIndex > 0 ? 'auto' : 'none';
             document.getElementById('navFwdBtn').style.opacity = navIndex < navHistory.length - 1 ? '1' : '0.3';
             document.getElementById('navFwdBtn').style.pointerEvents = navIndex < navHistory.length - 1 ? 'auto' : 'none';
+            emitSailEvent('navigate');
         }
 
         async function applyNavState(state) {
@@ -7739,7 +7740,42 @@
         }
 
         // --- PLUGIN API ---
+        // Plugins get a small, stable read-mostly view of the launcher (apiVersion 2). Layout plugins use it instead of
+        // reaching into launcher internals: the game list, covers, opening a game, and events for changes.
+        const sailEvents = new EventTarget();
+        function emitSailEvent(name) { try { sailEvents.dispatchEvent(new Event(name)); } catch (e) { } }
+        function sailPublicGame(game, index) {
+            const items = game.achievementData && Array.isArray(game.achievementData.items) ? game.achievementData.items : [];
+            return {
+                index, id: String(game.id), name: String(game.name || ''), steamAppId: game.steamAppId ? String(game.steamAppId) : '',
+                playtime: Number(game.playtime) || 0, lastPlayed: Number(game.lastPlayed) || 0, isFavorite: !!game.isFavorite,
+                isRunning: activeGameIndex === index || nativeSessions.has(String(game.id)),
+                achievements: { total: items.length, unlocked: items.filter(item => item && item.unlocked).length }
+            };
+        }
+        // kind: 'hero' (wide banner), 'portrait' (tall cover), 'header' (small wide capsule). Empty string when none exists.
+        function sailGameCover(game, kind) {
+            if (!game) return '';
+            const appId = encodeURIComponent(String(game.steamAppId || ''));
+            const steam = game.steamAppId && steamMetadataAvailable();
+            if (kind === 'portrait') return steam ? SafeDom.safeImageUrl(`https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${appId}/library_600x900.jpg`, { allowSteam: true }) : '';
+            if (kind === 'header') return steam ? SafeDom.safeImageUrl(game.steamImageUrl || `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${appId}/header.jpg`, { allowSteam: true }) : (game.customBannerPath ? SafeDom.safeImageUrl(game.customBannerPath, { allowFile: true }) : '');
+            if (game.customBannerPath) return SafeDom.safeImageUrl(game.customBannerPath, { allowFile: true });
+            if (steam) return SafeDom.safeImageUrl(game.steamHeroUrl || `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${appId}/library_hero.jpg`, { allowSteam: true });
+            return game.iconData ? SafeDom.safeImageUrl(game.iconData, { allowData: true, maxDataLength: 2 * 1024 * 1024 }) : '';
+        }
+        const sailTabButtons = { library: 'tabLibrary', mods: 'tabStore', workshop: 'tabWorkshop', downloads: 'tabDownloads', downloadmanager: 'tabDownloadsMgr', achievements: 'tabAchievements' };
         window.SailAPI = {
+            apiVersion: 2,
+            getGames: () => myGames.map(sailPublicGame),
+            getGame: id => { const index = myGames.findIndex(game => String(game.id) === String(id)); return index < 0 ? null : sailPublicGame(myGames[index], index); },
+            getActiveGameId: () => { const page = document.getElementById('gamePageView'); return page && page.style.display === 'block' && myGames[viewingGameIndex] ? String(myGames[viewingGameIndex].id) : null; },
+            getCover: (id, kind) => sailGameCover(myGames.find(game => String(game.id) === String(id)), kind),
+            openGame: id => { const index = myGames.findIndex(game => String(game.id) === String(id)); if (index >= 0) openGamePage(index); },
+            showTab: name => { const button = document.getElementById(sailTabButtons[name]); if (button) button.click(); },
+            // Each returns a function that stops listening.
+            onLibraryChange: callback => { const listener = () => { try { callback(); } catch (e) { console.error(e); } }; sailEvents.addEventListener('library', listener); return () => sailEvents.removeEventListener('library', listener); },
+            onNavigate: callback => { const listener = () => { try { callback(); } catch (e) { console.error(e); } }; sailEvents.addEventListener('navigate', listener); return () => sailEvents.removeEventListener('navigate', listener); },
             registerTheme: (themeObj) => {
                 globalSettings.customThemes.push(themeObj);
                 updateThemeSelect();
@@ -7777,8 +7813,39 @@
             return '';
         }
 
+        // Plugins that return { dispose() } can be switched off or reloaded without restarting Sail.
+        const runningPlugins = new Map();
+        function stopPlugin(folderName) {
+            const instance = runningPlugins.get(folderName);
+            runningPlugins.delete(folderName);
+            if (instance) { try { instance.dispose(); } catch (e) { console.error("[Plugin] dispose failed for", folderName, e); } }
+        }
+        function startPlugin(manifest) {
+            const pluginPath = manifest._path;
+            if (manifest.main) {
+                const mainFile = path.join(pluginPath, manifest.main);
+                if (manifest.main.endsWith('.js')) {
+                    delete require.cache[require.resolve(mainFile)];
+                    const pluginModule = require(mainFile);
+                    if (typeof pluginModule === 'function') {
+                        const instance = pluginModule(window.SailAPI);
+                        if (instance && typeof instance.dispose === 'function') runningPlugins.set(manifest._folderName, instance);
+                    }
+                } else if (manifest.main.endsWith('.exe')) {
+                    const child = require('child_process').spawn(mainFile, [], { cwd: pluginPath });
+                    child.stdout.on('data', (data) => {
+                        try {
+                            const msg = JSON.parse(data.toString());
+                            if (msg.action === 'registerTheme') window.SailAPI.registerTheme(msg.data);
+                        } catch (e) { }
+                    });
+                }
+            }
+        }
+
         async function loadPlugins() {
             if (!featureAvailable('plugins')) return;
+            for (const name of Array.from(runningPlugins.keys())) stopPlugin(name);
             installedPlugins = [];
             try {
                 const userDataPath = await ipcRenderer.invoke('get-user-data');
@@ -7804,23 +7871,7 @@
                                     continue;
                                 }
 
-                                if (manifest.main) {
-                                    const mainFile = path.join(pluginPath, manifest.main);
-                                    if (manifest.main.endsWith('.js')) {
-                                        const pluginModule = require(mainFile);
-                                        if (typeof pluginModule === 'function') {
-                                            pluginModule(window.SailAPI);
-                                        }
-                                    } else if (manifest.main.endsWith('.exe')) {
-                                        const child = require('child_process').spawn(mainFile, [], { cwd: pluginPath });
-                                        child.stdout.on('data', (data) => {
-                                            try {
-                                                const msg = JSON.parse(data.toString());
-                                                if (msg.action === 'registerTheme') window.SailAPI.registerTheme(msg.data);
-                                            } catch (e) { }
-                                        });
-                                    }
-                                }
+                                startPlugin(manifest);
                             } catch (e) {
                                 console.error("Failed to load plugin", entry.name, e);
                             }
@@ -7876,12 +7927,17 @@
         function togglePlugin(folderName) {
             if (!globalSettings.disabledPlugins) globalSettings.disabledPlugins = [];
             const idx = globalSettings.disabledPlugins.indexOf(folderName);
+            const disabledNow = idx < 0;
             if (idx >= 0) {
                 globalSettings.disabledPlugins.splice(idx, 1);
             } else {
                 globalSettings.disabledPlugins.push(folderName);
             }
             saveToMemory();
+            // Plugins that can clean up after themselves switch over immediately; the rest apply at the next start.
+            const manifest = installedPlugins.find(item => item._folderName === folderName);
+            if (disabledNow) stopPlugin(folderName);
+            else if (manifest && !manifest._unsupported) { try { startPlugin(manifest); } catch (e) { console.error('[Plugin] Failed to start', folderName, e); } }
             renderPluginList();
         }
 
@@ -7890,6 +7946,7 @@
             const userDataPath = await ipcRenderer.invoke('get-user-data');
             const pluginPath = path.join(userDataPath, 'plugins', folderName);
             try {
+                stopPlugin(folderName);
                 fs.removeSync(pluginPath);
                 installedPlugins = installedPlugins.filter(p => p._folderName !== folderName);
                 globalSettings.disabledPlugins = (globalSettings.disabledPlugins || []).filter(n => n !== folderName);
@@ -7970,6 +8027,10 @@
                 if (unsupported) { fs.removeSync(tempDir); prog.done(false); return alert(unsupported); }
                 const folderName = (manifest.name || 'plugin-' + Date.now()).toLowerCase().replace(/[^a-z0-9-]/g, '-');
                 const finalPath = path.join(pluginsDir, folderName);
+                // A running copy that can stop itself is replaced on the spot; anything else needs a restart.
+                const wasInstalled = installedPlugins.some(p => p._folderName === folderName);
+                const wasRunning = runningPlugins.has(folderName);
+                stopPlugin(folderName);
                 if (fs.existsSync(finalPath)) fs.removeSync(finalPath);
                 fs.moveSync(pluginRoot, finalPath, { overwrite: true });
                 if (fs.existsSync(tempDir)) fs.removeSync(tempDir);
@@ -7977,9 +8038,14 @@
                 manifest._path = finalPath;
                 installedPlugins = installedPlugins.filter(p => p._folderName !== folderName);
                 installedPlugins.push(manifest);
+                const disabled = (globalSettings.disabledPlugins || []).includes(folderName);
+                let started = false;
+                if (!unsupported && !disabled && (!wasInstalled || wasRunning)) {
+                    try { startPlugin(manifest); started = true; } catch (e) { console.error('[Plugin] Failed to start', folderName, e); }
+                }
                 renderPluginList();
                 prog.done(true);
-                alert(`✅ Plugin "${manifest.name}" imported! Restart the launcher to activate it.`);
+                alert(started ? `✅ Plugin "${manifest.name}" imported and running.` : `✅ Plugin "${manifest.name}" imported! Restart the launcher to activate it.`);
             } catch (e) { prog.done(false); alert('Import failed: ' + e.message); }
         }
 
@@ -16089,6 +16155,7 @@
             });
 
             renderContinuePlaying();
+            emitSailEvent('library');
         }
 
         // "Continue playing" featured banner — shows the most recently played

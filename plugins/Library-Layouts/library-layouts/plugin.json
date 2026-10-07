@@ -1,0 +1,8 @@
+{
+    "name": "Library Layouts",
+    "version": "1.0.0",
+    "author": "Aseoriy",
+    "description": "Re-lays out the whole launcher like other popular game clients: top tabs, a game list on the left, a cover-art home page and a hero game page. Starts with a Steam-style layout. Switch it on or off live from the gear in the game list.",
+    "main": "index.js",
+    "platforms": ["win32", "linux"]
+}
