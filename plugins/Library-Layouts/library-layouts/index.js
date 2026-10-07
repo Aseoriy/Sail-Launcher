@@ -112,6 +112,8 @@ module.exports = function (SailAPI) {
                 brand.after(nav);
                 nav.classList.add('sl-top-nav');
                 undo.push(() => { nav.classList.remove('sl-top-nav'); if (marker.parentNode) { marker.parentNode.insertBefore(nav, marker); marker.remove(); } });
+                const names = buildTabNames(nav);
+                undo.push(() => names.destroy());
                 tabs = buildTabFit(nav, titleBar);
                 undo.push(() => tabs.destroy());
             }
@@ -211,10 +213,14 @@ module.exports = function (SailAPI) {
         return { element, render, destroy() {} };
     }
 
-    // The menu bar along the very top, like Steam's: Sail, View, Friends, Games, Help. Every entry presses a
-    // button the launcher already has, so nothing here can do more than the buttons it replaces.
+    // The menu bar along the very top, like Steam's: Sail, View, Friends, Games, Help, plus the account menu on the
+    // profile button. Every entry presses a button or calls a function the launcher already has, so nothing here can
+    // do more than the controls it replaces. Anything the screen already has a button for (the page tabs, the Downloads
+    // and Add a Game buttons below, the grid toggle) is left out of the menus.
     function buildMenubar() {
         const titleBar = document.querySelector('.custom-titlebar');
+        const controls = document.querySelector('.titlebar-controls');
+        const pill = document.getElementById('accountPill');
         const logo = document.querySelector('.tb-logo');
         const bar = el('div', { class: 'sl-menubar', role: 'menubar' });
         const popup = el('div', { class: 'sl-menu', role: 'menu', hidden: true });
@@ -223,51 +229,102 @@ module.exports = function (SailAPI) {
         const SEP = { sep: true };
         const viaButton = (label, id) => item(label, () => { const target = findButton(id); if (target) target.click(); }, { disabled: !findButton(id) });
         const viaId = (label, id) => item(label, () => { const target = document.getElementById(id); if (target) target.click(); }, { disabled: !document.getElementById(id) });
-        const listView = () => { const grid = document.getElementById('gameGrid'); return !!grid && grid.classList.contains('list-view'); };
+        const call = (label, name, run, extra = {}) => item(label, run, { disabled: typeof window[name] !== 'function', ...extra });
+        const text = id => { const node = document.getElementById(id); return node ? node.textContent.trim() : ''; };
+
+        // Friends panel sorting is the launcher's own select; changing it fires the launcher's own handler.
+        const sortBy = (label, value) => {
+            const select = document.getElementById('friendsSortSelect');
+            return item(label, () => { select.value = value; select.dispatchEvent(new Event('change', { bubbles: true })); }, { disabled: !select, checked: !!select && select.value === value });
+        };
+        const signedIn = () => { const node = document.getElementById('accountSignedIn'); return !!node && node.style.display !== 'none'; };
+        const inAccount = then => () => { window.openAccountModal(); then(); };
         const MENUS = [
-            ['Sail', () => [viaId('Account & Profiles…', 'accountPill'), SEP, viaButton('Settings', 'settings'), viaButton('Plugins', 'plugins'), item('Library Layouts…', () => { const handle = entryRef(); if (handle) handle.open(); }), SEP, viaButton('Exit', 'exit')]],
-            ['View', () => [viaButton('Big Picture Mode', 'bigPicture'), SEP, viaId(listView() ? 'Cover grid' : 'List view', 'viewToggleBtn'), item('Downloads', () => SailAPI.showTab('downloadmanager')), item('Library home', () => SailAPI.showTab('library'))]],
-            ['Friends', () => [item('Friends & Chat', () => setFriends(!settings.friends), { checked: settings.friends }), SEP, viaId('Account & Profiles…', 'accountPill')]],
-            ['Games', () => [viaButton('Add a Game…', 'addGame'), viaButton('Select Games', 'selectMode'), viaButton('Surprise Me', 'surpriseMe'), SEP, viaButton('Statistics', 'stats')]],
-            ['Help', () => [viaButton('System Specs', 'systemSpecs'), viaButton('Sail Hub', 'sailHub'), SEP, viaId('Supporters', 'supportersBtn')]]
+            { label: 'Sail', items: () => [
+                call('Account & Profiles…', 'openAccountModal', () => window.openAccountModal()), SEP,
+                viaId('Check for Sail Updates…', 'checkUpdateBtn'), SEP,
+                viaButton('Settings', 'settings'), viaButton('Plugins', 'plugins'), item('Library Layouts…', () => { const handle = entryRef(); if (handle) handle.open(); }), SEP,
+                viaButton('Exit', 'exit')] },
+            { label: 'View', items: () => [
+                viaButton('Statistics', 'stats'), SEP,
+                viaButton('Big Picture Mode', 'bigPicture')] },
+            { label: 'Friends', items: () => [
+                item('Friends & Chat', () => setFriends(!settings.friends), { checked: settings.friends }), SEP,
+                sortBy('Sort by Status', 'status'), sortBy('Sort by Name', 'name'), sortBy('Sort by Platform', 'platform')] },
+            { label: 'Games', items: () => [
+                viaButton('Add a Game…', 'addGame'), viaButton('Select Games', 'selectMode'), SEP,
+                viaButton('Surprise Me', 'surpriseMe')] },
+            { label: 'Help', items: () => [
+                viaButton('System Specs', 'systemSpecs'), viaId('Supporters', 'supportersBtn'), SEP,
+                { note: true, label: `Sail Launcher ${text('tbVersion')}`.trim() }] }
         ];
+        // The profile button's own dropdown, laid out like Steam's account menu.
+        const ACCOUNT = { align: 'right', anchor: pill, items: () => {
+            if (!signedIn()) return [
+                call('Log In…', 'showAccountAuthMode', inAccount(() => window.showAccountAuthMode('login'))),
+                call('Create Account…', 'showAccountAuthMode', inAccount(() => window.showAccountAuthMode('signup')))];
+            const section = name => call({ profile: 'View My Profile', library: 'Library & Presets', security: 'Security' }[name], 'showAccountSection', inAccount(() => window.showAccountSection(name)));
+            return [
+                section('profile'),
+                call('Account Details:', 'showAccountSection', inAccount(() => window.showAccountSection('overview')), { value: text('accountDisplayName') }),
+                section('library'), section('security'), SEP,
+                call('Manage on Sail Hub…', 'openSailHubAccountManager', () => window.openSailHubAccountManager()),
+                call('Sync This PC', 'uploadLocalAccountData', () => window.uploadLocalAccountData()), SEP,
+                call('Sign Out of Account…', 'accountSignOut', () => { if (confirm('Sign out of your Sail account on this PC?')) window.accountSignOut(); })];
+        } };
+        const entries = [...MENUS.map(menu => ({ ...menu, anchor: null })), ACCOUNT];
         let current = -1;
-        const buttons = MENUS.map(([label], index) => {
+        MENUS.forEach(({ label }, index) => {
             const mark = index === 0 && logo ? el('img', { class: 'sl-menubar-logo', src: logo.src, alt: '' }) : null;
             const button = el('button', { type: 'button', class: 'sl-menubar-btn', role: 'menuitem', 'aria-haspopup': 'menu', 'aria-expanded': 'false' }, [mark, label]);
             button.addEventListener('click', () => { if (current === index && !popup.hidden) close(); else open(index); });
             // Once one menu is open, sliding to another opens it, as in every desktop menu bar.
-            button.addEventListener('mouseenter', () => { if (!popup.hidden && current !== index) open(index); });
+            button.addEventListener('mouseenter', () => { if (!popup.hidden && current !== index && current < MENUS.length) open(index); });
             bar.append(button);
-            return button;
+            entries[index].anchor = button;
         });
+        const accountIndex = entries.length - 1;
         function close() {
             popup.hidden = true;
-            if (current >= 0) buttons[current].setAttribute('aria-expanded', 'false');
+            if (current >= 0 && entries[current].anchor) entries[current].anchor.setAttribute('aria-expanded', 'false');
             current = -1;
         }
         function open(index) {
-            if (current >= 0) buttons[current].setAttribute('aria-expanded', 'false');
+            if (current >= 0 && entries[current].anchor) entries[current].anchor.setAttribute('aria-expanded', 'false');
             current = index;
-            const entries = MENUS[index][1]();
-            popup.classList.toggle('sl-menu-checks', entries.some(entry => 'checked' in entry));
-            popup.replaceChildren(...entries.map(entry => {
-                if (entry.sep) return el('div', { class: 'sl-menu-sep', role: 'separator' });
-                const row = el('button', { type: 'button', class: 'sl-menu-item', role: 'menuitem', disabled: entry.disabled }, [el('span', { class: 'sl-menu-check', text: entry.checked ? '✓' : '' }), entry.label]);
-                row.addEventListener('click', () => { close(); entry.run(); });
-                return row;
+            const entry = entries[index];
+            const rows = entry.items();
+            popup.classList.toggle('sl-menu-checks', rows.some(row => 'checked' in row));
+            popup.replaceChildren(...rows.map(row => {
+                if (row.sep) return el('div', { class: 'sl-menu-sep', role: 'separator' });
+                if (row.note) return el('div', { class: 'sl-menu-note', text: row.label });
+                const line = el('button', { type: 'button', class: 'sl-menu-item', role: 'menuitem', disabled: row.disabled }, [el('span', { class: 'sl-menu-check', text: row.checked ? '✓' : '' }), row.label, row.value ? el('span', { class: 'sl-menu-value', text: ` ${row.value}` }) : null]);
+                line.addEventListener('click', () => { close(); row.run(); });
+                return line;
             }));
-            const box = buttons[index].getBoundingClientRect();
-            popup.style.left = `${Math.max(4, box.left)}px`;
-            popup.style.top = `${box.bottom}px`;
             popup.hidden = false;
-            buttons[index].setAttribute('aria-expanded', 'true');
+            const box = entry.anchor.getBoundingClientRect();
+            const left = entry.align === 'right' ? box.right - popup.offsetWidth : box.left;
+            popup.style.left = `${Math.max(4, Math.min(left, window.innerWidth - popup.offsetWidth - 4))}px`;
+            popup.style.top = `${box.bottom}px`;
+            entry.anchor.setAttribute('aria-expanded', 'true');
         }
-        const onDocument = event => { if (!popup.hidden && !popup.contains(event.target) && !bar.contains(event.target)) close(); };
+        // The profile button opens the dropdown instead of going straight to the account window; the launcher's own
+        // handler is untouched, so switching the layout off brings the old behaviour back.
+        const caret = pill ? el('span', { class: 'sl-caret' }, [svg(['M6 9l6 6 6-6'], 11)]) : null;
+        if (pill) { pill.append(caret); pill.setAttribute('aria-haspopup', 'menu'); pill.setAttribute('aria-expanded', 'false'); }
+        const onAccountClick = event => {
+            if (!pill || !event.target.closest('#accountPill')) return;
+            event.preventDefault();
+            event.stopImmediatePropagation();
+            if (current === accountIndex && !popup.hidden) close(); else open(accountIndex);
+        };
+        if (controls) controls.addEventListener('click', onAccountClick, true);
+        const onDocument = event => { if (!popup.hidden && !popup.contains(event.target) && !bar.contains(event.target) && !(pill && pill.contains(event.target))) close(); };
         const onKey = event => {
             if (popup.hidden) return;
-            if (event.key === 'Escape') { const was = current; close(); buttons[was].focus(); return; }
-            if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') { event.preventDefault(); open((current + (event.key === 'ArrowRight' ? 1 : -1) + buttons.length) % buttons.length); return; }
+            if (event.key === 'Escape') { const was = entries[current].anchor; close(); if (was) was.focus(); return; }
+            if ((event.key === 'ArrowLeft' || event.key === 'ArrowRight') && current < MENUS.length) { event.preventDefault(); open((current + (event.key === 'ArrowRight' ? 1 : -1) + MENUS.length) % MENUS.length); return; }
             if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
             const rows = Array.from(popup.querySelectorAll('.sl-menu-item:not(:disabled)'));
             if (!rows.length) return;
@@ -279,7 +336,31 @@ module.exports = function (SailAPI) {
         document.addEventListener('keydown', onKey, true);
         document.body.append(popup);
         titleBar.prepend(bar);
-        return { destroy() { document.removeEventListener('click', onDocument); document.removeEventListener('keydown', onKey, true); popup.remove(); bar.remove(); } };
+        return {
+            destroy() {
+                if (controls) controls.removeEventListener('click', onAccountClick, true);
+                document.removeEventListener('click', onDocument);
+                document.removeEventListener('keydown', onKey, true);
+                if (pill) { pill.removeAttribute('aria-haspopup'); pill.removeAttribute('aria-expanded'); }
+                if (caret) caret.remove();
+                popup.remove();
+                bar.remove();
+            }
+        };
+    }
+
+    // Steam's names for the pages. The words are drawn by the stylesheet from this attribute, so the launcher's own
+    // labels (and its language switching) are never touched; removing the attribute brings the original names back.
+    function buildTabNames(nav) {
+        const NAMES = { tabLibrary: 'Library', tabDownloads: 'Store', tabStore: 'Community', tabWorkshop: 'Workshop', tabAchievements: 'Achievements', tabMaintenance: 'Maintenance' };
+        const labels = [];
+        for (const [id, name] of Object.entries(NAMES)) {
+            const label = nav.querySelector(`#${id} .sidebar-page-label`);
+            if (!label) continue;
+            label.setAttribute('data-sl-name', name);
+            labels.push(label);
+        }
+        return { destroy() { for (const label of labels) label.removeAttribute('data-sl-name'); } };
     }
 
     // Keeps the page tabs on one line: the ones that do not fit move into a "..." menu.
@@ -295,7 +376,8 @@ module.exports = function (SailAPI) {
             tabs.forEach(tab => tab.classList.remove('sl-tab-off'));
             more.hidden = true;
             hidden = [];
-            const shown = tabs.filter(tab => getComputedStyle(tab).display !== 'none');
+            // The tabs are reordered with CSS, so work from the order they are drawn in.
+            const shown = tabs.filter(tab => getComputedStyle(tab).display !== 'none').sort((a, b) => Number(getComputedStyle(a).order) - Number(getComputedStyle(b).order));
             const over = () => nav.scrollWidth > nav.clientWidth + 1;
             if (!over()) return;
             more.hidden = false;
@@ -308,7 +390,7 @@ module.exports = function (SailAPI) {
         more.addEventListener('click', () => {
             if (!menu.hidden) { menu.hidden = true; return; }
             menu.replaceChildren(...hidden.map(tab => {
-                const item = el('button', { type: 'button', class: 'sl-menu-item', role: 'menuitem', text: (tab.querySelector('.sidebar-page-label') || tab).textContent.trim() });
+                const item = el('button', { type: 'button', class: 'sl-menu-item', role: 'menuitem', text: (tab.querySelector('.sidebar-page-label[data-sl-name]') || tab.querySelector('.sidebar-page-label') || tab).getAttribute('data-sl-name') || (tab.querySelector('.sidebar-page-label') || tab).textContent.trim() });
                 item.addEventListener('click', () => { menu.hidden = true; tab.click(); });
                 return item;
             }));

@@ -18,7 +18,7 @@ body.sl-steam.sl-colors { background: #2d333c; }
 body.sl-steam::before, body.sl-steam::after { display: none !important; }
 
 /* ---- Title bar: two rows, like Steam. Menu bar on top, back/forward and the page tabs underneath ---- */
-body.sl-steam { --sl-menu-h: 26px; --sl-nav-h: 46px; --sl-bar-h: 72px; }
+body.sl-steam { --sl-menu-h: 26px; --sl-nav-h: 46px; --sl-bar-h: 72px; --sl-tab-fs: 19px; }
 body.sl-steam .custom-titlebar { display: grid !important; grid-template-columns: minmax(0, 1fr) auto; grid-template-rows: var(--sl-menu-h) var(--sl-nav-h); height: var(--sl-bar-h); align-items: stretch; background: var(--sl-top) !important; backdrop-filter: none !important; border-bottom: 1px solid rgba(0, 0, 0, .55); }
 body.sl-steam.big-picture-mode .custom-titlebar, body.sl-steam.big-picture-mode .sl-bottom, body.sl-steam.big-picture-mode #mainSidebar, body.sl-steam.big-picture-mode .sl-shelf, body.sl-steam.big-picture-mode .sl-all-title { display: none !important; }
 body.sl-steam .tb-version, body.sl-steam .tb-brand { display: none !important; }
@@ -36,6 +36,8 @@ body.sl-steam .account-pill { height: 22px; padding: 0 8px 0 4px; margin-right: 
 body.sl-steam .account-pill:hover { background: rgba(255, 255, 255, .09) !important; }
 body.sl-steam .account-pill-avatar { width: 18px; height: 18px; font-size: 9px; }
 body.sl-steam .account-pill-label { font-size: 12px; font-weight: 500; max-width: 140px; }
+body.sl-steam .account-pill .sl-caret { display: inline-flex; align-items: center; margin-left: 2px; color: #8f98a0; }
+body.sl-steam .account-pill[aria-expanded="true"] { background: rgba(255, 255, 255, .12) !important; }
 body.sl-steam .titlebar-title { grid-column: 1 / -1; grid-row: 2; height: var(--sl-nav-h); min-width: 0; padding-left: 8px; overflow: hidden; gap: 4px; }
 body.sl-steam .titlebar-title .nav-arrow { width: 32px; height: 32px; flex: none; }
 body.sl-steam #topHeaderActionButtonsContainer, body.sl-steam #topHeaderDropdownContainer { display: none !important; }
@@ -53,7 +55,7 @@ body.sl-steam .sl-top-nav .sidebar-kicker { display: none !important; }
 body.sl-steam .sl-top-nav .sidebar-page-link {
     display: inline-flex; align-items: center; justify-content: center; flex: none; width: auto; height: var(--sl-nav-h); padding: 0 17px; margin: 0;
     background: transparent !important; border: 0 !important; border-bottom: 2px solid transparent !important; border-radius: 0 !important; box-shadow: none !important; backdrop-filter: none !important; transform: none !important;
-    color: #eaeaea !important; font-size: 19px; font-weight: 600; letter-spacing: .02em; text-transform: uppercase; white-space: nowrap;
+    color: #eaeaea !important; font-size: var(--sl-tab-fs); font-weight: 600; letter-spacing: .02em; text-transform: uppercase; white-space: nowrap;
 }
 body.sl-steam .sl-top-nav .sidebar-page-link .sidebar-page-icon, body.sl-steam .sl-top-nav .sidebar-page-link .sidebar-page-meta { display: none; }
 body.sl-steam .sl-top-nav .sidebar-page-link { opacity: 1 !important; }
@@ -67,22 +69,38 @@ body.sl-steam .sl-more {
 body.sl-steam .sl-more:hover { color: #fff !important; background: rgba(255, 255, 255, .06) !important; }
 body.sl-steam .sl-more[hidden] { display: none; }
 @media (max-width: 1400px) {
-    body.sl-steam .sl-top-nav .sidebar-page-link { padding: 0 13px; font-size: 16.5px; }
+    body.sl-steam { --sl-tab-fs: 16.5px; }
+    body.sl-steam .sl-top-nav .sidebar-page-link { padding: 0 13px; }
 }
 @media (max-width: 1100px) {
-    body.sl-steam .sl-top-nav .sidebar-page-link { padding: 0 9px; font-size: 14px; letter-spacing: .01em; }
+    body.sl-steam { --sl-tab-fs: 14px; }
+    body.sl-steam .sl-top-nav .sidebar-page-link { padding: 0 9px; letter-spacing: .01em; }
 }
+/* Steam's names for the pages, drawn from the label's data attribute (see buildTabNames). */
+body.sl-steam .sl-top-nav .sidebar-page-label[data-sl-name] { font-size: 0; }
+body.sl-steam .sl-top-nav .sidebar-page-label[data-sl-name]::after { content: attr(data-sl-name); font-size: var(--sl-tab-fs); }
+/* Steam's order: Store, Library, Community, then the rest. */
+body.sl-steam .sl-top-nav #tabDownloads { order: 1; }
+body.sl-steam .sl-top-nav #tabLibrary { order: 2; }
+body.sl-steam .sl-top-nav #tabStore { order: 3; }
+body.sl-steam .sl-top-nav #tabWorkshop { order: 4; }
+body.sl-steam .sl-top-nav #tabAchievements { order: 5; }
+body.sl-steam .sl-top-nav #tabMaintenance { order: 6; }
+/* Downloads has its own button in the bottom bar, as in Steam, so it is not a tab as well. */
+body.sl-steam .sl-top-nav #tabDownloadsMgr { display: none !important; }
 
 /* The menus: the Sail menu and the tab overflow. They live on the body so nothing clips them. */
-.sl-menu { position: fixed; z-index: 100000; min-width: 230px; padding: 4px 0; background: #3d4450; border: 1px solid #1a1d23; box-shadow: 0 10px 30px rgba(0, 0, 0, .55); border-radius: 2px; font-family: "Motiva Sans", "Segoe UI", "Noto Sans", Arial, sans-serif; }
+.sl-menu { position: fixed; z-index: 100000; min-width: 250px; padding: 0; background: #3d4450; border: 1px solid #171d25; box-shadow: 0 10px 30px rgba(0, 0, 0, .6); border-radius: 2px; font-family: "Motiva Sans", "Segoe UI", "Noto Sans", Arial, sans-serif; }
 .sl-menu[hidden] { display: none; }
-.sl-menu .sl-menu-item { appearance: none; display: block; width: 100%; padding: 7px 24px; background: transparent !important; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; transform: none !important; color: #dcdedf !important; font: inherit; font-size: 14px; font-weight: 400; letter-spacing: 0; text-align: left; text-transform: none; cursor: pointer; }
-.sl-menu .sl-menu-item:hover, .sl-menu .sl-menu-item:focus-visible { background: #1a9fff !important; color: #fff !important; outline: 0; }
-.sl-menu .sl-menu-check { display: none; width: 16px; margin-left: -8px; text-align: center; font-size: 12px; }
-.sl-menu.sl-menu-checks .sl-menu-check { display: inline-block; }
+.sl-menu .sl-menu-item { appearance: none; display: block; width: 100%; padding: 9px 22px; background: transparent !important; border: 0 !important; border-radius: 0 !important; box-shadow: none !important; transform: none !important; color: #dcdedf !important; font: inherit; font-size: 15px; font-weight: 400; line-height: 1.3; letter-spacing: 0; text-align: left; text-transform: none; white-space: nowrap; cursor: pointer; }
+.sl-menu .sl-menu-item:hover, .sl-menu .sl-menu-item:focus-visible { background: #4c5564 !important; color: #fff !important; outline: 0; }
 .sl-menu .sl-menu-item:disabled { opacity: .4; cursor: default; }
 .sl-menu .sl-menu-item:disabled:hover { background: transparent !important; color: #dcdedf !important; }
-.sl-menu .sl-menu-sep { height: 1px; margin: 4px 0; background: rgba(255, 255, 255, .12); }
+.sl-menu .sl-menu-check { display: none; width: 18px; margin-left: -8px; text-align: center; font-size: 12px; }
+.sl-menu.sl-menu-checks .sl-menu-check { display: inline-block; }
+.sl-menu .sl-menu-value { color: #1a9fff; }
+.sl-menu .sl-menu-sep { height: 1px; margin: 0; background: #5e6772; }
+.sl-menu .sl-menu-note { padding: 8px 22px; font-size: 12px; color: #8f98a0; white-space: nowrap; cursor: default; }
 
 /* ---- Left panel becomes the game list ---- */
 body.sl-steam #mainSidebar { display: flex !important; flex-direction: column; overflow: hidden; background: var(--sl-list) !important; backdrop-filter: none !important; border-right: 1px solid rgba(0, 0, 0, .5) !important; box-shadow: none !important; padding: 0 !important; }
@@ -232,3 +250,7 @@ body.sl-steam .sl-props-body input[type="text"], body.sl-steam .sl-props-body se
 body.sl-steam .sl-props-body label { color: #c6cbd2; }
 body.sl-steam .sl-props-body [style*="border-top"] { border-top-color: rgba(255, 255, 255, .08) !important; }
 body.sl-steam .sl-props-body button.outline, body.sl-steam .sl-props-body button.danger-outline { border-radius: 2px !important; }
+
+/* Links styled as buttons (for example in the account window) have no colour of their own in the launcher. */
+body.sl-steam a.outline { color: #1a9fff; border: 1px solid #454c57; border-radius: 2px !important; }
+body.sl-steam a.outline:hover { color: #fff; background: rgba(255, 255, 255, .06); }
