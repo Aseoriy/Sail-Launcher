@@ -480,7 +480,9 @@ module.exports = function (SailAPI, context) {
             if (!recent.length) return;
             const cards = recent.map(game => {
                 const cover = SailAPI.getCover(game.id, 'hero') || SailAPI.getCover(game.id, 'header');
-                const art = cover ? el('img', { src: cover, alt: '', loading: 'lazy' }) : el('span', { class: 'sl-shelf-letter', text: (game.name || '?').charAt(0).toUpperCase() });
+                const letter = () => el('span', { class: 'sl-shelf-letter', text: (game.name || '?').charAt(0).toUpperCase() });
+                const art = cover ? el('img', { src: cover, alt: '', loading: 'lazy' }) : letter();
+                if (cover) art.addEventListener('error', () => art.replaceWith(letter()), { once: true });
                 const card = el('button', { type: 'button', class: 'sl-shelf-card', title: game.name }, [el('small', { class: 'sl-shelf-when', text: when(game.lastPlayed) }), el('span', { class: 'sl-shelf-art' }, [art]), el('b', { text: game.name })]);
                 card.addEventListener('click', () => SailAPI.openGame(game.id));
                 return card;
@@ -790,25 +792,36 @@ module.exports = function (SailAPI, context) {
         return { update, destroy() { wrap.remove(); } };
     }
 
-    // Swaps the home grid's wide banners for tall covers where Steam art exists. Puts them back afterwards.
+    // Swaps the home grid's wide Steam banners for tall covers. A tall image is only used once it has loaded, so a game
+    // Steam has no tall art for keeps its wide one, and a cover you picked yourself is never replaced. Puts them back afterwards.
     function coverSwapper() {
+        const isSteamArt = url => /^https:\/\/[^/]*steamstatic\.com\//.test(url);
         function apply() {
+            if (!prefs.get('tallCovers')) return;
             const games = SailAPI.getGames();
             for (const card of document.querySelectorAll('#gameGrid .game-card')) {
                 const image = card.querySelector('img.card-banner');
                 const game = games[Number(card.dataset.masterIndex)];
-                if (!image || !game || image.dataset.slOriginal !== undefined) continue;
-                const url = prefs.get('tallCovers') ? SailAPI.getCover(game.id, 'portrait') : '';
-                if (!url) continue;
-                image.dataset.slOriginal = image.getAttribute('src') || '';
-                image.addEventListener('error', () => { if (image.dataset.slOriginal) image.src = image.dataset.slOriginal; }, { once: true });
-                image.src = url;
+                if (!image || !game || image.dataset.slState) continue;
+                const url = isSteamArt(image.getAttribute('src') || '') ? SailAPI.getCover(game.id, 'portrait') : '';
+                if (!url) { image.dataset.slState = 'kept'; continue; }
+                image.dataset.slState = 'probing';
+                const probe = new Image();
+                probe.onload = () => {
+                    if (!image.isConnected || image.dataset.slState !== 'probing') return;
+                    image.dataset.slOriginal = image.getAttribute('src') || '';
+                    image.dataset.slState = 'tall';
+                    image.src = url;
+                };
+                probe.onerror = () => { if (image.dataset.slState === 'probing') image.dataset.slState = 'wide'; };
+                probe.src = url;
             }
         }
         function restore() {
-            for (const image of document.querySelectorAll('#gameGrid img.card-banner[data-sl-original]')) {
+            for (const image of document.querySelectorAll('#gameGrid img.card-banner[data-sl-state]')) {
                 if (image.dataset.slOriginal) image.src = image.dataset.slOriginal;
                 delete image.dataset.slOriginal;
+                delete image.dataset.slState;
             }
         }
         const onSettings = () => { restore(); apply(); };

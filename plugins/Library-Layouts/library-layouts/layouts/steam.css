@@ -176,7 +176,10 @@ body.sl-steam .game-card { border-radius: 2px !important; box-shadow: none !impo
 body.sl-steam .game-card:hover { transform: scale(1.035) !important; box-shadow: 0 8px 24px rgba(0, 0, 0, .55) !important; z-index: 2; }
 body.sl-steam .game-card .card-banner, body.sl-steam .game-card .no-image { border-radius: 0 !important; }
 body.sl-steam.sl-portrait #gameGrid:not(.list-view) { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)) !important; }
-body.sl-steam.sl-portrait #gameGrid:not(.list-view) .game-card { aspect-ratio: 2 / 3; height: auto !important; min-height: 0 !important; padding: 0 !important; contain-intrinsic-size: auto 225px; }
+/* The layout owns the tile's size and position. A theme's canvas-editor tweaks (forced width, min-width, offsets) would otherwise
+   stretch the tiles over each other, so they are reset here with enough weight to win. */
+body.sl-steam.sl-portrait #gameGrid:not(.list-view) .game-card { aspect-ratio: 2 / 3; width: auto !important; min-width: 0 !important; max-width: none !important; height: auto !important; min-height: 0 !important; margin: 0 !important; padding: 0 !important; flex: none !important; translate: none !important; rotate: none !important; contain-intrinsic-size: auto 225px; }
+body.sl-steam.sl-portrait #gameGrid:not(.list-view) { justify-items: stretch !important; overflow-x: hidden; }
 body.sl-steam.sl-portrait #gameGrid:not(.list-view) .game-card .card-text-area { position: absolute; left: 0; right: 0; bottom: 0; padding: 30px 10px 9px; opacity: 0; transition: opacity .18s; }
 body.sl-steam.sl-portrait #gameGrid:not(.list-view) .game-card:hover .card-text-area, body.sl-steam.sl-portrait #gameGrid:not(.list-view) .game-card:focus-visible .card-text-area { opacity: 1; }
 

@@ -377,6 +377,9 @@ class AccountService {
             }
         });
         this.passwordChallenge = null;
+        // A short local record of sign-in events (names only, never tokens) so an unexpected sign-out can be traced.
+        this.diagnosticsPath = path.join(app.getPath('userData'), 'auth-diagnostics.log');
+        this.client.auth.onAuthStateChange(event => this.recordAuth(`auth event: ${event}`));
         this.sailCloud = new SailCloudClient({
             getAccessToken: () => this.accessToken()
         });
@@ -384,6 +387,14 @@ class AccountService {
         this.artifactBytesCache = new Map();
         this.remoteIdentityAliases = emptyRemoteIdentityAliases();
         this.remoteIdentityInFlight = new Map();
+    }
+
+    recordAuth(message) {
+        try {
+            const line = `${new Date().toISOString()} ${String(message).replace(/[A-Za-z0-9_-]{40,}/g, '[removed]').slice(0, 300)}\n`;
+            fs.appendFileSync(this.diagnosticsPath, line);
+            if (fs.statSync(this.diagnosticsPath).size > 65536) fs.writeFileSync(this.diagnosticsPath, fs.readFileSync(this.diagnosticsPath, 'utf8').slice(-32768));
+        } catch (_) { /* Diagnostics are best effort. */ }
     }
 
     resetCloudRequestState() {
@@ -405,6 +416,7 @@ class AccountService {
             const result = await this.client.auth.getSession();
             session = result && result.data && result.data.session;
         } catch (error) {
+            this.recordAuth(`getSession failed: ${error && error.name}: ${error && error.message}`);
             if (!this.storage || !await this.storage.waitForEncryption()) throw error;
             retryAfterStorageReady = true;
         }
@@ -416,7 +428,10 @@ class AccountService {
 
     async state() {
         const session = await this.session();
-        if (!session || !session.user) return { signedIn: false, user: null, profile: null };
+        if (!session || !session.user) {
+            this.recordAuth(`state: signed out (secure storage available: ${this.storage ? this.storage.isEncryptionAvailable() : 'n/a'})`);
+            return { signedIn: false, user: null, profile: null };
+        }
         const { data: profile } = await this.client
             .from('profiles')
             .select('id,username,avatar_url,created_at')
@@ -545,6 +560,7 @@ class AccountService {
     }
 
     async signOut() {
+        this.recordAuth('sign out requested by the launcher');
         this.passwordChallenge = null;
         await this.client.auth.signOut({ scope: 'local' });
         this.resetCloudRequestState();

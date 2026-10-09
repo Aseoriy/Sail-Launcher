@@ -460,6 +460,7 @@ async function syncSailHubGuestAuth(guestContents) {
         ? { access_token: session.access_token, refresh_token: session.refresh_token }
         : null;
     const serialized = JSON.stringify(handoff);
+    if (accountServices && accountServices.accountService && typeof accountServices.accountService.recordAuth === 'function') accountServices.accountService.recordAuth(handoff ? 'Sail Hub tab: launcher session handed to the website' : 'Sail Hub tab: no launcher session, website signed out');
     const script = `(async (launcherSession) => {
         let client = window.sailSupabase;
         for (let attempt = 0; !client?.auth && attempt < 20; attempt += 1) {
