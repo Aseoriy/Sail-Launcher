@@ -245,6 +245,13 @@ function automaticCandidatePaths(game = {}, options = {}) {
         path.join(localAppData, 'SKIDROW', appId, 'SteamEmu', 'UserStats', 'achiev.ini')
     );
 
+    // A game's own Windows environment (Proton or Wine) is searched for the same emulator save locations.
+    for (const prefix of Array.isArray(options.prefixEnvs) ? options.prefixEnvs : []) {
+        for (const candidate of automaticCandidatePaths(game, {
+            ...options, env: prefix.env, documentsPath: prefix.documentsPath, allowKnownLocations: true, allowSteamData: false, prefixEnvs: []
+        })) if (!candidates.includes(candidate)) candidates.push(candidate);
+    }
+
     const localNames = [
         'achievements.json',
         'achievements.ini',

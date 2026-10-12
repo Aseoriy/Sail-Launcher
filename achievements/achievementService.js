@@ -28,6 +28,15 @@ function safeGame(game = {}) {
         installFolder: typeof game.installFolder === 'string' ? game.installFolder : '',
         steamImageUrl: typeof game.steamImageUrl === 'string' ? game.steamImageUrl : '',
         steamRoot: typeof game.steamRoot === 'string' ? game.steamRoot : '',
+        prefixEnvs: Array.isArray(game.prefixEnvs) ? game.prefixEnvs.slice(0, 8).map(entry => {
+            const env = entry && entry.env && typeof entry.env === 'object' ? entry.env : {};
+            const clean = {};
+            for (const key of ['APPDATA', 'LOCALAPPDATA', 'USERPROFILE', 'PUBLIC', 'PROGRAMDATA']) {
+                if (typeof env[key] === 'string' && env[key].startsWith('/')) clean[key] = env[key];
+            }
+            return typeof entry.documentsPath === 'string' && entry.documentsPath.startsWith('/') && Object.keys(clean).length === 5
+                ? { env: clean, documentsPath: entry.documentsPath } : null;
+        }).filter(Boolean) : [],
         localAuthorityVersion: typeof game.localAuthorityVersion === 'string'
             ? game.localAuthorityVersion.slice(0, 16384)
             : '',
@@ -161,6 +170,7 @@ class AchievementService {
             steamRoot,
             documentsPath: this.documentsPath,
             allowKnownLocations: false,
+            prefixEnvs: Array.isArray(game.prefixEnvs) ? game.prefixEnvs : [],
             allowSteamData: game.allowSteamData === true,
             approvedRoots
         };
@@ -180,6 +190,7 @@ class AchievementService {
             achievementSources: local.achievementSources,
             approvedRoots: local.approvedRoots,
             allowSteamData: local.allowSteamData,
+            prefixEnvs: local.prefixEnvs,
             steamRoot: local.steamRoot
         });
     }

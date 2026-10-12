@@ -1,7 +1,9 @@
 'use strict';
 
 const crypto = require('crypto');
+const path = require('path');
 const { AchievementService } = require('./achievementService');
+const { windowsPrefixLocations } = require('./windowsPrefixes');
 
 const PROTOTYPE_KEYS = new Set(['__proto__', 'prototype', 'constructor']);
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
@@ -100,6 +102,15 @@ function registerAchievementIpc({ app, ipcMain, BrowserWindow, Notification, dia
         return installation && typeof installation === 'object' && typeof installation.then !== 'function'
             && installation.rootIdentity && installation.rootIdentity.realPath ? installation : null;
     };
+    const protonRoot = process.platform === 'linux' && app && typeof app.getPath === 'function' ? path.join(app.getPath('userData'), 'runtime', 'proton') : '';
+    // Linux: the game's own Wine/Proton environment, searched for emulator and game achievement files.
+    const windowsPrefixesFor = metadata => {
+        if (!protonRoot || !metadata || !metadata.profileId || !metadata.libraryId || !metadata.id) return { roots: [], environments: [] };
+        try {
+            const { scopeKey } = require('../runtime/proton/manager');
+            return windowsPrefixLocations({ protonRoot, key: scopeKey({ profileId: metadata.profileId, libraryId: metadata.libraryId, gameId: metadata.id }) });
+        } catch (_) { return { roots: [], environments: [] }; }
+    };
     const hydrate = requests => {
         const games = [];
         for (const request of requests) {
@@ -111,7 +122,8 @@ function registerAchievementIpc({ app, ipcMain, BrowserWindow, Notification, dia
                 || status.filesystems.some(record => record.state === 'active'
                     && record.operations.includes('achievement-read')
                     && ['achievement-file', 'achievement-folder'].includes(record.kind))
-                || !!installedSteamApp(metadata.steamAppId);
+                || !!installedSteamApp(metadata.steamAppId)
+                || windowsPrefixesFor(metadata).environments.length > 0;
             games.push({
                 id: metadata.id,
                 name: metadata.name,
@@ -185,7 +197,9 @@ function registerAchievementIpc({ app, ipcMain, BrowserWindow, Notification, dia
             });
             approvedRoots.push({ ...identity, path: identity.realPath });
         }
-        return { exePath, installFolder, achievementSources, approvedRoots, allowSteamData, steamRoot, steamAppId };
+        const prefixes = windowsPrefixesFor(profileStore.activeGameMetadata(gameId));
+        for (const root of prefixes.roots) approvedRoots.push(root);
+        return { exePath, installFolder, achievementSources, approvedRoots, allowSteamData, steamRoot, steamAppId, prefixEnvs: prefixes.environments };
     };
     const service = enabled ? new AchievementService({
         app, BrowserWindow, Notification, dialog, resolveLocalAuthority
