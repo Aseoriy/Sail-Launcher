@@ -7786,7 +7786,7 @@
         }
         const sailTabButtons = { library: 'tabLibrary', mods: 'tabStore', workshop: 'tabWorkshop', downloads: 'tabDownloads', downloadmanager: 'tabDownloadsMgr', achievements: 'tabAchievements' };
         window.SailAPI = {
-            apiVersion: 3,
+            apiVersion: 2,
             getGames: () => myGames.map(sailPublicGame),
             getGame: id => { const index = myGames.findIndex(game => String(game.id) === String(id)); return index < 0 ? null : sailPublicGame(myGames[index], index); },
             getActiveGameId: () => { const page = document.getElementById('gamePageView'); return page && page.style.display === 'block' && myGames[viewingGameIndex] ? String(myGames[viewingGameIndex].id) : null; },

@@ -8,7 +8,7 @@ module.exports = function (SailAPI, context) {
 
     // Settings come from Sail's plugin settings (see "settings" in plugin.json), so they are edited in Sail's own
     // dialog from the Plugin Manager, the gear below the game list or the Sail menu.
-    if (!SailAPI || !(SailAPI.apiVersion >= 3) || !context || !context.settings) {
+    if (!SailAPI || !(SailAPI.apiVersion >= 2) || !context || !context.settings) {
         console.warn('[Library Layouts] This version of Sail is too old for layout plugins. Update Sail to use it.');
         return { dispose() {} };
     }
