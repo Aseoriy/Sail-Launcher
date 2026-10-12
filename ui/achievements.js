@@ -5,6 +5,7 @@
     const { pathToFileURL } = require('url');
     const SafeDom = require('./ui/safeDom');
     const { bindAchievementArtwork } = require('./ui/achievementArtwork');
+    const { unlockDataMissing, SHORT_NOTE, LONG_NOTE } = require('./ui/achievementNotice');
     const {
         achievementDataEqual,
         mergeAchievementData,
@@ -451,8 +452,10 @@
                     SafeDom.element(document, 'div', { className: 'achievement-game-progress' }, [
                         SafeDom.element(document, 'span', { text: `${row.summary.unlocked} / ${row.summary.total} unlocked` }),
                         SafeDom.element(document, 'strong', { text: `${row.summary.percent}%` })
-                    ])
-                ]));
+                    ]),
+                    unlockDataMissing({ game: row.game, summary: row.summary, tracking: trackingEnabled(), credentialsReady: steamCredentialsReady() })
+                        ? SafeDom.element(document, 'div', { className: 'achievement-no-data', text: SHORT_NOTE, title: LONG_NOTE }) : null
+                ].filter(Boolean)));
                 return card;
             });
             grid.replaceChildren(...(cards.length ? cards : [SafeDom.element(document, 'div', {
@@ -685,6 +688,7 @@
         const summaryLine = summary.total
             ? `${summary.unlocked} of ${summary.total} unlocked · ${summary.percent}% complete`
             : trackingEnabled() ? 'No achievement data found yet' : 'Tracking is off · saved progress is preserved';
+        const noUnlockData = unlockDataMissing({ game, summary, tracking: trackingEnabled(), credentialsReady: steamCredentialsReady() });
         const bodyId = `gpAchievementBody-${gameKey.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 128)}`;
         const shell = SafeDom.element(document, 'div', { className: `gp-achievement-shell ${expanded ? 'is-expanded' : ''}` });
         const summaryButton = SafeDom.element(document, 'button', { className: 'gp-achievement-summary', type: 'button' });
@@ -700,7 +704,8 @@
             SafeDom.element(document, 'span', { className: 'gp-achievement-summary-copy' }, [
                 SafeDom.element(document, 'span', { className: 'gp-achievement-eyebrow', text: 'Achievements' }),
                 SafeDom.element(document, 'strong', { text: summaryLine }),
-                SafeDom.element(document, 'span', { className: 'gp-achievement-mini-track' }, [progressFill])
+                SafeDom.element(document, 'span', { className: 'gp-achievement-mini-track' }, [progressFill]),
+                noUnlockData ? SafeDom.element(document, 'span', { className: 'gp-achievement-hint', text: SHORT_NOTE }) : null
             ]),
             preview,
             SafeDom.element(document, 'span', { className: 'gp-achievement-caret', text: '⌄' })
@@ -732,6 +737,7 @@
         addAction('local', 'Rescan');
         addAction('source', 'Add source');
         body.append(SafeDom.element(document, 'div', { className: 'gp-achievement-toolbar' }, [filterGroup, actions]));
+        if (noUnlockData) body.append(SafeDom.element(document, 'div', { className: 'achievement-metadata-note achievement-no-data-note', text: LONG_NOTE }));
         if (metadataNotice) body.append(SafeDom.element(document, 'div', metadataNotice));
         const sourceList = SafeDom.element(document, 'div', { className: 'achievement-sources' });
         if (sources.length) {
