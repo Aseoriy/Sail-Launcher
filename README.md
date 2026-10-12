@@ -100,7 +100,7 @@ Installing the `.deb` or `.rpm` pulls in the libraries Sail needs and adds Sail 
 
 | Distribution | Package | How it was tested |
 | --- | --- | --- |
-| Kubuntu 26.04 (KDE Plasma) | `.deb`, AppImage | Real hardware, everyday use |
+| Kubuntu 26.04 (KDE Plasma) | `.deb` | Real hardware, everyday use |
 | Ubuntu 24.04 | `.deb` | Virtual machine |
 | Fedora 44 | AppImage, `.rpm` | Virtual machine |
 | Arch Linux | AppImage | Virtual machine |
