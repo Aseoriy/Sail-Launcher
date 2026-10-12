@@ -5,6 +5,7 @@
   "description": "Pookie's custom launcher for games",
   "desktopName": "com.aseoriy.saillauncher.desktop",
   "author": "Aseoriy",
+  "homepage": "https://sail-launcher.sailhub.fyi",
   "main": "runtime/entry.cjs",
   "scripts": {
     "start": "node scripts/start.cjs",
@@ -14,6 +15,8 @@
     "rebuild:linux": "electron-rebuild --version 44.2.0 --arch x64 --force --only register-scheme --sequential --build-from-source",
     "build:linux:dir": "node scripts/build.cjs --linux --x64 --dir --publish never",
     "build:linux": "node scripts/build.cjs --linux --x64 --publish never",
+    "build:linux:rpm": "node scripts/build.cjs --linux rpm --x64 --publish never",
+    "build:linux:all": "node scripts/build.cjs --linux AppImage deb rpm --x64 --publish never",
     "test:linux-boot": "node tests/run-linux-boot.js",
     "build": "node scripts/build.cjs --win nsis --publish never",
     "test": "node --test tests/*.test.js",

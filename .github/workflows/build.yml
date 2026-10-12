@@ -48,7 +48,9 @@ jobs:
       - run: npm run rebuild:linux
       - name: Syntax check
         run: node --check main.js
-      - run: npm run build:linux
+      - name: Install the rpm packaging tool
+        run: sudo apt-get update && sudo apt-get install -y rpm
+      - run: npm run build:linux:all
       - name: Native helper glibc requirement
         run: objdump -T native/linux/x64/sail-native | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1
       - uses: actions/upload-artifact@v4
@@ -57,6 +59,7 @@ jobs:
           path: |
             dist/*.AppImage
             dist/*.deb
+            dist/*.rpm
             dist/latest-linux.yml
 
   release:
