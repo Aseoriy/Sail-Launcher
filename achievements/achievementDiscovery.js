@@ -19,7 +19,8 @@ function isAchievementFilePath(filePath) {
     const basename = path.basename(filePath).toLowerCase();
     return ACHIEVEMENT_EXTENSIONS.has(path.extname(filePath).toLowerCase())
         || ACHIEVEMENT_TEXT_FILES.has(basename)
-        || /^usergamestatsschema_\d+\.bin$/i.test(basename);
+        || /^usergamestatsschema_\d+\.bin$/i.test(basename)
+        || /^usergamestats_\d+_\d+\.bin$/i.test(basename);
 }
 
 function normalizedPath(filePath) {
@@ -270,16 +271,26 @@ function automaticCandidatePaths(game = {}, options = {}) {
 
     const steamRoot = options.allowSteamData === true ? findSteamRoot(options) : '';
     if (steamRoot && appId && options.allowSteamData === true) {
-        candidates.push(path.join(steamRoot, 'appcache', 'stats', `UserGameStatsSchema_${appId}.bin`));
+        const statsRoot = path.join(steamRoot, 'appcache', 'stats');
+        candidates.push(path.join(statsRoot, `UserGameStatsSchema_${appId}.bin`));
         const userdataRoot = path.join(steamRoot, 'userdata');
         const fileSystem = options.fs || fs;
         try {
             const approvedUserdataRoot = resolveApprovedPath(userdataRoot, options, 'directory');
             if (!approvedUserdataRoot) return candidates;
+            // Steam's full unlock state for each account that has played the game. With several Steam accounts on one PC,
+            // only the most recently updated one is read, so another account's unlocks are not mixed in.
+            let newestStats = null;
             for (const accountId of fileSystem.readdirSync(approvedUserdataRoot)) {
                 if (!/^\d+$/.test(accountId)) continue;
                 candidates.push(path.join(approvedUserdataRoot, accountId, 'config', 'librarycache', `${appId}.json`));
+                try {
+                    const statsPath = path.join(statsRoot, `UserGameStats_${accountId}_${appId}.bin`);
+                    const modified = fileSystem.statSync(statsPath).mtimeMs;
+                    if (!newestStats || modified > newestStats.modified) newestStats = { path: statsPath, modified };
+                } catch (_) {}
             }
+            if (newestStats) candidates.push(newestStats.path);
         } catch (_) {}
     }
     return candidates;

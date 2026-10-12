@@ -34,6 +34,37 @@ function cloudUuid(kind, value, scope = '') {
     return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
+// The auth server sends expires_at in its own clock. When the device clock is
+// hours off (common on dual-boot PCs, where Windows reads a UTC hardware clock
+// as local time), every session looks expired: each getSession() refreshes
+// until the server rejects a refresh and auth-js drops the session. Without
+// expires_at, auth-js derives it from expires_in and the local clock.
+async function clockSafeAuthFetch(input, init) {
+    const response = await fetch(input, init);
+    const url = typeof input === 'string' ? input : String(input && input.url || input || '');
+    if (!response.ok || !/\/auth\/v1\/(token|verify)(\?|$)/.test(url)) return response;
+    let body;
+    try {
+        body = await response.clone().json();
+    } catch (_) {
+        return response;
+    }
+    if (!body || typeof body !== 'object' || !body.access_token
+        || !Number.isFinite(body.expires_in) || body.expires_at === undefined) return response;
+    const skewSeconds = Math.round(Date.now() / 1000 - (Number(body.expires_at) - body.expires_in));
+    if (Math.abs(skewSeconds) > 60) clockSafeAuthFetch.onSkew(skewSeconds);
+    delete body.expires_at;
+    const headers = new Headers(response.headers);
+    headers.delete('content-length');
+    headers.delete('content-encoding');
+    return new Response(JSON.stringify(body), {
+        status: response.status,
+        statusText: response.statusText,
+        headers
+    });
+}
+clockSafeAuthFetch.onSkew = () => {};
+
 function emptyRemoteIdentityAliases() {
     return {
         accountId: null,
@@ -368,6 +399,9 @@ class AccountService {
             realtime: {
                 transport: WebSocket
             },
+            global: {
+                fetch: clockSafeAuthFetch
+            },
             auth: {
                 persistSession: true,
                 autoRefreshToken: true,
@@ -380,6 +414,7 @@ class AccountService {
         // A short local record of sign-in events (names only, never tokens) so an unexpected sign-out can be traced.
         this.diagnosticsPath = path.join(app.getPath('userData'), 'auth-diagnostics.log');
         this.client.auth.onAuthStateChange(event => this.recordAuth(`auth event: ${event}`));
+        clockSafeAuthFetch.onSkew = seconds => this.recordAuth(`device clock differs from the auth server by ${seconds}s`);
         this.sailCloud = new SailCloudClient({
             getAccessToken: () => this.accessToken()
         });

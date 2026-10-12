@@ -94,16 +94,24 @@ function registerAchievementIpc({ app, ipcMain, BrowserWindow, Notification, dia
         return `${state.activeProfileId}:${state.activeLibraryId}`;
     };
     const isCurrentLibrary = libraryKey => String(libraryKey || '') === activeLibraryKey();
+    const installedSteamApp = steamAppId => {
+        if (!/^[1-9]\d{0,9}$/.test(String(steamAppId || '')) || typeof resolveSteamInstallation !== 'function') return null;
+        const installation = resolveSteamInstallation(String(steamAppId));
+        return installation && typeof installation === 'object' && typeof installation.then !== 'function'
+            && installation.rootIdentity && installation.rootIdentity.realPath ? installation : null;
+    };
     const hydrate = requests => {
         const games = [];
         for (const request of requests) {
             const metadata = profileStore.activeGameMetadata(request.id);
             const status = profileStore.authorityStatus(request.id);
+            // A game imported from Steam has no executable capability; Steam's own stats files are its achievement source.
             const localScanConfigured = status.execution.state === 'active'
                 && status.execution.operations.includes('achievement-read')
                 || status.filesystems.some(record => record.state === 'active'
                     && record.operations.includes('achievement-read')
-                    && ['achievement-file', 'achievement-folder'].includes(record.kind));
+                    && ['achievement-file', 'achievement-folder'].includes(record.kind))
+                || !!installedSteamApp(metadata.steamAppId);
             games.push({
                 id: metadata.id,
                 name: metadata.name,
@@ -143,19 +151,19 @@ function registerAchievementIpc({ app, ipcMain, BrowserWindow, Notification, dia
             if (details.executableIdentity) {
                 approvedRoots.push({ ...details.executableIdentity, path: details.executableIdentity.realPath });
             }
-            if (details.steamAppId && typeof resolveSteamInstallation === 'function') {
-                steamAppId = details.steamAppId;
-                const installation = resolveSteamInstallation(details.steamAppId);
-                if (installation && typeof installation === 'object' && typeof installation.then !== 'function'
-                    && installation.rootIdentity && installation.rootIdentity.realPath) {
-                    steamRoot = installation.rootIdentity.realPath;
-                    approvedRoots.push({
-                        ...installation.rootIdentity,
-                        path: installation.rootIdentity.realPath
-                    });
-                    allowSteamData = true;
-                }
-            }
+            if (details.steamAppId) steamAppId = details.steamAppId;
+        }
+        // The executable's Steam app ID wins; otherwise the library record's own app ID (a game imported from Steam),
+        // and only while that app is installed in the local Steam.
+        if (!steamAppId) steamAppId = String(profileStore.activeGameMetadata(gameId).steamAppId || '');
+        const installation = installedSteamApp(steamAppId);
+        if (installation) {
+            steamRoot = installation.rootIdentity.realPath;
+            approvedRoots.push({
+                ...installation.rootIdentity,
+                path: installation.rootIdentity.realPath
+            });
+            allowSteamData = true;
         }
         for (const source of status.filesystems.filter(record => record.state === 'active'
             && record.operations.includes('achievement-read')

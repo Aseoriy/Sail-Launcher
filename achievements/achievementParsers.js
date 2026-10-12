@@ -416,6 +416,7 @@ function parseRazor1911(text, source = 'razor1911') {
 function sourceForPath(filePath) {
     const normalized = String(filePath || '').replace(/\\/g, '/').toLowerCase();
     if (/\/usergamestatsschema_\d+\.bin$/.test(normalized)) return 'steam-schema';
+    if (/\/usergamestats_\d+_\d+\.bin$/.test(normalized)) return 'steam-stats';
     if (normalized.includes('/librarycache/')) return 'steam-cache';
     if (normalized.includes('goldberg') || normalized.includes('/gse saves/')) return 'goldberg';
     if (normalized.includes('/codex/')) return 'codex';
@@ -500,6 +501,38 @@ function parseAchievementBinary(buffer, source = 'steam-schema', options = {}) {
     return parseAchievementJson(JSON.stringify(root), source, options);
 }
 
+// Steam keeps an account's full unlock state in appcache/stats/UserGameStats_<account>_<app>.bin. Each achievement stat
+// holds a 32-bit field, one bit per achievement, and the schema names the achievement behind each bit. (The library cache
+// JSON only lists a handful of highlighted unlocks.)
+function parseSteamUserStats(statsBuffer, schemaBuffer, appId, options = {}) {
+    const schemaRoot = parseBinaryKeyValues(schemaBuffer, options);
+    const schemaApp = schemaRoot && (schemaRoot[appId] || Object.values(schemaRoot)[0]);
+    const schemaStats = schemaApp && schemaApp.stats;
+    const userStats = parseBinaryKeyValues(statsBuffer, options).cache;
+    if (!schemaStats || typeof schemaStats !== 'object' || !userStats || typeof userStats !== 'object') return [];
+    const items = [];
+    for (const [statId, stat] of Object.entries(schemaStats)) {
+        const bits = stat && typeof stat.bits === 'object' ? stat.bits : null;
+        const user = userStats[statId];
+        if (!bits || !user || typeof user !== 'object' || !Number.isInteger(user.data)) continue;
+        const field = user.data >>> 0;
+        const times = user.AchievementTimes && typeof user.AchievementTimes === 'object' ? user.AchievementTimes : {};
+        for (const [bit, entry] of Object.entries(bits)) {
+            const index = Number(bit);
+            const id = entry && typeof entry.name === 'string' ? entry.name : '';
+            if (!id || !Number.isInteger(index) || index < 0 || index > 31 || !((field >>> index) & 1)) continue;
+            items.push(normalizeAchievementItem({
+                id,
+                displayName: id,
+                unlocked: true,
+                unlockTime: Number.isInteger(times[bit]) && times[bit] > 0 ? times[bit] : null,
+                source: 'steam-stats'
+            }));
+        }
+    }
+    return dedupeItems(items.filter(Boolean));
+}
+
 const PARSER_REGISTRY = [
     {
         id: 'razor1911',
@@ -555,6 +588,21 @@ function readAchievementFile(filePath, options = {}) {
             items: parseAchievementBinary(buffer, 'steam-schema', { ...options, fs: fileSystem, sourceFilePath: approvedFilePath })
         };
     }
+    const userStats = path.basename(approvedFilePath).match(/^UserGameStats_\d+_(\d+)\.bin$/i);
+    if (userStats) {
+        const schemaPath = path.join(path.dirname(approvedFilePath), `UserGameStatsSchema_${userStats[1]}.bin`);
+        const approvedSchemaPath = Object.hasOwn(options, 'approvedRoots')
+            ? resolveApprovedPath(schemaPath, options, 'file')
+            : schemaPath;
+        if (!approvedSchemaPath) throw new Error('Steam achievement schema is outside its approved local capability.');
+        const schemaStat = fileSystem.statSync(approvedSchemaPath);
+        if (!schemaStat.isFile() || schemaStat.size > maxBytes) throw new Error('Steam achievement schema cannot be read safely.');
+        return {
+            parser: 'binary-vdf',
+            source: 'steam-stats',
+            items: parseSteamUserStats(buffer, fileSystem.readFileSync(approvedSchemaPath), userStats[1], options)
+        };
+    }
     const text = Buffer.isBuffer(buffer) ? buffer.toString('utf8') : String(buffer);
     return parseAchievementText(text, approvedFilePath, { ...options, fs: fileSystem });
 }
@@ -569,6 +617,7 @@ module.exports = {
     parseRazor1911,
     parseAchievementText,
     parseBinaryKeyValues,
+    parseSteamUserStats,
     readAchievementFile,
     sourceAppId,
     steamArtworkValue,

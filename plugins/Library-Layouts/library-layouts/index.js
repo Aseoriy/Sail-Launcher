@@ -510,11 +510,17 @@ module.exports = function (SailAPI, context) {
         const button = (label, run, primary) => { const node = el('button', { type: 'button', class: `sl-pf-btn${primary ? ' is-primary' : ''}`, text: label }); node.addEventListener('click', run); return node; };
         const maskEmail = email => { const [name, domain] = String(email).split('@'); return domain ? `${name.charAt(0)}••••@${domain}` : '••••'; };
         const letterTile = (name, cls) => el('span', { class: cls, text: (name || '?').trim().charAt(0).toUpperCase() || '?' });
+        // Tries each image in turn: a game with no tall Steam art falls back to its own banner (a custom cover, or the wide
+        // Steam art, cropped to fit like the home grid), and only shows a letter when nothing loads.
         const capsule = (game, kind, cls) => {
-            const url = SailAPI.getCover(game.id, kind);
-            if (!url) return letterTile(game.name, `${cls} sl-pf-letter`);
-            const image = el('img', { class: cls, src: url, alt: '', loading: 'lazy' });
-            image.addEventListener('error', () => image.replaceWith(letterTile(game.name, `${cls} sl-pf-letter`)), { once: true });
+            const order = kind === 'portrait' ? ['portrait', 'hero', 'header'] : [kind, 'hero'];
+            const urls = [...new Set(order.map(each => SailAPI.getCover(game.id, each)).filter(Boolean))];
+            if (!urls.length) return letterTile(game.name, `${cls} sl-pf-letter`);
+            const image = el('img', { class: cls, src: urls.shift(), alt: '', loading: 'lazy' });
+            image.addEventListener('error', () => {
+                if (urls.length) image.src = urls.shift();
+                else image.replaceWith(letterTile(game.name, `${cls} sl-pf-letter`));
+            });
             return image;
         };
         const open = game => { close(); SailAPI.openGame(game.id); };

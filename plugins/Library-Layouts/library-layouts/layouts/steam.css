@@ -14,7 +14,9 @@ body.sl-steam.sl-colors {
 }
 body.sl-steam:not(.sl-colors) { --sl-top: rgba(0, 0, 0, .35); --sl-list: rgba(0, 0, 0, .22); }
 body.sl-steam { --sl-green-a: #75b022; --sl-green-b: #588a1b; --sl-sel: #3e4046; --sl-muted: #8f98a0; font-family: "Motiva Sans", "Segoe UI", "Noto Sans", Arial, sans-serif; }
-body.sl-steam.sl-colors { background: #2d333c; }
+/* A custom theme's app background (Sail's UI editor) is injected as `body.theme-custom { background: ... !important }`,
+   so this needs !important and a higher specificity to replace it. */
+html body.sl-steam.sl-colors { background: #2d333c !important; }
 body.sl-steam::before, body.sl-steam::after { display: none !important; }
 
 /* ---- Title bar: two rows, like Steam. Menu bar on top, back/forward and the page tabs underneath ---- */
@@ -173,13 +175,17 @@ body.sl-steam button.outline { border-radius: 2px !important; }
 /* Cover grid */
 body.sl-steam #gameGrid { gap: 14px; }
 body.sl-steam .game-card { border-radius: 2px !important; box-shadow: none !important; border: 1px solid rgba(255, 255, 255, .06) !important; background: #1c212b !important; transition: transform .18s ease, box-shadow .18s ease; }
+/* Sail's tile-shape setting targets #gameGrid .game-card; the layout's own corners win over it. */
+body.sl-steam #gameGrid .game-card { border-radius: 2px !important; }
 body.sl-steam .game-card:hover { transform: scale(1.035) !important; box-shadow: 0 8px 24px rgba(0, 0, 0, .55) !important; z-index: 2; }
 body.sl-steam .game-card .card-banner, body.sl-steam .game-card .no-image { border-radius: 0 !important; }
 body.sl-steam.sl-portrait #gameGrid:not(.list-view) { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)) !important; }
 /* The layout owns the tile's size and position. A theme's canvas-editor tweaks (forced width, min-width, offsets) would otherwise
    stretch the tiles over each other, so they are reset here with enough weight to win. */
 body.sl-steam.sl-portrait #gameGrid:not(.list-view) .game-card { aspect-ratio: 2 / 3; width: auto !important; min-width: 0 !important; max-width: none !important; height: auto !important; min-height: 0 !important; margin: 0 !important; padding: 0 !important; flex: none !important; translate: none !important; rotate: none !important; contain-intrinsic-size: auto 225px; }
-body.sl-steam.sl-portrait #gameGrid:not(.list-view) { justify-items: stretch !important; overflow-x: hidden; }
+/* Clip sideways only: overflow-x: hidden would also clip vertically and cut off the hover lift. The padding, cancelled by the
+   negative margin, leaves room for the hover scale and shadow at the outer columns without moving the grid. */
+body.sl-steam.sl-portrait #gameGrid:not(.list-view) { justify-items: stretch !important; overflow-x: clip; overflow-y: visible; padding-inline: 12px; margin-inline: -12px; }
 body.sl-steam.sl-portrait #gameGrid:not(.list-view) .game-card .card-text-area { position: absolute; left: 0; right: 0; bottom: 0; padding: 30px 10px 9px; opacity: 0; transition: opacity .18s; }
 body.sl-steam.sl-portrait #gameGrid:not(.list-view) .game-card:hover .card-text-area, body.sl-steam.sl-portrait #gameGrid:not(.list-view) .game-card:focus-visible .card-text-area { opacity: 1; }
 

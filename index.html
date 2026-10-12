@@ -18166,11 +18166,25 @@
         });
 
         function applyTileShape(shape) {
+            // The corner radius is scoped to the card grids so it outranks a custom theme's
+            // `.game-card { border-radius: ... !important }` (injected later) and the glass style's
+            // `body.glassmorphic-mode .game-card` rule; otherwise every shape showed the theme's corners.
+            const cards = '#gameGrid .game-card, #sourcesGrid .game-card';
+            // Grid tiles show full-bleed art with a bottom shade behind the title. On curved shapes the shade must
+            // reach the tile's edges (the tile's clip then curves it), and the title, badge and buttons move in
+            // from the curved ends so they are not cut off. The narrower title area leaves no room for the
+            // achievement badge beside the status line, so it moves up next to the favourite star.
+            const curved = (side, top, bottom, badge = `top: ${top}; bottom: auto; right: calc(${side} + 30px);`) => {
+                const tile = '#gameGrid:not(.list-view) .game-card';
+                return `${tile} { padding: 0 !important; } ${tile} .card-text-area { padding-left: ${side} !important; padding-right: ${side} !important; padding-bottom: ${bottom} !important; }`
+                    + ` ${tile} .achievement-card-badge { ${badge} }`
+                    + ` ${tile} .fav-btn { top: ${top}; right: ${side}; } ${tile} .tile-stop-btn { top: ${top}; left: ${side}; }`;
+            };
             let css = '';
-            if (shape === 'square') css = `.game-card { border-radius: 0px !important; } .card-banner, .no-image { border-radius: 0px !important; }`;
-            else if (shape === 'squircle') css = `.game-card { border-radius: 24px !important; } .card-banner, .no-image { border-radius: 12px !important; }`;
-            else if (shape === 'pill') css = `.game-card { border-radius: 9999px !important; padding: 20px 15px !important; } .card-banner, .no-image { border-radius: 9999px !important; height: calc(var(--banner-height) + 10px) !important; } .fav-btn { top: 15px; right: 25px; } .tile-stop-btn { top: 15px; left: 25px; }`;
-            else if (shape === 'circle') css = `.game-card { border-radius: 50% !important; aspect-ratio: 1 / 1; justify-content: center; align-items: center; padding: 20px !important; } .card-banner, .no-image { border-radius: 50% !important; width: 65% !important; height: auto !important; aspect-ratio: 1 / 1; margin: 0 auto 10px auto !important; } .card-title { font-size: 1.05rem !important; } .status-text { margin-top: 0 !important; padding-top: 5px !important; } .fav-btn { top: 15%; right: 15%; } .tile-stop-btn { top: 15%; left: 15%; }`;
+            if (shape === 'square') css = `${cards} { border-radius: 0px !important; } .card-banner, .no-image { border-radius: 0px !important; }`;
+            else if (shape === 'squircle') css = `${cards} { border-radius: 24px !important; } .card-banner, .no-image { border-radius: 12px !important; }`;
+            else if (shape === 'pill') css = `${cards} { border-radius: 9999px !important; } .game-card { padding: 20px 15px !important; } .card-banner, .no-image { border-radius: 9999px !important; height: calc(var(--banner-height) + 10px) !important; } .fav-btn { top: 15px; right: 25px; } .tile-stop-btn { top: 15px; left: 25px; }` + curved('15%', '10px', '12px');
+            else if (shape === 'circle') css = `${cards} { border-radius: 50% !important; } .game-card { aspect-ratio: 1 / 1; justify-content: center; align-items: center; padding: 20px !important; } .card-banner, .no-image { border-radius: 50% !important; width: 65% !important; height: auto !important; aspect-ratio: 1 / 1; margin: 0 auto 10px auto !important; } .card-title { font-size: 1.05rem !important; } .status-text { margin-top: 0 !important; padding-top: 5px !important; } .fav-btn { top: 15%; right: 15%; } .tile-stop-btn { top: 15%; left: 15%; }` + curved('20%', '12%', '14%', 'top: 5%; bottom: auto; right: 50%; transform: translateX(50%);');
             document.getElementById('shapeStyles').textContent = css;
         }
 
