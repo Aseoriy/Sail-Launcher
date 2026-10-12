@@ -22,6 +22,12 @@
 #include <limits.h>
 #include <stddef.h>
 
+/* glibc before 2.36 (Ubuntu 22.04, the oldest build machine) does not declare P_PIDFD. The kernel value has been 3 since
+   waitid learned pidfds (Linux 5.4), and newer glibc declares the same value, so this is safe everywhere. */
+#ifndef P_PIDFD
+#define P_PIDFD 3
+#endif
+
 #define PROTOCOL 1
 #define MAX_PACKET 131072
 #define MAX_ARGS 128
