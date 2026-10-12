@@ -148,6 +148,8 @@ if (args.includes('--sail-ui-probe')) {
     app.commandLine.appendSwitch('use-gl', 'angle');
     app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
 }
+// Chosen before the app is ready; see runtime/passwordStore.js for why a desktop Chromium does not know needs it.
+{ const passwordStore = require('./runtime/passwordStore').choosePasswordStore({ desktop: process.env.XDG_CURRENT_DESKTOP, argv: args }); if (passwordStore) app.commandLine.appendSwitch('password-store', passwordStore); }
 const desktopActivation = require('./runtime/desktopActivation').createDesktopActivation({
     initialArguments: args, getWindow: () => mainWindow
 });
