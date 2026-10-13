@@ -125,6 +125,7 @@ const { DebridRetryLinkStore, debridRetryRequestKey } = require('./runtime/debri
 const ARCHIVE_EXTRACT_WORKER = path.join(__dirname, 'runtime', 'archiveExtractWorker.js');
 const DOWNLOAD_PREPARATION_WORKER = path.join(__dirname, 'runtime', 'downloadPreparationWorker.js');
 const { createAuthorizedIpcRegistrar, createTrustedFrameAuthorizer } = require('./security/ipcAuthorization');
+const { createSpinCatOverlay } = require('./runtime/spinCatOverlay');
 const { createArchivePowerShellInvocation, scopedArtifactStems } = require('./security/archiveDataBinding');
 const { createExecutionPhaseAuthority } = require('./security/executionPhaseAuthority');
 const { LegacyCloudReferenceStore } = require('./security/legacyCloudReferences');
@@ -1167,6 +1168,13 @@ ipcMain.handle('onboarding-finish', (_event, payload) => {
     const input = exactGateAPayload(payload, ['skipped'], 'Setup result');
     if (typeof input.skipped !== 'boolean') throw new Error('The setup result is invalid.');
     return onboardingState.finish({ skipped: input.skipped });
+});
+
+// Settings > Experimental > "don't press this": a spinning cat on the desktop itself, not inside Sail's window.
+const spinCatOverlay = createSpinCatOverlay({ BrowserWindow, screen, getAnchorWindow: () => mainWindow });
+ipcMain.handle('fun-spin-cat', (_event, payload) => {
+    const input = exactGateAPayload(payload, ['reduceMotion'], 'Spin cat request');
+    return spinCatOverlay.show({ reduceMotion: input.reduceMotion === true });
 });
 
 ipcMain.handle('search-steam-workshop', async (e, payload) => {

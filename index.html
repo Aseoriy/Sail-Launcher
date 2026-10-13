@@ -6485,6 +6485,10 @@
                     <p style="font-size: 11px; color: rgba(255,255,255,0.5); text-align: left; margin-top: 5px;">
                         Receive notifications for beta releases (-beta) in addition to stable versions.</p>
                 </div>
+
+                <div style="margin-top: 30px; text-align: center;">
+                    <button class="outline" id="dontPressBtn" onclick="dontPressThis()" style="padding: 8px 16px; font-size: 12px; opacity: 0.6;">don't press this</button>
+                </div>
             </div>
 
             <div id="tab-cloud" class="settings-pane">
@@ -17724,6 +17728,21 @@
             }
         }
         function uieOnViewportChange() { if (uieSelEl && uieMode === 'element') uieDrawSel(); }
+
+        // Settings > Experimental > "don't press this": the cat lives on the desktop (main process), so it stays when Sail is minimised.
+        let dontPressBusy = false;
+        async function dontPressThis() {
+            if (dontPressBusy) return;
+            dontPressBusy = true;
+            const button = document.getElementById('dontPressBtn');
+            if (button) button.disabled = true;
+            try {
+                const reduceMotion = document.body.classList.contains('less-animations')
+                    || !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+                await ipcRenderer.invoke('fun-spin-cat', { reduceMotion });
+            } catch (_) { }
+            setTimeout(() => { dontPressBusy = false; if (button) button.disabled = false; }, 13000);
+        }
 
         function openUiEditor() {
             if (!globalSettings.uiEditorEnabled) { alert('Turn on "Enable UI Editor (Experimental)" in Settings → Experimental first.'); return; }
