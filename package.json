@@ -6,6 +6,7 @@
   "desktopName": "com.aseoriy.saillauncher.desktop",
   "author": "Aseoriy",
   "homepage": "https://sail-launcher.sailhub.fyi",
+  "license": "GPL-3.0-only",
   "main": "runtime/entry.cjs",
   "scripts": {
     "start": "node scripts/start.cjs",
