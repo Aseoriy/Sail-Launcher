@@ -1171,7 +1171,7 @@ ipcMain.handle('onboarding-finish', (_event, payload) => {
 });
 
 // Settings > Experimental > "don't press this": a spinning cat on the desktop itself, not inside Sail's window.
-const spinCatOverlay = createSpinCatOverlay({ BrowserWindow, screen, getAnchorWindow: () => mainWindow });
+const spinCatOverlay = createSpinCatOverlay({ BrowserWindow, screen, imageDir: path.join(__dirname, 'ui', 'assets'), getAnchorWindow: () => mainWindow });
 ipcMain.handle('fun-spin-cat', (_event, payload) => {
     const input = exactGateAPayload(payload, ['reduceMotion'], 'Spin cat request');
     return spinCatOverlay.show({ reduceMotion: input.reduceMotion === true });
