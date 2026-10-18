@@ -60,7 +60,9 @@ function createPlatformSupport({ platform = process.platform, arch = process.arc
         features.plugins = { available: true, reason: '' };
         features.workshop = { available: true, reason: '' };
         features.achievements = { available: true, reason: '' };
+        features.saveDiscovery = { available: true, reason: '' };
     }
+    features.emulation = { available: !restricted, reason: restricted ? 'Emulator and ROM games are unavailable on Linux for now.' : '' };
     if (platform === 'linux') {
         features.downloads = { available: localDesktop, reason: localDesktop ? '' : 'Linux downloads and archive import are unavailable in this platform mode.' };
         const available = localDesktop && packaged;
@@ -112,6 +114,11 @@ function createSupportedIpcRegistrar(ipcMain, authorize, support) {
         'profiles-export-local-backup-file', 'profiles-import-local-backup-file', 'profiles-export-portable-file', 'profiles-import-portable-file',
         'profiles-create-portable-download-transfer', 'profiles-create-portable-upload-transfer', 'profiles-import-portable-transfer']);
     const recoveryHandles = new Set(['kill-game-process', 'runtime-recovery-state', 'runtime-session-pending', 'runtime-session-acknowledge']);
+    const saveHandles = new Set(['authority-select-filesystem', 'authority-configure-filesystem', 'authority-review-filesystem',
+        'authority-filesystem-newest-mtime', 'detect-saves-ludusavi', 'detect-saves-auto', 'scan-game-saves', 'zip-save-to-drive',
+        'list-save-versions', 'restore-save-version', 'open-save-versions-folder', 'check-backup-running', 'check-backup', 'backup-game',
+        'cancel-backup', 'restore-backup', 'open-backup-folder', 'delete-backup', 'runtime-post-exit-begin', 'runtime-post-exit-update']);
+    const cloudSaveHandles = new Set(['cloud-zip-folder', 'cloud-extract-zip']);
     const discoveryHandles = new Set(['import-steam-games']);
     const shortcutHandles = new Set(['create-shortcut']);
     const protocolHandles = new Set(['desktop-protocol-status', 'desktop-register-protocol']);
@@ -123,6 +130,8 @@ function createSupportedIpcRegistrar(ipcMain, authorize, support) {
         || (support.features.plugins.available && pluginHandles.has(channel))
         || (support.features.workshop.available && workshopHandles.has(channel))
         || (support.features.achievements.available && achievementHandles.has(channel))
+        || (support.features.saveDiscovery.available && saveHandles.has(channel))
+        || (support.features.saveDiscovery.available && support.features.accounts.available && cloudSaveHandles.has(channel))
         || (support.features.nativeRecovery.available && recoveryHandles.has(channel))
         || (support.features.steamDiscovery.available && discoveryHandles.has(channel))
         || (support.features.desktopShortcuts.available && shortcutHandles.has(channel))
@@ -136,6 +145,8 @@ function createSupportedIpcRegistrar(ipcMain, authorize, support) {
         pluginHandles.has(channel) ? support.features.plugins.reason :
         workshopHandles.has(channel) ? support.features.workshop.reason :
         achievementHandles.has(channel) ? support.features.achievements.reason :
+        saveHandles.has(channel) ? support.features.saveDiscovery.reason :
+        cloudSaveHandles.has(channel) ? (support.features.saveDiscovery.reason || support.features.accounts.reason) :
         discoveryHandles.has(channel) ? support.features.steamDiscovery.reason :
         shortcutHandles.has(channel) ? support.features.desktopShortcuts.reason :
         protocolHandles.has(channel) ? support.features.desktopIntegration.reason :

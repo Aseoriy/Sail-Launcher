@@ -288,7 +288,8 @@ class RecoveryJournal {
         if (input.jobId) job = this.state.postExitJobs.find(item => item.id === cleanText(input.jobId, 180));
         if (!job && sessionId) job = this.state.postExitJobs.find(item => item.sessionId === sessionId);
         const libraryKey = cleanText(input.libraryKey || 'local:default', 240);
-        if (!job) job = [...this.state.postExitJobs].reverse().find(item => item.gameId === gameId && item.libraryKey === libraryKey && (!operationFinished(item.save) || !operationFinished(item.config)));
+        // A new play session gets its own job, so its local backup is never skipped by an older job's checkpoint.
+        if (!job && !sessionId) job = [...this.state.postExitJobs].reverse().find(item => item.gameId === gameId && item.libraryKey === libraryKey && (!operationFinished(item.save) || !operationFinished(item.config)));
         const now = this.now();
         if (!job) {
             job = {

@@ -44,7 +44,7 @@ async function scanSaveCandidates(input = {}, options = {}) {
     const roots = [];
     if (input.includeInstallRoot !== false && input.installRoot) roots.push({ root: input.installRoot, source: 'installation', maxDepth: 7 });
     for (const root of input.customRoots || []) if (root) roots.push({ root, source: 'custom', maxDepth: 6 });
-    for (const root of defaultSaveRoots()) roots.push({ root, source: 'common', maxDepth: 2 });
+    for (const root of input.commonRoots || defaultSaveRoots()) roots.push({ root, source: 'common', maxDepth: 2 });
 
     const seenRoots = new Set();
     const seenCandidates = new Set();

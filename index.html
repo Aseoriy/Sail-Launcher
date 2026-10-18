@@ -14142,8 +14142,9 @@
                     return [];
                 }
             };
-            backups = localOnlyPreview ? [] : await loadGameBackups();
-            const backupRunning = localOnlyPreview ? null : await ipcRenderer.invoke('check-backup-running');
+            const gameBackupsAvailable = featureAvailable('saveDiscovery');
+            backups = gameBackupsAvailable ? await loadGameBackups() : [];
+            const backupRunning = gameBackupsAvailable ? await ipcRenderer.invoke('check-backup-running') : null;
             if (!isCurrentSettings()) return;
 
             const backupActionsRow = document.getElementById('backupActionsRow');
@@ -14172,7 +14173,7 @@
                 btn.innerText = "📦 Backup Game Folder"; if (typeof iconizeElement === 'function') iconizeElement(btn); btn.disabled = false; cancelBtn.style.display = "none"; pgBg.style.display = "none";
             }
 
-            if (localOnlyPreview) { btn.disabled = true; btn.textContent = 'Game backup unavailable'; btn.title = platformAvailability.support.features.saveDiscovery.reason; }
+            if (!gameBackupsAvailable) { btn.disabled = true; btn.textContent = 'Game backup unavailable'; btn.title = platformAvailability.support.features.saveDiscovery.reason; }
             btn.onclick = async () => {
                 btn.innerText = "📦 Zipping..."; btn.disabled = true; cancelBtn.style.display = "block"; pgBg.style.display = "block";
                 backupActionsRow.style.display = 'none';
@@ -14215,6 +14216,8 @@
                         });
                     }
                     rBtn.disabled = false; rBtn.innerText = "📦 Restore";
+                    // Each listed backup can be used once; list them again so Delete and Restore stay usable.
+                    renderGameBackupOptions(await loadGameBackups());
                     if (res) alert("Game successfully restored!"); else alert("Restore failed.");
                 }
             };
@@ -14230,15 +14233,19 @@
             document.getElementById('deleteBackupBtn').onclick = async () => {
                 if (await sailConfirm("Delete the selected backup zip?")) {
                     const selectedBackup = backups[Number(backupSelect.value)];
-                    const res = selectedBackup && await ipcRenderer.invoke('delete-backup', {
+                    const deleteBackup = backup => backup && ipcRenderer.invoke('delete-backup', {
                         gameId: String(game.id),
-                        backupCapabilityId: selectedBackup.capabilityId,
-                        backupExpectedRevision: selectedBackup.revision
+                        backupCapabilityId: backup.capabilityId,
+                        backupExpectedRevision: backup.revision
                     });
-                    if (res) {
-                        renderGameBackupOptions(await loadGameBackups());
-                        alert("Backup deleted.");
+                    let res = await deleteBackup(selectedBackup);
+                    if (!res && selectedBackup) {
+                        // The listed entry may already have been used; ask for a fresh one for the same file.
+                        const fresh = await loadGameBackups();
+                        res = await deleteBackup(fresh.find(backup => backup.filename === selectedBackup.filename));
                     }
+                    renderGameBackupOptions(await loadGameBackups());
+                    alert(res ? "Backup deleted." : "The backup could not be deleted.");
                 }
             };
 
@@ -14580,7 +14587,7 @@
             return {
                 needsSaveSync: !!(game && game.saveScanPending) || hasLocalSave && (!globalSettings.disableLocalSaves
                     || globalSettings.cloudAutoSync && normalizedSyncV2().saveAfterExit),
-                needsGameConfigSync: !!(game && normalizedSyncV2().gameConfigAfterExit)
+                needsGameConfigSync: !!(game && normalizedSyncV2().gameConfigAfterExit && featureAvailable('cloudSync'))
             };
         }
 
@@ -14684,6 +14691,10 @@
             }
 
             await updateRuntimePostExit(jobId, 'save', succeeded ? 'complete' : 'retry', succeeded ? 'finished' : 'retry-required', failure);
+            // Steps that had nothing to do leave the waiting text behind; never leave it showing.
+            if (statusText && statusText.innerText === "Waiting for game release...") {
+                statusText.innerText = dict[globalSettings.language || 'english'].ready || "Ready to Play";
+            }
             return succeeded;
         }
 
@@ -15343,7 +15354,8 @@
                 return;
             }
 
-            const status = await ipcRenderer.invoke('cloud-get-status');
+            // Linux has Sail Cloud saves but no external providers yet.
+            const status = featureAvailable('cloudSync') ? await ipcRenderer.invoke('cloud-get-status') : {};
             const linkedProvider = selectedSyncProviders('saves', status)[0];
             if (!linkedProvider) {
                 if (sailCloudGameSavesEnabled()) return;
@@ -15469,7 +15481,7 @@
             const useSailCloud = sailCloudGameSaveEnabledFor(game);
             let status;
             try {
-                status = await ipcRenderer.invoke('cloud-get-status');
+                status = featureAvailable('cloudSync') ? await ipcRenderer.invoke('cloud-get-status') : {};
             } catch (error) {
                 const message = safeSyncErrorMessage(error);
                 setSyncConfidenceError('saves', error);
@@ -15479,9 +15491,15 @@
             }
             const linkedProviders = selectedSyncProviders('saves', status);
             if (!useSailCloud && !linkedProviders.length) {
-                if (sailCloudGameSavesEnabled()) {
+                // Sail Cloud is the chosen destination but nobody is signed in: pause instead of failing every exit.
+                const sailCloudSignedOut = !accountUiState.signedIn && normalizedSyncV2().destinations.saves.includes('sailcloud');
+                if (sailCloudGameSavesEnabled() || sailCloudSignedOut) {
                     setSyncConfidenceStatus('saves', 'paused');
                     finishSyncConfidence('paused');
+                    if (sailCloudSignedOut && statusText) {
+                        statusText.innerText = 'Cloud save paused: sign in to Sail Cloud.';
+                        setTimeout(() => statusText.innerText = dict[globalSettings.language || 'english'].ready || "Ready to Play", 4000);
+                    }
                     return true;
                 }
                 const unavailable = new Error('No game-save destination is connected.');
@@ -15623,7 +15641,11 @@
                 try {
                     if (nativeSessions.get(String(game.id))?.native.runtime?.activity === 'installation') await openFirstPlaySettings(game);
                     else if (nativeSessions.has(String(game.id)) || nativePendingGames.has(String(game.id))) await launchNativeGame(game);
-                    else await protonFirstLaunchUi.play(game);
+                    else {
+                        // Same Sail Cloud check Windows runs before Play; it returns early when cloud saves are off.
+                        if (featureAvailable('saveDiscovery')) await runCloudRestoreCheck(game);
+                        await protonFirstLaunchUi.play(game);
+                    }
                 } catch (error) { platformAvailability.notice(`Launch: ${safeSyncErrorMessage(error)}`); }
                 return;
             }
@@ -15752,7 +15774,15 @@
                             : event.outcome === 'windows-tracking-failed' ? 'Windows game tracking failed. No playtime was added for this session.'
                             : 'Windows game startup was not confirmed. No playtime was added.');
                     else if (event.outcome === 'launch-failed') platformAvailability.notice('Native launch failed. No playtime or post-game save was added.');
-                    else platformAvailability.notice(event.activity === 'game' ? 'Windows game completed. Playtime is saved locally.' : 'Native game completed. Playtime is saved locally.');
+                    else {
+                        platformAvailability.notice(event.activity === 'game' ? 'Windows game completed. Playtime is saved locally.' : 'Native game completed. Playtime is saved locally.');
+                        // Only a session that really ran gets a save backup, so a failed start never rotates out a good one.
+                        const requirements = postExitRequirements(myGames[index]);
+                        if (featureAvailable('saveDiscovery') && (requirements.needsSaveSync || requirements.needsGameConfigSync)) {
+                            // Playtime is already saved; a save failure is reported by the save job, not as pending playtime.
+                            processRuntimePostExitJob(index, event).catch(error => console.error('Post-exit save work failed:', safeSyncErrorMessage(error)));
+                        }
+                    }
                 } else await processRuntimePostExitJob(index, event);
             } catch (error) {
                 if (event.provider === 'linux-native') platformAvailability.notice(`Playtime save is still pending: ${error.message}`);
@@ -15782,7 +15812,7 @@
                 if (!event.libraryKey || event.libraryKey === libraryKey) await handleRuntimeSessionEnded(event);
             }
             try { state = await ipcRenderer.invoke('runtime-recovery-state'); } catch (_) {}
-            for (const job of (localOnlyPreview ? [] : state.postExitJobs || [])) {
+            for (const job of (localOnlyPreview && !featureAvailable('saveDiscovery') ? [] : state.postExitJobs || [])) {
                 if (job.libraryKey && job.libraryKey !== libraryKey) continue;
                 const index = myGames.findIndex(game => String(game.id) === String(job.gameId));
                 if (index < 0 || sessionStartTimes[index]) continue;
@@ -15853,9 +15883,14 @@
                     expectedRevision: reference.expectedRevision,
                     playedSince: sessionStartedAt || 0
                 });
-                if (found && found.found && await sailConfirm(`A possible local save folder was found for ${g.name}. Choose the save folder now?`)) {
+                const confirmText = found && found.suggestedSelectionId
+                    ? `Sail found the save folder for ${g.name}:\n${found.suggestedLabel}\n\nUse it for save backups?`
+                    : `A possible local save folder was found for ${g.name}. Choose the save folder now?`;
+                if (found && found.found && await sailConfirm(confirmText)) {
                     const selected = await invokeAccount('authority-configure-filesystem', {
-                        gameId: String(g.id), kind: 'save', entryId: '', pathKind: 'folder'
+                        gameId: String(g.id), kind: 'save', entryId: '', pathKind: 'folder',
+                        ...(found.suggestedSelectionId ? { selectionId: found.suggestedSelectionId }
+                            : found.suggestedPath ? { defaultPath: found.suggestedPath } : {})
                     });
                     if (!selected || !selected.canceled) g.localSaveSetupStatus = 'active';
                 }
@@ -16661,7 +16696,8 @@
                     if (authorityDraft.save) {
                         const configured = await invokeAccount('authority-configure-filesystem', {
                             gameId: gameData.id, kind: 'save', entryId: '', pathKind: 'folder',
-                            ...(authorityDraft.saveSelectionId ? { selectionId: authorityDraft.saveSelectionId } : {})
+                            ...(authorityDraft.saveSelectionId ? { selectionId: authorityDraft.saveSelectionId }
+                                : authorityDraft.saveCandidatePath ? { defaultPath: authorityDraft.saveCandidatePath } : {})
                         });
                         if (configured && configured.canceled) throw new Error('Save folder selection was cancelled. Choose a folder and try saving again.');
                         authorityDraft.saveSelectionId = '';
@@ -18137,7 +18173,8 @@
             updateLocalSetupPickerUi();
             try {
                 const selection = kind === 'save'
-                    ? await invokeAccount('authority-select-filesystem', { kind: 'save', pathKind: 'folder', ...scope })
+                    ? await invokeAccount('authority-select-filesystem', { kind: 'save', pathKind: 'folder', ...scope,
+                        ...(draft.saveCandidatePath ? { defaultPath: draft.saveCandidatePath } : {}) })
                     : await invokeAccount('authority-select-executable', { purpose: 'tracking', ...scope });
                 const modal = document.getElementById('addModal');
                 if (localAuthorityDraft !== draft || draft[pendingKey] !== pending
@@ -18961,15 +18998,18 @@
                 const ludusaviRequest = {
                     scanId,
                     gameName,
-                    steamAppId
+                    steamAppId,
+                    ...(existingGame ? { gameId: String(existingGame.id) } : {})
                 };
-                const legacy = await ipcRenderer.invoke(channel, mode === 'ludusavi' ? ludusaviRequest : gameName);
+                // Linux looks inside the game's own Windows environment, so it needs to know which game this is.
+                const autoRequest = { gameName, steamAppId, ...(existingGame ? { gameId: String(existingGame.id) } : {}) };
+                const legacy = await ipcRenderer.invoke(channel, mode === 'ludusavi' ? ludusaviRequest : autoRequest);
                 if (scanToken !== saveDetectionScanToken) return;
                 const providerCandidates = legacy && Array.isArray(legacy.candidates)
                     ? legacy.candidates
                     : ((legacy && legacy.paths) || []).map(p => ({ path: p, source: mode, reason: 'Suggested by the selected detection provider.', score: 40 }));
                 let scanned = [];
-                if (existingGame && (mode !== 'ludusavi' || !providerCandidates.length)) {
+                if (existingGame && featureAvailable('maintenance') && (mode !== 'ludusavi' || !providerCandidates.length)) {
                     setSaveDetectionScanStatus(mode === 'ludusavi'
                         ? 'No Ludusavi save folder was found. Scanning local folders…'
                         : 'Scanning common, game, and custom folders…');
@@ -18996,10 +19036,7 @@
                     ? 'The Ludusavi update failed, so Sail used the cached database.'
                     : providerError && combined.length ? `${providerError} Showing local scan results instead.` : '';
                 renderSaveDetectionCandidates(combined, providerError, providerWarning);
-                if (combined.length) {
-                    localAuthorityDraft.save = true;
-                    localSaveInput.value = 'Candidate found — choose locally during Save';
-                }
+                if (combined.length) window.useSaveDetectionCandidate(combined[0]);
             } catch (err) {
                 console.error("Error auto-detecting saves:", err);
                 if (scanToken === saveDetectionScanToken) {
@@ -20276,6 +20313,18 @@
             return labels[String(source || '').toLowerCase()] || 'Local scan';
         }
 
+        // A candidate Sail found carries a one-time selection from main, so Save applies it without the picker.
+        // Candidates without one (older scans) still open the picker, starting at that folder.
+        window.useSaveDetectionCandidate = function(candidate) {
+            if (!candidate) return;
+            localAuthorityDraft.save = true;
+            localAuthorityDraft.saveSelectionId = String(candidate.selectionId || '');
+            localAuthorityDraft.saveCandidatePath = String(candidate.path || '');
+            document.getElementById('localSave').value = candidate.selectionId
+                ? `Save folder: ${String(candidate.label || candidate.path || '').slice(0, 240)} — Save to apply`
+                : 'Candidate chosen — select the folder when saving';
+        };
+
         window.renderSaveDetectionCandidates = function(candidates, emptyMessage, warningMessage) {
             const host = document.getElementById('saveDetectionCandidates');
             if (!host) return;
@@ -20303,10 +20352,7 @@
                 option.title = candidate.reason || '';
                 select.appendChild(option);
             });
-            select.addEventListener('change', () => {
-                localAuthorityDraft.save = true;
-                document.getElementById('localSave').value = 'Candidate chosen — select the folder when saving';
-            });
+            select.addEventListener('change', () => window.useSaveDetectionCandidate(candidates[Number(select.value)]));
             host.appendChild(select);
         };
 

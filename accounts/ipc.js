@@ -29,6 +29,15 @@ async function chooseFile(dialog, options) {
     return result.canceled ? null : result.filePaths[0];
 }
 
+// A suggested starting folder for a picker. It is only where the picker opens; the person still chooses.
+function pickerStart(value) {
+    if (value === undefined || value === '') return {};
+    if (typeof value !== 'string' || value.length > 4096 || !path.isAbsolute(value) || /[\u0000-\u001f]/.test(value)) {
+        throw new TypeError('The suggested folder must be an absolute local path.');
+    }
+    return { defaultPath: path.normalize(value) };
+}
+
 async function chooseDirectory(dialog, options) {
     const result = await dialog.showOpenDialog({ properties: ['openDirectory'], ...options });
     return result.canceled ? null : result.filePaths[0];
@@ -50,6 +59,9 @@ function registerAccountIpc({ app, ipcMain, safeStorage, authorizeIpcEvent, dial
     const pendingExecutionSelections = new Map();
     const executionSelectionTtlMs = 30 * 60 * 1000;
     const maxPendingExecutionSelections = 32;
+    // Save folders Sail found itself (Ludusavi or a scan). Kept apart so a scan never evicts a picked selection.
+    const offeredSaveSelections = new Map();
+    const maxOfferedSaveSelections = 64;
 
     const executionSelectionError = message => {
         const error = new Error(message);
@@ -73,6 +85,10 @@ function registerAccountIpc({ app, ipcMain, safeStorage, authorizeIpcEvent, dial
             if (!oldest) break;
             pendingExecutionSelections.delete(oldest);
         }
+        for (const [selectionId, selection] of offeredSaveSelections) {
+            if (!selection || selection.createdAt < cutoff) offeredSaveSelections.delete(selectionId);
+        }
+        while (offeredSaveSelections.size >= maxOfferedSaveSelections) offeredSaveSelections.delete(offeredSaveSelections.keys().next().value);
     };
     const consumeExecutionSelection = (event, selectionIdInput, expected = {}) => {
         const selectionId = String(selectionIdInput || '');
@@ -80,7 +96,8 @@ function registerAccountIpc({ app, ipcMain, safeStorage, authorizeIpcEvent, dial
             throw executionSelectionError('The executable selection reference is invalid.');
         }
         pruneExecutionSelections();
-        const selection = pendingExecutionSelections.get(selectionId);
+        const selections = pendingExecutionSelections.has(selectionId) ? pendingExecutionSelections : offeredSaveSelections;
+        const selection = selections.get(selectionId);
         if (!selection || selection.senderId !== executionSelectionSenderId(event)) {
             throw executionSelectionError('The executable selection is no longer available. Choose it again.');
         }
@@ -97,11 +114,25 @@ function registerAccountIpc({ app, ipcMain, safeStorage, authorizeIpcEvent, dial
         const identityKind = ['save', 'working-directory'].includes(selection.purpose) ? 'directory' : 'file';
         const currentIdentity = fileIdentity(selection.selectedPath, identityKind);
         if (!identityMatches(selection.selectedIdentity, currentIdentity)) {
-            pendingExecutionSelections.delete(selectionId);
+            selections.delete(selectionId);
             throw executionSelectionError('The selected executable changed. Choose it again.');
         }
-        pendingExecutionSelections.delete(selectionId);
+        selections.delete(selectionId);
         return selection.selectedPath;
+    };
+    // Main-process scans call this for folders they found, so choosing one works like choosing it in the
+    // picker. The renderer only ever gets the ID back; it cannot name a path of its own.
+    const offerSaveSelection = (event, { gameId = '', folder }) => {
+        let selectedIdentity;
+        try { selectedIdentity = fileIdentity(folder, 'directory'); } catch (_) { return ''; }
+        const scope = gameId ? profileStore.authorityScope(gameId) : profileStore.activeScope();
+        pruneExecutionSelections();
+        const selectionId = crypto.randomUUID();
+        offeredSaveSelections.set(selectionId, {
+            senderId: executionSelectionSenderId(event), selectedPath: selectedIdentity.realPath, selectedIdentity, purpose: 'save',
+            gameId: gameId ? String(gameId) : '', profileId: scope.profileId, libraryId: scope.libraryId, createdAt: Date.now()
+        });
+        return selectionId;
     };
     const protectedSettingsStorage = localOnly ? null : new SafeStorageAdapter(
         path.join(app.getPath('userData'), 'sail_local_settings.json'),
@@ -588,12 +619,12 @@ function registerAccountIpc({ app, ipcMain, safeStorage, authorizeIpcEvent, dial
         return { canceled: false, selectionId, label: purpose === 'tracking' ? `Play detection: ${name}` : 'Executable selected', name, ...(backend ? { backend } : {}) };
     }));
     ipcMain.handle('authority-select-filesystem', guarded('authority-select-filesystem', async (event, payload) => {
-        const input = exactPayload(payload || {}, ['kind', 'pathKind', 'gameId'], 'Filesystem selection');
+        const input = exactPayload(payload || {}, ['kind', 'pathKind', 'gameId', 'defaultPath'], 'Filesystem selection');
         if (input.kind !== 'save' || input.pathKind !== 'folder') {
             throw executionSelectionError('Only game save-folder selection is supported.');
         }
         const scope = input.gameId ? profileStore.authorityScope(input.gameId) : profileStore.activeScope();
-        const selectedPath = await chooseDirectory(dialog, { title: 'Choose the local save folder' });
+        const selectedPath = await chooseDirectory(dialog, { title: 'Choose the local save folder', ...pickerStart(input.defaultPath) });
         if (!selectedPath) return { canceled: true };
         pruneExecutionSelections();
         const selectionId = crypto.randomUUID();
@@ -834,8 +865,14 @@ function registerAccountIpc({ app, ipcMain, safeStorage, authorizeIpcEvent, dial
             native.assertNativeOptions(saved.details); native.assertNativeOptions(saved.proposals);
             const argv = native.validateArgv(input.argv || []);
             let approved = null;
+            let keptWorkingDirectory = '';
             const reference = profileStore.authorityStatus(input.gameId).execution;
-            if (reference.state === 'active' && !(input.baseSelectionId && input.workingDirectorySelectionId)) {
+            if (reference.state === 'active' && input.baseSelectionId && !input.workingDirectorySelectionId) {
+                // A newly chosen executable replaces the old one, which may no longer match (a restored or updated
+                // game). Only the working folder carries over, and it is checked against its own approval.
+                const kept = native.validateWorkingDirectory(saved.details.workingDirectory, { ...nativeSetup, expected: saved.details.workingDirectoryIdentity });
+                keptWorkingDirectory = kept.realPath;
+            } else if (reference.state === 'active' && !(input.baseSelectionId && input.workingDirectorySelectionId)) {
                 approved = profileStore.resolveExecutionCapability({ gameId: input.gameId, capabilityId: reference.capabilityId,
                     expectedRevision: reference.revision, operation: 'launch' }, { consume: false }).details;
                 require('../runtime/proton/executable').selectLocalExecutable(approved.executablePath, { ...nativeSetup, expected: approved.executableIdentity });
@@ -861,9 +898,9 @@ function registerAccountIpc({ app, ipcMain, safeStorage, authorizeIpcEvent, dial
             }
             const workingDirectory = input.workingDirectorySelectionId
                 ? consumeExecutionSelection(event, input.workingDirectorySelectionId, { purpose: 'working-directory', gameId: input.gameId })
-                : approved?.workingDirectory || (linuxRuntime ? path.dirname(executable.realPath)
+                : approved?.workingDirectory || keptWorkingDirectory || (linuxRuntime ? path.dirname(executable.realPath)
                     : await chooseDirectory(dialog, { title: 'Approve this native game’s working directory' }));
-            if (linuxRuntime && !approved && !input.workingDirectorySelectionId) {
+            if (linuxRuntime && !approved && !keptWorkingDirectory && !input.workingDirectorySelectionId) {
                 const decision = await dialog.showMessageBox({ type: 'question', buttons: ['Save launch setup', 'Cancel'], defaultId: 0, cancelId: 1,
                     message: 'Save this Windows game’s launch setup?', detail: `Executable: ${executable.realPath}\nWorking folder: ${workingDirectory}\nYou can change the working folder in Manage Game.` });
                 if (decision.response !== 0) return { canceled: true };
@@ -1030,7 +1067,7 @@ function registerAccountIpc({ app, ipcMain, safeStorage, authorizeIpcEvent, dial
         });
     }));
     ipcMain.handle('authority-configure-filesystem', guarded('authority-configure-filesystem', async (_event, payload) => {
-        const input = exactPayload(payload, ['gameId', 'kind', 'entryId', 'pathKind', 'selectionId'], 'Filesystem setup');
+        const input = exactPayload(payload, ['gameId', 'kind', 'entryId', 'pathKind', 'selectionId', 'defaultPath'], 'Filesystem setup');
         if (!['save', 'config'].includes(input.kind)) throw new Error('Unsupported filesystem capability kind.');
         if (input.selectionId && (input.kind !== 'save' || input.pathKind !== 'folder')) {
             throw executionSelectionError('A save-folder selection can only configure a save folder.');
@@ -1039,7 +1076,7 @@ function registerAccountIpc({ app, ipcMain, safeStorage, authorizeIpcEvent, dial
             ? consumeExecutionSelection(_event, input.selectionId, { purpose: 'save', gameId: input.gameId })
             : input.kind === 'config' && input.pathKind === 'file'
                 ? await chooseFile(dialog, { title: 'Choose the local configuration file' })
-                : await chooseDirectory(dialog, { title: input.kind === 'save' ? 'Choose the local save folder' : 'Choose the local configuration folder' });
+                : await chooseDirectory(dialog, { title: input.kind === 'save' ? 'Choose the local save folder' : 'Choose the local configuration folder', ...pickerStart(input.defaultPath) });
         if (!selectedPath) return { canceled: true };
         return profileStore.createFilesystemCapability(input.gameId, input.kind, selectedPath, input.entryId || '');
     }));
@@ -1080,7 +1117,7 @@ function registerAccountIpc({ app, ipcMain, safeStorage, authorizeIpcEvent, dial
         return profileStore.reviewPendingFilesystem(input, selectedPath);
     }));
 
-    return { accountService, profileStore };
+    return { accountService, profileStore, offerSaveSelection };
 }
 
 module.exports = { registerAccountIpc };

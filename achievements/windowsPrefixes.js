@@ -18,6 +18,30 @@ function realDirectory(target, fileSystem) {
     } catch (_) { return ''; }
 }
 
+// For one Windows drive_c, the Windows-style locations (APPDATA, Documents, ProgramData...) of each real user in it.
+function driveEnvironments(driveC, fileSystem = fs) {
+    const environments = [];
+    const usersRoot = realDirectory(path.join(driveC, 'users'), fileSystem);
+    let names = [];
+    try { names = usersRoot ? fileSystem.readdirSync(usersRoot) : []; } catch (_) { names = []; }
+    for (const name of names.slice(0, 16)) {
+        if (SHARED_USERS.has(name.toLowerCase())) continue;
+        const profile = realDirectory(path.join(usersRoot, name), fileSystem);
+        if (!profile || path.dirname(profile) !== usersRoot) continue;
+        environments.push({
+            env: {
+                APPDATA: path.join(profile, 'AppData', 'Roaming'),
+                LOCALAPPDATA: path.join(profile, 'AppData', 'Local'),
+                USERPROFILE: profile,
+                PUBLIC: path.join(usersRoot, 'Public'),
+                PROGRAMDATA: path.join(driveC, 'ProgramData')
+            },
+            documentsPath: path.join(profile, 'Documents')
+        });
+    }
+    return environments;
+}
+
 // Returns the folders to approve and, for each Windows user in the environment, the Windows-style locations
 // (APPDATA, Documents, ProgramData...) mapped into it.
 function windowsPrefixLocations({ protonRoot, key, fileSystem = fs }) {
@@ -26,29 +50,11 @@ function windowsPrefixLocations({ protonRoot, key, fileSystem = fs }) {
     for (const folder of BACKEND_FOLDERS) {
         const driveC = realDirectory(path.join(protonRoot, folder, key, 'drive_c'), fileSystem);
         if (!driveC) continue;
-        const usersRoot = realDirectory(path.join(driveC, 'users'), fileSystem);
-        let names = [];
-        try { names = usersRoot ? fileSystem.readdirSync(usersRoot) : []; } catch (_) { names = []; }
-        let used = false;
-        for (const name of names.slice(0, 16)) {
-            if (SHARED_USERS.has(name.toLowerCase())) continue;
-            const profile = realDirectory(path.join(usersRoot, name), fileSystem);
-            if (!profile || path.dirname(profile) !== usersRoot) continue;
-            used = true;
-            result.environments.push({
-                env: {
-                    APPDATA: path.join(profile, 'AppData', 'Roaming'),
-                    LOCALAPPDATA: path.join(profile, 'AppData', 'Local'),
-                    USERPROFILE: profile,
-                    PUBLIC: path.join(usersRoot, 'Public'),
-                    PROGRAMDATA: path.join(driveC, 'ProgramData')
-                },
-                documentsPath: path.join(profile, 'Documents')
-            });
-        }
-        if (used) result.roots.push({ kind: 'directory', path: driveC });
+        const environments = driveEnvironments(driveC, fileSystem);
+        result.environments.push(...environments);
+        if (environments.length) result.roots.push({ kind: 'directory', path: driveC });
     }
     return result;
 }
 
-module.exports = { windowsPrefixLocations };
+module.exports = { driveEnvironments, realDirectory, windowsPrefixLocations };

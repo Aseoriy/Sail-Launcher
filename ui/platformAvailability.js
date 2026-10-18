@@ -67,7 +67,8 @@ function installPlatformAvailability(document, ipc) {
             ['#steamApiKeyInput, #steamIdInput, #discordTokenInput', features.accounts],
             ['[id^="custom-google-"], [id^="custom-onedrive-"], [id^="custom-dropbox-"]', features.cloudSync],
             ['#browseExeBtn', features.nativeGames],
-            ['#browseSaveBtn, #browseDriveBtn, #browseEmulatorBtn, #browseRomBtn', features.saveDiscovery]
+            ['#browseSaveBtn, #browseDriveBtn', features.saveDiscovery],
+            ['#browseEmulatorBtn, #browseRomBtn', features.emulation]
         ];
         for (const [selector, feature] of groups) {
             if (feature && feature.available) continue;

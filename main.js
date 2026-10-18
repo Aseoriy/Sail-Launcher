@@ -40,6 +40,7 @@ const cloudSync = require('./cloudSync');
 const { registerMaintenanceIpc } = require('./maintenance/ipc');
 const { detectLudusaviSaveCandidates, loadLudusaviManifest } = require('./maintenance/ludusavi');
 const { scanSaveCandidates } = require('./maintenance/saveScanner');
+const { nativeCommonSaveRoots, windowsCommonSaveRoots, windowsSaveEnvironments, xdgFolders } = require('./runtime/linuxSaveLocations');
 const { registerAccountIpc } = require('./accounts/ipc');
 const { registerAchievementIpc } = require('./achievements/ipc');
 const { findSteamRoot, resolveInstalledSteamApp } = require('./achievements/achievementDiscovery');
@@ -126,7 +127,7 @@ const ARCHIVE_EXTRACT_WORKER = path.join(__dirname, 'runtime', 'archiveExtractWo
 const DOWNLOAD_PREPARATION_WORKER = path.join(__dirname, 'runtime', 'downloadPreparationWorker.js');
 const { createAuthorizedIpcRegistrar, createTrustedFrameAuthorizer } = require('./security/ipcAuthorization');
 const { createSpinCatOverlay } = require('./runtime/spinCatOverlay');
-const { createArchivePowerShellInvocation, scopedArtifactStems } = require('./security/archiveDataBinding');
+const { createArchivePowerShellInvocation, createArchiveSevenZipInvocation, scopedArtifactStems } = require('./security/archiveDataBinding');
 const { createExecutionPhaseAuthority } = require('./security/executionPhaseAuthority');
 const { LegacyCloudReferenceStore } = require('./security/legacyCloudReferences');
 const { registerLaunchStatusIpc } = require('./security/launchStatusIpc');
@@ -1595,9 +1596,30 @@ function resolveGameBackupLayout(payload, operation) {
     return { input, store, exePath, gameDir, backupDir, safeName, legacyName };
 }
 
-function spawnBoundArchivePowerShell(action, sourcePath, destinationPath) {
-    const invocation = createArchivePowerShellInvocation(action, sourcePath, destinationPath);
+function spawnBoundArchive(action, sourcePath, destinationPath) {
+    if (process.platform !== 'linux') {
+        const invocation = createArchivePowerShellInvocation(action, sourcePath, destinationPath);
+        return spawn(invocation.file, invocation.args, invocation.options);
+    }
+    // Like Compress-Archive, refuse an empty folder so an empty archive never replaces a real backup.
+    if (action === 'compress' && fs.readdirSync(sourcePath).length === 0) throw new Error('The approved source is empty.');
+    const invocation = createArchiveSevenZipInvocation(action, sourcePath, destinationPath, _7z.getConfig().binaryPath);
     return spawn(invocation.file, invocation.args, invocation.options);
+}
+
+// Resolves true when the backup is back in place. Linux writes back only the files that differ, so an
+// unchanged game executable keeps its approval.
+function expandBoundArchive(zipPath, destinationPath) {
+    if (process.platform === 'linux') {
+        return require('./runtime/linuxArchiveRestore').restoreChangedEntries(zipPath, destinationPath, _7z.getConfig().binaryPath)
+            .then(() => true, error => { console.error('Backup restore failed:', error && error.message || error); return false; });
+    }
+    return new Promise(resolve => {
+        let child;
+        try { child = spawnBoundArchive('expand', zipPath, destinationPath); } catch (_) { return resolve(false); }
+        child.on('error', () => resolve(false));
+        child.on('close', code => resolve(code === 0));
+    });
 }
 
 ipcMain.handle('check-backup', (e, payload) => {
@@ -1659,7 +1681,7 @@ ipcMain.handle('backup-game', async (e, payload) => {
         backingUpZipPath = path.join(backupDir, `${safeName}_backup_${timestamp}.zip`);
 
         if (fs.existsSync(backingUpZipPath)) fs.unlinkSync(backingUpZipPath);
-        activeBackupProcess = spawnBoundArchivePowerShell('compress', gameDir, backingUpZipPath);
+        activeBackupProcess = spawnBoundArchive('compress', gameDir, backingUpZipPath);
         activeBackupProcess.on('close', (code) => {
             activeBackupProcess = null;
 
@@ -1684,7 +1706,8 @@ ipcMain.handle('backup-game', async (e, payload) => {
 
 ipcMain.handle('cancel-backup', () => {
     if (activeBackupProcess) {
-        exec(`taskkill /F /T /PID ${activeBackupProcess.pid}`);
+        if (process.platform === 'linux') activeBackupProcess.kill();
+        else exec(`taskkill /F /T /PID ${activeBackupProcess.pid}`);
         activeBackupProcess = null;
         if (backingUpZipPath && fs.existsSync(backingUpZipPath)) {
             try { fs.unlinkSync(backingUpZipPath); } catch (err) { }
@@ -1710,13 +1733,9 @@ ipcMain.handle('restore-backup', async (e, payload) => {
         expectedRevision: input.backupExpectedRevision,
         operation: 'backup-read'
     });
-    return new Promise((resolve) => {
-        const zipPath = backup.details.targetPath;
-
-        if (!fs.existsSync(zipPath)) return resolve(false);
-        const child = spawnBoundArchivePowerShell('expand', zipPath, gameDir);
-        child.on('close', (code) => resolve(code === 0));
-    });
+    const zipPath = backup.details.targetPath;
+    if (!fs.existsSync(zipPath)) return false;
+    return expandBoundArchive(zipPath, gameDir);
 });
 
 ipcMain.handle('open-backup-folder', (e, payload) => {
@@ -1786,7 +1805,7 @@ ipcMain.handle('zip-save-to-drive', async (e, payload) => {
             }
             const partialZipPath = path.join(savesDir, `.${zipName}.partial.zip`);
 
-            const child = spawnBoundArchivePowerShell('compress', localSavePath, partialZipPath);
+            const child = spawnBoundArchive('compress', localSavePath, partialZipPath);
             let settled = false;
             const finish = success => {
                 if (settled) return;
@@ -1880,16 +1899,10 @@ ipcMain.handle('restore-save-version', async (e, payload) => {
         expectedRevision: input.backupExpectedRevision,
         operation: 'backup-read'
     });
-    return new Promise((resolve) => {
-        try {
-            const zipPath = backup.details.targetPath;
-            const localSavePath = destination.details.rootPath;
-
-            if (!zipPath || !fs.existsSync(zipPath)) return resolve(false);
-            const child = spawnBoundArchivePowerShell('expand', zipPath, localSavePath);
-            child.on('close', (code) => resolve(code === 0));
-        } catch (err) { resolve(false); }
-    });
+    const zipPath = backup.details.targetPath;
+    const localSavePath = destination.details.rootPath;
+    if (!zipPath || !fs.existsSync(zipPath)) return false;
+    return expandBoundArchive(zipPath, localSavePath);
 });
 
 ipcMain.handle('open-save-versions-folder', (e, payload) => {
@@ -2257,7 +2270,7 @@ ipcMain.handle('cloud-zip-folder', async (e, payload) => {
         // Use the same compressor as local save backups first. Bundled 7-Zip
         // can return warning code 1 when a game has just released a file,
         // even though the archive may have been created successfully.
-        if (await createCloudZipWithPowerShell(localSavePath, zipPath)) {
+        if (process.platform !== 'linux' && await createCloudZipWithPowerShell(localSavePath, zipPath)) {
             return { success: true, transfer: store.createTransferCapability(input.gameId, zipPath, 'transfer-read') };
         }
         try { if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath); } catch (_) {}
@@ -2603,6 +2616,48 @@ ipcMain.handle('kill-game-process', (e, payload) => {
     return true;
 });
 
+// A folder Sail found can be chosen without opening the picker again: main hands out a one-time
+// selection ID for it (offerSaveSelection), never a way for the renderer to approve a path itself.
+function offerSaveCandidates(event, gameId, candidates) {
+    const offer = accountServices && accountServices.offerSaveSelection;
+    return candidates.map((candidate, index) => {
+        if (!offer || index >= 12) return candidate;
+        let selectionId = '';
+        try { selectionId = offer(event, { gameId: gameId ? String(gameId) : '', folder: candidate.path }); } catch (_) {}
+        return selectionId ? { ...candidate, selectionId } : candidate;
+    });
+}
+
+// Linux: where a game's saves can be. A game ID must be in the active library. What is found only suggests
+// a folder; the person still approves the save folder in the picker.
+async function linuxSaveSearch({ gameId = '', steamAppId = '' } = {}) {
+    const store = gateAProfileStore();
+    let scope = null;
+    let installFolder = '';
+    if (gameId) {
+        const metadata = store.activeGameMetadata(String(gameId));
+        scope = { profileId: metadata.profileId, libraryId: metadata.libraryId, gameId: String(metadata.id) };
+        steamAppId = steamAppId || metadata.steamAppId || '';
+        const executable = store.localExecutionSetup(String(gameId)).details.executablePath;
+        if (typeof executable === 'string' && path.isAbsolute(executable)) installFolder = path.dirname(executable);
+    }
+    const appId = /^[1-9]\d{0,9}$/.test(String(steamAppId || '')) ? String(steamAppId) : '';
+    const steamLibraries = appId ? (await require('./runtime/steamDiscovery').discoverSteamInstallations()).libraries : [];
+    const environments = windowsSaveEnvironments({
+        protonRoot: path.join(app.getPath('userData'), 'runtime', 'proton'), scope, steamAppId: appId, steamLibraries
+    });
+    const label = candidatePath => {
+        for (const environment of environments) {
+            const driveC = path.dirname(path.dirname(environment.env.USERPROFILE));
+            if (candidatePath.startsWith(driveC + path.sep)) return `${environment.label}: C:\\${path.relative(driveC, candidatePath).split(path.sep).join('\\')}`;
+        }
+        const home = app.getPath('home');
+        return candidatePath.startsWith(home + path.sep) ? `~/${path.relative(home, candidatePath)}` : candidatePath;
+    };
+    const commonRoots = [...environments.flatMap(windowsCommonSaveRoots), ...nativeCommonSaveRoots({ home: app.getPath('home') })];
+    return { environments, installFolder, steamAppId: appId, commonRoots, label };
+}
+
 ipcMain.handle('detect-saves-ludusavi', async (event, request) => {
     const input = typeof request === 'string' ? { gameName: request } : Object.assign({}, request || {});
     const sendStatus = status => {
@@ -2622,6 +2677,33 @@ ipcMain.handle('detect-saves-ludusavi', async (event, request) => {
         });
         sendStatus({ phase: 'matching', message: 'Checking known Ludusavi save locations…' });
         const steamRoot = findSteamRoot();
+        if (process.platform === 'linux') {
+            let search;
+            try { search = await linuxSaveSearch({ gameId: input.gameId, steamAppId: input.steamAppId }); }
+            catch (error) { return { success: false, paths: [], candidates: [], error: error && error.message || 'This game is not in the active library.' }; }
+            const lookup = { gameName: input.gameName, steamAppId: search.steamAppId || input.steamAppId, installFolder: search.installFolder };
+            const xdg = xdgFolders({ home: app.getPath('home') });
+            const passes = [
+                ...search.environments.map(environment => ({ env: environment.env, homePath: environment.homePath,
+                    documentsPath: environment.documentsPath, savedGamesPath: environment.savedGamesPath, caseInsensitive: true })),
+                { osName: 'linux', env: process.env, homePath: app.getPath('home'), xdgDataPath: xdg.data, xdgConfigPath: xdg.config }
+            ];
+            const candidates = [];
+            const seen = new Set();
+            let matchedGame = null;
+            for (const pass of passes) {
+                const result = detectLudusaviSaveCandidates(loaded.manifest, lookup, { ...pass, steamRoot });
+                matchedGame = matchedGame || result.matchedGame;
+                for (const candidate of result.candidates) {
+                    if (seen.has(candidate.path)) continue;
+                    seen.add(candidate.path);
+                    candidates.push({ ...candidate, label: search.label(candidate.path) });
+                }
+            }
+            candidates.sort((left, right) => right.score - left.score);
+            return { success: true, paths: candidates.map(candidate => candidate.path), candidates: offerSaveCandidates(event, input.gameId, candidates), matchedGame,
+                stale: loaded.stale, warning: loaded.warning || null };
+        }
         const result = detectLudusaviSaveCandidates(loaded.manifest, input, {
             documentsPath: app.getPath('documents'),
             homePath: app.getPath('home'),
@@ -2630,7 +2712,7 @@ ipcMain.handle('detect-saves-ludusavi', async (event, request) => {
         return {
             success: true,
             paths: result.candidates.map(candidate => candidate.path),
-            candidates: result.candidates,
+            candidates: offerSaveCandidates(event, input.gameId, result.candidates),
             matchedGame: result.matchedGame,
             stale: loaded.stale,
             warning: loaded.warning || null
@@ -2641,7 +2723,18 @@ ipcMain.handle('detect-saves-ludusavi', async (event, request) => {
     }
 });
 
-ipcMain.handle('detect-saves-auto', async (e, gameName) => {
+ipcMain.handle('detect-saves-auto', async (e, request) => {
+    if (process.platform === 'linux') {
+        const input = typeof request === 'string' ? { gameName: request } : Object.assign({}, request || {});
+        const search = await linuxSaveSearch({ gameId: input.gameId, steamAppId: input.steamAppId });
+        const candidates = await scanSaveCandidates({
+            gameName: input.gameName, installRoot: search.installFolder, includeInstallRoot: !!search.installFolder, commonRoots: search.commonRoots
+        });
+        return { success: true, paths: candidates.map(candidate => candidate.path),
+            candidates: offerSaveCandidates(e, input.gameId, candidates.map(candidate => ({ ...candidate, label: search.label(candidate.path) }))) };
+    }
+    const gameName = String(typeof request === 'string' ? request : request && request.gameName || '');
+    const gameId = typeof request === 'object' && request ? request.gameId : '';
     const searchDirs = [
         path.join(process.env.APPDATA || ''),
         path.join(process.env.LOCALAPPDATA || ''),
@@ -2673,7 +2766,9 @@ ipcMain.handle('detect-saves-auto', async (e, gameName) => {
         }
     }
     
-    return { success: true, paths: results };
+    return { success: true, paths: results, candidates: offerSaveCandidates(e, gameId, results.map(folder => ({
+        path: folder, source: 'auto', reason: 'Suggested by the selected detection provider.', score: 40
+    }))) };
 });
 
 function runScript(scriptPath, wait = true) {
@@ -6898,7 +6993,7 @@ ipcMain.handle('clear-cache', async () => {
 // Called AFTER the user first plays & exits a downloaded game (saves don't exist at
 // install time). `playedSince` (ms epoch, optional) prefers folders touched during/after
 // the just-finished session. Returns the best-matching folder path, or null.
-ipcMain.handle('scan-game-saves', async (_event, payload) => {
+ipcMain.handle('scan-game-saves', async (event, payload) => {
     const input = exactGateAPayload(payload, ['gameId', 'capabilityId', 'expectedRevision', 'playedSince'], 'Save discovery');
     const game = gateAProfileStore().activeGameMetadata(input.gameId);
     const resolved = gateAProfileStore().resolveExecutionCapability({
@@ -6908,15 +7003,20 @@ ipcMain.handle('scan-game-saves', async (_event, payload) => {
         operation: 'save-scan'
     });
     try {
+        const linux = process.platform === 'linux' ? await linuxSaveSearch({ gameId: input.gameId }) : null;
         const candidates = await scanSaveCandidates({
             gameName: game.name,
             installRoot: resolved.details.workingDirectory || '',
             includeInstallRoot: true,
-            customRoots: []
+            customRoots: [],
+            ...(linux ? { commonRoots: linux.commonRoots } : {})
         });
         const playedSince = Number(input.playedSince) || 0;
         const recent = playedSince ? candidates.filter(item => new Date(item.modifiedAt).getTime() >= playedSince - 5 * 60 * 1000) : candidates;
-        return { found: candidates.length > 0, count: candidates.length, recent: recent.length > 0 };
+        const best = recent[0] || candidates[0];
+        const [offered] = best ? offerSaveCandidates(event, input.gameId, [best]) : [];
+        return { found: candidates.length > 0, count: candidates.length, recent: recent.length > 0, suggestedPath: best ? best.path : '',
+            suggestedLabel: best ? (linux ? linux.label(best.path) : best.path) : '', suggestedSelectionId: offered && offered.selectionId || '' };
     } catch (error) { return { found: false, count: 0, recent: false }; }
 });
 
@@ -7163,7 +7263,7 @@ else {
             onSessionChanged: notifySailHubGuestAuthChange
         });
         maintenanceService = registerMaintenanceIpc({
-            app, ipcMain: supportedIpcMain, BrowserWindow, dialog, shell, providerEnabled: platformSupport.features.saveDiscovery.available,
+            app, ipcMain: supportedIpcMain, BrowserWindow, dialog, shell, providerEnabled: platformSupport.features.maintenance.available,
             findExecutable: findBestExe, authorizeIpcEvent,
             profileStore: accountServices.profileStore
         });

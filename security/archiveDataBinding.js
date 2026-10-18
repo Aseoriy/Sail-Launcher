@@ -49,6 +49,23 @@ function createArchivePowerShellInvocation(action, sourcePath, destinationPath, 
     };
 }
 
+// Linux: the bundled 7-Zip. It runs inside the source folder and adds "." so entries stay relative; -spd
+// keeps * and ? in file names literal, and every path comes after "--" so a name is never read as a switch.
+// For "expand", a list file limits extraction to the entries named in it (one per line, UTF-8).
+function createArchiveSevenZipInvocation(action, sourcePath, destinationPath, binaryPath, options = {}) {
+    const source = absoluteValue(sourcePath, 'Archive source');
+    const destination = absoluteValue(destinationPath, 'Archive destination');
+    if (typeof binaryPath !== 'string' || !path.isAbsolute(binaryPath)) throw new TypeError('The bundled 7-Zip is unavailable.');
+    if (action === 'compress') {
+        return { file: binaryPath, args: ['a', '-tzip', '-mx=5', '-y', '-spd', '--', destination, '.'], options: { cwd: source, stdio: 'ignore' } };
+    }
+    if (action === 'expand') {
+        const listFile = options.listFile ? [`@${absoluteValue(options.listFile, 'Archive list file')}`] : [];
+        return { file: binaryPath, args: ['x', '-y', '-aoa', '-spd', '-scsUTF-8', `-o${destination}`, '--', source, ...listFile], options: { stdio: 'ignore' } };
+    }
+    throw new TypeError('Unsupported archive data binding action.');
+}
+
 function scopedArtifactStem(scope = {}) {
     const components = ['profileId', 'libraryId', 'gameId'].map(key => {
         const value = String(scope[key] || '');
@@ -76,6 +93,7 @@ function scopedArtifactStems(scope, legacyValue = '') {
 
 module.exports = {
     createArchivePowerShellInvocation,
+    createArchiveSevenZipInvocation,
     legacyLocalArtifactStem,
     scopedArtifactStem,
     scopedArtifactStems

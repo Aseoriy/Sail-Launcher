@@ -154,7 +154,9 @@ function steamLibraryRoot(installFolder) {
     const normalized = String(installFolder || '').replace(/\//g, '\\');
     const marker = '\\steamapps\\common\\';
     const index = normalized.toLowerCase().indexOf(marker);
-    return index > 0 ? normalized.slice(0, index) : '';
+    if (index <= 0) return '';
+    // POSIX paths keep their own separators; only the search is done on the backslash form.
+    return path.sep === '/' ? String(installFolder).slice(0, index) : normalized.slice(0, index);
 }
 
 function steamUserIds(steamRoot, fileSystem = fs) {
@@ -209,7 +211,9 @@ function resolveLudusaviPaths(rawPath, gameData, input = {}, options = {}) {
                 winPublic: env.PUBLIC || 'C:\\Users\\Public',
                 winProgramData: env.PROGRAMDATA || 'C:\\ProgramData',
                 winDir: env.WINDIR || env.windir || 'C:\\Windows',
-                winProfile: home
+                winProfile: home,
+                xdgData: options.xdgDataPath || '',
+                xdgConfig: options.xdgConfigPath || ''
             };
             let complete = true;
             for (const [token, replacement] of Object.entries(values)) {
@@ -296,7 +300,20 @@ function expandGlobPath(pattern, options = {}) {
             }
             return;
         }
-        walk(path.join(current, segment), segmentIndex + 1, recursiveDepth);
+        const exact = path.join(current, segment);
+        if (options.caseInsensitive) {
+            // Wine prefixes live on case-sensitive filesystems, while Windows paths in the manifest are not.
+            try { fileSystem.lstatSync(exact); } catch (_) {
+                let entries = [];
+                try { entries = fileSystem.readdirSync(current, { withFileTypes: true }); } catch (_) { return; }
+                const wanted = segment.toLowerCase();
+                for (const entry of entries) {
+                    if (!entry.isSymbolicLink() && entry.name.toLowerCase() === wanted) walk(path.join(current, entry.name), segmentIndex + 1, recursiveDepth);
+                }
+                return;
+            }
+        }
+        walk(exact, segmentIndex + 1, recursiveDepth);
     }
 
     if (parsed.root) walk(parsed.root, 0, 0);
@@ -351,7 +368,10 @@ function detectLudusaviSaveCandidates(manifest, input = {}, options = {}) {
     const programData = env.PROGRAMDATA || 'C:\\ProgramData';
     const publicRoot = env.PUBLIC || 'C:\\Users\\Public';
     const windowsRoot = env.WINDIR || env.windir || 'C:\\Windows';
+    const osName = options.osName || 'windows';
+    const xdgRoots = [options.xdgDataPath, options.xdgConfigPath].filter(Boolean);
     const standardRoots = [
+        ...xdgRoots,
         home,
         documentsRoot,
         savedGamesRoot,
@@ -366,6 +386,7 @@ function detectLudusaviSaveCandidates(manifest, input = {}, options = {}) {
         options.steamRoot
     ].filter(Boolean).map(value => path.resolve(value));
     const broadRoots = new Set([
+        ...xdgRoots,
         home,
         documentsRoot,
         savedGamesRoot,
@@ -383,7 +404,9 @@ function detectLudusaviSaveCandidates(manifest, input = {}, options = {}) {
     const seen = new Set();
 
     for (const [rawPath, metadata] of Object.entries(matched.data.files)) {
-        if (!fileEntryApplies(metadata, 'windows', 'steam')) continue;
+        if (!fileEntryApplies(metadata, osName, 'steam')) continue;
+        // A native Linux pass must not map Windows folders onto the Linux home folder.
+        if (osName === 'linux' && /<win/i.test(rawPath)) continue;
         for (const resolved of resolveLudusaviPaths(rawPath, matched.data, input, options)) {
             const result = existingDirectoryForPattern(resolved, options);
             for (const candidatePath of result.paths) {
