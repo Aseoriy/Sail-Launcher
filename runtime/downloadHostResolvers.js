@@ -512,6 +512,15 @@ function fileNameFromUrl(value) {
     try { return cleanDownloadName(new URL(value).pathname); } catch (_) { return ''; }
 }
 
+// Debrid services know BuzzHeavier only by buzzheavier.com, while catalogs such as SteamRIP link its
+// bzzhr.to / bzzhr.co short domains. Same file IDs, so hand the service the domain it recognises.
+function debridHostLink(rawUrl) {
+    let parsed;
+    try { parsed = new URL(String(rawUrl || '')); } catch (_) { return String(rawUrl || ''); }
+    if (!/^https?:$/.test(parsed.protocol) || !/^(?:www\.)?bzzhr\.(?:to|co)$/i.test(parsed.hostname)) return String(rawUrl);
+    return `https://buzzheavier.com${parsed.pathname}${parsed.search}`;
+}
+
 function isBuzzHeavierHost(hostname) {
     return BUZZHEAVIER_HOST_RE.test(String(hostname || '').toLowerCase());
 }
@@ -1748,6 +1757,7 @@ module.exports = {
     X1337_HOST_RE,
     buzzHeavierPageCandidates,
     buzzHeavierPageReportsDown,
+    debridHostLink,
     createGofileResolver,
     credentialFreeHttpsUrl,
     dataNodesPageReportsDown,

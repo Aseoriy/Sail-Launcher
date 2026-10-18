@@ -41,11 +41,28 @@ function canRetryWithoutDebrid(download) {
         && !/^https?:\/\/(?:www\.)?(?:1337x\.|(?:d\.)?rutor\.)/i.test(String(link.url || '')));
 }
 
+// When a debrid service refuses a file because of the file host rather than the account, say so plainly.
+// Debrid services fetch links from their own servers, which cannot pass a host's bot check; Sail's
+// direct download opens the host in a real browser on this PC, which can.
+function debridHostNote(download) {
+    if (!download || download.debridFailure !== true) return '';
+    const service = String(download.failedDebridService || 'The debrid service').replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 80);
+    const raw = String(download.error || '');
+    if (/error scanning|scan(?:ning)? the link|cloudflare|just a moment|captcha|bot check|blocked|forbidden|\b403\b/i.test(raw)) {
+        return `The file host is probably blocking ${service}'s servers with a bot check such as Cloudflare. Debrid services can't pass these checks; Retry without debrid opens the host in a browser on this PC, which can.`;
+    }
+    if (/not supported|site you are trying|unsupported|temporarily disabled|hoster is (?:down|disabled)/i.test(raw)) {
+        return `${service} doesn't support this file host right now, or has it marked as down. Retry without debrid downloads it directly from the host.`;
+    }
+    return '';
+}
+
 function debridRetryMessage(download) {
     const service = String(download && download.failedDebridService || 'The debrid service').replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 80);
-    const reason = download && download.debridRejected === true
+    const note = debridHostNote(download);
+    const reason = note || (download && download.debridRejected === true
         ? `${service} rejected this download. This error came from the debrid service, not Sail's downloader.`
-        : `Sail couldn't complete the request to ${service}. The cause may be the service or the connection to it.`;
+        : `Sail couldn't complete the request to ${service}. The cause may be the service or the connection to it.`);
     return reason + '\n\nRetry directly from the file host without debrid? Your device will connect to the host directly, and its speed limits or browser checks may apply.\n\nThis applies only to this download. Your debrid connection stays enabled for other downloads.';
 }
 
@@ -127,6 +144,7 @@ module.exports = {
     ACTIVE_DOWNLOAD_STATES,
     canRetryWithoutDebrid,
     debridRetryMessage,
+    debridHostNote,
     clearCompletedHistory,
     countActiveDownloadSlots,
     downloadErrorNextStep,

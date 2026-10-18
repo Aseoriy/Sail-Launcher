@@ -40,7 +40,7 @@ function normalizeManagedFiles(files) {
     if (files.length > 32) throw Error('This host returned more than 32 files. Download the archive parts separately and import them.');
     return files.map(file => {
         if (!file || file.kind === 'magnet' || /^magnet:/i.test(String(file.url || '')) || /\.torrent(?:[?#]|$)/i.test(String(file.url || ''))) {
-            throw Error('Torrent downloads are not supported on Linux yet. Download the game with a torrent app, then use "Choose archive".');
+            throw Error('Sail downloads torrents through a debrid service on Linux. Connect TorBox or Real-Debrid in Download settings, or download it with a torrent app and use "Choose archive".');
         }
         // The page is opened in the installed browser, which saves the file itself (see runtime/systemBrowserDownload.js).
         if (file.assisted) {

@@ -96,7 +96,8 @@ const {
     resolveRootzUrl,
     resolveVikingFileUrl,
     validateDataNodesBrowserTransfer,
-    validateGofileTransfer
+    validateGofileTransfer,
+    debridHostLink
 } = require('./runtime/downloadHostResolvers');
 const {
     FILECRYPT_CHALLENGE_EXPRESSION,
@@ -1471,6 +1472,25 @@ async function removeSailCloudGameArtifacts(gameId) {
     }
 }
 
+// Linux: forget the game's retained download record, and with "remove Sail data" also its Windows
+// environment (Proton/Wine prefix), which holds the saves of Windows games. Otherwise the prefix is kept.
+async function removeLinuxGameEnvironment(gameId, scope, removeSailData) {
+    const warnings = [];
+    try { getLinuxDownloads().forgetGame(gameId); }
+    catch (error) { warnings.push(`The download record could not be cleared: ${String(error && error.message || error).slice(0, 200)}`); }
+    if (removeSailData) {
+        const protonRoot = path.join(app.getPath('userData'), 'runtime', 'proton');
+        const key = require('./runtime/proton/manager').scopeKey({ profileId: scope.profileId, libraryId: scope.libraryId, gameId: String(gameId) });
+        for (const folder of ['prefixes', 'wine-prefixes']) {
+            const prefix = path.join(protonRoot, folder, key);
+            if (!fs.existsSync(prefix)) continue;
+            try { await removeOwnedInstallDirectory(prefix, { protectedRoots: [app.getPath('userData'), protonRoot, os.homedir()] }); }
+            catch (error) { warnings.push('The game’s Windows environment could not be removed.'); }
+        }
+    }
+    return { warning: warnings.join(' ') };
+}
+
 ipcMain.handle('uninstall-downloaded-game', async (_event, payload) => {
     const input = exactGateAPayload(payload, [
         'gameId', 'capabilityId', 'expectedRevision', 'removeSailData', 'keepSailData'
@@ -1503,6 +1523,10 @@ ipcMain.handle('uninstall-downloaded-game', async (_event, payload) => {
             throw new Error('Wait for the game’s current sync operation to finish before uninstalling it.');
         }
         if (activeBackupProcess !== null) throw new Error('Wait for the current game backup to finish before uninstalling.');
+        if (process.platform === 'linux') {
+            getLinuxDownloads().assertIdleForGame(input.gameId);
+            protonManager?.installations?.assertIdle({ profileId: scope.profileId, libraryId: scope.libraryId, gameId: String(input.gameId) });
+        }
 
         let executablePath = '';
         const authority = store.authorityStatus(input.gameId);
@@ -1546,6 +1570,9 @@ ipcMain.handle('uninstall-downloaded-game', async (_event, payload) => {
         if (achievementService && typeof achievementService.forgetGame === 'function') {
             achievementService.forgetGame(input.gameId);
         }
+        const linuxCleanup = process.platform === 'linux'
+            ? await removeLinuxGameEnvironment(input.gameId, scope, input.removeSailData)
+            : { warning: '' };
         const runtimeRemoved = runtimeRecovery
             ? runtimeRecovery.purgeGame({ gameId: input.gameId, libraryKey })
             : { completedSessions: 0, postExitJobs: 0 };
@@ -1564,7 +1591,7 @@ ipcMain.handle('uninstall-downloaded-game', async (_event, payload) => {
             runtimeRemoved,
             managedFilesRemoved: managed.removed,
             cloudFilesRemoved: cloud.removed,
-            warning: [managed.warning, cloud.warning].filter(Boolean).join(' '),
+            warning: [linuxCleanup.warning, managed.warning, cloud.warning].filter(Boolean).join(' '),
             state: profileResult.state,
             snapshot: profileResult.snapshot
         };
@@ -4564,7 +4591,7 @@ async function debridUnrestrict(link, options) {
     const cached = debridCacheGet(cacheLink);
     if (cached) return Object.assign(cached, { debridService: serviceName, debridServiceId: serviceId });
     try {
-        const r = await DEBRID[serviceId].unrestrict(debridKey, link, options);
+        const r = await DEBRID[serviceId].unrestrict(debridKey, debridHostLink(link), options);
         if (r && r.url) debridCachePut(cacheLink, r);
         return r && r.url ? Object.assign({}, r, {
             cached: false,
@@ -6930,6 +6957,7 @@ ipcMain.handle('discard-debrid-retry-link', (e, payload) => {
 registerDownloadCancellationIpc({ handle(channel, handler) {
     ipcMain.handle(channel, async (event, id) => {
         const saved = process.platform === 'linux' ? await linuxDownloads?.cancelSaved(event, String(id)) : null;
+        if (process.platform === 'linux') linuxDownloads?.cancelPaused(String(id));
         return saved || handler(event, id);
     });
 } }, {
@@ -6951,7 +6979,7 @@ registerDownloadQuarantineIpc(ipcMain, { catalog: downloadQuarantineCatalog, she
 // Pause = kill aria2 but keep the partial download + .aria2 control file so Resume can
 // continue from where it stopped. Removed from activeDownloads; files stay on disk.
 ipcMain.handle('pause-download', async (e, id) => {
-    if (process.platform === 'linux') throw Error('Linux transfers do not support resume yet. Cancel the transfer or keep it running; saved files can be imported.');
+    if (process.platform === 'linux') return getLinuxDownloads().pause(e, String(id));
     const d = activeDownloads.get(id);
     if (d && d.item) {
         d.paused = true;

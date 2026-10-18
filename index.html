@@ -7137,8 +7137,9 @@
                 delete runtimeSessionIds[index]; delete sessionStartTimes[index];
                 if (activeGameIndex === index) activeGameIndex = null;
             }
-            if (viewingGameIndex !== null) updateGamePageActionBar();
-            else if (previous !== [...nativeSessions.keys()].join('|') + ':' + [...nativePendingGames].join('|')) renderGames();
+            const runningChanged = previous !== [...nativeSessions.keys()].join('|') + ':' + [...nativePendingGames].join('|');
+            if (viewingGameIndex !== null) { updateGamePageActionBar(); if (runningChanged) emitSailEvent('library'); }
+            else if (runningChanged) renderGames();
             for (const [id] of nativeSessions) {
                 const index = myGames.findIndex(game => String(game.id) === id);
                 const status = document.getElementById(`status-${index}`);
@@ -7768,6 +7769,12 @@
         // reaching into launcher internals: the game list, covers, opening a game, and events for changes.
         const sailEvents = new EventTarget();
         function emitSailEvent(name) { try { sailEvents.dispatchEvent(new Event(name)); } catch (e) { } }
+        // A game started or stopped. With its page open only the action bar is redrawn, so plugins
+        // (a layout's game list, for example) are told separately.
+        function refreshRunningState(index) {
+            if (viewingGameIndex === index) { updateGamePageActionBar(); emitSailEvent('library'); }
+            else renderGames();
+        }
         function sailPublicGame(game, index) {
             const items = game.achievementData && Array.isArray(game.achievementData.items) ? game.achievementData.items : [];
             return {
@@ -11347,7 +11354,7 @@
             try { applyUiAccent(); } catch (e) {}
             try { applyUiCustom(); } catch (e) {}
             // push debrid + pixeldrain-proxy config to main, and reflect the active service badge
-            try { if (!localOnlyPreview) window.pushDebridConfigToMain && window.pushDebridConfigToMain(); } catch (e) {}
+            try { if (!localOnlyPreview || featureAvailable('downloads')) window.pushDebridConfigToMain && window.pushDebridConfigToMain(); } catch (e) {}
             try { if (!localOnlyPreview && typeof window.getPixeldrainProxies === 'function') ipcRenderer.send('set-pixeldrain-proxies', window.getPixeldrainProxies()); } catch (e) {}
             try { if (typeof window.updateDebridBadge === 'function') window.updateDebridBadge(); } catch (e) {}
             if (globalSettings.recentDays === undefined) globalSettings.recentDays = 30;
@@ -13378,8 +13385,10 @@
             const maintenanceEl = document.getElementById('maintenanceView');
             const achievementsEl = document.getElementById('achievementsView');
             const gamePageEl = document.getElementById('gamePageView');
+            // Game Downloads, Downloads and Sources must be hidden too, or the game page opens underneath them.
+            const otherPages = ['downloadsView', 'downloadsManagerView', 'sourcesView'].map(id => document.getElementById(id));
 
-            const views = [libraryEl, achievementsEl, maintenanceEl, storeEl, workshopEl, gamePageEl].filter(Boolean);
+            const views = [libraryEl, achievementsEl, maintenanceEl, storeEl, workshopEl, ...otherPages, gamePageEl].filter(Boolean);
             const activeView = views.find(v => v.style.display === 'block' || v.style.display === 'flex');
             
             if (activeView && activeView !== gamePageEl) {
@@ -13738,21 +13747,25 @@
             keepSailData.checked = false;
             removeSailData.disabled = false;
             keepSailData.disabled = false;
+            // Linux keeps a Windows game's saves in its own Windows environment (Proton prefix).
+            const linuxEnvironment = () => process.platform !== 'linux' ? ''
+                : removeSailData.checked ? ' Its Windows environment (Proton prefix) and any saves inside it are removed too.'
+                : ' Its Windows environment (Proton prefix) and any saves inside it are kept.';
             const refreshDataChoices = () => {
                 if (keepSailData.checked) {
                     removeSailData.checked = false;
                     removeSailData.disabled = true;
                     keepSailData.disabled = false;
-                    dataNotice.textContent = 'All files inside the Sail-installed game folder will be permanently removed. The library entry will be removed, while its playtime, achievements, sync setup, backups, and Sail Cloud files are kept for a later reinstall.';
+                    dataNotice.textContent = 'All files inside the Sail-installed game folder will be permanently removed. The library entry will be removed, while its playtime, achievements, sync setup, backups, and Sail Cloud files are kept for a later reinstall.' + linuxEnvironment();
                 } else if (removeSailData.checked) {
                     keepSailData.checked = false;
                     keepSailData.disabled = true;
                     removeSailData.disabled = false;
-                    dataNotice.textContent = 'All files inside the Sail-installed game folder will be permanently removed. The library entry, playtime, achievements, sync setup, Sail-managed backups, and Sail Cloud save/config files will also be removed.';
+                    dataNotice.textContent = 'All files inside the Sail-installed game folder will be permanently removed. The library entry, playtime, achievements, sync setup, Sail-managed backups, and Sail Cloud save/config files will also be removed.' + linuxEnvironment();
                 } else {
                     removeSailData.disabled = false;
                     keepSailData.disabled = false;
-                    dataNotice.textContent = 'All files inside the Sail-installed game folder will be permanently removed. The game will also be removed from your library, including its playtime, achievements, and sync setup.';
+                    dataNotice.textContent = 'All files inside the Sail-installed game folder will be permanently removed. The game will also be removed from your library, including its playtime, achievements, and sync setup.' + linuxEnvironment();
                 }
             };
             removeSailData.onchange = refreshDataChoices;
@@ -13941,8 +13954,8 @@
                 uninstallMessage.textContent = 'Checking Sail’s install-folder ownership…';
                 try {
                     const uninstallStatus = await invokeAccount('downloaded-game-uninstall-status', { gameId: String(game.id) });
-                    uninstallButton.disabled = process.platform === 'linux' || !uninstallStatus.available;
-                    uninstallMessage.textContent = process.platform === 'linux' ? 'Linux file removal is not available yet. Remove the library entry to keep its downloaded files and Windows environment.' : uninstallStatus.available
+                    uninstallButton.disabled = !uninstallStatus.available;
+                    uninstallMessage.textContent = uninstallStatus.available
                         ? 'Removes the game folder Sail created and then removes this library entry.'
                         : 'Sail can’t verify ownership of this install folder, so its files must be removed manually.';
                     uninstallButton.onclick = uninstallStatus.available
@@ -15652,7 +15665,7 @@
             if (localOnlyPreview) { previewUnavailable('Game launching (native, Steam/Proton and standalone Wine)'); return; }
             const game = myGames[index]; activeGameIndex = index;
             window.SailAPI.executePluginsOnLaunch(game);
-            if (viewingGameIndex === index) updateGamePageActionBar(); else renderGames();
+            refreshRunningState(index);
 
             try { await runGameConfigSync(game, 'download', 'beforeLaunch'); } catch (error) { console.error('Pre-launch game config sync failed:', safeSyncErrorMessage(error)); }
             // Run Cloud Sync check
@@ -15676,7 +15689,7 @@
                     game.lastPlayed = sessionStartTimes[index];
                     saveToMemory();
                     ipcRenderer.send('update-rpc', game.name);
-                    if (viewingGameIndex === index) updateGamePageActionBar(); else renderGames();
+                    refreshRunningState(index);
                 } else if (result && result.untrackable) {
                     setTimeout(() => {
                         activeGameIndex = null;
@@ -15684,7 +15697,7 @@
                         else renderGames();
                     }, 4000);
                 }
-            } catch (err) { alert("Launch Failed: " + err.message); activeGameIndex = null; if (viewingGameIndex === index) updateGamePageActionBar(); else renderGames(); }
+            } catch (err) { alert("Launch Failed: " + err.message); activeGameIndex = null; refreshRunningState(index); }
         }
 
         const applyRuntimeSessionEvent = require('./ui/runtimeCompletion').createRuntimeCompletionQueue({
@@ -15759,11 +15772,11 @@
                     activeGameIndex = null;
                     if (featureAvailable('discord')) ipcRenderer.send('update-rpc', null);
                 }
-                if (viewingGameIndex === index) updateGamePageActionBar(); else renderGames();
+                refreshRunningState(index);
                 if (event.provider === 'linux-native') {
                     nativeSessions.delete(String(event.gameId));
                     nativePendingGames.delete(String(event.gameId)); nativePendingActivities.delete(String(event.gameId));
-                    if (viewingGameIndex === index) updateGamePageActionBar(); else renderGames();
+                    refreshRunningState(index);
                     if (event.creditPlaytime === false) platformAvailability.notice(event.activity === 'installation'
                         ? event.outcome === 'installation-finished' ? 'Installer finished. Test the game after setup.'
                             : event.outcome === 'installation-stopped' ? 'Installation stopped. Existing files were kept.' : 'Installation did not finish. View the launch log and retry.'
@@ -19580,6 +19593,13 @@
             font-size: 10.5px;
             white-space: nowrap;
         }
+        .dl-debrid-note {
+            margin-top: 7px;
+            font-size: 11px;
+            line-height: 1.45;
+            opacity: 0.8;
+            white-space: normal;
+        }
         .dl-debrid-retry {
             width: 100%;
             margin-top: 9px;
@@ -21869,7 +21889,14 @@
         // any staging data is moved into Sail's fail-closed quarantine and retained for safety.
         window.pauseDownload = function (id) {
             const d = dlQueue.get(id); if (!d) return;
-            if (process.platform === 'linux') { platformAvailability.notice('Pause and resume are not available for Linux transfers yet. Cancel or keep the download running.'); return; }
+            if (process.platform === 'linux') {
+                // Linux confirms the pause once the transfer has stopped and its partial file is kept.
+                ipcRenderer.invoke('pause-download', id).then(paused => {
+                    const row = dlQueue.get(id);
+                    if (paused && row) { row.state = 'paused'; row.label = 'Paused'; renderDock(); }
+                }).catch(error => platformAvailability.notice(safeSyncErrorMessage(error).replace(/^Error invoking remote method '[^']+':\s*(Error:\s*)?/i, '')));
+                return;
+            }
             ipcRenderer.invoke('pause-download', id);
             d.state = 'paused'; d.label = 'Paused';
             renderDock();
@@ -21877,7 +21904,7 @@
         };
         window.resumeDownload = function (id, debridRetryToken = '') {
             const d = dlQueue.get(id); if (!d || !d.resumeOpts) return;
-            if (process.platform === 'linux') {
+            if (process.platform === 'linux' && d.state !== 'paused') {
                 const freshId = 'dl_' + Date.now() + '_' + Math.floor(Math.random() * 1000000);
                 const opts = { ...d.resumeOpts, id: freshId };
                 dlQueue.delete(id); dlQueue.set(freshId, { ...d, id: freshId, state: 'resolving', percent: 0, error: '', resumeOpts: opts }); renderDock();
@@ -22155,7 +22182,7 @@
             if (['waiting-browser', 'starting', 'resolving', 'queued'].includes(download.state)) {
                 add('Cancel', () => cancelDownload(download.id));
             } else if (download.state === 'downloading') {
-                if (process.platform !== 'linux') add('⏸ Pause', () => pauseDownload(download.id)); add('Cancel', () => cancelDownload(download.id));
+                add('⏸ Pause', () => pauseDownload(download.id)); add('Cancel', () => cancelDownload(download.id));
             } else if (['processing', 'installing'].includes(download.state)) add('Cancel', () => cancelDownload(download.id));
             else if (download.state === 'paused') {
                 add('▶ Resume', () => resumeDownload(download.id)); add('Cancel', () => cancelDownload(download.id));
@@ -22245,6 +22272,12 @@
                     state,
                     sizeWarning
                 );
+            }
+            const hostNote = DownloadManagerLogic.debridHostNote(download);
+            if (hostNote && download.state === 'error') {
+                const note = SafeDom.element(document, 'div', { className: 'dl-debrid-note', text: hostNote });
+                note.setAttribute('role', 'note');
+                (page ? row.querySelector('.dlpage-main') : row).append(note);
             }
             if (DownloadManagerLogic.canRetryWithoutDebrid(download)) {
                 const retry = SafeDom.element(document, 'button', {
@@ -22802,7 +22835,7 @@
         };
         // Push the active service + key to the main process (used by the download resolver).
         window.pushDebridConfigToMain = function () {
-            if (localOnlyPreview) return;
+            if (localOnlyPreview && !featureAvailable('downloads')) return;
             // Repair an empty/stale selection before syncing. This matters after profile
             // restore, where a validated TorBox key can exist before `active` is normalized.
             recomputeDebridActive();
