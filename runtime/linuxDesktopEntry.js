@@ -22,6 +22,17 @@ function desktopArgument(value) {
     return desktopString(`"${quoted}"`);
 }
 
+function desktopUnescape(value) {
+    return String(value).replace(/\\([sntr\\])/g, (_match, character) => ({ s: ' ', n: '\n', t: '\t', r: '\r', '\\': '\\' })[character]);
+}
+
+// The file desktop entries should start. An AppImage runs from a temporary mount
+// that disappears on exit, so entries must point at the AppImage file itself.
+function launcherExecutablePath(env = process.env, execPath = process.execPath) {
+    const appImage = env.APPIMAGE;
+    return typeof appImage === 'string' && path.isAbsolute(appImage) && !/[\u0000-\u001f\u007f]/.test(appImage) ? appImage : execPath;
+}
+
 function launcherCommand({ executablePath, sourcePath }, args) {
     if (!path.isAbsolute(executablePath) || executablePath.includes('=')) {
         throw new Error('The launcher executable path cannot be used in a desktop entry.');
@@ -134,4 +145,4 @@ async function writeDesktopFile(filePath, content, { mode = 0o600, previous = nu
     }
 }
 
-module.exports = { desktopString, launcherCommand, readDesktopFile, updateDesktopEntry, writeDesktopFile };
+module.exports = { desktopString, desktopUnescape, launcherCommand, launcherExecutablePath, readDesktopFile, updateDesktopEntry, writeDesktopFile };

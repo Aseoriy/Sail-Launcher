@@ -10,6 +10,7 @@ const http = require('node:http');
 const https = require('node:https');
 const path = require('node:path');
 const { execFile, spawn } = require('node:child_process');
+const { launcherExecutablePath } = require('./linuxDesktopEntry');
 
 const PACKAGE_NAME = 'sail-launcher';
 const RELEASE_DOWNLOAD_PREFIX = 'https://github.com/Aseoriy/Sail-Launcher/releases/download/';
@@ -151,7 +152,8 @@ function downloadReleaseFile(url, destination, { onProgress = () => {}, sha256 =
 // An AppImage's process.execPath is inside a temporary mount that disappears on
 // exit, so a restart has to start the AppImage file itself.
 function launcherRelaunchOptions(env = process.env, argv = process.argv) {
-    return env.APPIMAGE ? { execPath: env.APPIMAGE, args: argv.slice(1) } : undefined;
+    const execPath = launcherExecutablePath(env, null);
+    return execPath ? { execPath, args: argv.slice(1) } : undefined;
 }
 
 function appImageUpdatePath(appImage) {

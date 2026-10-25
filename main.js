@@ -1324,8 +1324,14 @@ ipcMain.handle('get-common-paths', () => {
     return { appData: app.getPath('appData'), localAppData: process.env.LOCALAPPDATA || app.getPath('appData'), documents: app.getPath('documents') };
 });
 
-registerAutostartIpc({ ipcMain, app });
-if (process.platform === 'linux') registerLinuxProtocolIpc({ ipcMain, app });
+const autostartIpc = registerAutostartIpc({ ipcMain, app });
+const linuxProtocolIpc = process.platform === 'linux' ? registerLinuxProtocolIpc({ ipcMain, app }) : null;
+// Older AppImage builds pointed start-at-login and Sail links at the AppImage's
+// temporary mount, which is gone after a restart. Point Sail's own entries at this copy.
+if (process.platform === 'linux' && app.isPackaged) app.whenReady().then(() => {
+    if (platformSupport.features.autostart.available) autostartIpc.repair().catch(error => console.warn('Start-at-login repair failed:', error.message));
+    if (platformSupport.features.desktopIntegration.available) linuxProtocolIpc.repair().catch(error => console.warn('Sail link repair failed:', error.message));
+});
 ipcMain.handle('desktop-protocol-ready', () => protocolActivation.rendererReady());
 ipcMain.handle('desktop-protocol-ack', (_event, id) => protocolActivation.acknowledge(id));
 

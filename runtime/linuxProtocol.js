@@ -3,14 +3,14 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { desktopString, launcherCommand, readDesktopFile, updateDesktopEntry, writeDesktopFile } = require('./linuxDesktopEntry');
+const { desktopString, desktopUnescape, launcherCommand, launcherExecutablePath, readDesktopFile, updateDesktopEntry, writeDesktopFile } = require('./linuxDesktopEntry');
 
 const DESKTOP_ID = 'com.aseoriy.saillauncher.desktop';
 const SCHEME = 'sail-launcher';
 const MARKER = 'protocol-v1';
 
 class LinuxProtocol {
-    constructor({ app, home = os.homedir(), env = process.env, executablePath = process.execPath }) {
+    constructor({ app, home = os.homedir(), env = process.env, executablePath = launcherExecutablePath(env) }) {
         this.app = app;
         this.executablePath = executablePath;
         const dataHome = typeof env.XDG_DATA_HOME === 'string' && path.isAbsolute(env.XDG_DATA_HOME)
@@ -41,6 +41,21 @@ class LinuxProtocol {
             && !entry.values.OnlyShowIn && !entry.values.NotShowIn
             && entry.values.MimeType?.split(';').includes(`x-scheme-handler/${SCHEME}`);
         return { configured: !!configured, registered: !!configured && this.app.isDefaultProtocolClient(SCHEME) };
+    }
+
+    // Sail's own link entry whose launcher no longer exists (an older AppImage build
+    // pointed it at the AppImage's temporary mount) is registered again for this copy.
+    async repair() {
+        const entry = await readDesktopFile(this.filePath);
+        if (!entry || entry.stat.uid !== process.getuid() || entry.values['X-Sail-Managed'] !== MARKER
+            || !entry.values.MimeType?.split(';').includes(`x-scheme-handler/${SCHEME}`)) return false;
+        const previous = entry.values.TryExec ? desktopUnescape(entry.values.TryExec) : '';
+        try {
+            await fs.promises.access(previous, fs.constants.X_OK);
+            return false;
+        } catch (_) { /* The registered launcher is gone. */ }
+        await this.register();
+        return true;
     }
 
     register() {
@@ -82,6 +97,7 @@ function registerLinuxProtocolIpc({ ipcMain, app }) {
     const getProvider = () => provider || (provider = new LinuxProtocol({ app }));
     ipcMain.handle('desktop-protocol-status', () => getProvider().status());
     ipcMain.handle('desktop-register-protocol', () => getProvider().register());
+    return { repair: () => getProvider().repair() };
 }
 
 module.exports = { LinuxProtocol, registerLinuxProtocolIpc, DESKTOP_ID };

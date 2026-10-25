@@ -3,7 +3,7 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { desktopString, launcherCommand, readDesktopFile, updateDesktopEntry, writeDesktopFile } = require('./linuxDesktopEntry');
+const { desktopString, desktopUnescape, launcherCommand, launcherExecutablePath, readDesktopFile, updateDesktopEntry, writeDesktopFile } = require('./linuxDesktopEntry');
 
 const ENTRY_NAME = 'com.aseoriy.saillauncher.desktop';
 const MANAGED_KEY = 'X-Sail-Managed';
@@ -14,7 +14,7 @@ function absoluteDirectory(value, fallback) {
 }
 
 class LinuxAutostart {
-    constructor({ home = os.homedir(), env = process.env, executablePath = process.execPath, sourcePath = null } = {}) {
+    constructor({ home = os.homedir(), env = process.env, executablePath = launcherExecutablePath(env), sourcePath = null } = {}) {
         if (!path.isAbsolute(home)) throw new Error('The home directory must be absolute.');
         this.command = { executablePath, sourcePath };
         this.directory = path.join(absoluteDirectory(env.XDG_CONFIG_HOME, path.join(home, '.config')), 'autostart');
@@ -45,7 +45,7 @@ class LinuxAutostart {
         if (value.OnlyShowIn && !list('OnlyShowIn').some(name => this.desktops.includes(name))) return false;
         if (value.NotShowIn && list('NotShowIn').some(name => this.desktops.includes(name))) return false;
         if (value.TryExec) {
-            const executable = value.TryExec.replace(/\\([sntr\\])/g, (_match, character) => ({ s: ' ', n: '\n', t: '\t', r: '\r', '\\': '\\' })[character]);
+            const executable = desktopUnescape(value.TryExec);
             const candidates = path.isAbsolute(executable) ? [executable]
                 : executable.includes('/') ? [] : this.searchPath.map(directory => path.join(directory, executable));
             let found = false;
@@ -59,6 +59,16 @@ class LinuxAutostart {
             }
             if (!found) return false;
         }
+        return true;
+    }
+
+    // Sail's own enabled entry whose launcher no longer exists (an older AppImage
+    // build pointed it at the AppImage's temporary mount) is pointed at this copy.
+    async repair() {
+        const user = await readDesktopFile(this.filePath);
+        if (!user || user.stat.uid !== process.getuid() || user.values[MANAGED_KEY] !== MANAGED_VALUE || user.values.Hidden === 'true') return false;
+        if (await this.get()) return false;
+        await this.set(true);
         return true;
     }
 
@@ -105,6 +115,7 @@ function registerAutostartIpc({ ipcMain, app, platform = process.platform, creat
         app.setLoginItemSettings({ openAtLogin: enabled, path: app.getPath('exe'), args: ['--hidden'] });
         return enabled;
     });
+    return { repair: () => platform === 'linux' ? linuxProvider().repair() : Promise.resolve(false) };
 }
 
 module.exports = { LinuxAutostart, registerAutostartIpc, ENTRY_NAME };
