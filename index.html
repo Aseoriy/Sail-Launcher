@@ -7423,6 +7423,7 @@
         else document.addEventListener('DOMContentLoaded', initIconSystem);
 
         const LauncherLogic = require('./ui/launcherLogic');
+        const LauncherUpdate = require('./runtime/launcherUpdate');
         const DownloadManagerLogic = require('./ui/downloadManagerLogic');
         const { mergePortableGames } = require('./accounts/profileStore');
         const {
@@ -8593,15 +8594,28 @@
             });
         }
 
-        function launcherUpdateInfo(response, forceInstall = false) {
+        // How this Linux copy can update itself: { kind: 'appimage' | 'deb' | 'rpm' | null, reason }.
+        let linuxUpdateTargetRequest = null;
+        function linuxUpdateTarget() {
+            if (process.platform !== 'linux') return Promise.resolve(null);
+            if (!featureAvailable('selfUpdate')) return Promise.resolve({ kind: null, reason: platformAvailability.support?.features?.selfUpdate?.reason || '' });
+            linuxUpdateTargetRequest ||= ipcRenderer.invoke('linux-update-target').catch(error => ({ kind: null, reason: error.message }));
+            return linuxUpdateTargetRequest;
+        }
+
+        function launcherUpdateInfo(response, forceInstall = false, linuxTarget = null) {
             const assets = Array.isArray(response.assets) ? response.assets : [];
             const exeAsset = process.platform === 'linux' ? null : assets.find(asset => /\.exe$/i.test(asset.name || '') && !/blockmap/i.test(asset.name || ''));
+            const linuxAsset = linuxTarget && linuxTarget.kind ? LauncherUpdate.linuxUpdateAsset(assets, linuxTarget.kind) : null;
             return {
                 currentTag: PACKAGE_VERSION,
                 latestTag: LauncherLogic.normalizeLauncherVersion(response.tag_name),
                 body: response.body || '',
                 htmlUrl: response.html_url || 'https://github.com/Aseoriy/Sail-Launcher/releases/latest',
                 assetUrl: exeAsset ? exeAsset.browser_download_url : null,
+                linuxKind: linuxAsset ? linuxTarget.kind : null,
+                linuxAsset,
+                linuxReason: !linuxTarget ? '' : linuxAsset ? '' : linuxTarget.reason || 'This release has no verified download for this kind of install.',
                 forceInstall
             };
         }
@@ -8617,7 +8631,7 @@
             }
             try {
                 const response = await fetchLatestLauncherRelease();
-                const info = launcherUpdateInfo(response, forceInstall);
+                const info = launcherUpdateInfo(response, forceInstall, await linuxUpdateTarget());
                 const decision = LauncherLogic.updateDecision(info.latestTag, info.currentTag, forceInstall);
                 const comparison = decision.comparison;
                 if (forceInstall) {
@@ -8691,7 +8705,12 @@
             return fragment;
         }
 
-        let _pendingUpdate = null; // { currentTag, latestTag, body, htmlUrl, assetUrl, forceInstall, isDowngrade }
+        let _pendingUpdate = null; // { currentTag, latestTag, body, htmlUrl, assetUrl, linuxKind, linuxAsset, linuxReason, forceInstall, isDowngrade }
+
+        // Windows always has the installer; Linux needs a verified asset for its install kind.
+        function canInstallUpdate(info) {
+            return process.platform === 'linux' ? !!info.linuxAsset : !!info.assetUrl;
+        }
 
         function openUpdateModal(info) {
             _pendingUpdate = info;
@@ -8710,11 +8729,16 @@
             document.getElementById('updMuteMenu').style.display = 'none';
             const muteWrap = modal.querySelector('.upd-mute-wrap');
             if (muteWrap) muteWrap.style.display = info.forceInstall ? 'none' : '';
+            const hint = document.getElementById('updHint');
+            hint.textContent = !canInstallUpdate(info) ? (info.linuxReason ? `${info.linuxReason} The download page will open instead.` : '')
+                : info.linuxKind === 'deb' || info.linuxKind === 'rpm' ? 'Your system will ask for your password once to install the update.' : '';
+            hint.hidden = !hint.textContent;
             const btn = document.getElementById('updNowBtn');
             btn.disabled = false;
-            btn.textContent = info.forceInstall
-                ? (info.isDowngrade ? `⬇️ Install v${info.latestTag}` : `♻️ Reinstall v${info.latestTag}`)
-                : '⬇️ Update Now';
+            btn.textContent = !canInstallUpdate(info) ? '🌐 Open Download Page'
+                : info.forceInstall
+                    ? (info.isDowngrade ? `⬇️ Install v${info.latestTag}` : `♻️ Reinstall v${info.latestTag}`)
+                    : '⬇️ Update Now';
             modal.classList.add('show');
         }
 
@@ -8765,14 +8789,15 @@
             const info = _pendingUpdate;
             if (!info) return;
             const btn = document.getElementById('updNowBtn');
-            // No .exe asset on the release? Fall back to opening the download page.
-            if (!info.assetUrl) {
+            // No installable asset for this platform? Fall back to opening the download page.
+            if (!canInstallUpdate(info)) {
                 ipcRenderer.invoke('open-url', info.htmlUrl);
                 closeUpdateModal();
                 return;
             }
+            const passwordInstall = info.linuxKind === 'deb' || info.linuxKind === 'rpm';
             btn.disabled = true;
-            btn.textContent = '⏳ Downloading…';
+            btn.textContent = info.downloaded ? '🔄 Installing…' : '⏳ Downloading…';
             document.getElementById('updProgressWrap').style.display = 'block';
             const bar = document.getElementById('updProgressBar');
             const label = document.getElementById('updProgressLabel');
@@ -8785,9 +8810,15 @@
             };
             ipcRenderer.on('update-download-progress', onProgress);
             try {
-                await ipcRenderer.invoke('download-update-installer', info.assetUrl);
+                // A Linux retry after a cancelled password prompt reuses the verified download.
+                if (!info.downloaded) {
+                    await ipcRenderer.invoke('download-update-installer', process.platform === 'linux'
+                        ? { asset: info.linuxAsset, force: !!info.forceInstall } : info.assetUrl);
+                    if (process.platform === 'linux') info.downloaded = true;
+                }
                 bar.style.width = '100%';
-                label.textContent = 'Download complete — installing & restarting…';
+                label.textContent = passwordInstall ? 'Download complete — enter your password to install, then Sail restarts…'
+                    : 'Download complete — installing & restarting…';
                 btn.textContent = '🔄 Installing…';
                 // Remember which version we're installing so the fresh build can
                 // show the "Update complete" window on next launch.
@@ -25027,6 +25058,7 @@
         .upd-progress-track { height: 10px; border-radius: 999px; background: color-mix(in srgb, var(--bg-color) 60%, transparent); border: 1px solid var(--border-color); overflow: hidden; }
         #updProgressBar { height: 100%; width: 0%; background: linear-gradient(90deg, var(--accent), var(--accent-hover)); transition: width 0.25s ease; }
         #updProgressLabel { font-size: 12px; opacity: 0.75; margin-top: 6px; text-align: center; }
+        #updHint { font-size: 12px; opacity: 0.75; margin-top: 10px; text-align: center; }
         .upd-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
         .upd-btn { padding: 10px 18px; border-radius: 9px; cursor: pointer; font-weight: 600; font-size: 14px; border: 1px solid var(--border-color); background: transparent; color: var(--text-color); transition: 0.2s; }
         .upd-btn:hover { border-color: var(--accent); }
@@ -25056,6 +25088,7 @@
                 <div class="upd-progress-track"><div id="updProgressBar"></div></div>
                 <div id="updProgressLabel"></div>
             </div>
+            <div id="updHint" hidden></div>
             <div class="upd-actions">
                 <button class="upd-btn primary" id="updNowBtn" onclick="startUpdateDownload()">⬇️ Update Now</button>
                 <button class="upd-btn" onclick="closeUpdateModal()">Later</button>

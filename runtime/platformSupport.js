@@ -62,12 +62,15 @@ function createPlatformSupport({ platform = process.platform, arch = process.arc
         features.achievements = { available: true, reason: '' };
         features.saveDiscovery = { available: true, reason: '' };
     }
+    if (!features.selfUpdate) features.selfUpdate = { available: !restricted, reason: restricted ? 'Installing launcher updates is unavailable in this platform mode.' : '' };
     features.emulation = { available: !restricted, reason: restricted ? 'Emulator and ROM games are unavailable on Linux for now.' : '' };
     if (platform === 'linux') {
         features.downloads = { available: localDesktop, reason: localDesktop ? '' : 'Linux downloads and archive import are unavailable in this platform mode.' };
         const available = localDesktop && packaged;
         features.desktopIntegration = { available, reason: available ? ''
             : 'Sail link registration is unavailable in this mode. Use a packaged Linux build.' };
+        features.selfUpdate = { available, reason: available ? ''
+            : 'Installing launcher updates is unavailable in this mode. Use a packaged Linux build.' };
     }
     for (const name of ['steamProton', 'standaloneWine']) {
         features[name] = { available: false, reason: 'This compatibility path is unavailable; it is a required later Linux milestone.' };
@@ -125,6 +128,7 @@ function createSupportedIpcRegistrar(ipcMain, authorize, support) {
     const shortcutHandles = new Set(['create-shortcut']);
     const protocolHandles = new Set(['desktop-protocol-status', 'desktop-register-protocol']);
     const autostartHandles = new Set(['get-autostart', 'set-autostart']);
+    const updateHandles = new Set(['linux-update-target', 'download-update-installer', 'run-update-installer', 'cleanup-update-folder']);
     const dialogHandles = new Set(LOCAL_DIALOG_CHANNELS);
     const allowed = channel => (support.features.downloads.available && downloadHandles.has(channel)) || LOCAL_HANDLES.has(channel) || (support.features.nativeGames.available && nativeHandles.has(channel))
         || (support.features.accounts.available && accountHandles.has(channel))
@@ -139,6 +143,7 @@ function createSupportedIpcRegistrar(ipcMain, authorize, support) {
         || (support.features.desktopShortcuts.available && shortcutHandles.has(channel))
         || (support.features.desktopIntegration.available && protocolHandles.has(channel))
         || (support.features.autostart.available && autostartHandles.has(channel))
+        || (support.features.selfUpdate.available && updateHandles.has(channel))
         || (support.features.localDialogs.available && dialogHandles.has(channel))
         || (support.features.externalLinks.available && channel === 'open-url');
     const reason = channel => nativeHandles.has(channel) ? support.features.nativeGames.reason :
@@ -153,6 +158,7 @@ function createSupportedIpcRegistrar(ipcMain, authorize, support) {
         shortcutHandles.has(channel) ? support.features.desktopShortcuts.reason :
         protocolHandles.has(channel) ? support.features.desktopIntegration.reason :
         autostartHandles.has(channel) ? support.features.autostart.reason :
+        updateHandles.has(channel) ? support.features.selfUpdate.reason :
         dialogHandles.has(channel) ? support.features.localDialogs.reason :
         channel === 'open-url' ? support.features.externalLinks.reason :
         /steam|import/.test(channel) ? support.features.steamProton.reason : '';

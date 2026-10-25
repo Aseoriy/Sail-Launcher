@@ -49,6 +49,7 @@ const { createLinuxGameShortcut } = require('./runtime/linuxDesktopShortcut');
 const { registerAutostartIpc } = require('./runtime/linuxAutostart');
 const { registerLinuxProtocolIpc, DESKTOP_ID } = require('./runtime/linuxProtocol');
 const { registerLocalDesktopIpc } = require('./runtime/localDesktop');
+const launcherUpdate = require('./runtime/launcherUpdate');
 const { RecoveryJournal } = require('./runtime/recoveryJournal');
 const { DownloadJobDirectoryRegistry } = require('./runtime/downloadJobCleanup');
 const { registerDownloadCancellationIpc } = require('./runtime/downloadIpc');
@@ -209,7 +210,10 @@ const exitCoordinator = require('./runtime/exitCoordinator').createExitCoordinat
         relaunchAfterSave = false;
         exitSynced = true;
         isQuitting = true;
-        if (restart) app.relaunch();
+        if (restart) {
+            const relaunchOptions = launcherUpdate.launcherRelaunchOptions();
+            if (relaunchOptions) app.relaunch(relaunchOptions); else app.relaunch();
+        }
         app.quit();
     }
 });
@@ -2559,51 +2563,66 @@ ipcMain.handle('open-folder-capability', async (e, payload) => {
 // The SAME NSIS installer serves double duty: double-clicked by a user it shows
 // the normal wizard; run by Sail with "/S --force-run" it installs silently and
 // relaunches the app — so there is only ONE installer and ONE release asset.
+// On Linux the release AppImage replaces the running one in place, and a .deb or
+// .rpm is installed by the package manager after one pkexec password prompt.
 // ============================================================================
-const UPDATER_DIR = path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), 'sail-launcher-updater');
+const UPDATER_DIR = process.platform === 'linux'
+    ? path.join(process.env.XDG_CACHE_HOME || path.join(os.homedir(), '.cache'), 'sail-launcher-updater')
+    : path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), 'sail-launcher-updater');
 const UPDATER_EXE = path.join(UPDATER_DIR, 'installer.exe');
+let pendingLinuxUpdate = null; // { kind, file, target, force }
 
-// Download `url` (a GitHub release .exe asset) to installer.exe, following the
-// redirect chain GitHub uses for asset downloads, streaming percent progress
-// back to the renderer via 'update-download-progress'.
-ipcMain.handle('download-update-installer', async (e, url) => {
+ipcMain.handle('linux-update-target', async () => {
+    const target = await launcherUpdate.detectLinuxInstall({ packaged: app.isPackaged });
+    return { kind: target.kind, reason: target.reason || '' };
+});
+
+// Windows: `request` is the GitHub release .exe asset URL. Linux: it is the
+// { asset, force } chosen by the renderer; the asset is checked again here and
+// its published sha256 must match before anything is installed.
+ipcMain.handle('download-update-installer', async (e, request) => {
     const wc = e.sender;
+    const onProgress = progress => wc.send('update-download-progress', progress);
     // Wipe any stale folder/installer first so we never launch an old build.
     try { fs.rmSync(UPDATER_DIR, { recursive: true, force: true }); } catch (_) {}
     fs.mkdirSync(UPDATER_DIR, { recursive: true });
-
-    await new Promise((resolve, reject) => {
-        let hops = 0;
-        const get = (u) => {
-            if (++hops > 8) return reject(new Error('Too many redirects'));
-            const lib = u.startsWith('http:') ? http : https;
-            lib.get(u, { headers: { 'User-Agent': 'Sail-Launcher' } }, (res) => {
-                if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-                    res.resume();
-                    return get(new URL(res.headers.location, u).toString());
-                }
-                if (res.statusCode !== 200) { res.resume(); return reject(new Error('HTTP ' + res.statusCode)); }
-                const total = Number(res.headers['content-length']) || 0;
-                let received = 0;
-                const out = fs.createWriteStream(UPDATER_EXE);
-                res.on('data', (chunk) => {
-                    received += chunk.length;
-                    try { wc.send('update-download-progress', { received, total, percent: total ? Math.round(received / total * 100) : 0 }); } catch (_) {}
-                });
-                res.pipe(out);
-                out.on('finish', () => out.close(() => resolve()));
-                out.on('error', (err) => { try { fs.rmSync(UPDATER_EXE, { force: true }); } catch (_) {} reject(err); });
-            }).on('error', reject);
-        };
-        get(url);
-    });
-    return UPDATER_EXE;
+    if (process.platform !== 'linux') {
+        await launcherUpdate.downloadReleaseFile(request, UPDATER_EXE, { onProgress });
+        return UPDATER_EXE;
+    }
+    pendingLinuxUpdate = null;
+    const target = await launcherUpdate.detectLinuxInstall({ packaged: app.isPackaged });
+    if (!target.kind) throw new Error(target.reason);
+    const supplied = request && request.asset;
+    const asset = supplied && launcherUpdate.linuxUpdateAsset([{ name: supplied.name, browser_download_url: supplied.url, digest: `sha256:${supplied.sha256}`, size: supplied.size }], target.kind);
+    if (!asset) throw new Error(`This release has no verified ${target.kind === 'appimage' ? 'AppImage' : '.' + target.kind} download.`);
+    const file = target.kind === 'appimage' ? launcherUpdate.appImageUpdatePath(target.path) : path.join(UPDATER_DIR, path.basename(asset.name));
+    await launcherUpdate.downloadReleaseFile(asset.url, file, { onProgress, sha256: asset.sha256, mode: target.kind === 'appimage' ? 0o755 : undefined });
+    if (target.kind === 'appimage') fs.chmodSync(file, 0o755);
+    pendingLinuxUpdate = { kind: target.kind, file, target, force: !!(request && request.force) };
+    return file;
 });
 
 // Run the freshly-downloaded installer silently, then quit so it can replace our
 // files. "--force-run" tells electron-builder's NSIS installer to relaunch the
 // app after a silent install (the same flags electron-updater itself uses).
 ipcMain.handle('run-update-installer', async () => {
+    if (process.platform === 'linux') {
+        const update = pendingLinuxUpdate;
+        if (!update || !fs.existsSync(update.file)) throw new Error('The update was not downloaded — download it first.');
+        if (update.kind === 'appimage') {
+            // The running AppImage keeps its open (old) file; the same path now holds the new build.
+            fs.renameSync(update.file, update.target.path);
+        } else {
+            const command = launcherUpdate.linuxInstallCommand(update.kind, update.file, { force: update.force });
+            if (!command) throw new Error(`No package manager was found to install the .${update.kind} update.`);
+            await launcherUpdate.runPrivileged(command);
+        }
+        pendingLinuxUpdate = null;
+        relaunchAfterSave = true;
+        requestApplicationQuit();
+        return true;
+    }
     if (!fs.existsSync(UPDATER_EXE)) throw new Error('Installer not found — download it first.');
     const child = spawn(UPDATER_EXE, ['/S', '--updated', '--force-run'], { detached: true, stdio: 'ignore' });
     child.unref();
@@ -2615,6 +2634,9 @@ ipcMain.handle('run-update-installer', async () => {
 // Best-effort removal of the updater folder (called on startup once an update
 // has been applied — the installer is no longer running so the exe is unlocked).
 ipcMain.handle('cleanup-update-folder', async () => {
+    if (process.env.APPIMAGE) {
+        try { fs.rmSync(launcherUpdate.appImageUpdatePath(process.env.APPIMAGE), { force: true }); } catch (_) {}
+    }
     try { fs.rmSync(UPDATER_DIR, { recursive: true, force: true }); return true; } catch (_) { return false; }
 });
 
