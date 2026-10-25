@@ -437,16 +437,44 @@ class RecoveryJournal {
             throw new Error('A durable terminal native receipt is required.');
         }
         require('./native/protocol').validateReceipt(receipt, sessionId, session.native.owner, session.native.receipt, session.native.executionKind || 'elf', session.native.gameTracking);
+        return this.completeNativeSession(found, receipt, require('./proton/session').completionPolicy(session, receipt));
+    }
+
+    // A different boot ID proves every process of that session is gone. Only the time its last
+    // durable receipt observed is credited; nothing after that receipt is inferred.
+    endNativeSessionFromPreviousBoot(sessionId, bootId, diskReceipt = null) {
+        const found = findActiveSession(this.state, { sessionId });
+        if (!found) return null;
+        const session = found[1];
+        const recordedBoot = session.native?.owner?.bootId || diskReceipt?.bootId || session.native?.receipt?.bootId;
+        if (session.provider !== 'linux-native' || !recordedBoot || !bootId || recordedBoot === bootId) {
+            throw new Error('Only a native session from an earlier boot can be closed without its supervisor.');
+        }
+        let receipt = session.native.receipt;
+        if (diskReceipt) {
+            require('./native/protocol').validateReceipt(diskReceipt, sessionId, session.native.owner, session.native.receipt, session.native.executionKind || 'elf', session.native.gameTracking);
+            receipt = diskReceipt;
+        }
+        if (!receipt || !receipt.execSucceeded || receipt.trackingErrno) {
+            return this.completeNativeSession(found, null, { creditPlaytime: false, outcome: 'system-restarted' });
+        }
         const policy = require('./proton/session').completionPolicy(session, receipt);
+        return this.completeNativeSession(found, receipt, { ...policy,
+            outcome: policy.activity === 'installation' ? 'installation-interrupted' : 'system-restarted' });
+    }
+
+    completeNativeSession([key, session], receipt, policy) {
+        const sessionId = session.sessionId;
+        const credit = !!(policy.creditPlaytime && receipt && receipt.execSucceeded);
         const event = { id: `session:${sessionId}`, sessionId, gameId: session.gameId, libraryKey: session.libraryKey,
-            gameName: session.gameName, startedAt: session.startedAt + (policy.creditPlaytime && policy.activity === 'game' ? receipt.game.startOffsetMs : 0), endedAt: this.now(),
-            durationSeconds: policy.creditPlaytime && receipt.execSucceeded ? Math.min(MAX_SESSION_DURATION_MS, policy.activity === 'game' ? receipt.game.elapsedMs : receipt.elapsedMs) / 1000 : 0,
-            ...(policy.activity ? { activity: policy.activity, creditPlaytime: policy.creditPlaytime } : {}),
+            gameName: session.gameName, startedAt: session.startedAt + (credit && policy.activity === 'game' ? receipt.game.startOffsetMs : 0), endedAt: this.now(),
+            durationSeconds: credit ? Math.min(MAX_SESSION_DURATION_MS, policy.activity === 'game' ? receipt.game.elapsedMs : receipt.elapsedMs) / 1000 : 0,
+            ...(policy.activity ? { activity: policy.activity, creditPlaytime: credit } : {}),
             ...(policy.activity === 'installation' ? { installationId: session.native.launchMetadata.installationId,
                 installationStep: session.native.launchMetadata.installationStep } : {}),
-            ...(policy.creditPlaytime && policy.activity === 'game' ? { gameClock: { method: 'pe-image-v1', confirmed: true, elapsedMs: Math.min(MAX_SESSION_DURATION_MS, receipt.game.elapsedMs) } } : {}),
-            reason: receipt.phase, outcome: policy.outcome, provider: 'linux-native', postExitJobId: null };
-        delete this.state.activeSessions[found[0]];
+            ...(credit && policy.activity === 'game' ? { gameClock: { method: 'pe-image-v1', confirmed: true, elapsedMs: Math.min(MAX_SESSION_DURATION_MS, receipt.game.elapsedMs) } } : {}),
+            reason: receipt && receipt.terminal ? receipt.phase : policy.outcome, outcome: policy.outcome, provider: 'linux-native', postExitJobId: null };
+        delete this.state.activeSessions[key];
         this.state.completedSessions.push(event);
         this.persist();
         return clone(event);

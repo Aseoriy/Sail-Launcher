@@ -134,11 +134,28 @@ class NativeProvider {
         this.onChanged(this.snapshot());
         return { session: publicSession(next), event: null };
     }
+    // The supervisor and everything it started cannot outlive a restart, so a session recorded
+    // under another boot ID is closed with the time its last receipt observed.
+    endIfPreviousBoot(session) {
+        const bootId = fs.readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim();
+        let receipt = null;
+        try { receipt = this.receiptFromDisk(session); } catch (_) { /* The journal's last receipt remains. */ }
+        const recordedBoot = session.native.owner?.bootId || receipt?.bootId || session.native.receipt?.bootId;
+        if (!recordedBoot || recordedBoot === bootId) return null;
+        let event;
+        try { event = this.journal.endNativeSessionFromPreviousBoot(session.sessionId, bootId, receipt); } catch (_) {
+            event = this.journal.endNativeSessionFromPreviousBoot(session.sessionId, bootId);
+        }
+        if (event) this.onEnded(event);
+        this.onChanged(this.snapshot());
+        return { event, session: null };
+    }
     async inspect(session) {
         try {
+            const ended = this.endIfPreviousBoot(session);
+            if (ended) return ended;
             let receipt = this.receiptFromDisk(session);
-            if (receipt.bootId !== fs.readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim()
-                || receipt.pidNamespace !== fs.readlinkSync('/proc/self/ns/pid')) throw protocol.nativeError('SAIL_NATIVE_IDENTITY', 'Native receipt boot or namespace differs from this launcher.');
+            if (receipt.pidNamespace !== fs.readlinkSync('/proc/self/ns/pid')) throw protocol.nativeError('SAIL_NATIVE_IDENTITY', 'Native receipt namespace differs from this launcher.');
             if (!session.native.owner) {
                 // Starting intent contains the nonce before the helper exists.
                 // Adopt only the private receipt identity, then authenticate it.
@@ -243,6 +260,8 @@ class NativeProvider {
             const session = this.session(sessionId);
             if (!session || session.gameId !== gameId || session.libraryKey !== libraryKey) throw protocol.nativeError('SAIL_NATIVE_SESSION', 'Stop requires this game’s exact active native session.');
             if (typeof authorize !== 'function' || !this.canAccessSession(session)) throw protocol.nativeError('SAIL_NATIVE_AUTHORITY', 'Stop requires current permission for this game in its active library.');
+            const ended = this.endIfPreviousBoot(session);
+            if (ended) return { requested: false, complete: true, phase: 'system-restarted', ...ended };
             this.receiptFromDisk(session);
             this.assertOwner(session);
             // Main rechecks the current sender/profile and consumes permission
