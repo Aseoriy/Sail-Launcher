@@ -82,17 +82,25 @@ function resolveBlocks(blocks, settings = {}) {
     const source = blocks && typeof blocks === 'object' && !Array.isArray(blocks) ? blocks : {};
     const known = ['titleBar', 'tabs', 'gameList', 'home', 'gamePage', 'manageGame', 'profilePage', 'bottomBar', 'friendsPanel'];
     for (const name of Object.keys(source)) if (!known.includes(name)) warnings.push(`Unknown block "${name}" was ignored.`);
+    // "when" / "unless" switch a block whether it's written out or follows a setting, so they're checked on the
+    // block as written first, then on what the setting picked.
+    const switchedOff = block => block && typeof block === 'object' && !Array.isArray(block)
+        && (typeof block.when === 'string' && !settings[block.when] || typeof block.unless === 'string' && !!settings[block.unless]);
     const read = name => {
+        if (switchedOff(source[name])) return null;
         let block = param(source[name], settings);
         if (block && typeof block === 'object' && !Array.isArray(block)) {
-            if (typeof block.when === 'string' && !settings[block.when]) return null;
-            if (typeof block.unless === 'string' && settings[block.unless]) return null;
+            if (switchedOff(block)) return null;
             block = Object.fromEntries(Object.entries(block).map(([key, value]) => [key, param(value, settings)]));
         }
         return block === undefined || block === false || block === null ? null : block;
     };
     const titleBar = read('titleBar');
-    if (titleBar) config.titleBar = { rows: titleBar.rows === 1 ? 1 : 2, menu: oneOf(titleBar.menu, ['full', 'none'], 'full'), sailButtons: oneOf(titleBar.sailButtons, ['hidden', 'shown'], 'hidden') };
+    if (titleBar) {
+        const menu = oneOf(titleBar.menu, ['full', 'none'], 'full');
+        // Sail's own buttons (Add Game, Settings, ...) may only be hidden when the menu bar is there to hold them.
+        config.titleBar = { rows: titleBar.rows === 1 ? 1 : 2, menu, sailButtons: menu === 'none' ? 'shown' : oneOf(titleBar.sailButtons, ['hidden', 'shown'], 'hidden') };
+    }
     const tabs = read('tabs');
     if (tabs) {
         const names = {};

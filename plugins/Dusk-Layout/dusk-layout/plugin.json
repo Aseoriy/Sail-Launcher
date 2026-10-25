@@ -1,0 +1,133 @@
+{
+    "id": "aseoriy.dusk-layout",
+    "name": "Dusk",
+    "version": "1.0.0",
+    "author": "Aseoriy",
+    "description": "A calm, warm dark layout: page tabs up in the title bar, soft rounded covers, a recently played row and a clean game page with a big cover banner.",
+    "type": "layout",
+    "requires": {
+        "aseoriy.library-layouts": {
+            "version": "^2.2.0",
+            "hub": "b2ac4147-faca-4770-87d2-b429a8fa5abf"
+        }
+    },
+    "settings": [
+        {
+            "type": "heading",
+            "label": "Look"
+        },
+        {
+            "id": "accent",
+            "type": "select",
+            "label": "Accent colour",
+            "default": "peach",
+            "options": [
+                {
+                    "value": "peach",
+                    "label": "Peach"
+                },
+                {
+                    "value": "sage",
+                    "label": "Sage"
+                },
+                {
+                    "value": "sky",
+                    "label": "Sky"
+                },
+                {
+                    "value": "rose",
+                    "label": "Rose"
+                }
+            ]
+        },
+        {
+            "id": "folders",
+            "type": "toggle",
+            "label": "Folders sidebar",
+            "description": "Keep Sail's sidebar on the left with your folders.",
+            "default": true
+        },
+        {
+            "type": "heading",
+            "label": "Home page and panels"
+        },
+        {
+            "id": "shelf",
+            "type": "toggle",
+            "label": "Recently played row",
+            "default": true
+        },
+        {
+            "id": "friends",
+            "type": "toggle",
+            "label": "Friends panel",
+            "default": false
+        }
+    ],
+    "layout": {
+        "contract": 2,
+        "styles": [
+            "dusk.css"
+        ],
+        "preview": "preview.png",
+        "tokens": {
+            "--sl-top": "#121114",
+            "--sl-bg": "#161518",
+            "--sl-surface-strong": "#1e1d21",
+            "--sl-menu-bg": "#232227",
+            "--sl-menu-hover": "#2d2b31",
+            "--sl-menu-line": "#302e35",
+            "--sl-menu-border": "#0b0a0d",
+            "--sl-text": "#cfcbd2",
+            "--sl-text-bright": "#efecf1",
+            "--sl-muted": "#8b8691",
+            "--sl-faint": "#625e68",
+            "--sl-art": "#1b1a1e",
+            "--sl-letter": "#28262c",
+            "--sl-field": "#1c1b1f",
+            "--sl-line": "rgba(255, 255, 255, .05)",
+            "--sl-font": "\"Inter\", \"Segoe UI\", \"Noto Sans\", Arial, sans-serif"
+        },
+        "blocks": {
+            "titleBar": {
+                "rows": 1,
+                "menu": "none"
+            },
+            "tabs": {
+                "position": "titleBar"
+            },
+            "home": {
+                "covers": "portrait",
+                "shelf": {
+                    "setting": "shelf",
+                    "values": {
+                        "true": "recent",
+                        "false": "none"
+                    }
+                },
+                "header": "count"
+            },
+            "gamePage": {
+                "layout": "hero",
+                "stats": [
+                    "playtime",
+                    "lastPlayed",
+                    "achievements"
+                ]
+            },
+            "manageGame": "properties",
+            "friendsPanel": {
+                "setting": "friends",
+                "values": {
+                    "true": "shown",
+                    "false": "hidden"
+                }
+            },
+            "profilePage": true
+        },
+        "labels": {
+            "recentGames": "Jump back in",
+            "allGames": "Library ({count})"
+        }
+    }
+}

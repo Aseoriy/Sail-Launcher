@@ -1,6 +1,6 @@
 {
     "name": "Library Layouts",
-    "version": "2.1.0",
+    "version": "2.2.0",
     "author": "Aseoriy",
     "description": "A layout engine for Sail: re-lays out the whole launcher from layout packs, like themes for other game clients. Steam comes built in (a menu bar and top tabs, a game list on the left, a cover-art home page and a hero game page). Install more layouts from Sail Hub or make your own.",
     "main": "index.js",
@@ -121,6 +121,25 @@
             "label": "Friends panel",
             "description": "Show the friends list on the right.",
             "default": false
+        },
+        {
+            "type": "heading",
+            "label": "For layout makers"
+        },
+        {
+            "id": "devMode",
+            "type": "toggle",
+            "label": "Developer mode",
+            "description": "Show a layout you're making straight from its folder. It reloads every time you save a file, and a small panel lists anything the engine refused.",
+            "default": false
+        },
+        {
+            "id": "devFolder",
+            "type": "text",
+            "label": "Layout folder",
+            "description": "The unzipped folder that holds your layout's plugin.json. Paste its path here, or pick it with Choose folder in the developer panel.",
+            "default": "",
+            "maxLength": 500
         }
     ],
     "id": "aseoriy.library-layouts"

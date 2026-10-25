@@ -1,0 +1,82 @@
+{
+    "id": "yourname.my-layout",
+    "name": "My Layout",
+    "version": "1.0.0",
+    "author": "Your name",
+    "description": "A starting point for your own Sail layout: tall covers, a recently played row and a hero game page, with two options to show how settings work.",
+    "type": "layout",
+    "requires": {
+        "aseoriy.library-layouts": {
+            "version": "^2.1.0",
+            "hub": "b2ac4147-faca-4770-87d2-b429a8fa5abf"
+        }
+    },
+    "settings": [
+        {
+            "type": "heading",
+            "label": "Look"
+        },
+        {
+            "id": "accent",
+            "type": "select",
+            "label": "Accent colour",
+            "default": "coral",
+            "options": [
+                {
+                    "value": "coral",
+                    "label": "Coral"
+                },
+                {
+                    "value": "mint",
+                    "label": "Mint"
+                }
+            ]
+        },
+        {
+            "id": "shelf",
+            "type": "toggle",
+            "label": "Recently played row",
+            "default": true
+        }
+    ],
+    "layout": {
+        "contract": 2,
+        "styles": [
+            "layout.css"
+        ],
+        "tokens": {
+            "--sl-bg": "#14161c",
+            "--sl-surface-strong": "#1c1f27",
+            "--sl-text": "#cfd3dc",
+            "--sl-text-bright": "#f1f3f7",
+            "--sl-muted": "#8a90a0",
+            "--sl-font": "\"Inter\", \"Segoe UI\", \"Noto Sans\", Arial, sans-serif"
+        },
+        "blocks": {
+            "home": {
+                "covers": "portrait",
+                "shelf": {
+                    "setting": "shelf",
+                    "values": {
+                        "true": "recent",
+                        "false": "none"
+                    }
+                },
+                "header": "count"
+            },
+            "gamePage": {
+                "layout": "hero",
+                "stats": [
+                    "playtime",
+                    "lastPlayed"
+                ]
+            },
+            "manageGame": "properties",
+            "profilePage": true
+        },
+        "labels": {
+            "recentGames": "Jump back in",
+            "allGames": "Everything ({count})"
+        }
+    }
+}

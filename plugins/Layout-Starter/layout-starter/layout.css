@@ -1,0 +1,45 @@
+/* My Layout: a starter for Sail layout packs.
+
+   Everything in this file is applied inside your pack's own scope, so it can only style Sail while your layout is on.
+     - A plain selector (#gameGrid .game-card) matches inside the page.
+     - & is the page itself. &.sl-opt-shelf means "while the Recently played row option is on",
+       &.sl-opt-accent-mint means "while Accent colour is Mint", and &.sl-hero means "on a hero game page".
+   Not allowed: @import, url()s outside this folder (no internet), anything that runs code. The developer panel
+   lists whatever the engine refuses.
+
+   Parts of Sail you can style, by name (the engine marks each one while your layout is on):
+     [data-sl-region="titlebar"]  sidebar  nav  main  friends  home  grid  continue
+     gamepage  hero  heroTitle  actionbar  play  stop  manage
+     [data-sl-tab="library"]  downloads  mods  workshop  downloadsmgr  achievements  maintenance
+   Sail styles some of them by id with !important (#mainSidebar, #gpPlayBtn, ...). To change those, use the id
+   and !important too; the region names are for everything else. */
+
+/* ---- Colours ---- */
+/* The --sl-* tokens in plugin.json colour what the engine draws. Sail's own variables (--bg-color, --accent, ...)
+   colour the rest of Sail, so set both to make every page match. */
+& { --bg-color: #14161c; --card-bg: #1c1f27; --text-color: #f1f3f7; --border-color: #2a2e39; background: #14161c !important; font-family: var(--sl-font); }
+html & { background: #14161c !important; }
+
+/* Accent colour option: one rule per choice. */
+&, &.sl-opt-accent-coral { --sl-accent: #ff7a59; --sl-accent-2: #ffa58c; --accent: #ff7a59; --accent-hover: #ffa58c; }
+&.sl-opt-accent-mint { --sl-accent: #2dd4a7; --sl-accent-2: #7ee8cb; --accent: #2dd4a7; --accent-hover: #7ee8cb; }
+
+/* ---- Home page ---- */
+#gameGrid { gap: 16px; }
+#gameGrid .game-card { border-radius: 12px !important; overflow: hidden; border: 0 !important; transition: transform .15s ease; }
+#gameGrid .game-card:hover { transform: translateY(-3px) !important; box-shadow: 0 0 0 2px var(--sl-accent) !important; }
+.sl-shelf-title, .sl-all-title { color: var(--sl-text-bright); letter-spacing: .02em; }
+.sl-shelf-art { border-radius: 12px; }
+.sl-shelf-when { color: var(--sl-accent-2); }
+/* With the row on, Sail's own "Continue playing" card would repeat the same game. */
+&.sl-opt-shelf [data-sl-region="continue"] { display: none !important; }
+
+/* ---- Game page ---- */
+&.sl-hero .gp-title { font-weight: 800; letter-spacing: -.01em; }
+#gpPlayBtn { border-radius: 999px !important; background: var(--sl-accent) !important; color: #fff !important; border: 0 !important; }
+
+/* ---- Manage Game (the properties window) ---- */
+&.sl-props-on #gameSettingsModal .modal-content { border-radius: 14px !important; }
+
+/* Sail's reduced-motion setting already stops transitions everywhere; also keep the covers still on hover. */
+&.reduce-motion #gameGrid .game-card:hover { transform: none !important; }

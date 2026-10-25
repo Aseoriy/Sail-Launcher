@@ -1,0 +1,79 @@
+/* Dusk: a layout pack for Library Layouts. Everything here is applied inside the pack's own scope: plain selectors
+   match inside the page, and & is the page itself (&.sl-opt-folders means "while Folders sidebar is on").
+   The engine moves Sail's page tabs into the title bar and builds the shelf, hero page and properties window
+   listed in plugin.json; this file only colours and shapes them. */
+
+/* Warm charcoal for Sail itself as well, so its own pages match. */
+& {
+    --bg-color: #161518; --card-bg: #1e1d21; --text-color: #efecf1; --border-color: #2a282e;
+    --dusk-radius: 12px;
+    background: #161518 !important;
+    font-family: var(--sl-font);
+}
+html & { background: #161518 !important; }
+
+/* Accent colour option. Sail's own accent follows, so its buttons match. */
+&, &.sl-opt-accent-peach { --sl-accent: #e8a27c; --sl-accent-2: #f3c3a6; --sl-accent-dark: #b9714d; --accent: #e8a27c; --accent-hover: #f3c3a6; }
+&.sl-opt-accent-sage { --sl-accent: #8fb996; --sl-accent-2: #b8d6bc; --sl-accent-dark: #5d8a65; --accent: #8fb996; --accent-hover: #b8d6bc; }
+&.sl-opt-accent-sky { --sl-accent: #7aa8e0; --sl-accent-2: #a9c8ee; --sl-accent-dark: #4b78b0; --accent: #7aa8e0; --accent-hover: #a9c8ee; }
+&.sl-opt-accent-rose { --sl-accent: #e08aa3; --sl-accent-2: #efb4c5; --sl-accent-dark: #b05775; --accent: #e08aa3; --accent-hover: #efb4c5; }
+
+/* ---- Title bar: one quiet row with the page tabs in it ---- */
+[data-sl-region="titlebar"] { background: #121114 !important; border-bottom: 1px solid rgba(255, 255, 255, .05) !important; backdrop-filter: none !important; box-shadow: none !important; }
+.sl-top-nav { gap: 2px; }
+.sl-top-nav .sidebar-page-link {
+    height: 30px !important; min-height: 30px; align-self: center; padding: 0 12px !important; border: 0 !important; border-radius: 8px !important;
+    background: transparent !important; box-shadow: none !important; transform: none !important;
+    color: var(--sl-muted) !important; opacity: 1 !important; transition: background .15s ease, color .15s ease;
+}
+.sl-top-nav .sidebar-page-icon { display: none; }
+.sl-top-nav .sidebar-page-label { font-size: 13px; font-weight: 600; letter-spacing: 0; }
+.sl-top-nav .sidebar-page-link:hover { color: var(--sl-text-bright) !important; background: rgba(255, 255, 255, .05) !important; }
+.sl-top-nav .sidebar-page-link.active-tab { color: var(--sl-text-bright) !important; background: rgba(255, 255, 255, .08) !important; }
+
+/* ---- Sidebar: just the folders, or gone ---- */
+#mainSidebar.sidebar { background: #121114 !important; border-right: 1px solid rgba(255, 255, 255, .04) !important; box-shadow: none !important; backdrop-filter: none !important; }
+&:not(.sl-opt-folders) #mainSidebar.sidebar, &:not(.sl-opt-folders) #mainResizer { display: none !important; }
+#mainSidebar .sidebar-kicker, #mainSidebar .sidebar-library-kicker { color: var(--sl-faint) !important; letter-spacing: .08em; }
+/* The page tabs live in the title bar now, so the sidebar's own heading and collapse button have nothing to do. */
+#mainSidebar .sidebar-topbar { display: none !important; }
+#mainSidebar .section-item { border: 0 !important; border-radius: 8px !important; box-shadow: none !important; }
+#mainSidebar .section-item:hover { background: rgba(255, 255, 255, .05) !important; }
+#mainSidebar .section-item.active { background: color-mix(in srgb, var(--sl-accent) 14%, transparent) !important; color: var(--sl-accent-2) !important; }
+
+/* ---- Library page ---- */
+#topTitle { font-size: 28px !important; font-weight: 700 !important; letter-spacing: -.01em; }
+#actionButtonsGroup button, #topHeaderActionButtonsContainer button { border-radius: 10px !important; }
+.search-bar, #searchInput, select, input[type="text"] { border-radius: 10px !important; background: #1c1b1f !important; border-color: #2a282e !important; }
+#continuePlayingCard { border-radius: var(--dusk-radius) !important; border: 0 !important; background: #1e1d21 !important; }
+/* With the recently played row on, Sail's "Continue playing" card would show the same game twice. */
+&.sl-opt-shelf #continuePlayingCard { display: none !important; }
+
+/* Covers: soft corners, a gentle lift on hover. */
+#gameGrid { gap: 20px; }
+#gameGrid .game-card { border-radius: var(--dusk-radius) !important; overflow: hidden; border: 0 !important; background: #1e1d21 !important; box-shadow: 0 4px 14px rgba(0, 0, 0, .3) !important; transition: transform .2s ease, box-shadow .2s ease; }
+#gameGrid .game-card:hover { transform: translateY(-3px) !important; box-shadow: 0 12px 28px rgba(0, 0, 0, .45) !important; z-index: 2; }
+#gameGrid .game-card .card-banner, #gameGrid .game-card .no-image { border-radius: 0 !important; }
+.sl-shelf-title, .sl-all-title { font-size: 14px; font-weight: 600; letter-spacing: .01em; text-transform: none; color: var(--sl-text-bright); }
+.sl-shelf-art { border-radius: var(--dusk-radius); border: 0; box-shadow: 0 4px 14px rgba(0, 0, 0, .3); }
+.sl-shelf-card:hover .sl-shelf-art { box-shadow: 0 12px 28px rgba(0, 0, 0, .45); }
+.sl-shelf-when { color: var(--sl-accent-2); }
+&.reduce-motion #gameGrid .game-card:hover { transform: none !important; }
+
+/* ---- Game page: the cover banner fades into the page, and a solid Play button ---- */
+&.sl-hero .gp-header { height: 380px; margin-top: -30px; }
+&.sl-hero .gp-header::after { background: linear-gradient(180deg, rgba(22, 21, 24, 0) 30%, rgba(22, 21, 24, .75) 75%, #161518 100%); }
+&.sl-hero .gp-header-content { padding-left: 0; padding-right: 0; }
+&.sl-hero .gp-title { font-size: 40px; font-weight: 700; letter-spacing: -.015em; }
+&.sl-hero .gp-action-bar { background: transparent; border-bottom: 1px solid rgba(255, 255, 255, .05); }
+#gpPlayBtn, .gp-play-btn { height: 44px; min-width: 140px; padding: 0 26px; border: 0 !important; border-radius: 10px !important; background: var(--sl-accent) !important; color: #1a1416 !important; font-weight: 700; box-shadow: none !important; transform: none !important; }
+#gpPlayBtn:hover { background: var(--sl-accent-2) !important; }
+.gp-action-bar > button.outline { border-radius: 10px !important; }
+.gp-expandable, .gp-info-box { border-radius: var(--dusk-radius) !important; background: #1e1d21 !important; border: 0 !important; }
+
+/* ---- Dialogs and menus ---- */
+.modal-content { border-radius: 16px !important; }
+&.sl-props-on #gameSettingsModal .modal-content { border-radius: 16px !important; background: #161518 !important; }
+.sl-props-nav, .sl-props-foot { background: #121114; }
+.sl-props-tab { border-radius: 8px !important; margin: 0 8px; width: calc(100% - 16px); }
+.sl-menu { border-radius: 10px; overflow: hidden; }

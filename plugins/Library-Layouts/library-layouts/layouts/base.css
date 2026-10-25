@@ -3,3 +3,31 @@
 .sl-foot { position: sticky; bottom: 0; margin-top: auto; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 10px; font-size: 11px; opacity: .85; background: var(--sl-foot-bg, transparent); border-top: 1px solid var(--border-color, rgba(255,255,255,.08)); z-index: 5; }
 .sl-gear { appearance: none; display: inline-grid; place-items: center; width: 26px; height: 26px; padding: 0; background: transparent !important; border: 1px solid transparent !important; border-radius: 4px !important; color: inherit !important; box-shadow: none !important; transform: none !important; cursor: pointer; }
 .sl-gear:hover { background: rgba(255,255,255,.1) !important; }
+
+/* Developer mode: a small panel in the corner while a layout folder is being shown. Kept here, not in the engine's
+   layout CSS, so it stays visible when the folder can't be shown. */
+.sl-dev { position: fixed; right: 16px; bottom: 16px; z-index: 100000; width: 340px; max-width: calc(100vw - 32px); max-height: min(60vh, 520px); display: flex; flex-direction: column; font: 12px/1.45 system-ui, "Segoe UI", "Noto Sans", sans-serif; color: var(--text-color, #e6e8ef); background: var(--card-bg, #1b1e27); border: 1px solid var(--border-color, rgba(255,255,255,.12)); border-radius: 10px; box-shadow: 0 12px 32px rgba(0,0,0,.45); overflow: hidden; }
+.sl-dev-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-bottom: 1px solid var(--border-color, rgba(255,255,255,.1)); }
+.sl-dev-tag { padding: 1px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: #fff; background: var(--accent, #3b82f6); }
+.sl-dev-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sl-dev-body { display: flex; flex-direction: column; gap: 8px; padding: 8px 10px 10px; overflow-y: auto; }
+.sl-dev-folded .sl-dev-body { display: none; }
+.sl-dev-folded .sl-dev-head { border-bottom: 0; }
+.sl-dev-status { opacity: .8; }
+.sl-dev-status.sl-dev-bad { color: #f87171; opacity: 1; }
+.sl-dev-options { display: flex; flex-direction: column; gap: 6px; padding: 6px 8px; border-radius: 6px; background: rgba(255,255,255,.04); }
+.sl-dev-option { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.sl-dev-toggle { justify-content: flex-start; cursor: pointer; }
+.sl-dev-toggle .toggle-switch { flex: none; }
+.sl-dev-option select { max-width: 55%; font: inherit; }
+.sl-dev-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.sl-dev-list li { padding: 5px 8px; border-radius: 6px; background: rgba(255,255,255,.04); overflow-wrap: anywhere; }
+.sl-dev-list li > span { display: inline-block; margin-right: 6px; font-weight: 700; }
+.sl-dev-problem > span { color: #f87171; }
+.sl-dev-warning > span { color: #fbbf24; }
+.sl-dev-clear { opacity: .7; }
+.sl-dev-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.sl-dev button { appearance: none; padding: 4px 10px; font: inherit; color: inherit; background: rgba(255,255,255,.08); border: 1px solid var(--border-color, rgba(255,255,255,.14)); border-radius: 6px; cursor: pointer; transform: none; box-shadow: none; }
+.sl-dev button:hover { background: rgba(255,255,255,.14); }
+.sl-dev button:focus-visible, .sl-dev select:focus-visible, .sl-dev input:focus-visible { outline: 2px solid var(--accent, #3b82f6); outline-offset: 1px; }
+.sl-dev .sl-dev-fold { width: 24px; height: 24px; padding: 0; line-height: 1; }

@@ -5,7 +5,7 @@
 module.exports = function (SailAPI, context) {
     const fs = require('fs');
     const path = require('path');
-    const { ipcRenderer } = require('electron');
+    const { ipcRenderer, webUtils } = require('electron');
     const packs = require('./engine/packs');
 
     // Settings come from Sail's plugin settings (see "settings" in plugin.json), so they are edited in Sail's own
@@ -84,7 +84,7 @@ module.exports = function (SailAPI, context) {
     // ---- Layout packs ------------------------------------------------------------------------
     // The built-in Steam pack is read through the same checks as an installed one. Its options are this plugin's own
     // settings; an installed pack's options are its own settings, edited from the Plugin Manager or the menu bar.
-    const ENGINE_SETTINGS = ['layout'];
+    const ENGINE_SETTINGS = ['layout', 'devMode', 'devFolder'];
     const builtIn = {
         id: 'aseoriy.steam-layout', value: 'steam', builtIn: true,
         folder: path.join(__dirname, 'packs', 'steam'),
@@ -101,7 +101,43 @@ module.exports = function (SailAPI, context) {
             openSettings: addon.openSettings
         }));
     }
-    function allPacks() { return [builtIn, ...installedPacks()]; }
+    function allPacks() { const dev = devPack(); return [builtIn, ...installedPacks(), ...(dev ? [dev] : [])]; }
+
+    // ---- Developer mode ------------------------------------------------------------------------
+    // A layout maker's unzipped folder, shown as the layout "dev" while developer mode is on. It goes through the same
+    // checks as an installed pack, is read again whenever a file in it changes, and its options last only the session.
+    const devOptions = {};
+    let devReturn = null;
+    const devFolder = () => prefs.get('devMode') ? String(prefs.get('devFolder') || '').trim() : '';
+    function devPack() {
+        const raw = devFolder();
+        if (!raw) return null;
+        let folder = path.resolve(raw), manifest = null, problem = '';
+        let isFolder = false;
+        try { folder = fs.realpathSync(folder); isFolder = fs.statSync(folder).isDirectory(); } catch (_) { /* Reported just below. */ }
+        if (!isFolder) problem = `${raw} is not a folder on this PC.`;
+        else {
+            try { manifest = JSON.parse(fs.readFileSync(path.join(folder, 'plugin.json'), 'utf8')); }
+            catch (error) {
+                problem = error.code === 'ENOENT' ? 'The folder has no plugin.json.'
+                    : error instanceof SyntaxError ? `plugin.json isn't valid JSON: ${error.message}` : `plugin.json can't be read: ${error.message}`;
+            }
+            if (manifest && (typeof manifest !== 'object' || Array.isArray(manifest))) { manifest = null; problem = 'plugin.json must hold an object.'; }
+        }
+        const declared = manifest && Array.isArray(manifest.settings) ? manifest.settings.filter(field => field && typeof field.id === 'string') : [];
+        // Switches and lists can be tried in the panel; numbers and text keep their defaults.
+        const fields = declared.filter(field => field.type === 'toggle' || field.type === 'select' && Array.isArray(field.options) && field.options.length);
+        const defaults = Object.fromEntries([
+            ...declared.filter(field => field.type === 'number' && Number.isFinite(field.default) || field.type === 'text' && typeof field.default === 'string').map(field => [field.id, field.default]),
+            ...fields.map(field => [field.id, field.type === 'toggle' ? field.default === true
+                : field.options.some(option => option && option.value === field.default) ? field.default : field.options[0] && field.options[0].value])]);
+        return {
+            id: manifest && typeof manifest.id === 'string' && manifest.id ? manifest.id : 'dev.layout', value: 'dev', dev: true,
+            name: manifest && typeof manifest.name === 'string' && manifest.name ? manifest.name : path.basename(folder),
+            folder, manifest: manifest || {}, problem, fields,
+            settings: () => ({ ...defaults, ...devOptions })
+        };
+    }
 
     // The pack's stylesheets, parsed by the browser inside the pack's own scope. Anything that breaks out of the scope,
     // imports something or loads from outside the pack is refused, and the layout shows without the pack's look.
@@ -123,7 +159,7 @@ module.exports = function (SailAPI, context) {
         const undo = [];
         const settings = pack.settings();
         const { config, warnings } = packs.resolveBlocks(loaded.blocks, settings);
-        for (const warning of [...loaded.warnings, ...warnings]) console.warn(`[Library Layouts] ${pack.name}: ${warning}`);
+        for (const warning of [...loaded.warnings, ...warnings]) report(pack, 'warning', warning);
         const scopeClass = `sl-pack-${packs.slug(pack.id)}`;
         const options = packs.optionClasses(settings);
         // Friends & Chat: the built-in pack keeps the choice in its settings; an installed pack's choice lasts the session.
@@ -178,7 +214,7 @@ module.exports = function (SailAPI, context) {
             undo.push(() => engineStyle.remove());
             let sheet = null;
             try { sheet = packSheet(`body.${scopeClass}`, loaded.styles, loaded.folder); }
-            catch (error) { console.error(`[Library Layouts] ${pack.name}:`, error.message); }
+            catch (error) { report(pack, 'problem', error.message); }
             if (sheet) {
                 document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
                 undo.push(() => { document.adoptedStyleSheets = document.adoptedStyleSheets.filter(item => item !== sheet); });
@@ -228,7 +264,7 @@ module.exports = function (SailAPI, context) {
             let panel = null;
             if (config.gameList) {
                 const sidebar = document.getElementById('mainSidebar');
-                panel = buildGameList();
+                panel = buildGameList(config.gameList);
                 sidebar.append(panel.element);
                 undo.push(() => { panel.destroy(); panel.element.remove(); });
             }
@@ -272,7 +308,7 @@ module.exports = function (SailAPI, context) {
         return { mount, unmount, ensureClasses };
     }
 
-    function buildGameList() {
+    function buildGameList({ filter: showFilter = true, search: showSearch = true } = {}) {
         const search = el('input', { class: 'sl-search', type: 'text', placeholder: L.search, 'aria-label': 'Search games', spellcheck: 'false' });
         const home = el('button', { type: 'button', class: 'sl-home' }, [svg(['M3 11l9-8 9 8', 'M5 10v10h5v-6h4v6h5V10'], 15), L.home]);
         home.addEventListener('click', () => SailAPI.showTab('library'));
@@ -282,7 +318,9 @@ module.exports = function (SailAPI, context) {
         filter.addEventListener('change', () => render());
         const list = el('div', { class: 'sl-list', role: 'list' });
         const collapsed = new Set();
-        const element = el('div', { class: 'sl-panel' }, [el('div', { class: 'sl-panel-top' }, [el('div', { class: 'sl-home-row' }, [home, view]), filter, el('div', { class: 'sl-search-wrap' }, [svg(['M21 21l-4.3-4.3', 'M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14z'], 13), search])]), list]);
+        // The pack can leave out the filter and the search box; the list then shows every game.
+        const element = el('div', { class: 'sl-panel' }, [el('div', { class: 'sl-panel-top' }, [el('div', { class: 'sl-home-row' }, [home, view]),
+            showFilter ? filter : null, showSearch ? el('div', { class: 'sl-search-wrap' }, [svg(['M21 21l-4.3-4.3', 'M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14z'], 13), search]) : null]), list]);
         // Typing here also narrows the cover grid on the home page, as in Steam.
         search.addEventListener('input', () => {
             const grid = document.getElementById('searchInput');
@@ -481,10 +519,17 @@ module.exports = function (SailAPI, context) {
             label.setAttribute('data-sl-name', name);
             labels.push(label);
         }
+        // Listed tabs come first, in the pack's order; any it leaves out follow in Sail's order.
         order.forEach((key, index) => {
             const link = nav.querySelector(`#${packs.TABS[key]}`);
             if (link) { link.style.order = String(index + 1); links.push(link); }
         });
+        if (order.length) {
+            for (const [key, id] of Object.entries(packs.TABS)) {
+                const link = order.includes(key) ? null : nav.querySelector(`#${id}`);
+                if (link) { link.style.order = String(order.length + 1); links.push(link); }
+            }
+        }
         for (const key of hidden) {
             const link = nav.querySelector(`#${packs.TABS[key]}`);
             if (link) { link.classList.add('sl-tab-hidden'); links.push(link); }
@@ -868,6 +913,109 @@ module.exports = function (SailAPI, context) {
         };
     }
 
+    // Problems and warnings go to the console, and to the developer panel while a folder is being shown.
+    function report(pack, kind, message) {
+        (kind === 'problem' ? console.error : console.warn)(`[Library Layouts] ${pack.name}: ${message}`);
+        if (pack.dev) devPanel.add(kind, message);
+    }
+
+    // The developer panel: what is showing, when it was last read, the layout's options to try out, and everything
+    // the engine refused or ignored. The folder is watched, so saving a file shows the change.
+    function buildDevPanel() {
+        let element = null, list = null, status = null, optionsBox = null, nameLine = null;
+        let watcher = null, watched = '', timer = 0, shown = null, count = 0;
+        const picker = el('input', { type: 'file', webkitdirectory: true, hidden: true });
+        picker.addEventListener('change', () => {
+            const file = picker.files && picker.files[0];
+            picker.value = '';
+            if (!file || !webUtils) return;
+            // The folder is the file's path with its path inside the folder taken off (a single file: the folder it is in).
+            let folder = webUtils.getPathForFile(file);
+            for (let depth = file.webkitRelativePath ? file.webkitRelativePath.split('/').length - 1 : 1; depth > 0; depth--) folder = path.dirname(folder);
+            if (folder) prefs.set('devFolder', folder);
+        });
+        function watch(folder) {
+            if (folder === watched) return;
+            unwatch();
+            watched = folder;
+            try {
+                watcher = fs.watch(folder, { recursive: true }, () => { clearTimeout(timer); timer = setTimeout(applyLayout, 200); });
+                watcher.on('error', () => { unwatch(); add('warning', 'The folder can no longer be watched; use Reload after saving.'); });
+            } catch (error) { watched = ''; add('warning', `The folder can't be watched (${error.message}); use Reload after saving.`); }
+        }
+        function unwatch() { clearTimeout(timer); if (watcher) watcher.close(); watcher = null; watched = ''; }
+        function build() {
+            nameLine = el('b', { class: 'sl-dev-name' });
+            status = el('div', { class: 'sl-dev-status', role: 'status' });
+            optionsBox = el('div', { class: 'sl-dev-options' });
+            list = el('ul', { class: 'sl-dev-list', 'aria-label': 'Problems and warnings' });
+            const reload = el('button', { type: 'button', text: 'Reload', onclick: () => applyLayout() });
+            const choose = el('button', { type: 'button', text: 'Choose folder…', onclick: () => picker.click() });
+            const settings = el('button', { type: 'button', text: 'Settings', onclick: () => prefs.open() });
+            const fold = el('button', { type: 'button', class: 'sl-dev-fold', 'aria-expanded': 'true', 'aria-label': 'Fold the developer panel', text: '–' });
+            fold.addEventListener('click', () => {
+                const folded = element.classList.toggle('sl-dev-folded');
+                fold.textContent = folded ? '+' : '–';
+                fold.setAttribute('aria-expanded', String(!folded));
+            });
+            element = el('section', { class: 'sl-dev', 'aria-label': 'Library Layouts developer mode' }, [
+                el('header', { class: 'sl-dev-head' }, [el('span', { class: 'sl-dev-tag', text: 'Developer' }), nameLine, fold]),
+                el('div', { class: 'sl-dev-body' }, [status, optionsBox, list, el('div', { class: 'sl-dev-actions' }, [reload, choose, settings])]),
+                picker]);
+            document.body.append(element);
+        }
+        function drawOptions(pack) {
+            optionsBox.replaceChildren(...pack.fields.map(field => {
+                const value = pack.settings()[field.id];
+                const label = String(field.label || field.id).slice(0, 80);
+                let input;
+                if (field.type === 'toggle') {
+                    input = el('input', { type: 'checkbox' });
+                    input.checked = value === true;
+                    input.addEventListener('change', () => { devOptions[field.id] = input.checked; applyLayout(); });
+                } else {
+                    input = el('select', {}, field.options.filter(option => option && option.value !== undefined)
+                        .map(option => el('option', { value: String(option.value), text: String(option.label || option.value).slice(0, 80) })));
+                    input.value = String(value);
+                    input.addEventListener('change', () => { devOptions[field.id] = input.value; applyLayout(); });
+                }
+                // Sail hides bare checkboxes and draws its own switch after them, as in its settings dialog.
+                return field.type === 'toggle'
+                    ? el('label', { class: 'toggle-label sl-dev-option sl-dev-toggle' }, [input, el('div', { class: 'toggle-switch' }), el('span', { text: label })])
+                    : el('label', { class: 'sl-dev-option sl-dev-select' }, [label, input]);
+            }));
+            optionsBox.hidden = !pack.fields.length;
+        }
+        function add(kind, message) {
+            if (!list) return;
+            count++;
+            list.append(el('li', { class: `sl-dev-${kind}` }, [el('span', { text: kind === 'problem' ? 'Refused' : 'Ignored' }), String(message).slice(0, 400)]));
+        }
+        return {
+            // Called each time the layout is applied: a folder being shown gets the panel, anything else removes it.
+            start(pack) {
+                shown = pack;
+                if (!pack) { unwatch(); if (element) element.remove(); element = null; return; }
+                if (!element) build();
+                list.replaceChildren();
+                count = 0;
+                if (pack.problem) unwatch(); else watch(pack.folder);
+                nameLine.textContent = pack.name;
+                nameLine.title = pack.folder;
+                drawOptions(pack);
+            },
+            add,
+            finish(ok) {
+                if (!shown || !status) return;
+                const time = new Date().toLocaleTimeString();
+                status.textContent = ok ? `Showing, read at ${time}.` : `Can't be shown (read at ${time}).`;
+                status.classList.toggle('sl-dev-bad', !ok);
+                if (!count) list.append(el('li', { class: 'sl-dev-clear', text: 'Nothing refused or ignored.' }));
+            },
+            destroy() { unwatch(); if (element) element.remove(); element = null; }
+        };
+    }
+
     // The gear stays available whichever layout is on, including Off, so there is always a way back to the settings.
     function buildEntry() {
         const gear = el('button', { type: 'button', class: 'sl-gear', title: 'Library Layouts settings', 'aria-label': 'Library Layouts settings' }, [svg(['M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z', 'M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z'], 15)]);
@@ -945,12 +1093,23 @@ module.exports = function (SailAPI, context) {
     })();
     // The Layout setting lists Steam, every installed pack whose requirements are met, and Off.
     function refreshChoices() {
+        // Sail 6.0.0-beta.2 and older can't change a dropdown's choices; there the list stays as plugin.json has it
+        // (Steam and Off), and installed layouts appear once Sail is updated.
+        if (typeof prefs.setChoices !== 'function') return;
         prefs.setChoices('layout', [
             { value: builtIn.value, label: `${builtIn.name} (built in)` },
             // A pack that fails its checks stays listed, marked, so it is clear why choosing it changes nothing.
-            ...installedPacks().map(pack => ({ value: pack.value, label: packs.loadPack(pack.folder, pack.manifest).ok ? pack.name : `${pack.name} (can't be shown)` })),
+            ...installedPacks().map(pack => ({ value: pack.value, label: `${pack.name}${choiceNote(packs.loadPack(pack.folder, pack.manifest))}` })),
+            ...(devFolder() ? [{ value: 'dev', label: `Developer folder: ${path.basename(devFolder()) || devFolder()}` }] : []),
             { value: 'off', label: 'Off (Sail default)' }
         ]);
+    }
+    // Why a pack in the list can't be shown, in a few words: a version mismatch says which way to update.
+    function choiceNote(loaded) {
+        if (loaded.ok) return '';
+        const contract = loaded.problems.find(problem => /newer Library Layouts|older Library Layouts/.test(problem));
+        if (contract) return /newer/.test(contract) ? ' (needs a newer Library Layouts)' : ' (made for an older Library Layouts)';
+        return " (can't be shown)";
     }
     function packSignature(pack) { return pack ? JSON.stringify([pack.id, pack.manifest && pack.manifest.version, pack.settings()]) : ''; }
     let shownSignature = '';
@@ -960,18 +1119,48 @@ module.exports = function (SailAPI, context) {
         shownSignature = '';
         const chosen = prefs.get('layout');
         const pack = chosen === 'off' ? null : allPacks().find(item => item.value === chosen);
+        devPanel.start(pack && pack.dev ? pack : null);
         if (!pack) return;
+        if (pack.problem) { report(pack, 'problem', pack.problem); devPanel.finish(false); return; }
         const loaded = packs.loadPack(pack.folder, pack.manifest);
-        if (!loaded.ok) { console.error(`[Library Layouts] ${pack.name} can't be shown: ${loaded.problems.join(' ')}`); return; }
+        if (!loaded.ok) {
+            console.error(`[Library Layouts] ${pack.name} can't be shown: ${loaded.problems.join(' ')}`);
+            if (pack.dev) for (const problem of loaded.problems) devPanel.add('problem', problem);
+            devPanel.finish(false);
+            return;
+        }
         const next = mountLayout(pack, loaded);
-        try { next.mount(); controller.set({ pack, layout: next }); shownSignature = packSignature(pack); }
-        catch (error) { console.error('[Library Layouts] Could not start the layout:', error); try { next.unmount(); } catch (_) { /* Already undone as far as it went. */ } }
+        try { next.mount(); controller.set({ pack, layout: next }); shownSignature = packSignature(pack); devPanel.finish(true); }
+        catch (error) {
+            console.error('[Library Layouts] Could not start the layout:', error);
+            if (pack.dev) devPanel.add('problem', `The layout could not start: ${error.message}`);
+            devPanel.finish(false);
+            try { next.unmount(); } catch (_) { /* Already undone as far as it went. */ }
+        }
     }
     refreshChoices();
     const entry = buildEntry();
+    const devPanel = buildDevPanel();
     applyLayout();
     // Changes made in Sail's settings dialog (or by anything else) apply straight away.
     const stopListening = prefs.onChange(id => {
+        if (id === 'devMode' || id === 'devFolder') {
+            if (id === 'devFolder') for (const key of Object.keys(devOptions)) delete devOptions[key];
+            refreshChoices();
+            // Turning developer mode on shows the folder; turning it off goes back to the layout from before.
+            if (devFolder() && prefs.get('layout') !== 'dev') { devReturn = prefs.get('layout'); prefs.set('layout', 'dev'); return; }
+            if (!devFolder() && devReturn !== null) {
+                // The stored choice is still "dev"; Steam is the default, so going back to it clears the choice.
+                const back = devReturn;
+                devReturn = null;
+                if (back === builtIn.value) prefs.reset('layout'); else prefs.set('layout', back);
+                return;
+            }
+            applyLayout();
+            return;
+        }
+        // Picking another layout while the folder is showing keeps that choice when developer mode is turned off.
+        if (id === 'layout' && prefs.get('layout') !== 'dev') devReturn = null;
         const current = controller.current();
         if (id === 'layout' || current && current.pack.builtIn) applyLayout();
     });
@@ -991,6 +1180,7 @@ module.exports = function (SailAPI, context) {
             controller.set(null);
             stopListening();
             stopAddons();
+            devPanel.destroy();
             entry.destroy();
         }
     };
