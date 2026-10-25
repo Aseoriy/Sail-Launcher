@@ -209,10 +209,7 @@ const exitCoordinator = require('./runtime/exitCoordinator').createExitCoordinat
         relaunchAfterSave = false;
         exitSynced = true;
         isQuitting = true;
-        if (restart) {
-            const relaunchOptions = launcherUpdate.launcherRelaunchOptions();
-            if (relaunchOptions) app.relaunch(relaunchOptions); else app.relaunch();
-        }
+        if (restart && !launcherUpdate.relaunchAppImage()) app.relaunch();
         app.quit();
     }
 });

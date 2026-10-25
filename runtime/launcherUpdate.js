@@ -149,11 +149,26 @@ function downloadReleaseFile(url, destination, { onProgress = () => {}, sha256 =
     });
 }
 
-// An AppImage's process.execPath is inside a temporary mount that disappears on
-// exit, so a restart has to start the AppImage file itself.
-function launcherRelaunchOptions(env = process.env, argv = process.argv) {
-    const execPath = launcherExecutablePath(env, null);
-    return execPath ? { execPath, args: argv.slice(1) } : undefined;
+// Electron's relaunch helper runs from Sail's own executable, which for an AppImage
+// lives in a temporary mount that disappears with Sail, so the helper dies with it.
+// Restart from a shell instead: wait for this process to exit (releasing the
+// single-instance lock), then start the AppImage file. Returns false when not an AppImage.
+const APPIMAGE_RUNTIME_VARIABLES = ['APPDIR', 'APPIMAGE', 'ARGV0', 'OWD'];
+// Chromium keeps some descriptors (the old mount's files, its sockets) open across exec,
+// which would keep the old mount alive under the new Sail. bash can close any descriptor;
+// dash only handles 0-9, so without bash the restart still works but skips the cleanup.
+const CLOSE_INHERITED = 'for fd in /proc/$$/fd/*; do n=${fd##*/}; case "$n" in 0|1|2) ;; *) eval "exec $n>&-" 2>/dev/null;; esac; done; ';
+const WAIT_AND_START = 'while kill -0 "$0" 2>/dev/null; do sleep 0.2; done; exec "$@"';
+function relaunchAppImage({ env = process.env, argv = process.argv, pid = process.pid, spawnProcess = spawn, exists = fs.existsSync } = {}) {
+    const appImage = launcherExecutablePath(env, null);
+    if (!appImage) return false;
+    const childEnv = { ...env };
+    for (const name of APPIMAGE_RUNTIME_VARIABLES) delete childEnv[name];
+    const bash = ['/bin/bash', '/usr/bin/bash'].find(file => exists(file));
+    const child = spawnProcess(bash || '/bin/sh', ['-c', (bash ? CLOSE_INHERITED : '') + WAIT_AND_START, String(pid), appImage, ...argv.slice(1)],
+        { detached: true, stdio: 'ignore', env: childEnv });
+    child.unref();
+    return true;
 }
 
 function appImageUpdatePath(appImage) {
@@ -166,7 +181,7 @@ module.exports = {
     appImageUpdatePath,
     detectLinuxInstall,
     downloadReleaseFile,
-    launcherRelaunchOptions,
+    relaunchAppImage,
     linuxInstallCommand,
     linuxUpdateAsset,
     runPrivileged
