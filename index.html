@@ -7831,6 +7831,17 @@
                 };
             },
             onAccountChange: callback => { const listener = () => { try { callback(); } catch (e) { console.error(e); } }; sailEvents.addEventListener('account', listener); return () => sailEvents.removeEventListener('account', listener); },
+            // Installed add-ons that are on and have what they need, for engines such as Library Layouts that read
+            // data-only packs. Only the manifest's own fields are shared, plus the folder the pack's files are in.
+            getAddons: (filter = {}) => installedPlugins
+                .filter(manifest => pluginEnabled(manifest) && !(manifest._unmet && manifest._unmet.length)
+                    && (!filter.type || manifest.type === filter.type))
+                .map(manifest => ({
+                    id: PluginDependencies.pluginId(manifest), name: String(manifest.name || ''), version: String(manifest.version || ''),
+                    author: String(manifest.author || ''), type: String(manifest.type || 'plugin'), folder: manifest._path,
+                    manifest: JSON.parse(JSON.stringify(Object.fromEntries(Object.entries(manifest).filter(([key]) => !key.startsWith('_')))))
+                })),
+            onAddonsChange: callback => { const listener = () => { try { callback(); } catch (e) { console.error(e); } }; sailEvents.addEventListener('addons', listener); return () => sailEvents.removeEventListener('addons', listener); },
             onLibraryChange: callback => { const listener = () => { try { callback(); } catch (e) { console.error(e); } }; sailEvents.addEventListener('library', listener); return () => sailEvents.removeEventListener('library', listener); },
             onNavigate: callback => { const listener = () => { try { callback(); } catch (e) { console.error(e); } }; sailEvents.addEventListener('navigate', listener); return () => sailEvents.removeEventListener('navigate', listener); },
             registerTheme: (themeObj) => {
@@ -7863,7 +7874,10 @@
         let installedPlugins = []; // Track loaded plugin manifests
 
         // Plugins run with full access, so refuse the ones that cannot work on this system instead of failing later.
+        const PluginDependencies = require('./ui/pluginDependencies');
         function pluginUnsupportedReason(manifest) {
+            const layoutProblem = PluginDependencies.layoutPackProblem(manifest);
+            if (layoutProblem) return layoutProblem;
             const platforms = Array.isArray(manifest && manifest.platforms) ? manifest.platforms.map(String) : null;
             if (platforms && !platforms.includes(process.platform)) return `This plugin supports ${platforms.join(', ')} only.`;
             if (process.platform !== 'win32' && /\.exe$/i.test(String(manifest && manifest.main || ''))) return 'This plugin is a Windows program and cannot run on this system.';
@@ -7872,15 +7886,43 @@
 
         // Plugins that return { dispose() } can be switched off or reloaded without restarting Sail.
         const runningPlugins = new Map();
+        // Every plugin started in this session. One without dispose() keeps running until Sail restarts, so it stays here.
+        const startedPlugins = new Set();
         function stopPlugin(folderName) {
             const instance = runningPlugins.get(folderName);
             runningPlugins.delete(folderName);
             pluginSettingsStore.dropListeners(folderName);
-            if (instance) { try { instance.dispose(); } catch (e) { console.error("[Plugin] dispose failed for", folderName, e); } }
+            if (instance) {
+                startedPlugins.delete(folderName);
+                try { instance.dispose(); } catch (e) { console.error("[Plugin] dispose failed for", folderName, e); }
+            }
+        }
+        function pluginEnabled(manifest) {
+            return !manifest._unsupported && !(globalSettings.disabledPlugins || []).includes(manifest._folderName);
+        }
+        // Marks what each plugin is missing and returns the plugins in start order (what others need comes first).
+        function resolvePluginDependencies() {
+            const result = PluginDependencies.resolve(installedPlugins.map(manifest => ({ key: manifest._folderName, manifest, enabled: pluginEnabled(manifest) })));
+            for (const manifest of installedPlugins) manifest._unmet = result.unmet.get(manifest._folderName) || [];
+            return result.order.map(key => installedPlugins.find(manifest => manifest._folderName === key)).filter(Boolean);
+        }
+        // Brings running plugins in line with what is installed, enabled and satisfied.
+        function syncRunningPlugins() {
+            const ordered = resolvePluginDependencies();
+            for (const manifest of ordered.slice().reverse()) {
+                if (startedPlugins.has(manifest._folderName) && (!pluginEnabled(manifest) || manifest._unmet.length)) stopPlugin(manifest._folderName);
+            }
+            for (const manifest of ordered) {
+                if (startedPlugins.has(manifest._folderName) || !pluginEnabled(manifest)) continue;
+                if (manifest._unmet.length) { console.log('[Plugin] Waiting on requirements:', manifest._folderName, manifest._unmet.map(PluginDependencies.describeUnmet).join('; ')); continue; }
+                try { startPlugin(manifest); } catch (e) { console.error('[Plugin] Failed to start', manifest._folderName, e); }
+            }
+            emitSailEvent('addons');
         }
         function startPlugin(manifest) {
             const pluginPath = manifest._path;
             if (manifest.main) {
+                startedPlugins.add(manifest._folderName);
                 const mainFile = path.join(pluginPath, manifest.main);
                 if (manifest.main.endsWith('.js')) {
                     delete require.cache[require.resolve(mainFile)];
@@ -7928,15 +7970,7 @@
                                 manifest._unsupported = pluginUnsupportedReason(manifest);
                                 installedPlugins.push(manifest);
                                 pluginSettingsStore.register(entry.name, manifest.settings);
-                                if (manifest._unsupported) { console.log('[Plugin] Skipping', entry.name + ':', manifest._unsupported); continue; }
-
-                                // Skip disabled plugins
-                                if (globalSettings.disabledPlugins && globalSettings.disabledPlugins.includes(entry.name)) {
-                                    console.log('[Plugin] Skipping disabled plugin:', entry.name);
-                                    continue;
-                                }
-
-                                startPlugin(manifest);
+                                if (manifest._unsupported) console.log('[Plugin] Skipping', entry.name + ':', manifest._unsupported);
                             } catch (e) {
                                 console.error("Failed to load plugin", entry.name, e);
                             }
@@ -7946,6 +7980,8 @@
             } catch (e) {
                 console.error("Plugin loading error:", e);
             }
+            // Started only once every manifest is read, so what a plugin needs is running before it.
+            syncRunningPlugins();
         }
 
         // --- Plugin Manager Functions ---
@@ -7966,13 +8002,26 @@
                 ]));
                 return;
             }
+            resolvePluginDependencies();
             const rows = installedPlugins.slice(0, 256).map(p => {
                 const disabled = globalSettings.disabledPlugins && globalSettings.disabledPlugins.includes(p._folderName);
-                const statusColor = disabled || p._unsupported ? '#ef4444' : '#10b981';
-                const statusText = p._unsupported ? 'Not compatible' : disabled ? 'Disabled' : 'Enabled';
+                const unmet = !p._unsupported && !disabled && p._unmet && p._unmet.length ? p._unmet : [];
+                const statusColor = disabled || p._unsupported ? '#ef4444' : unmet.length ? '#f59e0b' : '#10b981';
+                const statusText = p._unsupported ? 'Not compatible' : disabled ? 'Disabled' : unmet.length ? 'Waiting' : 'Enabled';
                 const folderName = String(p._folderName || '').slice(0, 255);
                 const status = SafeDom.element(document, 'span', { text: statusText });
                 status.style.color = statusColor;
+                if (unmet.length) status.title = unmet.map(PluginDependencies.describeUnmet).join('\n');
+                // What it is missing, with a way to get it; and what relies on it.
+                const getIt = unmet.length ? SafeDom.element(document, 'button', { className: 'outline', text: 'Get requirements' }) : null;
+                if (getIt) getIt.addEventListener('click', async () => { await ensurePluginDependencies(p); syncRunningPlugins(); renderPluginList(); });
+                const neededBy = pluginDependentNames(p);
+                const relations = [
+                    ...unmet.map(item => PluginDependencies.describeUnmet(item)),
+                    ...(neededBy.length ? [`Needed by ${neededBy.join(', ')}`] : [])
+                ].join(' · ');
+                const relationsLine = relations ? SafeDom.element(document, 'div', { className: 'plugin-relations', text: relations.slice(0, 1024) }) : null;
+                if (relationsLine) Object.assign(relationsLine.style, { fontSize: '11px', opacity: '0.75', marginTop: '4px', color: unmet.length ? '#f59e0b' : '' });
                 const toggle = SafeDom.element(document, 'button', { className: 'outline', text: disabled ? 'Enable' : 'Disable' });
                 toggle.addEventListener('click', () => togglePlugin(folderName));
                 const options = pluginSettingsStore.hasSettings(folderName)
@@ -7985,9 +8034,10 @@
                     SafeDom.element(document, 'div', { className: 'plugin-copy' }, [
                         SafeDom.element(document, 'div', { className: 'plugin-name', text: String(p.name || folderName).slice(0, 256) }),
                         SafeDom.element(document, 'div', { className: 'plugin-byline', text: `v${String(p.version || '?').slice(0, 64)} by ${String(p.author || 'Unknown').slice(0, 128)}` }),
-                        SafeDom.element(document, 'div', { className: 'plugin-description', text: String(p.description || '').slice(0, 4096) })
-                    ]),
-                    SafeDom.element(document, 'div', { className: 'plugin-actions' }, [status, options, toggle, remove].filter(Boolean))
+                        SafeDom.element(document, 'div', { className: 'plugin-description', text: String(p.description || '').slice(0, 4096) }),
+                        relationsLine
+                    ].filter(Boolean)),
+                    SafeDom.element(document, 'div', { className: 'plugin-actions' }, [status, getIt, options, toggle, remove].filter(Boolean))
                 ]);
             });
             list.replaceChildren(...rows);
@@ -8013,25 +8063,40 @@
             closeModal('pluginSettingsModal');
         }
 
-        function togglePlugin(folderName) {
+        // Enabled plugins that need this one, by name, for warnings.
+        function pluginDependentNames(manifest) {
+            const id = PluginDependencies.pluginId(manifest);
+            return PluginDependencies.dependentsOf(id, installedPlugins.filter(item => item !== manifest && pluginEnabled(item)).map(item => ({ key: item._folderName, manifest: item })))
+                .map(item => String(item.manifest.name || item.key));
+        }
+
+        async function togglePlugin(folderName) {
             if (!globalSettings.disabledPlugins) globalSettings.disabledPlugins = [];
+            const manifest = installedPlugins.find(item => item._folderName === folderName);
             const idx = globalSettings.disabledPlugins.indexOf(folderName);
             const disabledNow = idx < 0;
+            if (disabledNow && manifest) {
+                const needed = pluginDependentNames(manifest);
+                if (needed.length && !await sailConfirm(`${needed.join(', ')} ${needed.length === 1 ? 'needs' : 'need'} "${manifest.name || folderName}". Turning it off also turns ${needed.length === 1 ? 'that' : 'those'} off until you turn it back on.`)) return;
+            }
             if (idx >= 0) {
                 globalSettings.disabledPlugins.splice(idx, 1);
             } else {
                 globalSettings.disabledPlugins.push(folderName);
             }
             saveToMemory();
+            // Turning a plugin on offers whatever it still needs.
+            if (!disabledNow && manifest) await ensurePluginDependencies(manifest);
             // Plugins that can clean up after themselves switch over immediately; the rest apply at the next start.
-            const manifest = installedPlugins.find(item => item._folderName === folderName);
-            if (disabledNow) stopPlugin(folderName);
-            else if (manifest && !manifest._unsupported) { try { startPlugin(manifest); } catch (e) { console.error('[Plugin] Failed to start', folderName, e); } }
+            syncRunningPlugins();
             renderPluginList();
         }
 
         async function deletePlugin(folderName) {
-            if (!await sailConfirm(`Delete plugin "${folderName}"? This cannot be undone.`)) return;
+            const manifest = installedPlugins.find(item => item._folderName === folderName);
+            const needed = manifest ? pluginDependentNames(manifest) : [];
+            const warning = needed.length ? `\n\n${needed.join(', ')} ${needed.length === 1 ? 'needs' : 'need'} it and will stay off until it is installed again.` : '';
+            if (!await sailConfirm(`Delete plugin "${folderName}"? This cannot be undone.${warning}`)) return;
             const userDataPath = await ipcRenderer.invoke('get-user-data');
             const pluginPath = path.join(userDataPath, 'plugins', folderName);
             try {
@@ -8041,6 +8106,7 @@
                 installedPlugins = installedPlugins.filter(p => p._folderName !== folderName);
                 globalSettings.disabledPlugins = (globalSettings.disabledPlugins || []).filter(n => n !== folderName);
                 saveToMemory();
+                syncRunningPlugins();
                 renderPluginList();
             } catch (e) { alert('Failed to delete plugin: ' + e.message); }
         }
@@ -8075,6 +8141,103 @@
             };
         }
 
+        // Installs a plugin archive (.zip, .rar, .7z) into the plugins folder and returns what was installed.
+        // `expect` ({ id, range }) refuses an archive that isn't the plugin a dependency asked for, before anything
+        // already installed is replaced.
+        async function installPluginArchive(archivePath, { sourceUrl = '', expect = null } = {}) {
+            const userDataPath = await ipcRenderer.invoke('get-user-data');
+            const pluginsDir = path.join(userDataPath, 'plugins');
+            const tempDir = path.join(pluginsDir, '_import_temp_' + Date.now());
+            fs.ensureDirSync(tempDir);
+            try {
+                const lower = String(archivePath).toLowerCase();
+                if (lower.endsWith('.rar')) await ipcRenderer.invoke('extract-rar', { rarPath: archivePath, destPath: tempDir });
+                else if (lower.endsWith('.7z')) await ipcRenderer.invoke('extract-7z', { archivePath, destPath: tempDir });
+                else await ipcRenderer.invoke('extract-zip', { zipPath: archivePath, destPath: tempDir });
+                // plugin.json can be at the top or one folder down.
+                let pluginRoot = tempDir;
+                if (!fs.existsSync(path.join(tempDir, 'plugin.json'))) {
+                    const folder = fs.readdirSync(tempDir, { withFileTypes: true })
+                        .find(entry => entry.isDirectory() && fs.existsSync(path.join(tempDir, entry.name, 'plugin.json')));
+                    if (folder) pluginRoot = path.join(tempDir, folder.name);
+                }
+                const manifestPath = path.join(pluginRoot, 'plugin.json');
+                if (!fs.existsSync(manifestPath)) throw new Error('Invalid plugin: no plugin.json found in the archive.');
+                const manifest = fs.readJsonSync(manifestPath);
+                const unsupported = pluginUnsupportedReason(manifest);
+                if (unsupported) throw new Error(unsupported);
+                if (expect && (PluginDependencies.pluginId(manifest) !== expect.id || !PluginDependencies.satisfies(String(manifest.version || ''), expect.range))) {
+                    throw new Error(`Sail Hub sent ${String(manifest.name || 'a different plugin').slice(0, 80)} ${String(manifest.version || '').slice(0, 40)} instead of ${expect.id}${expect.range ? ' ' + PluginDependencies.describeRange(expect.range) : ''}. Nothing was replaced.`);
+                }
+                if (sourceUrl) { manifest._sourceUrl = sourceUrl; fs.writeJsonSync(manifestPath, manifest, { spaces: 2 }); }
+                const folderName = (manifest.name || 'plugin-' + Date.now()).toLowerCase().replace(/[^a-z0-9-]/g, '-');
+                const finalPath = path.join(pluginsDir, folderName);
+                const wasInstalled = installedPlugins.some(p => p._folderName === folderName);
+                // A running copy that can't stop itself keeps running until Sail restarts.
+                const needsRestart = startedPlugins.has(folderName) && !runningPlugins.has(folderName);
+                stopPlugin(folderName);
+                if (fs.existsSync(finalPath)) fs.removeSync(finalPath);
+                fs.moveSync(pluginRoot, finalPath, { overwrite: true });
+                manifest._folderName = folderName;
+                manifest._path = finalPath;
+                manifest._unsupported = '';
+                installedPlugins = installedPlugins.filter(p => p._folderName !== folderName);
+                installedPlugins.push(manifest);
+                pluginSettingsStore.register(folderName, manifest.settings);
+                return { manifest, folderName, wasInstalled, needsRestart };
+            } finally {
+                if (fs.existsSync(tempDir)) fs.removeSync(tempDir);
+            }
+        }
+
+        function pluginInstalledMessage(installed) {
+            const { manifest, needsRestart } = installed;
+            const name = String(manifest.name || installed.folderName);
+            if (needsRestart) return `✅ Plugin "${name}" imported! Restart the launcher to activate it.`;
+            if (manifest._unmet && manifest._unmet.length) return `✅ Plugin "${name}" imported, but it stays off for now. ${manifest._unmet.map(PluginDependencies.describeUnmet).join('. ')}.`;
+            if (!pluginEnabled(manifest)) return `✅ Plugin "${name}" imported. It is turned off in the Plugin Manager.`;
+            if (manifest.type === 'layout') return `✅ Layout "${name}" imported.`;
+            return startedPlugins.has(installed.folderName) ? `✅ Plugin "${name}" imported and running.` : `✅ Plugin "${name}" imported! Restart the launcher to activate it.`;
+        }
+
+        // Offers what a plugin still needs: turns on a dependency that is switched off, and installs a missing or
+        // outdated one from Sail Hub by its item id once the person agrees. It goes one level further for those.
+        async function ensurePluginDependencies(manifest, depth = 0) {
+            resolvePluginDependencies();
+            const unmet = manifest._unmet || [];
+            const name = String(manifest.name || manifest._folderName);
+            const turnOn = unmet.filter(item => item.reason === 'disabled' && item.key);
+            const wanted = unmet.filter(item => item.reason === 'missing' || item.reason === 'version');
+            const manual = wanted.filter(item => !item.hub);
+            if (turnOn.length && await sailConfirm(`"${name}" needs ${turnOn.map(item => item.name || item.id).join(', ')}, which ${turnOn.length === 1 ? 'is' : 'are'} turned off. Turn ${turnOn.length === 1 ? 'it' : 'them'} on?`)) {
+                globalSettings.disabledPlugins = (globalSettings.disabledPlugins || []).filter(folder => !turnOn.some(item => item.key === folder));
+                saveToMemory();
+            }
+            const found = [], tooOld = [];
+            for (const item of wanted.filter(entry => entry.hub)) {
+                const hubItem = await fetchSailHubItem(item.hub).catch(() => null);
+                if (!hubItem || hubItem.type !== 'plugin' || !hubItem.file_url) manual.push(item);
+                // Sail Hub lists the version, so an upload that can't satisfy the range isn't downloaded at all.
+                else if (hubItem.version && !PluginDependencies.satisfies(String(hubItem.version), item.range)) tooOld.push({ item, hubItem });
+                else found.push({ item, hubItem });
+            }
+            if (tooOld.length) alert(`"${name}" needs ${tooOld.map(({ item, hubItem }) => `${String(hubItem.name).slice(0, 80)} ${PluginDependencies.describeRange(item.range)}`).join(', ')}, but Sail Hub only has ${tooOld.map(({ hubItem }) => String(hubItem.version).slice(0, 40)).join(', ')} so far.`);
+            if (found.length && await sailConfirm(`"${name}" needs:\n\n${found.map(({ hubItem }) => `• ${String(hubItem.name).slice(0, 80)} ${String(hubItem.version || '').slice(0, 40)}`).join('\n')}\n\nInstall ${found.length === 1 ? 'it' : 'them'} from Sail Hub now?`)) {
+                for (const { item, hubItem } of found) {
+                    try {
+                        const download = await ipcRenderer.invoke('hub-download-file', { fileUrl: hubItem.file_url, type: 'plugin' });
+                        if (!download || !download.success) throw new Error('The download did not finish.');
+                        try {
+                            const installed = await installPluginArchive(download.path, { sourceUrl: hubItem.file_url, expect: { id: item.id, range: item.range } });
+                            if (depth < 1) await ensurePluginDependencies(installed.manifest, depth + 1);
+                        } finally { try { fs.unlinkSync(download.path); } catch (_) { } }
+                    } catch (error) { alert(`Couldn't install ${String(hubItem.name).slice(0, 80)}: ${error.message}`); }
+                }
+            }
+            if (manual.length) alert(`"${name}" can't run yet. ${manual.map(PluginDependencies.describeUnmet).join('. ')}. Sail Hub doesn't list ${manual.length === 1 ? 'it' : 'them'}, so install ${manual.length === 1 ? 'it' : 'them'} yourself.`);
+            resolvePluginDependencies();
+        }
+
         async function importPlugin() {
             const result = await ipcRenderer.invoke('open-file-dialog', {
                 title: 'Import Plugin (.zip, .rar, .7z)',
@@ -8083,60 +8246,12 @@
             if (!result) return;
             const prog = startInstallProgress('Extracting plugin archive…');
             try {
-                const userDataPath = await ipcRenderer.invoke('get-user-data');
-                const pluginsDir = path.join(userDataPath, 'plugins');
-                // Extract to a temp folder, then move
-                const tempDir = path.join(pluginsDir, '_import_temp_' + Date.now());
-                fs.ensureDirSync(tempDir);
-                if (result.toLowerCase().endsWith('.rar')) {
-                    await ipcRenderer.invoke('extract-rar', { rarPath: result, destPath: tempDir });
-                } else if (result.toLowerCase().endsWith('.7z')) {
-                    await ipcRenderer.invoke('extract-7z', { archivePath: result, destPath: tempDir });
-                } else {
-                    await ipcRenderer.invoke('extract-zip', { zipPath: result, destPath: tempDir });
-                }
-                prog.set('Installing files…');
-                // Find plugin.json (might be in root or in a subfolder)
-                let pluginRoot = tempDir;
-                if (!fs.existsSync(path.join(tempDir, 'plugin.json'))) {
-                    const subdirs = fs.readdirSync(tempDir, { withFileTypes: true }).filter(d => d.isDirectory());
-                    for (const sd of subdirs) {
-                        if (fs.existsSync(path.join(tempDir, sd.name, 'plugin.json'))) {
-                            pluginRoot = path.join(tempDir, sd.name);
-                            break;
-                        }
-                    }
-                }
-                if (!fs.existsSync(path.join(pluginRoot, 'plugin.json'))) {
-                    fs.removeSync(tempDir);
-                    prog.done(false);
-                    return alert('Invalid plugin: no plugin.json found in the archive.');
-                }
-                const manifest = fs.readJsonSync(path.join(pluginRoot, 'plugin.json'));
-                const unsupported = pluginUnsupportedReason(manifest);
-                if (unsupported) { fs.removeSync(tempDir); prog.done(false); return alert(unsupported); }
-                const folderName = (manifest.name || 'plugin-' + Date.now()).toLowerCase().replace(/[^a-z0-9-]/g, '-');
-                const finalPath = path.join(pluginsDir, folderName);
-                // A running copy that can stop itself is replaced on the spot; anything else needs a restart.
-                const wasInstalled = installedPlugins.some(p => p._folderName === folderName);
-                const wasRunning = runningPlugins.has(folderName);
-                stopPlugin(folderName);
-                if (fs.existsSync(finalPath)) fs.removeSync(finalPath);
-                fs.moveSync(pluginRoot, finalPath, { overwrite: true });
-                if (fs.existsSync(tempDir)) fs.removeSync(tempDir);
-                manifest._folderName = folderName;
-                manifest._path = finalPath;
-                installedPlugins = installedPlugins.filter(p => p._folderName !== folderName);
-                installedPlugins.push(manifest);
-                pluginSettingsStore.register(folderName, manifest.settings);
-                const disabled = (globalSettings.disabledPlugins || []).includes(folderName);
-                let started = false;
-                if (!unsupported && !disabled && (!wasInstalled || wasRunning)) {
-                    try { startPlugin(manifest); started = true; } catch (e) { console.error('[Plugin] Failed to start', folderName, e); }
-                }
-                renderPluginList();
+                const installed = await installPluginArchive(result);
                 prog.done(true);
-                alert(started ? `✅ Plugin "${manifest.name}" imported and running.` : `✅ Plugin "${manifest.name}" imported! Restart the launcher to activate it.`);
+                await ensurePluginDependencies(installed.manifest);
+                syncRunningPlugins();
+                renderPluginList();
+                alert(pluginInstalledMessage(installed));
             } catch (e) { prog.done(false); alert('Import failed: ' + e.message); }
         }
 
@@ -8185,6 +8300,10 @@
         }
 
         function findRemoteMatch(plugin, remoteItems) {
+            // 0. The plugin's own id, once Sail Hub records it
+            const id = PluginDependencies.pluginId(plugin);
+            const byId = id && remoteItems.find(i => i.plugin_id && i.plugin_id === id);
+            if (byId) return byId;
             // 1. Exact _sourceUrl match (URL already known from a previous install)
             const byUrl = remoteItems.find(i => plugin._sourceUrl && plugin._sourceUrl === i.file_url);
             if (byUrl) return byUrl;
@@ -8208,8 +8327,9 @@
             });
         }
 
-        async function fetchRemotePlugins() {
-            const res = await fetch('https://vglpzpffejwgttlqrums.supabase.co/rest/v1/items?type=eq.plugin&select=*', {
+        const SAIL_HUB_ITEMS = 'https://vglpzpffejwgttlqrums.supabase.co/rest/v1/items';
+        async function fetchRemotePlugins(query = 'type=eq.plugin&select=*') {
+            const res = await fetch(`${SAIL_HUB_ITEMS}?${query}`, {
                 headers: {
                     'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZnbHB6cGZmZWp3Z3R0bHFydW1zIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzczMTUwNDUsImV4cCI6MjA5Mjg5MTA0NX0.2g1thhc4pbrRP8LbYPpOsTACj2VNMzldXbrIArBdVqE',
                     'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZnbHB6cGZmZWp3Z3R0bHFydW1zIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzczMTUwNDUsImV4cCI6MjA5Mjg5MTA0NX0.2g1thhc4pbrRP8LbYPpOsTACj2VNMzldXbrIArBdVqE'
@@ -8217,6 +8337,14 @@
             });
             const data = await res.json();
             return Array.isArray(data) ? data : [data];
+        }
+
+        // One Sail Hub item, by its id. Dependencies name the item they need; nothing else is looked up.
+        async function fetchSailHubItem(itemId) {
+            const id = String(itemId || '').toLowerCase();
+            if (!PluginDependencies.HUB_ITEM.test(id)) return null;
+            const rows = await fetchRemotePlugins(`id=eq.${id}&select=id,name,version,file_url,type`);
+            return rows.find(row => row && String(row.id).toLowerCase() === id) || null;
         }
 
         async function checkPluginUpdates() {
@@ -11732,52 +11860,13 @@
                         } else if (type === 'plugin') {
                             if (result.fileName.endsWith('.zip') || result.fileName.endsWith('.rar') || result.fileName.endsWith('.7z')) {
                                 try {
-                                    const userDataPath = await ipcRenderer.invoke('get-user-data');
-                                    const pluginsDir = path.join(userDataPath, 'plugins');
-                                    const tempDir = path.join(pluginsDir, '_hub_temp_' + Date.now());
-                                    fs.ensureDirSync(tempDir);
-
-                                    if (result.fileName.endsWith('.rar')) {
-                                        await ipcRenderer.invoke('extract-rar', { rarPath: result.path, destPath: tempDir });
-                                    } else if (result.fileName.endsWith('.7z')) {
-                                        await ipcRenderer.invoke('extract-7z', { archivePath: result.path, destPath: tempDir });
-                                    } else {
-                                        await ipcRenderer.invoke('extract-zip', { zipPath: result.path, destPath: tempDir });
-                                    }
+                                    const installed = await installPluginArchive(result.path, { sourceUrl: fileUrl });
                                     try { fs.unlinkSync(result.path); } catch (e) { }
-
-                                    let pluginRoot = tempDir;
-                                    if (!fs.existsSync(path.join(tempDir, 'plugin.json'))) {
-                                        const subdirs = fs.readdirSync(tempDir, { withFileTypes: true }).filter(d => d.isDirectory());
-                                        for (const sd of subdirs) {
-                                            if (fs.existsSync(path.join(tempDir, sd.name, 'plugin.json'))) {
-                                                pluginRoot = path.join(tempDir, sd.name); break;
-                                            }
-                                        }
-                                    }
-
-                                    if (!fs.existsSync(path.join(pluginRoot, 'plugin.json'))) {
-                                        fs.removeSync(tempDir);
-                                        hubAlert('❌ Invalid plugin: no plugin.json found in the archive.');
-                                        return;
-                                    }
-
-                                    const manifestPath = path.join(pluginRoot, 'plugin.json');
-                                    const manifest = fs.readJsonSync(manifestPath);
-                                    const unsupported = pluginUnsupportedReason(manifest);
-                                    if (unsupported) { fs.removeSync(tempDir); throw new Error(unsupported); }
-                                    manifest._sourceUrl = fileUrl;
-                                    fs.writeJsonSync(manifestPath, manifest, { spaces: 2 });
-
-                                    const folderName = (manifest.name || 'plugin-' + Date.now()).toLowerCase().replace(/[^a-z0-9-]/g, '-');
-                                    const finalPath = path.join(pluginsDir, folderName);
-
-                                    if (fs.existsSync(finalPath)) fs.removeSync(finalPath);
-                                    fs.moveSync(pluginRoot, finalPath, { overwrite: true });
-                                    if (fs.existsSync(tempDir)) fs.removeSync(tempDir);
-
-                                    try { logManagerDownload({ name: manifest.name, category: 'plugin', folder: finalPath, sourceId: 'sailhub' }); } catch (e) {}
-                                    hubAlert(`✅ Plugin "${manifest.name}" installed!\n\nRestart the launcher to load it.`);
+                                    await ensurePluginDependencies(installed.manifest);
+                                    syncRunningPlugins();
+                                    renderPluginList();
+                                    try { logManagerDownload({ name: installed.manifest.name, category: 'plugin', folder: installed.manifest._path, sourceId: 'sailhub' }); } catch (e) {}
+                                    hubAlert(pluginInstalledMessage(installed));
                                 } catch (err) {
                                     try { fs.unlinkSync(result.path); } catch (e) { }
                                     hubAlert(`❌ Plugin extraction failed: ${err.message}`);
