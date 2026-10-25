@@ -27,6 +27,9 @@ module.exports = function (SailAPI, context) {
         } catch (_) { /* Nothing to carry over. */ }
     })();
 
+    // The words the engine draws; the layout that is showing may replace them (its manifest's "labels").
+    let L = { ...packs.LABELS };
+
     // The friends panel can be switched from the menu bar and the bottom bar; the layout that is showing decides how.
     let friends = { shown: () => true, toggle() {} };
 
@@ -41,8 +44,8 @@ module.exports = function (SailAPI, context) {
     function formatDay(ms) {
         if (!ms) return 'Never';
         const days = Math.floor((new Date().setHours(0, 0, 0, 0) - new Date(ms).setHours(0, 0, 0, 0)) / 86400000);
-        if (days <= 0) return 'Today';
-        if (days === 1) return 'Yesterday';
+        if (days <= 0) return L.today;
+        if (days === 1) return L.yesterday;
         return new Date(ms).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
     }
     function formatPlaytime(seconds) {
@@ -155,6 +158,19 @@ module.exports = function (SailAPI, context) {
         }
 
         function mount() {
+            L = { ...packs.LABELS, ...(loaded.labels || {}) };
+            undo.push(() => { L = { ...packs.LABELS }; });
+            // Name the parts of Sail a pack may style (see packs.HOOKS), so its CSS can find them by data-sl-region / data-sl-tab.
+            const marked = [];
+            for (const [name, selector] of Object.entries(packs.HOOKS)) {
+                for (const node of document.querySelectorAll(selector)) if (!node.hasAttribute('data-sl-region')) { node.setAttribute('data-sl-region', name); marked.push([node, 'data-sl-region']); }
+            }
+            for (const [key, id] of Object.entries(packs.TABS)) {
+                const link = document.getElementById(id);
+                if (link) { link.setAttribute('data-sl-tab', key); marked.push([link, 'data-sl-tab']); }
+            }
+            undo.push(() => { for (const [node, attribute] of marked) node.removeAttribute(attribute); });
+
             // The engine's structure, then the pack's own look on top.
             const engineStyle = el('style', { id: 'sl-engine-style' });
             engineStyle.textContent = fs.readFileSync(path.join(__dirname, 'layouts', 'engine.css'), 'utf8');
@@ -185,6 +201,10 @@ module.exports = function (SailAPI, context) {
             if (config.titleBar && config.titleBar.menu === 'full') {
                 const menubar = buildMenubar(pack);
                 undo.push(() => menubar.destroy());
+            } else if (config.profilePage) {
+                // No menu bar: the profile button still gets the account menu, so the profile page can be opened.
+                const accountMenu = buildMenubar(pack, { accountOnly: true });
+                undo.push(() => accountMenu.destroy());
             }
 
             // Page tabs move up into the title bar, and fold into a "..." menu when there is not room.
@@ -253,8 +273,8 @@ module.exports = function (SailAPI, context) {
     }
 
     function buildGameList() {
-        const search = el('input', { class: 'sl-search', type: 'text', placeholder: 'Search', 'aria-label': 'Search games', spellcheck: 'false' });
-        const home = el('button', { type: 'button', class: 'sl-home' }, [svg(['M3 11l9-8 9 8', 'M5 10v10h5v-6h4v6h5V10'], 15), 'Home']);
+        const search = el('input', { class: 'sl-search', type: 'text', placeholder: L.search, 'aria-label': 'Search games', spellcheck: 'false' });
+        const home = el('button', { type: 'button', class: 'sl-home' }, [svg(['M3 11l9-8 9 8', 'M5 10v10h5v-6h4v6h5V10'], 15), L.home]);
         home.addEventListener('click', () => SailAPI.showTab('library'));
         const view = el('button', { type: 'button', class: 'sl-viewtoggle', title: 'Switch between cover grid and list', 'aria-label': 'Switch between cover grid and list' }, [svg(['M4 4h7v7H4z', 'M13 4h7v7h-7z', 'M4 13h7v7H4z', 'M13 13h7v7h-7z'], 14)]);
         view.addEventListener('click', () => { const toggle = document.getElementById('viewToggleBtn'); if (toggle) toggle.click(); });
@@ -314,7 +334,9 @@ module.exports = function (SailAPI, context) {
     // profile button. Every entry presses a button or calls a function the launcher already has, so nothing here can
     // do more than the controls it replaces. Anything the screen already has a button for (the page tabs, the Downloads
     // and Add a Game buttons below, the grid toggle) is left out of the menus.
-    function buildMenubar(pack) {
+    // With accountOnly, only the account dropdown on Sail's profile button is built: a layout without the menu bar
+    // still offers View My Profile.
+    function buildMenubar(pack, { accountOnly = false } = {}) {
         const titleBar = document.querySelector('.custom-titlebar');
         const controls = document.querySelector('.titlebar-controls');
         const pill = document.getElementById('accountPill');
@@ -336,7 +358,7 @@ module.exports = function (SailAPI, context) {
         };
         const signedIn = () => { const node = document.getElementById('accountSignedIn'); return !!node && node.style.display !== 'none'; };
         const inAccount = then => () => { window.openAccountModal(); then(); };
-        const MENUS = [
+        const MENUS = accountOnly ? [] : [
             { label: 'Sail', items: () => [
                 call('Account & Profiles…', 'openAccountModal', () => window.openAccountModal()), SEP,
                 viaId('Check for Sail Updates…', 'checkUpdateBtn'), SEP,
@@ -347,7 +369,7 @@ module.exports = function (SailAPI, context) {
                 viaButton('Statistics', 'stats'), SEP,
                 viaButton('Big Picture Mode', 'bigPicture')] },
             { label: 'Friends', items: () => [
-                item('Friends & Chat', () => friends.toggle(), { checked: friends.shown() }), SEP,
+                item(L.friends, () => friends.toggle(), { checked: friends.shown() }), SEP,
                 sortBy('Sort by Status', 'status'), sortBy('Sort by Name', 'name'), sortBy('Sort by Platform', 'platform')] },
             { label: 'Games', items: () => [
                 viaButton('Add a Game…', 'addGame'), viaButton('Select Games', 'selectMode'), SEP,
@@ -435,7 +457,7 @@ module.exports = function (SailAPI, context) {
         document.addEventListener('click', onDocument);
         document.addEventListener('keydown', onKey, true);
         document.body.append(popup);
-        titleBar.prepend(bar);
+        if (!accountOnly) titleBar.prepend(bar);
         return {
             destroy() {
                 if (controls) controls.removeEventListener('click', onAccountClick, true);
@@ -521,19 +543,19 @@ module.exports = function (SailAPI, context) {
 
     // The strip along the bottom: add a game, downloads, friends, as the pack lists them.
     function buildBottomBar(items) {
-        const add = el('button', { type: 'button', class: 'sl-bottom-btn' }, [svg(['M12 5v14', 'M5 12h14'], 14), 'Add a Game']);
+        const add = el('button', { type: 'button', class: 'sl-bottom-btn' }, [svg(['M12 5v14', 'M5 12h14'], 14), L.addGame]);
         add.addEventListener('click', () => { const target = document.getElementById('addGameBtn'); if (target) target.click(); });
-        const downloadText = el('span', { text: 'Downloads' });
+        const downloadText = el('span', { text: L.downloads });
         const downloads = el('button', { type: 'button', class: 'sl-bottom-btn' }, [svg(['M12 4v11', 'M7 11l5 5 5-5', 'M5 20h14'], 14), downloadText]);
         downloads.addEventListener('click', () => SailAPI.showTab('downloadmanager'));
-        const friendsButton = el('button', { type: 'button', class: 'sl-bottom-btn' }, ['Friends & Chat', svg(['M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'], 14)]);
+        const friendsButton = el('button', { type: 'button', class: 'sl-bottom-btn' }, [L.friends, svg(['M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'], 14)]);
         friendsButton.addEventListener('click', () => friends.toggle());
         const parts = { addGame: add, downloads, friends: friendsButton };
         const bar = el('div', { class: 'sl-bottom' }, items.flatMap((name, index) => index ? [el('span', { class: 'sl-spacer' }), parts[name]] : [parts[name]]));
         document.querySelector('.app-container').after(bar);
         function update() {
             const { active, total } = SailAPI.getDownloadSummary ? SailAPI.getDownloadSummary() : { active: 0, total: 0 };
-            downloadText.textContent = !total ? 'Downloads' : active ? `Downloads - ${active} of ${total} item${total === 1 ? '' : 's'} active` : `Downloads - ${total} of ${total} item${total === 1 ? '' : 's'} complete`;
+            downloadText.textContent = !total ? L.downloads : active ? `${L.downloads} - ${active} of ${total} item${total === 1 ? '' : 's'} active` : `${L.downloads} - ${total} of ${total} item${total === 1 ? '' : 's'} complete`;
         }
         update();
         const timer = setInterval(update, 1500);
@@ -552,11 +574,11 @@ module.exports = function (SailAPI, context) {
         if (toolbar && header === 'count') toolbar.prepend(title);
         const when = ms => {
             const days = Math.floor((new Date().setHours(0, 0, 0, 0) - new Date(ms).setHours(0, 0, 0, 0)) / 86400000);
-            return days <= 0 ? 'Today' : days === 1 ? 'Yesterday' : days < 7 ? 'This week' : days < 31 ? 'This month' : 'Earlier';
+            return days <= 0 ? L.today : days === 1 ? L.yesterday : days < 7 ? L.thisWeek : days < 31 ? L.thisMonth : L.earlier;
         };
         function update() {
             const games = SailAPI.getGames();
-            title.textContent = `All Games (${games.length})`;
+            title.textContent = L.allGames.replace('{count}', String(games.length));
             if (shelfKind !== 'recent') return;
             const recent = games.filter(game => game.lastPlayed).sort((a, b) => b.lastPlayed - a.lastPlayed).slice(0, 6);
             shelf.hidden = !recent.length;
@@ -570,7 +592,7 @@ module.exports = function (SailAPI, context) {
                 card.addEventListener('click', () => SailAPI.openGame(game.id));
                 return card;
             });
-            shelf.replaceChildren(el('h2', { class: 'sl-shelf-title', text: 'Recent Games' }), el('div', { class: 'sl-shelf-row' }, cards));
+            shelf.replaceChildren(el('h2', { class: 'sl-shelf-title', text: L.recentGames }), el('div', { class: 'sl-shelf-row' }, cards));
         }
         return { update, destroy() { shelf.remove(); title.remove(); } };
     }
@@ -760,11 +782,11 @@ module.exports = function (SailAPI, context) {
         const kids = Array.from(content.children);
         const holds = (kid, id) => kid.id === id || !!kid.querySelector(`#${id}`);
         const PAGES = [
-            { id: 'general', label: 'General', parts: ['perGameAdminToggle', 'highPriorityToggle', 'launchArgsInput', 'companionAppInput', 'preLaunchInput', 'postLaunchInput'], save: true },
-            { id: 'compat', label: 'Compatibility', parts: ['nativeLaunchFields', 'protonSetupPanel', 'linuxDownloadedGamePanel', 'protonInstallationPanel', 'protonLaunchLogPanel'], save: true },
-            { id: 'saves', label: 'Saves', parts: ['protonSavesPanel', 'manualGameConfigSyncSection', 'saveVersionSection'] },
-            { id: 'files', label: 'Installed Files', parts: ['browseLocalFilesBtn', 'backupGameBtn', 'uninstallGameSection'] },
-            { id: 'library', label: 'Library', parts: ['editFromPageBtn'] }
+            { id: 'general', label: L.pageGeneral, parts: ['perGameAdminToggle', 'highPriorityToggle', 'launchArgsInput', 'companionAppInput', 'preLaunchInput', 'postLaunchInput'], save: true },
+            { id: 'compat', label: L.pageCompat, parts: ['nativeLaunchFields', 'protonSetupPanel', 'linuxDownloadedGamePanel', 'protonInstallationPanel', 'protonLaunchLogPanel'], save: true },
+            { id: 'saves', label: L.pageSaves, parts: ['protonSavesPanel', 'manualGameConfigSyncSection', 'saveVersionSection'] },
+            { id: 'files', label: L.pageFiles, parts: ['browseLocalFilesBtn', 'backupGameBtn', 'uninstallGameSection'] },
+            { id: 'library', label: L.pageLibrary, parts: ['editFromPageBtn'] }
         ];
         const footIds = ['approveLocalExecutionBtn', 'discardLocalExecutionBtn', 'localExecutionSetupStatus'];
         const chrome = kids.filter(kid => kid.classList.contains('close-x') || kid.tagName === 'H2');
@@ -864,7 +886,7 @@ module.exports = function (SailAPI, context) {
     function buildStats(list) {
         const bar = document.querySelector('.gp-action-bar');
         const make = label => { const value = el('b', { text: '-' }); return { value, node: el('div', { class: 'sl-stat' }, [el('small', { text: label }), value]) }; };
-        const last = make('Last played'), time = make('Play time'), trophies = make('Achievements');
+        const last = make(L.lastPlayed), time = make(L.playtime), trophies = make(L.achievements);
         const byName = { lastPlayed: last, playtime: time, achievements: trophies };
         const wrap = el('div', { class: 'sl-stats' }, list.map(name => byName[name].node));
         const anchor = bar && (bar.querySelector('#gpStopBtn') || bar.querySelector('#gpPlayBtn'));

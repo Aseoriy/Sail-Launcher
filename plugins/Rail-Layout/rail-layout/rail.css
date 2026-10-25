@@ -17,8 +17,8 @@ html & { background: #0f1117 !important; }
 &.sl-opt-accent-teal { --sl-accent: #14b8a6; --sl-accent-2: #5eead4; --sl-accent-dark: #0f766e; --accent: #14b8a6; --accent-hover: #5eead4; }
 &.sl-opt-accent-amber { --sl-accent: #f59e0b; --sl-accent-2: #fcd34d; --sl-accent-dark: #b45309; --accent: #f59e0b; --accent-hover: #fcd34d; }
 
-/* ---- Sail's title bar, flat and quiet ---- */
-.custom-titlebar { background: #0b0d13 !important; border-bottom: 1px solid rgba(255, 255, 255, .04) !important; backdrop-filter: none !important; }
+/* ---- Sail's title bar, flat and quiet (found by its region hook) ---- */
+[data-sl-region="titlebar"] { background: #0b0d13 !important; border-bottom: 1px solid rgba(255, 255, 255, .04) !important; backdrop-filter: none !important; }
 
 /* ---- The rail: Sail's sidebar with icons only ---- */
 #mainSidebar.sidebar { width: 76px !important; min-width: 76px !important; padding: 16px 10px 0 !important; background: #0b0d13 !important; border-right: 1px solid rgba(255, 255, 255, .04) !important; box-shadow: none !important; backdrop-filter: none !important; display: flex !important; flex-direction: column; }
@@ -63,9 +63,9 @@ html & { background: #0f1117 !important; }
 
 /* ---- Game page: a taller hero and a round Play button in the accent colour ---- */
 &.sl-hero .gp-header { height: 420px; margin-top: -30px; }
-/* Sail draws a panel behind the title; the hero's own fade is enough. */
-&.sl-hero .gp-header-content { width: auto; padding: 0; background: none; }
 &.sl-hero .gp-header::after { background: linear-gradient(180deg, rgba(15, 17, 23, 0) 25%, rgba(15, 17, 23, .7) 72%, #0f1117 100%); }
+/* Line the title up with the Play button below it. */
+&.sl-hero .gp-header-content { padding-left: 0; padding-right: 0; }
 &.sl-hero .gp-title { font-size: 46px; font-weight: 800; letter-spacing: -.02em; }
 &.sl-hero .gp-action-bar { background: transparent; border-bottom: 0; }
 #gpPlayBtn, .gp-play-btn { height: 48px; min-width: 160px; padding: 0 30px; border: 0 !important; border-radius: 999px !important; background: var(--sl-accent) !important; color: #fff !important; font-weight: 700; box-shadow: 0 8px 24px color-mix(in srgb, var(--sl-accent) 45%, transparent) !important; transform: none !important; }

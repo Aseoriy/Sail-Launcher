@@ -1,6 +1,6 @@
 {
     "name": "Library Layouts",
-    "version": "2.0.0",
+    "version": "2.1.0",
     "author": "Aseoriy",
     "description": "A layout engine for Sail: re-lays out the whole launcher from layout packs, like themes for other game clients. Steam comes built in (a menu bar and top tabs, a game list on the left, a cover-art home page and a hero game page). Install more layouts from Sail Hub or make your own.",
     "main": "index.js",

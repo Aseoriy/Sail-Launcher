@@ -7,13 +7,34 @@ const fs = require('fs');
 const path = require('path');
 const { pathToFileURL } = require('url');
 
-const CONTRACT = 1;
+// Contract 2 added labels, the region hooks and the account menu without a menu bar; contract 1 packs still work.
+const CONTRACT = 2;
+const OLDEST_CONTRACT = 1;
 const FILE_TYPES = new Set(['.json', '.css', '.png', '.jpg', '.jpeg', '.webp', '.gif', '.svg', '.woff', '.woff2', '.md', '.txt']);
 const LIMITS = { files: 200, depth: 4, fileBytes: 5 * 1024 * 1024, packBytes: 20 * 1024 * 1024, cssBytes: 512 * 1024, styles: 8, tokens: 120 };
 
 // Sail's page tabs, by the names packs use.
 const TABS = { library: 'tabLibrary', downloads: 'tabDownloads', mods: 'tabStore', workshop: 'tabWorkshop', downloadsmgr: 'tabDownloadsMgr', achievements: 'tabAchievements', maintenance: 'tabMaintenance' };
 const STATS = ['lastPlayed', 'playtime', 'achievements'];
+
+// Parts of Sail a pack's CSS may style, by name. These stay in Sail's markup (a test in Sail checks every one), and
+// while a layout is on the engine also marks each with data-sl-region="<name>". Sail styles several of them by id
+// with !important, so to change those a pack uses the id itself (for example #mainSidebar); the region attribute
+// is for the ones without an id and for anything that doesn't need to outweigh Sail.
+const HOOKS = {
+    titlebar: '.custom-titlebar', sidebar: '#mainSidebar', nav: '#sidebarNavHeader', main: '#mainScroller', friends: '#socialSidebar',
+    home: '#libraryView', grid: '#gameGrid', continue: '#continuePlayingCard', gamepage: '#gamePageView', hero: '.gp-header',
+    heroTitle: '.gp-header-content', actionbar: '.gp-action-bar', play: '#gpPlayBtn', stop: '#gpStopBtn', manage: '#gameSettingsModal'
+};
+
+// Words the engine draws, which a pack may replace (text only). {count} is the number of games.
+const LABELS = {
+    home: 'Home', search: 'Search', recentGames: 'Recent Games', allGames: 'All Games ({count})',
+    today: 'Today', yesterday: 'Yesterday', thisWeek: 'This week', thisMonth: 'This month', earlier: 'Earlier',
+    lastPlayed: 'Last played', playtime: 'Play time', achievements: 'Achievements',
+    pageGeneral: 'General', pageCompat: 'Compatibility', pageSaves: 'Saves', pageFiles: 'Installed Files', pageLibrary: 'Library',
+    addGame: 'Add a Game', downloads: 'Downloads', friends: 'Friends & Chat'
+};
 const BOTTOM = ['addGame', 'downloads', 'friends'];
 
 const slug = id => String(id || '').toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80) || 'pack';
@@ -97,6 +118,19 @@ function resolveBlocks(blocks, settings = {}) {
     return { config, warnings };
 }
 
+// A pack's own words for the engine's labels. Unknown keys are ignored; text is used as text, never as markup.
+function labels(raw) {
+    const result = { ...LABELS }, warnings = [];
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { result, warnings };
+    for (const [key, value] of Object.entries(raw)) {
+        if (!Object.prototype.hasOwnProperty.call(LABELS, key)) { warnings.push(`Unknown label "${String(key).slice(0, 40)}" was ignored.`); continue; }
+        const text = typeof value === 'string' ? value.replace(/[\u0000-\u001f\u007f]/g, '').trim().slice(0, 60) : '';
+        if (!text) { warnings.push(`The label "${key}" is empty.`); continue; }
+        result[key] = text;
+    }
+    return { result, warnings };
+}
+
 // Tokens are CSS custom properties the pack sets while it is shown: plain values only.
 function tokens(raw) {
     const result = {}, warnings = [];
@@ -169,7 +203,7 @@ function loadPack(folder, manifest) {
     const layout = manifest && manifest.layout;
     if (manifest && manifest.main) problems.push('Layout packs cannot contain code.');
     if (!layout || typeof layout !== 'object' || Array.isArray(layout)) problems.push('plugin.json has no "layout" section.');
-    if (layout && layout.contract !== undefined && layout.contract !== CONTRACT) {
+    if (layout && layout.contract !== undefined && !(Number.isInteger(layout.contract) && layout.contract >= OLDEST_CONTRACT && layout.contract <= CONTRACT)) {
         problems.push(layout.contract > CONTRACT ? 'This pack needs a newer Library Layouts.' : 'This pack was made for an older Library Layouts.');
     }
     problems.push(...checkFiles(folder));
@@ -186,6 +220,8 @@ function loadPack(folder, manifest) {
     }
     const tokenResult = tokens(layout && layout.tokens);
     warnings.push(...tokenResult.warnings);
+    const labelResult = labels(layout && layout.labels);
+    warnings.push(...labelResult.warnings);
     const preview = layout && typeof layout.preview === 'string' ? path.resolve(folder, layout.preview) : '';
     return {
         ok: !problems.length,
@@ -194,9 +230,10 @@ function loadPack(folder, manifest) {
         folder,
         styles: problems.length ? [] : styles,
         tokens: tokenResult.result,
+        labels: labelResult.result,
         blocks: layout && layout.blocks,
         preview: preview && preview.startsWith(folder + path.sep) && fs.existsSync(preview) ? pathToFileURL(preview).href : ''
     };
 }
 
-module.exports = { CONTRACT, TABS, STATS, BOTTOM, allowedUrl, checkFiles, folderUrl, loadPack, optionClasses, param, prepareCss, resolveBlocks, slug, tokens };
+module.exports = { CONTRACT, OLDEST_CONTRACT, TABS, STATS, BOTTOM, HOOKS, LABELS, allowedUrl, labels, checkFiles, folderUrl, loadPack, optionClasses, param, prepareCss, resolveBlocks, slug, tokens };

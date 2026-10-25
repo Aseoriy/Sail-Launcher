@@ -1,13 +1,13 @@
 {
     "id": "aseoriy.rail-layout",
     "name": "Rail",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "author": "Aseoriy",
     "description": "A slim icon rail on the left, big rounded covers, a recently played row and a tall hero game page, in deep navy with a colour of your choice.",
     "type": "layout",
     "requires": {
         "aseoriy.library-layouts": {
-            "version": "^2.0.0",
+            "version": "^2.1.0",
             "hub": "b2ac4147-faca-4770-87d2-b429a8fa5abf"
         }
     },
@@ -61,7 +61,7 @@
         }
     ],
     "layout": {
-        "contract": 1,
+        "contract": 2,
         "styles": [
             "rail.css"
         ],
@@ -111,7 +111,12 @@
                     "true": "shown",
                     "false": "hidden"
                 }
-            }
+            },
+            "profilePage": true
+        },
+        "labels": {
+            "recentGames": "Recently played",
+            "pageGeneral": "Launch"
         }
     }
 }
