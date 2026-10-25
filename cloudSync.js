@@ -17,8 +17,9 @@ const DEFAULT_CREDS = {
         clientId: '',
         clientSecret: ''
     },
+    // Dropbox app key for PKCE sign-in; its secret stays on the Sail server only.
     dropbox: {
-        clientId: '',
+        clientId: 'ln7wbdzi33ev466'.split('').reverse().join(''),
         clientSecret: ''
     }
 };
@@ -693,12 +694,10 @@ const dropbox = {
 
         let email = 'Dropbox Account';
         try {
+            // This endpoint takes no arguments; Dropbox rejects a JSON content type without a body.
             const userRes = await request('https://api.dropboxapi.com/2/users/get_current_account', {
                 method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${res.body.access_token}`,
-                    'Content-Type': 'application/json'
-                }
+                headers: { 'Authorization': `Bearer ${res.body.access_token}` }
             }, null);
             if (userRes.body && userRes.body.email) email = userRes.body.email;
         } catch(e) {}

@@ -14983,14 +14983,7 @@
         };
 
         window.linkCloudAccount = async function(provider) {
-            if (!globalSettings.customCloudKeys && provider === 'onedrive') {
-                alert('OneDrive requires your own Microsoft app credentials. Enable "Use Custom Client Keys" and enter your OneDrive Client ID first.');
-                return;
-            }
-            if (!globalSettings.customCloudKeys && provider === 'dropbox' && !accountUiState.signedIn) {
-                alert('Sign in to your Sail account first, then Dropbox can be connected with Sail’s built-in app and carried to your other PCs.');
-                return;
-            }
+            // Providers without a built-in app are explained by the main process.
 
             if (globalSettings.customCloudKeys) {
                 if (provider === 'google' && !document.getElementById('custom-google-id').value.trim()) {
