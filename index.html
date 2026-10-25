@@ -7069,6 +7069,7 @@
             getRuntimeId: () => document.getElementById('protonRuntimeSelect').value,
             getScope: () => launcherProfileState ? `${launcherProfileState.activeProfileId}:${launcherProfileState.activeLibraryId}` : '',
             onImport: () => window.importLinuxGameArchive(),
+            onResume: row => window.resumeRetainedLinuxDownload(row),
             onChanged: result => {
                 if (result?.state && result?.snapshot) applyLauncherSnapshot(result);
                 if (result?.gameId) document.dispatchEvent(new CustomEvent('sail-local-execution-changed', { detail: { gameId: String(result.gameId) } }));
@@ -22035,7 +22036,32 @@
             renderDock();
             pumpBulkDownloadRetry();
         };
+        // A Linux download still paused when Sail last closed resumes from the request main saved for it.
+        window.resumeRetainedLinuxDownload = function (row) {
+            const existing = dlQueue.get(row.id);
+            if (existing && existing.state === 'paused') { window.resumeDownload(row.id); return; }
+            if (existing && existing.state !== 'error') return;
+            const d = { id: row.id, name: row.gameName, image: '', sourceId: 'download', category: 'game', percent: 0,
+                state: 'resolving', label: 'Resuming…', error: '', resumeOpts: null, linuxRetained: true };
+            dlQueue.set(row.id, d); renderDock();
+            const settings = (window.sailDownloadBridge && window.sailDownloadBridge.getSettings()) || {};
+            if (settings.autoSwitchDownloads) switchMainTab('downloads');
+            try { if (typeof window.pushDebridConfigToMain === 'function') window.pushDebridConfigToMain(); } catch (e) {}
+            invokeAccount('linux-download-resume', { id: row.id }).catch(error => {
+                const current = dlQueue.get(row.id); if (!current) return;
+                current.state = 'error'; current.error = error && error.message || 'The download could not be resumed.'; renderDock();
+            }).finally(() => linuxDownloadsUi.refresh().catch(() => {}));
+        };
         window.resumeDownload = function (id, debridRetryToken = '') {
+            const retained = dlQueue.get(id);
+            if (retained && retained.linuxRetained && retained.state === 'paused') {
+                retained.state = 'resolving'; retained.label = 'Resuming…'; retained.error = ''; renderDock();
+                invokeAccount('linux-download-resume', { id }).catch(error => {
+                    const current = dlQueue.get(id); if (!current) return;
+                    current.state = 'error'; current.error = error && error.message || 'The download could not be resumed.'; renderDock();
+                });
+                return;
+            }
             const d = dlQueue.get(id); if (!d || !d.resumeOpts) return;
             if (process.platform === 'linux' && d.state !== 'paused') {
                 const freshId = 'dl_' + Date.now() + '_' + Math.floor(Math.random() * 1000000);

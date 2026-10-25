@@ -36,11 +36,17 @@ class LinuxDownloads {
                     }
                 } catch (_) { /* A renamed or missing tree cannot be adopted. */ }
             }
-            // The job registry lives only for this session, so a paused transfer cannot continue after a restart.
-            if (record.phase === 'paused') { record.phase = 'interrupted'; record.error = 'This download was paused when Sail closed. Its files were kept; remove it and start the download again.'; this.write(record); }
+            // A paused download keeps its request and staging folder, so it can resume after a restart.
+            // Records from older versions have no saved request and cannot.
+            if (record.phase === 'paused' && !this.resumable(record)) { record.phase = 'interrupted'; record.error = 'This download was paused when Sail closed. Its files were kept; remove it and start the download again.'; this.write(record); }
             if (ACTIVE.has(record.phase)) { record.phase = 'interrupted'; record.error = 'Download preparation was interrupted. Existing files were kept; import the saved archive or start a new download.'; this.write(record); }
         }
         this.initialized = true;
+    }
+    resumable(record) {
+        const request = record.request;
+        return record.published !== true && !!request && typeof request === 'object' && typeof request.installDir === 'string'
+            && (Array.isArray(request.links) && request.links.length > 0 || typeof request.url === 'string' && request.url !== '');
     }
     recordName(id) { return crypto.createHash('sha256').update(id).digest('hex') + '.json'; }
     write(record) {
@@ -103,7 +109,8 @@ class LinuxDownloads {
         this.initialize(); const scope = this.scope();
         const games = new Set(this.getStore().loadActiveSnapshot().myGames.map(game => String(game.id)));
         return { scope, downloads: [...this.records.values()].filter(record => record.scope.profileId === scope.profileId && record.scope.libraryId === scope.libraryId)
-            .map(record => record.scope.gameId === 'launcher-device' || !games.has(record.scope.gameId) ? { id: record.id, phase: games.has(record.scope.gameId) ? record.phase : record.published ? 'saved' : record.phase, gameName: record.gameName, error: record.error || '', canAdopt: record.published === true }
+            .map(record => record.scope.gameId === 'launcher-device' || !games.has(record.scope.gameId) ? { id: record.id, phase: games.has(record.scope.gameId) ? record.phase : record.published ? 'saved' : record.phase, gameName: record.gameName, error: record.error || '', canAdopt: record.published === true,
+                canResume: record.phase === 'paused' && !this.operations.has(record.id) && this.resumable(record) }
                 : { ...this.status(record.scope.gameId), gameName: record.gameName }) };
     }
     async adopt(event, { id }) {
@@ -132,7 +139,8 @@ class LinuxDownloads {
     // Removes an unfinished (failed, interrupted or stopped) download and the files Sail kept for it.
     async discard(event, { id }) {
         this.initialize(); const record = this.records.get(id);
-        if (!record || this.operations.has(id) || record.published === true || !['failed', 'canceled', 'interrupted'].includes(record.phase)) throw Error('Only unfinished downloads can be removed.');
+        if (!record || this.operations.has(id) || record.published === true || !['failed', 'canceled', 'interrupted', 'paused'].includes(record.phase)) throw Error('Only unfinished downloads can be removed.');
+        if (record.phase === 'paused' && this.registry.get(id)) throw Error('Cancel this paused download in the Downloads list instead.');
         this.authorize(event); this.sameScope(record);
         if (fs.existsSync(record.folder)) {
             this.validateFolder(record);
@@ -168,6 +176,14 @@ class LinuxDownloads {
         try { controller.job.activeOperation?.stop?.(); } catch (_) { /* The transfer ends on its own. */ }
         await Promise.race([controller.settled, new Promise(resolve => setTimeout(resolve, 15000))]);
         return this.records.get(id)?.phase === 'paused';
+    }
+    // Continues a paused download from its saved request, including one paused before Sail closed.
+    async resume(event, id) {
+        this.initialize(); const record = this.records.get(id);
+        if (!record || record.phase !== 'paused' || this.operations.has(id) || !this.resumable(record)) throw Error('This download can’t be resumed. Remove it and start the download again.');
+        this.authorize(event); this.sameScope(record);
+        const { request } = record;
+        return this.run(event, { ...request, links: request.links || [], id: record.id, gameName: record.gameName, sourceId: record.sourceId });
     }
     // Cancelling a paused download leaves an unfinished record the person can remove.
     cancelPaused(id) {
@@ -227,6 +243,9 @@ class LinuxDownloads {
         const progress = data => send('download-progress', { id: options.id, ...data,
             ...(data.percent !== undefined ? { percent: Math.floor(data.percent) } : {}),
             ...Object.fromEntries(['downloaded', 'total', 'speed'].filter(key => data[key] !== undefined).map(key => [key, formatBytes(data[key])])) });
+        // After a restart the paused job is re-registered around its own unchanged staging folder.
+        if (previous && !this.registry.get(options.id)) this.registry.restore(options.id, { gameName: options.gameName, installDir: options.installDir, defaultRoot: this.defaultRoot,
+            directory: previous.folder, matchesIdentity: folder => { this.validateFolder(previous); return folder === previous.folder; } });
         const job = this.registry.begin(options.id, { gameName: options.gameName, installDir: options.installDir, defaultRoot: this.defaultRoot });
         const continuation = await this.registry.beginAttempt(job), controller = { job, continuation, cancelled: false, paused: false };
         let settle; controller.settled = new Promise(resolve => { settle = resolve; });
@@ -238,7 +257,10 @@ class LinuxDownloads {
                 this.validateFolder(previous); record = previous; record.phase = 'downloading'; record.error = '';
             } else {
                 record = { protocol: 1, id: options.id, scope: initialScope, gameName: options.gameName, sourceId: options.sourceId,
-                    folder, folderIdentity: fileIdentity(folder, 'directory'), finalFolder: job.finalDirectory, published: false, phase: 'downloading', error: '', installationId: '', parts: {} };
+                    folder, folderIdentity: fileIdentity(folder, 'directory'), finalFolder: job.finalDirectory, published: false, phase: 'downloading', error: '', installationId: '', parts: {},
+                    // What a resume after a restart needs: source links (never resolved or debrid links) and the chosen options.
+                    request: imports ? null : { links: options.links || [], url: options.url || '', referer: options.referer || '', installDir: options.installDir || '',
+                        maxSpeed: options.maxSpeed, autoExtract: options.autoExtract, autoInstall: options.autoInstall, skipRedist: options.skipRedist, autoAdd: options.autoAdd, skipDebrid: options.skipDebrid === true } };
             }
             this.write(record); this.operations.set(options.id, record); this.activeDownloads.set(options.id, controller);
             await this.registry.attachControl(continuation, controller, 'downloading');

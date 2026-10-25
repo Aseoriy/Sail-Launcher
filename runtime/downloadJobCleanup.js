@@ -201,9 +201,37 @@ class DownloadJobDirectoryRegistry {
             }
             return existing;
         }
+        const roots = this.prepareRoots(gameName, installDir, input.defaultRoot);
+        const directory = path.join(roots.stagingRoot, this.jobDirectoryName());
+        if (!isStrictChildPath(roots.stagingRoot, directory)) throw new Error('The staging directory is invalid.');
+        return this.recordJob(key, gameName, installDir, roots, directory);
+    }
 
+    // Re-registers a job from an earlier session (a paused Linux download) around its
+    // existing staging directory. The directory must be one of this root's opaque job
+    // directories, unchanged since it was recorded.
+    restore(id, input = {}) {
+        const key = jobKey(id);
+        if (this.jobs.has(key)) throw new Error('This download job is already active.');
+        const gameName = text(input.gameName);
+        const installDir = normalizedInstallDir(input.installDir);
+        const roots = this.prepareRoots(gameName, installDir, input.defaultRoot);
+        const requested = typeof input.directory === 'string' ? input.directory : '';
+        if (path.dirname(requested) !== roots.stagingRoot || !new RegExp(`^[a-f0-9]{${JOB_DIRECTORY_BYTES * 2}}$`).test(path.basename(requested))) {
+            throw new Error('The paused download folder is not a Sail staging folder.');
+        }
+        const safe = resolveSafeDirectory(roots.stagingRoot, requested, this.fs);
+        const identity = safe && directoryIdentity(this.fs, safe);
+        if (!safe || !identity || !input.matchesIdentity || !input.matchesIdentity(safe)) throw new Error('The paused download folder changed. Start the download again.');
+        const job = this.recordJob(key, gameName, installDir, roots, safe);
+        job.directoryIdentity = identity;
+        job.createdDirectory = true;
+        return job;
+    }
+
+    prepareRoots(gameName, installDir, defaultRoot) {
         const finalName = sanitizeDownloadDirectoryName(gameName);
-        const requestedRoot = installDir || normalizedInstallDir(input.defaultRoot);
+        const requestedRoot = installDir || normalizedInstallDir(defaultRoot);
         if (!requestedRoot) throw new Error('A download root is required.');
         this.fs.mkdirSync(requestedRoot, { recursive: true });
         const root = realpath(this.fs, requestedRoot);
@@ -231,9 +259,10 @@ class DownloadJobDirectoryRegistry {
         const finalDirectory = path.join(root, finalName);
         if (!isStrictChildPath(root, finalDirectory)) throw new Error('The final download directory must be a strict child of its root.');
         if (this.fs.existsSync(finalDirectory)) throw new Error('The selected game directory already exists and will not be adopted.');
+        return { root, stagingRoot, quarantineRoot, finalDirectory };
+    }
 
-        const directory = path.join(stagingRoot, this.jobDirectoryName());
-        if (!isStrictChildPath(stagingRoot, directory)) throw new Error('The staging directory is invalid.');
+    recordJob(key, gameName, installDir, { root, stagingRoot, quarantineRoot, finalDirectory }, directory) {
         const job = {
             id: key,
             generation: this.randomBytes(16).toString('hex'),

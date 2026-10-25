@@ -105,7 +105,7 @@ function createSupportedIpcRegistrar(ipcMain, authorize, support) {
         'compatibility-dismiss-setup', 'proton-launch-log', 'proton-installation-status', 'proton-prerequisites',
         'proton-run-installer', 'proton-installation-cancel', 'proton-check-online-prerequisites',
         'proton-install-online-prerequisites', 'proton-cancel-online-prerequisites', 'proton-first-launch-plan', 'proton-first-launch-begin']);
-    const downloadHandles = new Set(['download-game', 'cancel-download', 'pick-download-folder', 'linux-download-import', 'linux-download-list', 'linux-download-adopt', 'linux-download-status', 'linux-download-configure', 'linux-download-open', 'linux-download-discard', 'get-download-quarantine-summary', 'clear-download-quarantine', 'open-download-quarantine', 'pause-download', 'open-folder-capability', 'uninstall-downloaded-game', 'debrid-validate']);
+    const downloadHandles = new Set(['download-game', 'cancel-download', 'pick-download-folder', 'linux-download-import', 'linux-download-list', 'linux-download-adopt', 'linux-download-status', 'linux-download-configure', 'linux-download-open', 'linux-download-resume', 'linux-download-discard', 'get-download-quarantine-summary', 'clear-download-quarantine', 'open-download-quarantine', 'pause-download', 'open-folder-capability', 'uninstall-downloaded-game', 'debrid-validate']);
     // Debrid services (TorBox, Real-Debrid...) belong to downloads; their settings arrive as events.
     const downloadEvents = new Set(['set-debrid-config', 'set-debrid-cache-enabled']);
     const discordHandles = new Set(['set-rpc-setting', 'update-rpc']);

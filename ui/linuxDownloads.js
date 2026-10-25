@@ -1,12 +1,12 @@
 'use strict';
-function installLinuxDownloads({ document, ipc, invoke, ready, onChanged, notice, getRuntimeId, getScope, onImport }) {
+function installLinuxDownloads({ document, ipc, invoke, ready, onChanged, notice, getRuntimeId, getScope, onImport, onResume = null }) {
     const states = new Map(); let available = false, timer = null, refreshing = false, configuring = false;
     const panel = document.getElementById('linuxDownloadedGamePanel'), button = document.getElementById('configureLinuxDownloadedGame');
     const status = document.getElementById('linuxDownloadedGameStatus'), imports = document.getElementById('importLinuxGameArchive');
     const retained = document.getElementById('linuxRetainedDownloads');
     let visibleGame = '';
     const label = state => ({ ready: 'Ready to Play', installing: 'Installing…', 'installation-required': 'Installation required',
-        interrupted: 'Setup interrupted', saved: 'Files saved', failed: 'Download failed', canceled: 'Download stopped' }[state?.phase] || 'Setup required');
+        interrupted: 'Setup interrupted', saved: 'Files saved', failed: 'Download failed', canceled: 'Download stopped', paused: 'Paused' }[state?.phase] || 'Setup required');
     function render() {
         const state = states.get(visibleGame); panel.hidden = !available || !state;
         button.disabled = configuring || state?.phase === 'installing';
@@ -33,7 +33,7 @@ function installLinuxDownloads({ document, ipc, invoke, ready, onChanged, notice
             states.clear(); retained.replaceChildren();
             if (rows.some(row => !row.gameId && row.phase !== 'canceled')) {
                 const heading = document.createElement('div'); heading.style.cssText = 'font-size:13px;font-weight:600;margin-top:8px;'; heading.textContent = 'Unfinished downloads';
-                const hint = document.createElement('div'); hint.style.cssText = 'font-size:12px;opacity:.7;'; hint.textContent = 'These downloads did not finish. Sail kept the files it already had; open the folder to look, or remove them to free the space.';
+                const hint = document.createElement('div'); hint.style.cssText = 'font-size:12px;opacity:.7;'; hint.textContent = 'These downloads did not finish. Sail kept the files it already had: resume a paused one where it stopped, open the folder to look, or remove them to free the space.';
                 retained.append(heading, hint);
             }
             for (const row of rows) {
@@ -44,7 +44,12 @@ function installLinuxDownloads({ document, ipc, invoke, ready, onChanged, notice
                     const open = document.createElement('button'); open.className = 'outline'; open.textContent = 'Open saved files';
                     open.onclick = () => invoke('linux-download-open', { id: row.id }).catch(error => notice(error.message));
                     item.append(text, open);
-                    if (['failed', 'interrupted'].includes(row.phase)) {
+                    if (row.canResume && onResume) {
+                        const resume = document.createElement('button'); resume.className = 'outline'; resume.textContent = 'Resume';
+                        resume.onclick = () => { resume.disabled = true; onResume(row); };
+                        item.append(resume);
+                    }
+                    if (['failed', 'interrupted'].includes(row.phase) || row.canResume) {
                         const remove = document.createElement('button'); remove.className = 'outline'; remove.textContent = 'Remove';
                         remove.onclick = async () => { remove.disabled = true; try { await invoke('linux-download-discard', { id: row.id }); await refresh(); } catch (error) { remove.disabled = false; notice(error.message); } };
                         item.append(remove);

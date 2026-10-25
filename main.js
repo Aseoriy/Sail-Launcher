@@ -3242,6 +3242,11 @@ registerLinuxDownloadHandle('linux-download-import', async (event, payload) => {
     if (imports.reduce((total, item) => total + fs.statSync(item.file).size, 0) > 512 * 1024 ** 3) throw Error('These archives exceed the import size limit.');
     return downloads.run(event, options, imports);
 });
+registerLinuxDownloadHandle('linux-download-resume', (event, payload) => {
+    const input = exactGateAPayload(payload, ['id'], 'Resume paused download');
+    if (typeof input.id !== 'string') throw Error('Invalid download.');
+    return getLinuxDownloads().resume(event, input.id);
+});
 registerLinuxDownloadHandle('linux-download-discard', (event, payload) => {
     const input = exactGateAPayload(payload, ['id'], 'Remove unfinished download'); return getLinuxDownloads().discard(event, input);
 });
