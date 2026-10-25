@@ -13,8 +13,9 @@ const DEFAULT_CREDS = {
         clientId: 'moc.tnetnocresuelgoog.sppa.9asfmmjefsct1112i3b4j7bf1cqc0qji-198555419109'.split('').reverse().join(''),
         clientSecret: 'GfOe9V6E9RD2cmrFXvpa6o2L6N0C-XPSCOG'.split('').reverse().join('')
     },
+    // Microsoft "Mobile and desktop" public client (any account type); PKCE, no secret.
     onedrive: {
-        clientId: '',
+        clientId: 'd8397da25406-a998-1ef4-4e53-7edc7fe3'.split('').reverse().join(''),
         clientSecret: ''
     },
     // Dropbox app key for PKCE sign-in; its secret stays on the Sail server only.
