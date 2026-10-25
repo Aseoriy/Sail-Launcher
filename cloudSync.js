@@ -4,6 +4,7 @@ const path = require('path');
 const https = require('https');
 const http = require('http');
 const crypto = require('crypto');
+const { protectStorage, KEYRING_HELP } = require('./runtime/protectedStorage');
 
 // Default Client IDs (can be overridden by user in settings)
 const DEFAULT_CREDS = {
@@ -58,6 +59,9 @@ function request(url, options = {}, body = null) {
 }
 
 // Utility: Secure Token Management
+// Linux only accepts a real system keyring; Electron's hard-coded-key fallback protects nothing.
+const tokenStorage = process.platform === 'linux' ? protectStorage(safeStorage) : safeStorage;
+
 function getTokensPath() {
     return path.join(app.getPath('userData'), 'cloud_tokens.json');
 }
@@ -75,9 +79,9 @@ function loadAllTokens() {
                 if (encryptedHex) {
                     try {
                         const encryptedBuffer = Buffer.from(encryptedHex, 'hex');
-                        decrypted[provider][key] = safeStorage.isEncryptionAvailable()
-                            ? safeStorage.decryptString(encryptedBuffer)
-                            : encryptedBuffer.toString('utf8');
+                        decrypted[provider][key] = tokenStorage.isEncryptionAvailable()
+                            ? tokenStorage.decryptString(encryptedBuffer)
+                            : process.platform === 'linux' ? '' : encryptedBuffer.toString('utf8');
                     } catch(e) {
                         decrypted[provider][key] = '';
                     }
@@ -91,14 +95,15 @@ function loadAllTokens() {
 }
 
 function saveTokens(provider, tokens) {
+    if (process.platform === 'linux' && !tokenStorage.isEncryptionAvailable()) throw new Error(KEYRING_HELP);
     const tokensPath = getTokensPath();
     const all = fs.existsSync(tokensPath) ? fs.readJsonSync(tokensPath) : {};
     all[provider] = {};
     for (const key in tokens) {
         const val = tokens[key];
         if (val) {
-            const encryptedHex = safeStorage.isEncryptionAvailable()
-                ? safeStorage.encryptString(val).toString('hex')
+            const encryptedHex = tokenStorage.isEncryptionAvailable()
+                ? tokenStorage.encryptString(val).toString('hex')
                 : Buffer.from(val, 'utf8').toString('hex');
             all[provider][key] = encryptedHex;
         }

@@ -61,6 +61,8 @@ function createPlatformSupport({ platform = process.platform, arch = process.arc
         features.workshop = { available: true, reason: '' };
         features.achievements = { available: true, reason: '' };
         features.saveDiscovery = { available: true, reason: '' };
+        // Google Drive, OneDrive, Dropbox and MediaFire; main narrows this to a real keyring at startup.
+        features.cloudSync = { available: true, reason: '' };
     }
     if (!features.selfUpdate) features.selfUpdate = { available: !restricted, reason: restricted ? 'Installing launcher updates is unavailable in this platform mode.' : '' };
     features.emulation = { available: !restricted, reason: restricted ? 'Emulator and ROM games are unavailable on Linux for now.' : '' };
@@ -123,7 +125,10 @@ function createSupportedIpcRegistrar(ipcMain, authorize, support) {
         'authority-filesystem-newest-mtime', 'detect-saves-ludusavi', 'detect-saves-auto', 'scan-game-saves', 'zip-save-to-drive',
         'list-save-versions', 'restore-save-version', 'open-save-versions-folder', 'check-backup-running', 'check-backup', 'backup-game',
         'cancel-backup', 'restore-backup', 'open-backup-folder', 'delete-backup', 'runtime-post-exit-begin', 'runtime-post-exit-update']);
-    const cloudSaveHandles = new Set(['cloud-zip-folder', 'cloud-extract-zip']);
+    // Download staging is shared by Sail Cloud and provider restores.
+    const cloudSaveHandles = new Set(['cloud-zip-folder', 'cloud-extract-zip', 'cloud-create-download-transfer']);
+    const cloudProviderHandles = new Set(['cloud-link-account', 'cloud-mediafire-login', 'cloud-unlink-account', 'cloud-get-status',
+        'cloud-upload-save', 'cloud-list-versions', 'cloud-download-save']);
     const discoveryHandles = new Set(['import-steam-games']);
     const shortcutHandles = new Set(['create-shortcut']);
     const protocolHandles = new Set(['desktop-protocol-status', 'desktop-register-protocol']);
@@ -138,6 +143,7 @@ function createSupportedIpcRegistrar(ipcMain, authorize, support) {
         || (support.features.achievements.available && achievementHandles.has(channel))
         || (support.features.saveDiscovery.available && saveHandles.has(channel))
         || (support.features.saveDiscovery.available && support.features.accounts.available && cloudSaveHandles.has(channel))
+        || (support.features.cloudSync.available && cloudProviderHandles.has(channel))
         || (support.features.nativeRecovery.available && recoveryHandles.has(channel))
         || (support.features.steamDiscovery.available && discoveryHandles.has(channel))
         || (support.features.desktopShortcuts.available && shortcutHandles.has(channel))
@@ -154,6 +160,7 @@ function createSupportedIpcRegistrar(ipcMain, authorize, support) {
         achievementHandles.has(channel) ? support.features.achievements.reason :
         saveHandles.has(channel) ? support.features.saveDiscovery.reason :
         cloudSaveHandles.has(channel) ? (support.features.saveDiscovery.reason || support.features.accounts.reason) :
+        cloudProviderHandles.has(channel) ? support.features.cloudSync.reason :
         discoveryHandles.has(channel) ? support.features.steamDiscovery.reason :
         shortcutHandles.has(channel) ? support.features.desktopShortcuts.reason :
         protocolHandles.has(channel) ? support.features.desktopIntegration.reason :

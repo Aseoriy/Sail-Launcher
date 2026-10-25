@@ -15046,7 +15046,8 @@
                 } else {
                     alert(`Successfully linked ${provider} account: ${res.email}`);
                 }
-                if (!res.pending && globalSettings.autoSettingsSync) {
+                // Linux syncs game saves only; launcher settings sync is not on Linux yet.
+                if (!res.pending && globalSettings.autoSettingsSync && !localOnlyPreview) {
                     await importSettingsFromCloud(provider);
                 }
             } else {
@@ -15092,10 +15093,11 @@
         };
 
         window.updateCloudSyncUI = async function() {
-            if (localOnlyPreview) {
+            if (!featureAvailable('cloudSync')) {
+                const reason = platformAvailability.support?.features?.cloudSync?.reason || 'Unavailable in offline preview';
                 for (const provider of ['google', 'onedrive', 'dropbox', 'mediafire']) {
                     const status = document.getElementById(`status-${provider}`);
-                    if (status) status.textContent = 'Unavailable in offline preview';
+                    if (status) { status.textContent = 'Unavailable'; status.title = reason; }
                 }
                 return;
             }

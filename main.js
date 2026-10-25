@@ -7296,6 +7296,7 @@ else {
         if (process.platform === 'linux' && !platformSupport.isolated) {
             const storage = require('./runtime/protectedStorage').assessProtectedStorage(safeStorage);
             platformSupport.features.accounts = { available: storage.available, reason: storage.reason };
+            if (platformSupport.features.cloudSync.available) platformSupport.features.cloudSync = { available: storage.available, reason: storage.reason };
         }
         accountServices = registerAccountIpc({
             app,
