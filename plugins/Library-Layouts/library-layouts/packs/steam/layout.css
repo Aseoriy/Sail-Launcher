@@ -1,0 +1,79 @@
+/* Steam: Sail laid out like Steam's library. This stylesheet is applied inside the pack's scope: plain selectors
+   match inside the page, and & is the page itself (so &.sl-opt-colors means "while Steam colours is on").
+   The structure comes from the engine; this file sets Steam's colours through the engine's tokens and adds the
+   rest of Steam's look. */
+
+/* Steam's slate greys, blue and greens. These stay on with "Steam colours" off, as they always have. */
+& {
+    --sl-menu-bg: #3d4450; --sl-menu-hover: #4c5564; --sl-menu-line: #5e6772; --sl-menu-border: #171d25;
+    --sl-text: #c6cbd2; --sl-text-bright: #dcdedf; --sl-text-strong: #fff; --sl-muted: #8f98a0; --sl-faint: #6f7883;
+    --sl-accent: #1a9fff; --sl-accent-2: #66c0f4; --sl-accent-dark: #1478c8;
+    --sl-field: #25262c; --sl-art: #1c212b; --sl-letter: #3a414b; --sl-sel: #3e4046; --sl-surface-strong: #242830;
+    --sl-running: #a4d007; --sl-good: #4bc631; --sl-good-2: #18b14d; --sl-warn: #e8b04a;
+    --sl-font: "Motiva Sans", "Segoe UI", "Noto Sans", Arial, sans-serif;
+    --sl-tab-fs: 19px;
+    font-family: var(--sl-font);
+}
+/* "Steam colours": Steam's page colours instead of the Sail theme's. */
+&.sl-opt-colors {
+    --bg-color: #2d333c; --card-bg: #242830; --text-color: #c6cbd2; --border-color: #3d444d;
+    --accent: #1a9fff; --accent-hover: #47b0ff; --accent2: #66c0f4;
+    --sl-top: #171d24; --sl-list: #242830;
+}
+/* A custom theme's app background (Sail's UI editor) is injected as `body.theme-custom { background: ... !important }`,
+   so this needs !important and a higher specificity to replace it. */
+html &.sl-opt-colors { background: #2d333c !important; }
+&.sl-opt-colors .modal:not(#settingsModal) .modal-content { background: var(--bg-color); }
+
+/* Page tabs: big, uppercase, Steam's light grey. */
+.sl-top-nav .sidebar-page-link { color: #eaeaea !important; letter-spacing: .02em; text-transform: uppercase; }
+@media (max-width: 1400px) {
+    & { --sl-tab-fs: 16.5px; }
+    .sl-top-nav .sidebar-page-link { padding: 0 13px; }
+}
+@media (max-width: 1100px) {
+    & { --sl-tab-fs: 14px; }
+    .sl-top-nav .sidebar-page-link { padding: 0 9px; letter-spacing: .01em; }
+}
+
+/* Dialogs, cards, fields and buttons get Steam's square corners. */
+.modal:not(#settingsModal) .modal-content { border-radius: 4px !important; box-shadow: 0 24px 70px rgba(0, 0, 0, .7); }
+#continuePlayingCard, #compatibilitySetupBanner:empty { display: none !important; }
+.search-bar, select, input[type="text"] { border-radius: 2px !important; background: rgba(0, 0, 0, .3); }
+.continue-card { border-radius: 2px !important; border: 1px solid rgba(255, 255, 255, .08); box-shadow: none !important; }
+.account-card, .gp-expandable, .gp-info-box { border-radius: 2px !important; background: rgba(0, 0, 0, .22) !important; border: 1px solid rgba(255, 255, 255, .06) !important; box-shadow: none !important; }
+button:not(.outline):not(.nav-arrow):not(.titlebar-btn):not(.sl-gear) { border-radius: 2px !important; box-shadow: none !important; }
+button.outline { border-radius: 2px !important; }
+/* Links styled as buttons (for example in the account window) have no colour of their own in Sail. */
+a.outline { color: #1a9fff; border: 1px solid #454c57; border-radius: 2px !important; }
+a.outline:hover { color: #fff; background: rgba(255, 255, 255, .06); }
+
+/* Cover grid */
+#gameGrid { gap: 14px; }
+.game-card { border-radius: 2px !important; box-shadow: none !important; border: 1px solid rgba(255, 255, 255, .06) !important; background: #1c212b !important; transition: transform .18s ease, box-shadow .18s ease; }
+/* Sail's tile-shape setting targets #gameGrid .game-card; the layout's own corners win over it. */
+#gameGrid .game-card { border-radius: 2px !important; }
+.game-card:hover { transform: scale(1.035) !important; box-shadow: 0 8px 24px rgba(0, 0, 0, .55) !important; z-index: 2; }
+.game-card .card-banner, .game-card .no-image { border-radius: 0 !important; }
+
+/* Game page: the green Play button and Steam's section headings. The engine's rules have the same weight, and the
+   pack's stylesheet comes after them, so these win. */
+&.sl-hero .gp-header::after { background: linear-gradient(180deg, rgba(0, 0, 0, 0) 30%, rgba(45, 51, 60, .72) 78%, var(--bg-color) 100%); }
+&.sl-hero .gp-action-bar { background: rgba(23, 29, 36, .6); }
+#gpPlayBtn, .gp-play-btn {
+    display: inline-flex; align-items: center; gap: 9px; min-width: 150px; height: 46px; padding: 0 28px; justify-content: center;
+    background: linear-gradient(90deg, #4bc631 0%, #18b14d 100%) !important; border: 0 !important; border-radius: 4px !important; box-shadow: none !important;
+    color: #fff !important; font-size: 19px; font-weight: 500; letter-spacing: .03em; text-transform: uppercase; transform: none !important;
+}
+#gpPlayBtn:hover { background: linear-gradient(90deg, #5fd844 0%, #22c35c 100%) !important; }
+#gpPlayBtn:active { background: linear-gradient(90deg, #3fae28 0%, #139b43 100%) !important; }
+#gpStopBtn { height: 46px; border-radius: 2px !important; }
+.gp-expandable-header { color: #66c0f4; font-size: 13px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+
+/* Properties window and profile page details. */
+&.sl-props-on #gameSettingsModal .modal-content { background: #2d333c !important; border-color: #14181f !important; }
+.sl-props-body input[type="text"], .sl-props-body select { border-color: #3d444d !important; }
+.sl-pf-btn.is-primary:hover { background: linear-gradient(90deg, #47b0ff, #1a8ae6) !important; filter: none; }
+.sl-pf-hero::before { background: var(--sl-pf-bg, linear-gradient(135deg, #1a9fff55, #242830)) center / cover; }
+.sl-pf-hero::after { background: linear-gradient(180deg, rgba(23, 29, 36, .3), rgba(45, 51, 60, .96)); }
+.sl-pf-sub { color: #aab3be; }

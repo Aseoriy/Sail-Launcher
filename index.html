@@ -7839,7 +7839,10 @@
                 .map(manifest => ({
                     id: PluginDependencies.pluginId(manifest), name: String(manifest.name || ''), version: String(manifest.version || ''),
                     author: String(manifest.author || ''), type: String(manifest.type || 'plugin'), folder: manifest._path,
-                    manifest: JSON.parse(JSON.stringify(Object.fromEntries(Object.entries(manifest).filter(([key]) => !key.startsWith('_')))))
+                    manifest: JSON.parse(JSON.stringify(Object.fromEntries(Object.entries(manifest).filter(([key]) => !key.startsWith('_'))))),
+                    // A layout pack's own options (its plugin.json "settings"), edited in Sail's usual settings dialog.
+                    settings: pluginSettingsStore.getAll(manifest._folderName),
+                    openSettings: pluginSettingsStore.hasSettings(manifest._folderName) ? () => openPluginSettings(manifest._folderName) : null
                 })),
             onAddonsChange: callback => { const listener = () => { try { callback(); } catch (e) { console.error(e); } }; sailEvents.addEventListener('addons', listener); return () => sailEvents.removeEventListener('addons', listener); },
             onLibraryChange: callback => { const listener = () => { try { callback(); } catch (e) { console.error(e); } }; sailEvents.addEventListener('library', listener); return () => sailEvents.removeEventListener('library', listener); },
@@ -7917,8 +7920,15 @@
                 if (manifest._unmet.length) { console.log('[Plugin] Waiting on requirements:', manifest._folderName, manifest._unmet.map(PluginDependencies.describeUnmet).join('; ')); continue; }
                 try { startPlugin(manifest); } catch (e) { console.error('[Plugin] Failed to start', manifest._folderName, e); }
             }
+            // A layout pack has no code of its own; when its options change, the engine showing it is told.
+            for (const manifest of installedPlugins) {
+                if (manifest.type !== 'layout' || observedLayoutPacks.has(manifest._folderName)) continue;
+                observedLayoutPacks.add(manifest._folderName);
+                pluginSettingsStore.observe(manifest._folderName, () => emitSailEvent('addons'));
+            }
             emitSailEvent('addons');
         }
+        const observedLayoutPacks = new Set();
         function startPlugin(manifest) {
             const pluginPath = manifest._path;
             if (manifest.main) {
@@ -8102,6 +8112,7 @@
             try {
                 stopPlugin(folderName);
                 pluginSettingsStore.remove(folderName);
+                observedLayoutPacks.delete(folderName);
                 fs.removeSync(pluginPath);
                 installedPlugins = installedPlugins.filter(p => p._folderName !== folderName);
                 globalSettings.disabledPlugins = (globalSettings.disabledPlugins || []).filter(n => n !== folderName);

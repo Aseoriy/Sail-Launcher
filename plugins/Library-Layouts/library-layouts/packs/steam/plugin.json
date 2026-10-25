@@ -1,0 +1,42 @@
+{
+    "id": "aseoriy.steam-layout",
+    "name": "Steam",
+    "version": "2.0.0",
+    "author": "Aseoriy",
+    "description": "Sail laid out like Steam's library: a menu bar and big page tabs on top, your games listed on the left, tall covers, a recent games shelf and a hero game page.",
+    "type": "layout",
+    "layout": {
+        "contract": 1,
+        "styles": ["layout.css"],
+        "blocks": {
+            "titleBar": {
+                "rows": 2,
+                "menu": "full",
+                "sailButtons": { "setting": "actionButtons", "values": { "menu": "hidden", "sail": "shown" } }
+            },
+            "tabs": {
+                "position": "titleBar",
+                "names": { "setting": "tabNames", "values": {
+                    "steam": { "downloads": "Store", "library": "Library", "mods": "Community", "workshop": "Workshop", "achievements": "Achievements", "maintenance": "Maintenance" },
+                    "sail": {}
+                } },
+                "order": { "setting": "tabNames", "values": {
+                    "steam": ["downloads", "library", "mods", "workshop", "downloadsmgr", "achievements", "maintenance"],
+                    "sail": []
+                } },
+                "hidden": { "setting": "downloadsTab", "values": { "true": [], "false": ["downloadsmgr"] } }
+            },
+            "gameList": { "position": "left" },
+            "home": {
+                "covers": { "setting": "tallCovers", "values": { "true": "portrait", "false": "wide" } },
+                "shelf": { "setting": "recentShelf", "values": { "true": "recent", "false": "none" } },
+                "header": "count"
+            },
+            "gamePage": { "layout": "hero", "stats": ["lastPlayed", "playtime", "achievements"] },
+            "manageGame": "properties",
+            "profilePage": true,
+            "bottomBar": { "when": "bottomBar", "items": ["addGame", "downloads", "friends"] },
+            "friendsPanel": { "setting": "friends", "values": { "true": "shown", "false": "hidden" } }
+        }
+    }
+}

@@ -1,10 +1,12 @@
 // Library Layouts for Sail Launcher
-// Re-arranges the launcher like other popular clients. Everything it changes is put back when it is switched off.
+// A layout engine: it re-arranges the launcher from a layout pack (a manifest, CSS and images, no code), like other
+// popular clients. Steam comes built in. Everything it changes is put back when it is switched off.
 
 module.exports = function (SailAPI, context) {
     const fs = require('fs');
     const path = require('path');
     const { ipcRenderer } = require('electron');
+    const packs = require('./engine/packs');
 
     // Settings come from Sail's plugin settings (see "settings" in plugin.json), so they are edited in Sail's own
     // dialog from the Plugin Manager, the gear below the game list or the Sail menu.
@@ -25,8 +27,8 @@ module.exports = function (SailAPI, context) {
         } catch (_) { /* Nothing to carry over. */ }
     })();
 
-    // The friends panel can be switched from the settings, the menu bar and the bottom bar; they all land here.
-    function setFriends(on) { prefs.set('friends', !!on); }
+    // The friends panel can be switched from the menu bar and the bottom bar; the layout that is showing decides how.
+    let friends = { shown: () => true, toggle() {} };
 
     const html = document.documentElement;
     const body = document.body;
@@ -76,15 +78,69 @@ module.exports = function (SailAPI, context) {
     };
     const frame = fn => { let queued = 0; return () => { if (queued) return; queued = requestAnimationFrame(() => { queued = 0; fn(); }); }; };
 
-    // ---- The Steam-style layout -------------------------------------------------------------
-    function steamLayout() {
-        const undo = [];
-        const classes = () => ['sl-steam', prefs.get('colors') && 'sl-colors', prefs.get('tallCovers') && 'sl-portrait', prefs.get('friends') && 'sl-friends',
-            prefs.get('actionButtons') === 'sail' && 'sl-keep-buttons', prefs.get('tabNames') === 'sail' && 'sl-sail-names', prefs.get('downloadsTab') && 'sl-downloads-tab',
-            !prefs.get('recentShelf') && 'sl-no-shelf', !prefs.get('bottomBar') && 'sl-no-bottom'].filter(Boolean);
-        const everyClass = ['sl-steam', 'sl-colors', 'sl-portrait', 'sl-friends', 'sl-keep-buttons', 'sl-sail-names', 'sl-downloads-tab', 'sl-no-shelf', 'sl-no-bottom'];
+    // ---- Layout packs ------------------------------------------------------------------------
+    // The built-in Steam pack is read through the same checks as an installed one. Its options are this plugin's own
+    // settings; an installed pack's options are its own settings, edited from the Plugin Manager or the menu bar.
+    const ENGINE_SETTINGS = ['layout'];
+    const builtIn = {
+        id: 'aseoriy.steam-layout', value: 'steam', builtIn: true,
+        folder: path.join(__dirname, 'packs', 'steam'),
+        manifest: JSON.parse(fs.readFileSync(path.join(__dirname, 'packs', 'steam', 'plugin.json'), 'utf8')),
+        settings: () => Object.fromEntries(Object.entries(prefs.getAll()).filter(([id]) => !ENGINE_SETTINGS.includes(id))),
+        openSettings: () => prefs.open()
+    };
+    builtIn.name = builtIn.manifest.name;
+    function installedPacks() {
+        const found = typeof SailAPI.getAddons === 'function' ? SailAPI.getAddons({ type: 'layout' }) : [];
+        return found.filter(addon => addon.id && addon.id !== builtIn.id).map(addon => ({
+            id: addon.id, value: addon.id, name: addon.name || addon.id, folder: addon.folder, manifest: addon.manifest,
+            settings: () => { const fresh = SailAPI.getAddons({ type: 'layout' }).find(item => item.id === addon.id); return fresh ? fresh.settings || {} : {}; },
+            openSettings: addon.openSettings
+        }));
+    }
+    function allPacks() { return [builtIn, ...installedPacks()]; }
 
-        // The launcher rebuilds the body's class list when the theme changes, so keep ours on, and keep glass off.
+    // The pack's stylesheets, parsed by the browser inside the pack's own scope. Anything that breaks out of the scope,
+    // imports something or loads from outside the pack is refused, and the layout shows without the pack's look.
+    function packSheet(scope, styles, folder) {
+        if (!styles.length || typeof CSSStyleSheet !== 'function') return null;
+        const sheet = new CSSStyleSheet();
+        sheet.replaceSync(`${scope} {\n${styles.join('\n')}\n}`);
+        const rules = Array.from(sheet.cssRules);
+        const text = rules.map(rule => rule.cssText).join('\n');
+        const urls = [...text.matchAll(/url\(\s*(['"]?)([^'")]*)\1\s*\)/gi)].map(match => match[2]);
+        if (rules.length !== 1 || rules[0].selectorText !== scope || /@import/i.test(text) || urls.some(url => !packs.allowedUrl(url, folder))) {
+            throw new Error('The pack\'s stylesheet reaches outside its own scope or folder.');
+        }
+        return sheet;
+    }
+
+    // Puts a pack on screen. Every block the pack lists is built; anything it leaves out stays as Sail draws it.
+    function mountLayout(pack, loaded) {
+        const undo = [];
+        const settings = pack.settings();
+        const { config, warnings } = packs.resolveBlocks(loaded.blocks, settings);
+        for (const warning of [...loaded.warnings, ...warnings]) console.warn(`[Library Layouts] ${pack.name}: ${warning}`);
+        const scopeClass = `sl-pack-${packs.slug(pack.id)}`;
+        const options = packs.optionClasses(settings);
+        // Friends & Chat: the built-in pack keeps the choice in its settings; an installed pack's choice lasts the session.
+        let friendsShown = config.friendsPanel !== 'hidden';
+        friends = {
+            shown: () => friendsShown,
+            toggle() {
+                if (pack.builtIn) { prefs.set('friends', !friendsShown); return; }
+                friendsShown = !friendsShown;
+                ensureClasses();
+            }
+        };
+        const classes = () => ['sl-layout', scopeClass, ...options.classes,
+            config.titleBar && 'sl-has-titlebar', config.titleBar && config.titleBar.rows === 2 && 'sl-bar-2', config.titleBar && config.titleBar.sailButtons === 'shown' && 'sl-keep-buttons',
+            config.gameList && 'sl-has-list', config.home && config.home.covers === 'portrait' && 'sl-portrait',
+            config.gamePage && config.gamePage.layout === 'hero' && 'sl-hero', config.manageGame === 'properties' && 'sl-props-on',
+            config.friendsPanel && !friendsShown && 'sl-no-friends'].filter(Boolean);
+        const everyClass = ['sl-layout', scopeClass, ...options.classes, 'sl-has-titlebar', 'sl-bar-2', 'sl-keep-buttons', 'sl-has-list', 'sl-portrait', 'sl-hero', 'sl-props-on', 'sl-no-friends'];
+
+        // Sail rebuilds the body's class list when the theme changes, so keep ours on, and keep glass off.
         let hadGlass = body.classList.contains('glassmorphic-mode');
         const guard = new MutationObserver(() => ensureClasses());
         function ensureClasses() {
@@ -99,12 +155,21 @@ module.exports = function (SailAPI, context) {
         }
 
         function mount() {
-            // Stylesheet
-            const css = fs.readFileSync(path.join(__dirname, 'layouts', 'steam.css'), 'utf8');
-            const style = el('style', { id: 'sl-steam-style' });
-            style.textContent = css;
-            document.head.append(style);
-            undo.push(() => style.remove());
+            // The engine's structure, then the pack's own look on top.
+            const engineStyle = el('style', { id: 'sl-engine-style' });
+            engineStyle.textContent = fs.readFileSync(path.join(__dirname, 'layouts', 'engine.css'), 'utf8');
+            document.head.append(engineStyle);
+            undo.push(() => engineStyle.remove());
+            let sheet = null;
+            try { sheet = packSheet(`body.${scopeClass}`, loaded.styles, loaded.folder); }
+            catch (error) { console.error(`[Library Layouts] ${pack.name}:`, error.message); }
+            if (sheet) {
+                document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
+                undo.push(() => { document.adoptedStyleSheets = document.adoptedStyleSheets.filter(item => item !== sheet); });
+            }
+            const variables = { ...loaded.tokens, ...options.variables };
+            for (const [name, value] of Object.entries(variables)) body.style.setProperty(name, value);
+            undo.push(() => { for (const name of Object.keys(variables)) body.style.removeProperty(name); });
 
             ensureClasses();
             guard.observe(body, { attributes: true, attributeFilter: ['class'] });
@@ -116,57 +181,63 @@ module.exports = function (SailAPI, context) {
                 if (glassOn) body.classList.add('glassmorphic-mode');
             });
 
-            // The menu bar along the top, like Steam's, holds every Sail button.
-            const menubar = buildMenubar();
-            undo.push(() => menubar.destroy());
+            // The menu bar along the top holds every Sail button.
+            if (config.titleBar && config.titleBar.menu === 'full') {
+                const menubar = buildMenubar(pack);
+                undo.push(() => menubar.destroy());
+            }
 
             // Page tabs move up into the title bar, and fold into a "..." menu when there is not room.
             const nav = document.getElementById('sidebarNavHeader');
             const titleBar = document.querySelector('.titlebar-title');
             const brand = titleBar && titleBar.querySelector('.tb-brand');
             let tabs = null;
-            if (nav && titleBar && brand) {
+            if (config.tabs && nav && titleBar && brand) {
                 const marker = document.createComment('sl-nav-home');
                 nav.parentNode.insertBefore(marker, nav);
                 brand.after(nav);
                 nav.classList.add('sl-top-nav');
                 undo.push(() => { nav.classList.remove('sl-top-nav'); if (marker.parentNode) { marker.parentNode.insertBefore(nav, marker); marker.remove(); } });
-                const names = buildTabNames(nav);
+                const names = buildTabNames(nav, config.tabs);
                 undo.push(() => names.destroy());
                 tabs = buildTabFit(nav, titleBar);
                 undo.push(() => tabs.destroy());
             }
 
             // Game list in the left panel.
-            const sidebar = document.getElementById('mainSidebar');
-            const panel = buildGameList();
-            sidebar.append(panel.element);
-            undo.push(() => { panel.destroy(); panel.element.remove(); });
+            let panel = null;
+            if (config.gameList) {
+                const sidebar = document.getElementById('mainSidebar');
+                panel = buildGameList();
+                sidebar.append(panel.element);
+                undo.push(() => { panel.destroy(); panel.element.remove(); });
+            }
 
             // The Manage Game dialog becomes a properties window with a page list on the left.
-            const properties = buildProperties();
-            undo.push(() => properties.destroy());
+            const properties = config.manageGame === 'properties' ? buildProperties() : null;
+            if (properties) undo.push(() => properties.destroy());
 
             // Game page extras.
-            const stats = buildStats();
-            undo.push(() => stats.destroy());
+            const stats = config.gamePage && config.gamePage.stats.length ? buildStats(config.gamePage.stats) : null;
+            if (stats) undo.push(() => stats.destroy());
 
             // Your profile page, opened from the account menu.
-            const profile = buildProfilePage();
-            undo.push(() => profile.destroy());
+            const profile = config.profilePage ? buildProfilePage() : null;
+            if (profile) undo.push(() => profile.destroy());
 
             // Bottom bar and the home page's shelf and header.
-            const bottom = buildBottomBar();
-            undo.push(() => bottom.destroy());
-            const home = buildHome();
-            undo.push(() => home.destroy());
+            const bottom = config.bottomBar ? buildBottomBar(config.bottomBar) : null;
+            if (bottom) undo.push(() => bottom.destroy());
+            const home = config.home ? buildHome(config.home) : null;
+            if (home) undo.push(() => home.destroy());
 
             // Tall covers on the home grid.
-            const covers = coverSwapper();
-            undo.push(() => covers.destroy());
+            const covers = config.home && config.home.covers === 'portrait' ? coverSwapper() : null;
+            if (covers) undo.push(() => covers.destroy());
 
-            const refresh = frame(() => { panel.render(); properties.update(); profile.update(); stats.update(); covers.apply(); home.update(); bottom.update(); if (tabs) tabs.fit(); });
-            // The launcher swaps views a moment after it announces a move, so look again once that has finished.
+            const parts = [panel && panel.render, properties && properties.update, profile && profile.update, stats && stats.update, covers && covers.apply, home && home.update, bottom && bottom.update, tabs && tabs.fit].filter(Boolean);
+            const refresh = frame(() => { for (const part of parts) part(); });
+            // Sail swaps views a moment after it announces a move, so look again once that has finished.
             let settle = 0;
             const afterNavigate = () => { refresh(); clearTimeout(settle); settle = setTimeout(refresh, 220); };
             undo.push(() => clearTimeout(settle));
@@ -174,7 +245,10 @@ module.exports = function (SailAPI, context) {
             undo.push(SailAPI.onNavigate(afterNavigate));
             refresh();
         }
-        function unmount() { while (undo.length) { try { undo.pop()(); } catch (e) { console.error('[Library Layouts]', e); } } }
+        function unmount() {
+            while (undo.length) { try { undo.pop()(); } catch (e) { console.error('[Library Layouts]', e); } }
+            friends = { shown: () => true, toggle() {} };
+        }
         return { mount, unmount, ensureClasses };
     }
 
@@ -240,7 +314,7 @@ module.exports = function (SailAPI, context) {
     // profile button. Every entry presses a button or calls a function the launcher already has, so nothing here can
     // do more than the controls it replaces. Anything the screen already has a button for (the page tabs, the Downloads
     // and Add a Game buttons below, the grid toggle) is left out of the menus.
-    function buildMenubar() {
+    function buildMenubar(pack) {
         const titleBar = document.querySelector('.custom-titlebar');
         const controls = document.querySelector('.titlebar-controls');
         const pill = document.getElementById('accountPill');
@@ -266,13 +340,14 @@ module.exports = function (SailAPI, context) {
             { label: 'Sail', items: () => [
                 call('Account & Profiles…', 'openAccountModal', () => window.openAccountModal()), SEP,
                 viaId('Check for Sail Updates…', 'checkUpdateBtn'), SEP,
-                viaButton('Settings', 'settings'), viaButton('Plugins', 'plugins'), item('Library Layouts…', () => { const handle = entryRef(); if (handle) handle.open(); }), SEP,
+                viaButton('Settings', 'settings'), viaButton('Plugins', 'plugins'), item('Library Layouts…', () => { const handle = entryRef(); if (handle) handle.open(); }),
+                ...(!pack.builtIn && pack.openSettings ? [item(`${pack.name} options…`, () => pack.openSettings())] : []), SEP,
                 viaButton('Exit', 'exit')] },
             { label: 'View', items: () => [
                 viaButton('Statistics', 'stats'), SEP,
                 viaButton('Big Picture Mode', 'bigPicture')] },
             { label: 'Friends', items: () => [
-                item('Friends & Chat', () => setFriends(!prefs.get('friends')), { checked: prefs.get('friends') }), SEP,
+                item('Friends & Chat', () => friends.toggle(), { checked: friends.shown() }), SEP,
                 sortBy('Sort by Status', 'status'), sortBy('Sort by Name', 'name'), sortBy('Sort by Platform', 'platform')] },
             { label: 'Games', items: () => [
                 viaButton('Add a Game…', 'addGame'), viaButton('Select Games', 'selectMode'), SEP,
@@ -374,18 +449,25 @@ module.exports = function (SailAPI, context) {
         };
     }
 
-    // Steam's names for the pages. The words are drawn by the stylesheet from this attribute, so the launcher's own
-    // labels (and its language switching) are never touched; removing the attribute brings the original names back.
-    function buildTabNames(nav) {
-        const NAMES = { tabLibrary: 'Library', tabDownloads: 'Store', tabStore: 'Community', tabWorkshop: 'Workshop', tabAchievements: 'Achievements', tabMaintenance: 'Maintenance' };
-        const labels = [];
-        for (const [id, name] of Object.entries(NAMES)) {
-            const label = nav.querySelector(`#${id} .sidebar-page-label`);
+    // The pack's names, order and hidden tabs for the pages. Names are drawn by the stylesheet from an attribute, so
+    // Sail's own labels (and its language switching) are never touched; removing the attribute brings them back.
+    function buildTabNames(nav, { names, order, hidden }) {
+        const labels = [], links = [];
+        for (const [key, name] of Object.entries(names)) {
+            const label = nav.querySelector(`#${packs.TABS[key]} .sidebar-page-label`);
             if (!label) continue;
             label.setAttribute('data-sl-name', name);
             labels.push(label);
         }
-        return { destroy() { for (const label of labels) label.removeAttribute('data-sl-name'); } };
+        order.forEach((key, index) => {
+            const link = nav.querySelector(`#${packs.TABS[key]}`);
+            if (link) { link.style.order = String(index + 1); links.push(link); }
+        });
+        for (const key of hidden) {
+            const link = nav.querySelector(`#${packs.TABS[key]}`);
+            if (link) { link.classList.add('sl-tab-hidden'); links.push(link); }
+        }
+        return { destroy() { for (const label of labels) label.removeAttribute('data-sl-name'); for (const link of links) { link.style.order = ''; link.classList.remove('sl-tab-hidden'); } } };
     }
 
     // Keeps the page tabs on one line: the ones that do not fit move into a "..." menu.
@@ -415,7 +497,7 @@ module.exports = function (SailAPI, context) {
         more.addEventListener('click', () => {
             if (!menu.hidden) { menu.hidden = true; return; }
             menu.replaceChildren(...hidden.map(tab => {
-                const item = el('button', { type: 'button', class: 'sl-menu-item', role: 'menuitem', text: (!body.classList.contains('sl-sail-names') && (tab.querySelector('.sidebar-page-label') || tab).getAttribute('data-sl-name')) || (tab.querySelector('.sidebar-page-label') || tab).textContent.trim() });
+                const item = el('button', { type: 'button', class: 'sl-menu-item', role: 'menuitem', text: (tab.querySelector('.sidebar-page-label') || tab).getAttribute('data-sl-name') || (tab.querySelector('.sidebar-page-label') || tab).textContent.trim() });
                 item.addEventListener('click', () => { menu.hidden = true; tab.click(); });
                 return item;
             }));
@@ -433,21 +515,21 @@ module.exports = function (SailAPI, context) {
         const watch = new MutationObserver(refit);
         watch.observe(titleBar, { childList: true });
         window.addEventListener('resize', refit);
-        document.addEventListener('sl-settings', refit);
         refit();
-        return { fit: refit, destroy() { document.removeEventListener('click', onDocument); window.removeEventListener('resize', refit); document.removeEventListener('sl-settings', refit); watch.disconnect(); if (resize) resize.disconnect(); nav.querySelectorAll('.sl-tab-off').forEach(tab => tab.classList.remove('sl-tab-off')); more.remove(); menu.remove(); } };
+        return { fit: refit, destroy() { document.removeEventListener('click', onDocument); window.removeEventListener('resize', refit); watch.disconnect(); if (resize) resize.disconnect(); nav.querySelectorAll('.sl-tab-off').forEach(tab => tab.classList.remove('sl-tab-off')); more.remove(); menu.remove(); } };
     }
 
-    // The strip along the bottom: add a game, downloads, friends.
-    function buildBottomBar() {
+    // The strip along the bottom: add a game, downloads, friends, as the pack lists them.
+    function buildBottomBar(items) {
         const add = el('button', { type: 'button', class: 'sl-bottom-btn' }, [svg(['M12 5v14', 'M5 12h14'], 14), 'Add a Game']);
         add.addEventListener('click', () => { const target = document.getElementById('addGameBtn'); if (target) target.click(); });
         const downloadText = el('span', { text: 'Downloads' });
         const downloads = el('button', { type: 'button', class: 'sl-bottom-btn' }, [svg(['M12 4v11', 'M7 11l5 5 5-5', 'M5 20h14'], 14), downloadText]);
         downloads.addEventListener('click', () => SailAPI.showTab('downloadmanager'));
-        const friends = el('button', { type: 'button', class: 'sl-bottom-btn' }, ['Friends & Chat', svg(['M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'], 14)]);
-        friends.addEventListener('click', () => setFriends(!prefs.get('friends')));
-        const bar = el('div', { class: 'sl-bottom' }, [add, el('span', { class: 'sl-spacer' }), downloads, el('span', { class: 'sl-spacer' }), friends]);
+        const friendsButton = el('button', { type: 'button', class: 'sl-bottom-btn' }, ['Friends & Chat', svg(['M21 15a2 2 0 0 1-2 2H8l-5 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z'], 14)]);
+        friendsButton.addEventListener('click', () => friends.toggle());
+        const parts = { addGame: add, downloads, friends: friendsButton };
+        const bar = el('div', { class: 'sl-bottom' }, items.flatMap((name, index) => index ? [el('span', { class: 'sl-spacer' }), parts[name]] : [parts[name]]));
         document.querySelector('.app-container').after(bar);
         function update() {
             const { active, total } = SailAPI.getDownloadSummary ? SailAPI.getDownloadSummary() : { active: 0, total: 0 };
@@ -458,16 +540,16 @@ module.exports = function (SailAPI, context) {
         return { update, destroy() { clearInterval(timer); bar.remove(); } };
     }
 
-    // Recent games shelf and the "All Games" header on the home page.
-    function buildHome() {
+    // Recent games shelf and the "All Games" header on the home page, as the pack asks.
+    function buildHome({ shelf: shelfKind, header }) {
         const view = document.getElementById('libraryView');
         const grid = document.getElementById('gameGrid');
         const toolbar = view && view.querySelector('.toolbar');
         if (!view || !grid) return { update() {}, destroy() {} };
         const shelf = el('section', { class: 'sl-shelf', hidden: true, 'aria-label': 'Recent games' });
-        grid.before(shelf);
+        if (shelfKind === 'recent') grid.before(shelf);
         const title = el('h2', { class: 'sl-all-title' });
-        if (toolbar) toolbar.prepend(title);
+        if (toolbar && header === 'count') toolbar.prepend(title);
         const when = ms => {
             const days = Math.floor((new Date().setHours(0, 0, 0, 0) - new Date(ms).setHours(0, 0, 0, 0)) / 86400000);
             return days <= 0 ? 'Today' : days === 1 ? 'Yesterday' : days < 7 ? 'This week' : days < 31 ? 'This month' : 'Earlier';
@@ -475,6 +557,7 @@ module.exports = function (SailAPI, context) {
         function update() {
             const games = SailAPI.getGames();
             title.textContent = `All Games (${games.length})`;
+            if (shelfKind !== 'recent') return;
             const recent = games.filter(game => game.lastPlayed).sort((a, b) => b.lastPlayed - a.lastPlayed).slice(0, 6);
             shelf.hidden = !recent.length;
             if (!recent.length) return;
@@ -777,12 +860,13 @@ module.exports = function (SailAPI, context) {
         return handle;
     }
 
-    // Last played, play time and achievements next to the Play button.
-    function buildStats() {
+    // Last played, play time and achievements next to the Play button: the ones the pack lists, in its order.
+    function buildStats(list) {
         const bar = document.querySelector('.gp-action-bar');
         const make = label => { const value = el('b', { text: '-' }); return { value, node: el('div', { class: 'sl-stat' }, [el('small', { text: label }), value]) }; };
         const last = make('Last played'), time = make('Play time'), trophies = make('Achievements');
-        const wrap = el('div', { class: 'sl-stats' }, [last.node, time.node, trophies.node]);
+        const byName = { lastPlayed: last, playtime: time, achievements: trophies };
+        const wrap = el('div', { class: 'sl-stats' }, list.map(name => byName[name].node));
         const anchor = bar && (bar.querySelector('#gpStopBtn') || bar.querySelector('#gpPlayBtn'));
         if (bar && anchor) anchor.after(wrap);
         function update() {
@@ -803,7 +887,6 @@ module.exports = function (SailAPI, context) {
     function coverSwapper() {
         const isSteamArt = url => /^https:\/\/[^/]*steamstatic\.com\//.test(url);
         function apply() {
-            if (!prefs.get('tallCovers')) return;
             const games = SailAPI.getGames();
             for (const card of document.querySelectorAll('#gameGrid .game-card')) {
                 const image = card.querySelector('img.card-banner');
@@ -830,9 +913,7 @@ module.exports = function (SailAPI, context) {
                 delete image.dataset.slState;
             }
         }
-        const onSettings = () => { restore(); apply(); };
-        document.addEventListener('sl-settings', onSettings);
-        return { apply, destroy() { document.removeEventListener('sl-settings', onSettings); restore(); } };
+        return { apply, destroy() { restore(); } };
     }
 
     // ---- Controller -------------------------------------------------------------------------
@@ -840,30 +921,54 @@ module.exports = function (SailAPI, context) {
         let active = null;
         return { set(next) { active = next; }, current() { return active; } };
     })();
+    // The Layout setting lists Steam, every installed pack whose requirements are met, and Off.
+    function refreshChoices() {
+        prefs.setChoices('layout', [
+            { value: builtIn.value, label: `${builtIn.name} (built in)` },
+            // A pack that fails its checks stays listed, marked, so it is clear why choosing it changes nothing.
+            ...installedPacks().map(pack => ({ value: pack.value, label: packs.loadPack(pack.folder, pack.manifest).ok ? pack.name : `${pack.name} (can't be shown)` })),
+            { value: 'off', label: 'Off (Sail default)' }
+        ]);
+    }
+    function packSignature(pack) { return pack ? JSON.stringify([pack.id, pack.manifest && pack.manifest.version, pack.settings()]) : ''; }
+    let shownSignature = '';
     function applyLayout() {
         const previous = controller.current();
-        if (previous) { previous.unmount(); controller.set(null); }
-        if (prefs.get('layout') === 'steam') {
-            const next = steamLayout();
-            try { next.mount(); controller.set(next); } catch (error) { console.error('[Library Layouts] Could not start the layout:', error); try { next.unmount(); } catch (_) { /* Already undone as far as it went. */ } }
-        }
+        if (previous) { previous.layout.unmount(); controller.set(null); }
+        shownSignature = '';
+        const chosen = prefs.get('layout');
+        const pack = chosen === 'off' ? null : allPacks().find(item => item.value === chosen);
+        if (!pack) return;
+        const loaded = packs.loadPack(pack.folder, pack.manifest);
+        if (!loaded.ok) { console.error(`[Library Layouts] ${pack.name} can't be shown: ${loaded.problems.join(' ')}`); return; }
+        const next = mountLayout(pack, loaded);
+        try { next.mount(); controller.set({ pack, layout: next }); shownSignature = packSignature(pack); }
+        catch (error) { console.error('[Library Layouts] Could not start the layout:', error); try { next.unmount(); } catch (_) { /* Already undone as far as it went. */ } }
     }
+    refreshChoices();
     const entry = buildEntry();
     applyLayout();
     // Changes made in Sail's settings dialog (or by anything else) apply straight away.
     const stopListening = prefs.onChange(id => {
-        if (id === 'layout') { applyLayout(); return; }
         const current = controller.current();
-        if (current) current.ensureClasses();
-        document.dispatchEvent(new Event('sl-settings'));
+        if (id === 'layout' || current && current.pack.builtIn) applyLayout();
     });
+    // Packs installed, removed, switched on or off, or their options changed.
+    const stopAddons = typeof SailAPI.onAddonsChange === 'function' ? SailAPI.onAddonsChange(() => {
+        refreshChoices();
+        const current = controller.current();
+        const chosen = prefs.get('layout');
+        const pack = chosen === 'off' ? null : allPacks().find(item => item.value === chosen);
+        if (!current && pack || current && (!pack || pack.id !== current.pack.id || packSignature(pack) !== shownSignature)) applyLayout();
+    }) : () => {};
 
     return {
         dispose() {
             const current = controller.current();
-            if (current) current.unmount();
+            if (current) current.layout.unmount();
             controller.set(null);
             stopListening();
+            stopAddons();
             entry.destroy();
         }
     };

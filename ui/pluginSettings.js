@@ -170,6 +170,18 @@ function createPluginSettingsStore({ fs, path, getDirectory, setTimer = setTimeo
         }
     }
 
+    // Replaces a dropdown's choices while Sail runs (for example a list of installed layouts). The stored value is
+    // kept; while it isn't one of the choices, reading it gives the field's default.
+    function setChoices(folder, id, options) {
+        const entry = entryFor(folder);
+        const index = entry.schema.findIndex(field => field.id === id && field.type === 'select');
+        if (index < 0) return false;
+        const [field] = normalizeSchema([{ ...entry.schema[index], options }]);
+        if (!field) return false;
+        entry.schema[index] = { ...field, default: field.options.some(option => option.value === entry.schema[index].default) ? entry.schema[index].default : field.default };
+        return true;
+    }
+
     // What a plugin receives. `extras` lets the launcher add things such as open().
     function controller(folder, extras = {}) {
         const entry = entryFor(folder);
@@ -180,6 +192,7 @@ function createPluginSettingsStore({ fs, path, getDirectory, setTimer = setTimeo
             reset: id => reset(folder, id),
             isSet: id => !!fieldOf(entry, id) && Object.prototype.hasOwnProperty.call(entry.values, id),
             onChange: callback => { if (typeof callback !== 'function') return () => {}; entry.listeners.add(callback); return () => entry.listeners.delete(callback); },
+            setChoices: (id, options) => setChoices(folder, id, options),
             ...extras
         };
     }
