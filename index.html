@@ -8358,6 +8358,13 @@
             return rows.find(row => row && String(row.id).toLowerCase() === id) || null;
         }
 
+        // Sail Hub's copy is only an update when it is newer, so a newer local install is never replaced by an older upload.
+        // When either version can't be read, the download link alone decides, as before.
+        function hubCopyIsNewer(plugin, remoteItem) {
+            const local = PluginDependencies.parseVersion(plugin.version), remote = PluginDependencies.parseVersion(remoteItem.version);
+            return !local || !remote || PluginDependencies.compareVersions(remote, local) > 0;
+        }
+
         async function checkPluginUpdates() {
             if (!featureAvailable('plugins')) { previewUnavailable('Plugin updates'); return; }
             try {
@@ -8366,7 +8373,7 @@
                 let outdatedCount = 0;
                 for (const plugin of installedPlugins) {
                     const remoteItem = findRemoteMatch(plugin, remoteItems);
-                    if (remoteItem && remoteItem.file_url && plugin._sourceUrl !== remoteItem.file_url) {
+                    if (remoteItem && remoteItem.file_url && plugin._sourceUrl !== remoteItem.file_url && hubCopyIsNewer(plugin, remoteItem)) {
                         outdatedCount++;
                     }
                 }
@@ -8392,7 +8399,7 @@
                 for (const plugin of installedPlugins) {
                     const remoteItem = findRemoteMatch(plugin, remoteItems);
 
-                    if (remoteItem && remoteItem.file_url && plugin._sourceUrl !== remoteItem.file_url) {
+                    if (remoteItem && remoteItem.file_url && plugin._sourceUrl !== remoteItem.file_url && hubCopyIsNewer(plugin, remoteItem)) {
                         const fileUrl = remoteItem.file_url;
                         const result = await ipcRenderer.invoke('hub-download-file', { fileUrl, type: 'plugin' });
                         if (result && result.success) {
