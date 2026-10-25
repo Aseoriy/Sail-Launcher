@@ -6498,7 +6498,7 @@
                 <div style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.2); border-radius: 8px; padding: 10px; margin-bottom: 20px; font-size: 11.5px; line-height: 1.4; display: flex; gap: 8px; align-items: flex-start; color: #f59e0b;">
                     <span style="font-size: 14px; line-height: 1;">⚠️</span>
                     <div>
-                        <b>Google Drive and Dropbox</b> use Sail's built-in apps. Sign in to Sail to make either connection portable across PCs. <b>OneDrive</b> requires your own Microsoft app credentials; Mediafire uses its account form below.
+                        <b>Google Drive, Dropbox and OneDrive</b> sign in through your browser with Sail's built-in apps. Sign in to Sail to make Google Drive or Dropbox portable across PCs. Custom keys only need an app ID; a secret is optional. Mediafire uses its account form below.
                     </div>
                 </div>
                 
@@ -15001,8 +15001,8 @@
                     alert("Please enter your custom OneDrive Client ID first.");
                     return;
                 }
-                if (provider === 'dropbox' && (!document.getElementById('custom-dropbox-id').value.trim() || !document.getElementById('custom-dropbox-secret').value.trim())) {
-                    alert("Please enter both custom Dropbox Client ID and Client Secret first.");
+                if (provider === 'dropbox' && !document.getElementById('custom-dropbox-id').value.trim()) {
+                    alert("Please enter your custom Dropbox App Key first.");
                     return;
                 }
             }
@@ -15010,7 +15010,7 @@
             const btn = document.getElementById(`btn-${provider}`);
             const originalText = btn.innerText;
             btn.disabled = true;
-            btn.innerText = "Connecting...";
+            btn.innerText = "Finish in your browser…";
 
             let customCreds = null;
             if (globalSettings.customCloudKeys) {

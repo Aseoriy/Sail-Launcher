@@ -8,9 +8,10 @@ const { protectStorage, KEYRING_HELP } = require('./runtime/protectedStorage');
 
 // Default Client IDs (can be overridden by user in settings)
 const DEFAULT_CREDS = {
+    // A Google "Desktop app" client: it accepts the localhost callback, and Google treats its secret as public.
     google: {
-        clientId: 'moc.tnetnocresuelgoog.sppa.4g2plu0go4t4o9f2u0ak4n3qhfi7ck9e-198555419109'.split('').reverse().join(''),
-        clientSecret: 'rP_t4dhJ45DMfyV3djQhc7i2HqN9-XPSCOG'.split('').reverse().join('')
+        clientId: 'moc.tnetnocresuelgoog.sppa.9asfmmjefsct1112i3b4j7bf1cqc0qji-198555419109'.split('').reverse().join(''),
+        clientSecret: 'GfOe9V6E9RD2cmrFXvpa6o2L6N0C-XPSCOG'.split('').reverse().join('')
     },
     onedrive: {
         clientId: '',
@@ -22,8 +23,37 @@ const DEFAULT_CREDS = {
     }
 };
 
+// Register exactly this callback with each provider's desktop app.
 const REDIRECT_PORT = 53232;
 const REDIRECT_URI = `http://localhost:${REDIRECT_PORT}/callback`;
+// Sign-in happens in the user's browser; give up if it never comes back.
+const OAUTH_TIMEOUT_MS = 10 * 60 * 1000;
+
+// PKCE (RFC 7636): the token request proves it comes from the app that started the
+// sign-in, so the desktop apps work without shipping a client secret.
+function createPkcePair() {
+    const verifier = crypto.randomBytes(32).toString('base64url');
+    return { verifier, challenge: crypto.createHash('sha256').update(verifier).digest('base64url') };
+}
+
+function withPkce(authUrl, pkce) {
+    if (!pkce || !pkce.challenge) throw new Error('PKCE is required.');
+    const url = new URL(authUrl);
+    url.searchParams.set('code_challenge', pkce.challenge);
+    url.searchParams.set('code_challenge_method', 'S256');
+    return url.toString();
+}
+
+// Encoded token request body; empty fields (such as an absent client secret) are left out.
+function formBody(fields) {
+    const body = new URLSearchParams();
+    for (const [key, value] of Object.entries(fields)) if (value) body.set(key, value);
+    return body.toString();
+}
+
+function escapeHtml(value) {
+    return String(value).replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
+}
 
 // Utility: HTTPS Request Promise Helper
 function request(url, options = {}, body = null) {
@@ -123,6 +153,7 @@ function deleteTokens(provider) {
 
 // Utility: Local OAuth Callback HTTP Server
 let activeOauthServer = null;
+let cancelActiveOauth = null;
 function appendOauthState(authUrl, state) {
     if (typeof state !== 'string' || state.length < 16) {
         throw new Error('OAuth state is required.');
@@ -138,12 +169,32 @@ function startOauthServer(expectedState) {
             reject(new Error('OAuth state is required.'));
             return;
         }
+        // A newer sign-in replaces an unfinished one, which then fails instead of waiting forever.
+        if (cancelActiveOauth) cancelActiveOauth(new Error('Another sign-in was started.'));
         if (activeOauthServer) {
             try { activeOauthServer.close(); } catch(e) {}
         }
+        let settled = false;
+        let timer = null;
+        const finish = (error, code) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            if (cancelActiveOauth === cancel) cancelActiveOauth = null;
+            if (error) reject(error); else resolve(code);
+        };
+        const cancel = error => {
+            finish(error);
+            if (activeOauthServer === server) {
+                try { server.close(); } catch(e) {}
+                activeOauthServer = null;
+            }
+        };
+        cancelActiveOauth = cancel;
+        timer = setTimeout(() => cancel(new Error('Sign-in timed out. Start it again from Sail when you are ready.')), OAUTH_TIMEOUT_MS);
         const expectedStateBuffer = Buffer.from(expectedState);
         let callbackConsumed = false;
-        activeOauthServer = http.createServer((req, res) => {
+        const server = activeOauthServer = http.createServer((req, res) => {
             const url = new URL(req.url, `http://localhost:${REDIRECT_PORT}`);
             if (url.pathname === '/callback') {
                 const code = url.searchParams.get('code');
@@ -178,24 +229,24 @@ function startOauthServer(expectedState) {
                         </body>
                         </html>
                     `);
-                    resolve(code);
+                    finish(null, code);
                 } else {
                     res.end(`
                         <html>
                         <body style="font-family: sans-serif; background: #0c0a09; color: #f5f5f4; text-align: center; padding: 50px; display: flex; align-items: center; justify-content: center; height: calc(100vh - 100px); margin: 0;">
                             <div style="max-width: 400px; background: #1c1917; border: 1px solid #7f1d1d; padding: 40px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.5);">
                                 <h1 style="color: #ef4444; margin-bottom: 20px; font-size: 28px;">✗ Auth Failed</h1>
-                                <p style="font-size: 15px; opacity: 0.8; margin-bottom: 30px; line-height: 1.5;">Error: ${error || 'Unknown authorization error.'}</p>
+                                <p style="font-size: 15px; opacity: 0.8; margin-bottom: 30px; line-height: 1.5;">Error: ${escapeHtml(error || 'Unknown authorization error.')}</p>
                                 <p style="font-size: 13px; opacity: 0.5;">Please close this window and try again.</p>
                             </div>
                         </body>
                         </html>
                     `);
-                    reject(new Error(error || 'Authorization failed.'));
+                    finish(new Error(error || 'Authorization failed.'));
                 }
                 setTimeout(() => {
-                    if (activeOauthServer) {
-                        activeOauthServer.close();
+                    if (activeOauthServer === server) {
+                        server.close();
                         activeOauthServer = null;
                     }
                 }, 1000);
@@ -205,7 +256,7 @@ function startOauthServer(expectedState) {
             }
         });
         activeOauthServer.on('error', (err) => {
-            reject(err);
+            cancel(err.code === 'EADDRINUSE' ? new Error(`Sail could not start its sign-in listener: port ${REDIRECT_PORT} is in use by another program.`) : err);
         });
         activeOauthServer.listen(REDIRECT_PORT, 'localhost');
     });
@@ -221,17 +272,29 @@ function getCredentials(provider, customCreds = {}) {
     return creds;
 }
 
+// Stops waiting for a sign-in (for example when the browser could not be opened).
+function stopOauthServer(error = new Error('Sign-in was cancelled.')) {
+    if (cancelActiveOauth) cancelActiveOauth(error);
+}
+
+// Whether this build (or the user's custom keys) has an app for the provider.
+function clientConfigured(provider, customCreds) {
+    return !!getCredentials(provider, customCreds).clientId;
+}
+
 // --- PROVIDER IMPLEMENTATIONS ---
 
 // 1. GOOGLE DRIVE
 const googleDrive = {
-    getAuthUrl(customCreds) {
+    getAuthUrl(customCreds, pkce) {
         const creds = getCredentials('google', customCreds);
-        return `https://accounts.google.com/o/oauth2/v2/auth?client_id=${creds.clientId}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=code&scope=${encodeURIComponent('https://www.googleapis.com/auth/drive.file email')}&access_type=offline&prompt=consent`;
+        return withPkce(`https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(creds.clientId)}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=code&scope=${encodeURIComponent('https://www.googleapis.com/auth/drive.file email')}&access_type=offline&prompt=consent`, pkce);
     },
-    async exchangeCode(code, customCreds) {
+    async exchangeCode(code, customCreds, pkce) {
         const creds = getCredentials('google', customCreds);
-        const bodyParams = `code=${code}&client_id=${creds.clientId}&client_secret=${creds.clientSecret}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&grant_type=authorization_code`;
+        // Google desktop clients still send their (public) secret alongside PKCE.
+        const bodyParams = formBody({ code, client_id: creds.clientId, client_secret: creds.clientSecret, redirect_uri: REDIRECT_URI,
+            grant_type: 'authorization_code', code_verifier: pkce && pkce.verifier });
         const res = await request('https://oauth2.googleapis.com/token', {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
@@ -255,7 +318,7 @@ const googleDrive = {
         const creds = getCredentials('google', customCreds);
         const tokens = loadAllTokens().google;
         if (!tokens || !tokens.refresh_token) throw new Error('No refresh token available');
-        const bodyParams = `client_id=${creds.clientId}&client_secret=${creds.clientSecret}&refresh_token=${tokens.refresh_token}&grant_type=refresh_token`;
+        const bodyParams = formBody({ client_id: creds.clientId, client_secret: creds.clientSecret, refresh_token: tokens.refresh_token, grant_type: 'refresh_token' });
         const res = await request('https://oauth2.googleapis.com/token', {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
@@ -441,13 +504,14 @@ const googleDrive = {
 
 // 2. MICROSOFT ONEDRIVE
 const oneDrive = {
-    getAuthUrl(customCreds) {
+    getAuthUrl(customCreds, pkce) {
         const creds = getCredentials('onedrive', customCreds);
-        return `https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=${creds.clientId}&scope=${encodeURIComponent('files.readwrite offline_access User.Read')}&response_type=code&redirect_uri=${encodeURIComponent(REDIRECT_URI)}`;
+        return withPkce(`https://login.microsoftonline.com/common/oauth2/v2.0/authorize?client_id=${encodeURIComponent(creds.clientId)}&scope=${encodeURIComponent('files.readwrite offline_access User.Read')}&response_type=code&redirect_uri=${encodeURIComponent(REDIRECT_URI)}`, pkce);
     },
-    async exchangeCode(code, customCreds) {
+    async exchangeCode(code, customCreds, pkce) {
         const creds = getCredentials('onedrive', customCreds);
-        const bodyParams = `client_id=${creds.clientId}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&code=${code}&grant_type=authorization_code`;
+        const bodyParams = formBody({ client_id: creds.clientId, client_secret: creds.clientSecret, redirect_uri: REDIRECT_URI, code,
+            grant_type: 'authorization_code', code_verifier: pkce && pkce.verifier });
         const res = await request('https://login.microsoftonline.com/common/oauth2/v2.0/token', {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
@@ -475,7 +539,7 @@ const oneDrive = {
         const creds = getCredentials('onedrive', customCreds);
         const tokens = loadAllTokens().onedrive;
         if (!tokens || !tokens.refresh_token) throw new Error('No refresh token available');
-        const bodyParams = `client_id=${creds.clientId}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&refresh_token=${tokens.refresh_token}&grant_type=refresh_token`;
+        const bodyParams = formBody({ client_id: creds.clientId, client_secret: creds.clientSecret, redirect_uri: REDIRECT_URI, refresh_token: tokens.refresh_token, grant_type: 'refresh_token' });
         const res = await request('https://login.microsoftonline.com/common/oauth2/v2.0/token', {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
@@ -614,13 +678,14 @@ const oneDrive = {
 
 // 3. DROPBOX
 const dropbox = {
-    getAuthUrl(customCreds) {
+    getAuthUrl(customCreds, pkce) {
         const creds = getCredentials('dropbox', customCreds);
-        return `https://www.dropbox.com/oauth2/authorize?client_id=${creds.clientId}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=code&token_access_type=offline`;
+        return withPkce(`https://www.dropbox.com/oauth2/authorize?client_id=${encodeURIComponent(creds.clientId)}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&response_type=code&token_access_type=offline`, pkce);
     },
-    async exchangeCode(code, customCreds) {
+    async exchangeCode(code, customCreds, pkce) {
         const creds = getCredentials('dropbox', customCreds);
-        const bodyParams = `code=${code}&client_id=${creds.clientId}&client_secret=${creds.clientSecret}&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&grant_type=authorization_code`;
+        const bodyParams = formBody({ code, client_id: creds.clientId, client_secret: creds.clientSecret, redirect_uri: REDIRECT_URI,
+            grant_type: 'authorization_code', code_verifier: pkce && pkce.verifier });
         const res = await request('https://api.dropboxapi.com/oauth2/token', {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
@@ -650,7 +715,7 @@ const dropbox = {
         const creds = getCredentials('dropbox', customCreds);
         const tokens = loadAllTokens().dropbox;
         if (!tokens || !tokens.refresh_token) throw new Error('No refresh token available');
-        const bodyParams = `client_id=${creds.clientId}&client_secret=${creds.clientSecret}&refresh_token=${tokens.refresh_token}&grant_type=refresh_token`;
+        const bodyParams = formBody({ client_id: creds.clientId, client_secret: creds.clientSecret, refresh_token: tokens.refresh_token, grant_type: 'refresh_token' });
         const res = await request('https://api.dropboxapi.com/oauth2/token', {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
@@ -903,7 +968,11 @@ const mediaFire = {
 // EXPORTS
 module.exports = {
     startOauthServer,
+    stopOauthServer,
     appendOauthState,
+    createPkcePair,
+    clientConfigured,
+    REDIRECT_URI,
     loadAllTokens,
     saveTokens,
     deleteTokens,

@@ -137,7 +137,6 @@ const { createRemoteDataService, registerRemoteDataIpc } = require('./security/r
 const { canonicalPortableBytes } = require('./sync/portableArtifactV3');
 const {
     SOURCES_PARTITION,
-    installIsolatedRemoteNavigationPolicy,
     installMainNavigationPolicy,
     installWebviewAttachmentPolicy,
     openExternalWebUrl
@@ -1974,54 +1973,29 @@ ipcMain.handle('cloud-link-account', async (e, { provider, customCreds }) => {
         }
     }
 
+    const service = { google: cloudSync.googleDrive, onedrive: cloudSync.oneDrive, dropbox: cloudSync.dropbox }[provider];
+    if (!service) return { success: false, error: 'Unknown provider' };
+    const label = { google: 'Google Drive', onedrive: 'OneDrive', dropbox: 'Dropbox' }[provider];
+    if (!cloudSync.clientConfigured(provider, customCreds)) {
+        return { success: false, error: `${label} has no built-in app in this version of Sail. Sign in to Sail${provider === 'onedrive' ? '' : ' to connect it through your account'}, or turn on custom keys and add your own app ID.` };
+    }
     const oauthState = crypto.randomBytes(32).toString('hex');
-    let authUrl = '';
-    if (provider === 'google') authUrl = cloudSync.googleDrive.getAuthUrl(customCreds);
-    else if (provider === 'onedrive') authUrl = cloudSync.oneDrive.getAuthUrl(customCreds);
-    else if (provider === 'dropbox') authUrl = cloudSync.dropbox.getAuthUrl(customCreds);
-    else return { success: false, error: 'Unknown provider' };
+    const pkce = cloudSync.createPkcePair();
+    let authUrl = service.getAuthUrl(customCreds, pkce);
     authUrl = cloudSync.appendOauthState(authUrl, oauthState);
 
-    // Start local server
+    // Providers block sign-in inside embedded windows, so it happens in the user's own browser
+    // and comes back to Sail's one-time local listener.
     const serverPromise = cloudSync.startOauthServer(oauthState);
-    
-    // Open auth window
-    const parentWin = BrowserWindow.fromWebContents(e.sender);
-    const authWin = new BrowserWindow({
-        width: 600,
-        height: 700,
-        parent: parentWin || undefined,
-        modal: true,
-        show: true,
-        title: `Link ${provider.toUpperCase()}`,
-        webPreferences: {
-            nodeIntegration: false,
-            contextIsolation: true,
-            sandbox: true,
-            webSecurity: true
-        }
-    });
-    installIsolatedRemoteNavigationPolicy(authWin.webContents, { shell });
-    authWin.loadURL(authUrl);
+    if (!openExternalWebUrl(shell, authUrl)) {
+        cloudSync.stopOauthServer(new Error('Sail could not open your browser for sign-in.'));
+    }
 
     try {
-        const code = await Promise.race([
-            serverPromise,
-            new Promise((_, reject) => {
-                authWin.on('close', () => reject(new Error('Window closed by user')));
-            })
-        ]);
-
-        // Exchange code for tokens
-        let profile = null;
-        if (provider === 'google') profile = await cloudSync.googleDrive.exchangeCode(code, customCreds);
-        else if (provider === 'onedrive') profile = await cloudSync.oneDrive.exchangeCode(code, customCreds);
-        else if (provider === 'dropbox') profile = await cloudSync.dropbox.exchangeCode(code, customCreds);
-
-        try { authWin.destroy(); } catch(err) {}
+        const code = await serverPromise;
+        const profile = await service.exchangeCode(code, customCreds, pkce);
         return { success: true, email: profile.email };
     } catch(err) {
-        try { authWin.destroy(); } catch(e) {}
         return { success: false, error: err.message };
     }
 });
