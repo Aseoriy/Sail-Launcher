@@ -30,6 +30,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: windows
+          retention-days: 3
           path: |
             dist/*.exe
             dist/*.exe.blockmap
@@ -56,6 +57,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: linux
+          retention-days: 3
           path: |
             dist/*.AppImage
             dist/*.deb
