@@ -60,6 +60,24 @@ class LinuxDownloads {
             .sort((a, b) => (a.updatedAt || 0) - (b.updatedAt || 0));
         while (this.records.size > limit && finished.length) this.forget(finished.shift().id);
     }
+    // How much of an unfinished download is on disk, and its full size when every part's size is known.
+    transferred(record) {
+        if (record.published === true || !['paused', 'failed', 'interrupted', 'downloading'].includes(record.phase)) return {};
+        let downloadedBytes = 0;
+        try {
+            const incoming = path.join(record.folder, 'archives');
+            for (const name of fs.readdirSync(incoming)) {
+                const stat = fs.lstatSync(path.join(incoming, name));
+                if (stat.isFile()) downloadedBytes += stat.size;
+            }
+        } catch (_) { return {}; }
+        const links = record.request ? (record.request.links?.length || (record.request.url ? 1 : 0)) : 0;
+        const parts = Object.values(record.parts || {});
+        const complete = links > 0 && parts.length === links && parts.every(part => part && part.count > 0
+            && Array.from({ length: part.count }, (_, file) => Number.isSafeInteger(part.sizes?.[file])).every(Boolean));
+        const totalBytes = complete ? parts.reduce((sum, part) => sum + Object.values(part.sizes).reduce((a, b) => a + b, 0), 0) : null;
+        return { downloadedBytes, totalBytes };
+    }
     forget(id) { fs.rmSync(path.join(this.root, this.recordName(id)), { force: true }); this.records.delete(id); }
     resumable(record) {
         const request = record.request;
@@ -129,7 +147,7 @@ class LinuxDownloads {
         const games = new Set(this.getStore().loadActiveSnapshot().myGames.map(game => String(game.id)));
         return { scope, downloads: [...this.records.values()].filter(record => record.scope.profileId === scope.profileId && record.scope.libraryId === scope.libraryId)
             .map(record => record.scope.gameId === 'launcher-device' || !games.has(record.scope.gameId) ? { id: record.id, phase: games.has(record.scope.gameId) ? record.phase : record.published ? 'saved' : record.phase, gameName: record.gameName, error: record.error || '', canAdopt: record.published === true,
-                canResume: record.phase === 'paused' && !this.operations.has(record.id) && this.resumable(record) }
+                canResume: record.phase === 'paused' && !this.operations.has(record.id) && this.resumable(record), ...this.transferred(record) }
                 : { ...this.status(record.scope.gameId), gameName: record.gameName }) };
     }
     async adopt(event, { id }) {
@@ -323,7 +341,11 @@ class LinuxDownloads {
                     const state = parts[index] && parts[index].count === resolved.length ? parts[index] : (parts[index] = { count: resolved.length, done: [], names: [], partial: null });
                     for (let file = 0; file < resolved.length; file++) {
                         if (state.done.includes(file)) { files.push(stored(state.names[file])); continue; }
-                        const report = data => progress({ state: 'downloading', label: `Downloading part ${index + 1}/${links.length}…`, part: index + 1, partCount: links.length, file: file + 1, fileCount: resolved.length, ...data });
+                        const report = data => {
+                            // Remember each file's full size once known, so an unfinished download can show "X of Y".
+                            if (Number.isSafeInteger(data.total) && data.total > 0 && (state.sizes || (state.sizes = {}))[file] !== data.total) { state.sizes[file] = data.total; this.write(record); }
+                            progress({ state: 'downloading', label: `Downloading part ${index + 1}/${links.length}…`, part: index + 1, partCount: links.length, file: file + 1, fileCount: resolved.length, ...data });
+                        };
                         const partial = state.partial && state.partial.file === file ? state.partial.name : '';
                         record.pausable = !resolved[file].assisted;
                         const target = await this.work.run(continuation, { type: 'linux-transfer', state: 'downloading' }, work => resolved[file].assisted

@@ -1,4 +1,15 @@
 'use strict';
+function formatBytes(bytes) {
+    const units = ['B', 'KB', 'MB', 'GB', 'TB']; let value = bytes, unit = 0;
+    while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit++; }
+    return `${unit === 0 ? value : value.toFixed(value < 10 ? 1 : 0)} ${units[unit]}`;
+}
+// "101 MB of 383 MB" when the full size is known, "101 MB downloaded" otherwise.
+function progressText(row) {
+    if (!Number.isSafeInteger(row.downloadedBytes) || row.downloadedBytes <= 0) return '';
+    return Number.isSafeInteger(row.totalBytes) && row.totalBytes > 0
+        ? `${formatBytes(row.downloadedBytes)} of ${formatBytes(row.totalBytes)}` : `${formatBytes(row.downloadedBytes)} downloaded`;
+}
 function installLinuxDownloads({ document, ipc, invoke, ready, onChanged, notice, getRuntimeId, getScope, onImport, onResume = null }) {
     const states = new Map(); let available = false, timer = null, refreshing = false, configuring = false;
     const panel = document.getElementById('linuxDownloadedGamePanel'), button = document.getElementById('configureLinuxDownloadedGame');
@@ -40,7 +51,7 @@ function installLinuxDownloads({ document, ipc, invoke, ready, onChanged, notice
                 if (row.gameId) states.set(String(row.gameId), row);
                 else if (row.phase !== 'canceled') {
                     const item = document.createElement('div'); item.style.cssText = 'display:flex;gap:10px;align-items:center;margin-top:8px;';
-                    const text = document.createElement('span'); text.textContent = `${row.gameName} · ${label(row)}`; text.title = row.error || '';
+                    const text = document.createElement('span'); text.textContent = [row.gameName, label(row), progressText(row)].filter(Boolean).join(' · '); text.title = row.error || '';
                     const open = document.createElement('button'); open.className = 'outline'; open.textContent = 'Open saved files';
                     open.onclick = () => invoke('linux-download-open', { id: row.id }).catch(error => notice(error.message));
                     item.append(text, open);
@@ -86,4 +97,4 @@ function installLinuxDownloads({ document, ipc, invoke, ready, onChanged, notice
     return { refresh, showGame(gameId) { visibleGame = String(gameId); render(); refresh().catch(error => notice(error.message)); },
         state: gameId => states.get(String(gameId)), label };
 }
-module.exports = { installLinuxDownloads };
+module.exports = { installLinuxDownloads, progressText };
