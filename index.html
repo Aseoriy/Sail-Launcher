@@ -1940,6 +1940,13 @@
             }
         }
 
+        .friends-notice {
+            font-size: 12px;
+            line-height: 1.4;
+            padding: 8px 10px;
+            opacity: 0.8;
+        }
+
         .friend-item {
             display: flex;
             align-items: center;
@@ -13128,8 +13135,13 @@
         window.cachedSteamFriends = null;
         window.lastSteamFetch = 0;
 
+        // Discord rejected the saved token (expired or changed). Stop the friends requests and the
+        // gateway reconnect loop until the token is changed in Settings → Social.
+        window.discordTokenRejected = false;
+        const DISCORD_TOKEN_REJECTED = 'Discord token expired or invalid. Update it in Settings → Social.';
+
         window.connectDiscordGateway = function () {
-            if (!globalSettings.discordToken || window.discordSocket) return;
+            if (!globalSettings.discordToken || window.discordSocket || window.discordTokenRejected) return;
             window.discordSocket = new WebSocket('wss://gateway.discord.gg/?v=9&encoding=json');
             let heartbeatInterval;
             window.discordSocket.onmessage = (event) => {
@@ -13166,10 +13178,12 @@
                     }
                 }
             };
-            window.discordSocket.onclose = () => {
+            window.discordSocket.onclose = (event) => {
                 if (heartbeatInterval) clearInterval(heartbeatInterval);
                 window.discordSocket = null;
-                setTimeout(window.connectDiscordGateway, 10000);
+                // 4004: Discord refused the token. Reconnecting would only fail again.
+                if (event && event.code === 4004) { window.discordTokenRejected = true; fetchFriends(); return; }
+                if (!window.discordTokenRejected) setTimeout(window.connectDiscordGateway, 10000);
             };
         };
 
@@ -13221,7 +13235,7 @@
             }
 
             // Fetch Discord Friends
-            if (globalSettings.discordToken) {
+            if (globalSettings.discordToken && !window.discordTokenRejected) {
                 if (!window.discordSocket) window.connectDiscordGateway();
                 try {
                     if (!window.cachedDiscordFriends) {
@@ -13230,6 +13244,9 @@
                         });
                         if (discordRes.ok) {
                             window.cachedDiscordFriends = await discordRes.json();
+                        } else if (discordRes.status === 401) {
+                            window.discordTokenRejected = true;
+                            if (window.discordSocket) window.discordSocket.close();
                         }
                     }
 
@@ -13293,11 +13310,14 @@
 
             container.replaceChildren();
             document.getElementById('friendsCount').textContent = friendsList.length + ' online';
+            const discordNotice = globalSettings.discordToken && window.discordTokenRejected
+                ? SafeDom.element(document, 'div', { className: 'friends-notice', text: DISCORD_TOKEN_REJECTED }) : null;
 
             if (friendsList.length === 0) {
-                container.replaceChildren(SafeDom.element(document, 'div', { text: 'No online friends' }));
+                container.replaceChildren(discordNotice || SafeDom.element(document, 'div', { text: 'No online friends' }));
                 return;
             }
+            if (discordNotice) container.append(discordNotice);
 
             function renderFriendEl(f) {
                 const favKey = f.platform + ':' + f.id;
@@ -18004,7 +18024,11 @@
             if (window.SailAchievements) window.SailAchievements.setNotifications(e.target.checked).catch(() => {});
         });
         syncAchievementSettingAvailability();
-        document.getElementById('discordTokenInput').addEventListener('input', (e) => { globalSettings.discordToken = e.target.value; saveToMemory(); });
+        document.getElementById('discordTokenInput').addEventListener('input', (e) => {
+            globalSettings.discordToken = e.target.value; saveToMemory();
+            // A new token gets a fresh try.
+            window.discordTokenRejected = false; window.cachedDiscordFriends = null;
+        });
 
         document.getElementById('devToolsToggle').addEventListener('change', (e) => { globalSettings.enableDevTools = e.target.checked; saveToMemory(); ipcRenderer.send('set-devtools-setting', e.target.checked); });
 
