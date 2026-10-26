@@ -1125,8 +1125,16 @@ function createWindow() {
     win.on('close', (event) => {
         if (!isQuitting && !exitWhenClosedSetting && (process.platform !== 'linux' && !platformSupport.isolated || trayAvailable)) {
             event.preventDefault();
-            // Keep the Linux taskbar entry reachable even if a tray host disappears.
-            if (process.platform === 'linux' || platformSupport.isolated) win.minimize(); else win.hide();
+            if (process.platform === 'linux') {
+                // Plasma closes every window to end the session; quit (saving first) instead of minimizing.
+                require('./runtime/sessionEnding').plasmaSessionEnding().then(ending => {
+                    if (ending) requestApplicationQuit();
+                    // Keep the Linux taskbar entry reachable even if a tray host disappears.
+                    else if (!win.isDestroyed()) win.minimize();
+                });
+                return;
+            }
+            if (platformSupport.isolated) win.minimize(); else win.hide();
             return;
         }
 
