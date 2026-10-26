@@ -1324,8 +1324,13 @@ ipcMain.handle('download-workshop-item', async (e, payload) => {
     });
 });
 
+let linuxDownloadRoot = null;
+function linuxDefaultDownloadRoot() {
+    return linuxDownloadRoot || (linuxDownloadRoot = require('./runtime/linuxDownloads').defaultDownloadRoot({ userData: app.getPath('userData'), home: app.getPath('home') }));
+}
 ipcMain.handle('get-common-paths', () => {
-    return { appData: app.getPath('appData'), localAppData: process.env.LOCALAPPDATA || app.getPath('appData'), documents: app.getPath('documents') };
+    return { appData: app.getPath('appData'), localAppData: process.env.LOCALAPPDATA || app.getPath('appData'), documents: app.getPath('documents'),
+        ...(process.platform === 'linux' ? { downloadRoot: linuxDefaultDownloadRoot() } : {}) };
 });
 
 const autostartIpc = registerAutostartIpc({ ipcMain, app });
@@ -3206,7 +3211,7 @@ const downloadWork = createDownloadWorkCoordinator(downloadJobDirectories);
 function getLinuxDownloads() {
     if (process.platform !== 'linux' || !platformSupport.features.downloads.available) throw Error('Linux downloads are unavailable in this platform mode.');
     if (!linuxDownloads) linuxDownloads = new (require('./runtime/linuxDownloads').LinuxDownloads)({
-        root: path.join(app.getPath('userData'), 'runtime', 'linux-downloads'), defaultRoot: path.join(app.getPath('userData'), 'SailDownloads'),
+        root: path.join(app.getPath('userData'), 'runtime', 'linux-downloads'), defaultRoot: linuxDefaultDownloadRoot(),
         getStore: () => gateAProfileStore(), getManager: () => protonManager, registry: downloadJobDirectories, work: downloadWork,
         activeDownloads, dialog, authorize: authorizeIpcEvent, resolveExecution: resolveInstallationExecution, metadata: resolveSteamMetadataForDownload,
         emit: (channel, data) => { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, data); },

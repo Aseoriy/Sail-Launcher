@@ -23014,11 +23014,15 @@
             const rootInput = document.getElementById('dlInstallDirInput');
             rootInput.readOnly = true;
             rootInput.value = 'App-managed default';
-            ipcRenderer.invoke('authority-get-device-root-status', { kind: 'download-root' }).then(status => {
+            // Linux shows where games go by default (~/Games/Sail Launcher on new installs).
+            const defaultLabel = process.platform !== 'linux' ? Promise.resolve('App-managed default')
+                : ipcRenderer.invoke('get-common-paths').then(paths => paths && paths.downloadRoot
+                    ? `Default: ${paths.downloadRoot.replace(require('os').homedir(), '~')}` : 'App-managed default', () => 'App-managed default');
+            Promise.all([ipcRenderer.invoke('authority-get-device-root-status', { kind: 'download-root' }).catch(() => null), defaultLabel]).then(([status, fallback]) => {
                 rootInput.value = status && status.state === 'active'
                     ? `Configured on this PC: ${status.label}`
-                    : status && status.state === 'pending-review' ? 'Choose the previous folder again' : 'App-managed default';
-            }).catch(() => { rootInput.value = 'App-managed default'; });
+                    : status && status.state === 'pending-review' ? 'Choose the previous folder again' : fallback;
+            });
             document.getElementById('dlMaxSpeedInput').value = s.maxSpeed || 0;
             document.getElementById('dlAutoAddToggle').checked = s.autoAdd !== false;
             document.getElementById('dlAutoExtractToggle').checked = s.autoExtract !== false;

@@ -476,4 +476,11 @@ class LinuxDownloads {
         } finally { this.reviews.delete(record.id); }
     }
 }
-module.exports = { LinuxDownloads };
+// New installs download games to a visible ~/Games/Sail Launcher. Installs that already have
+// downloads in the old hidden folder inside Sail's data keep using it, so nothing moves.
+function defaultDownloadRoot({ userData, home, fsImpl = fs }) {
+    const legacy = path.join(userData, 'SailDownloads');
+    try { if (fsImpl.readdirSync(legacy).length) return legacy; } catch (_) { /* No earlier downloads. */ }
+    return path.join(home, 'Games', 'Sail Launcher');
+}
+module.exports = { LinuxDownloads, defaultDownloadRoot };
