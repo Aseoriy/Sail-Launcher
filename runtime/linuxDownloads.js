@@ -8,6 +8,7 @@ const discovery = require('./linuxGameDiscovery');
 const native = require('./native/protocol');
 const { installer, discover } = require('./proton/prerequisites');
 const ACTIVE = new Set(['downloading', 'extracting', 'reviewing', 'publishing']);
+const RECORD_LIMIT = 256, PRUNE_ABOVE = 200;
 const safeError = error => String(error.message || error).replace(/[\u0000-\u001f\u007f]/g, ' ').slice(0, 500);
 
 class LinuxDownloads {
@@ -18,7 +19,7 @@ class LinuxDownloads {
     initialize() {
         if (this.initialized) return;
         privateDirectory(this.root, true);
-        const files = fs.readdirSync(this.root); if (files.length > 256) throw Error('Too many retained Linux download jobs.');
+        const files = fs.readdirSync(this.root); if (files.length > RECORD_LIMIT) throw Error('Too many retained Linux download jobs.');
         for (const name of files) {
             if (!/^[a-f0-9]{64}\.json$/.test(name)) continue;
             const record = JSON.parse(privateRead(path.join(this.root, name), 128 * 1024));
@@ -41,8 +42,25 @@ class LinuxDownloads {
             if (record.phase === 'paused' && !this.resumable(record)) { record.phase = 'interrupted'; record.error = 'This download was paused when Sail closed. Its files were kept; remove it and start the download again.'; this.write(record); }
             if (ACTIVE.has(record.phase)) { record.phase = 'interrupted'; record.error = 'Download preparation was interrupted. Existing files were kept; import the saved archive or start a new download.'; this.write(record); }
         }
+        this.prune();
         this.initialized = true;
     }
+    // Finished and abandoned downloads leave records behind; prune them so the record limit
+    // is never reached. Never touches a download in progress, under review, saved but not
+    // yet set up, paused, or one whose kept files still exist.
+    prune(limit = PRUNE_ABOVE) {
+        const idle = record => !this.operations.has(record.id) && !this.reviews.has(record.id);
+        const filesGone = record => !record.folder || !fs.existsSync(record.folder);
+        for (const record of [...this.records.values()]) {
+            if (record.phase === 'canceled' && idle(record) && filesGone(record)) this.forget(record.id);
+        }
+        if (this.records.size <= limit) return;
+        const finished = [...this.records.values()].filter(record => idle(record)
+            && (record.phase === 'ready' || ['failed', 'interrupted'].includes(record.phase) && filesGone(record)))
+            .sort((a, b) => (a.updatedAt || 0) - (b.updatedAt || 0));
+        while (this.records.size > limit && finished.length) this.forget(finished.shift().id);
+    }
+    forget(id) { fs.rmSync(path.join(this.root, this.recordName(id)), { force: true }); this.records.delete(id); }
     resumable(record) {
         const request = record.request;
         return record.published !== true && !!request && typeof request === 'object' && typeof request.installDir === 'string'
@@ -51,7 +69,8 @@ class LinuxDownloads {
     recordName(id) { return crypto.createHash('sha256').update(id).digest('hex') + '.json'; }
     write(record) {
         privateDirectory(this.root, true);
-        if (!this.records.has(record.id) && this.records.size >= 256) throw Error('Too many retained Linux download jobs.');
+        if (!this.records.has(record.id) && this.records.size >= RECORD_LIMIT) this.prune();
+        if (!this.records.has(record.id) && this.records.size >= RECORD_LIMIT) throw Error('Too many retained Linux download jobs. Remove unfinished downloads you no longer need.');
         record.updatedAt = Date.now(); save(path.join(this.root, this.recordName(record.id)), JSON.stringify(record) + '\n'); this.records.set(record.id, record);
     }
     scope(gameId = 'launcher-device') {
@@ -147,7 +166,7 @@ class LinuxDownloads {
             if (typeof this.removeDirectory !== 'function') throw Error('Removing downloads is unavailable.');
             await this.removeDirectory(record.folder);
         }
-        fs.rmSync(path.join(this.root, this.recordName(id)), { force: true }); this.records.delete(id);
+        this.forget(id);
         return true;
     }
     // Uninstall: nothing may still be downloading into or reviewing this game's folder.
@@ -162,7 +181,7 @@ class LinuxDownloads {
         this.initialize(); const scope = this.scope(gameId); let removed = 0;
         for (const record of [...this.records.values()]) {
             if (!isDeepStrictEqual(record.scope, scope) || this.operations.has(record.id)) continue;
-            fs.rmSync(path.join(this.root, this.recordName(record.id)), { force: true }); this.records.delete(record.id); removed++;
+            this.forget(record.id); removed++;
         }
         return removed;
     }
