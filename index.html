@@ -8608,7 +8608,10 @@
         function linuxUpdateTarget() {
             if (process.platform !== 'linux') return Promise.resolve(null);
             if (!featureAvailable('selfUpdate')) return Promise.resolve({ kind: null, reason: platformAvailability.support?.features?.selfUpdate?.reason || '' });
-            linuxUpdateTargetRequest ||= ipcRenderer.invoke('linux-update-target').catch(error => ({ kind: null, reason: error.message }));
+            if (linuxUpdateTargetRequest) return linuxUpdateTargetRequest;
+            // Only a successful detection is remembered; a failure (a slow package query, say) is retried next time.
+            const request = ipcRenderer.invoke('linux-update-target').catch(error => ({ kind: null, reason: error.message }));
+            linuxUpdateTargetRequest = request.then(target => { if (!target || !target.kind) linuxUpdateTargetRequest = null; return target; });
             return linuxUpdateTargetRequest;
         }
 
