@@ -49,6 +49,19 @@ function updateDecision(latest, current, forceInstall = false) {
     return { comparison, action: comparison > 0 ? 'update' : 'up-to-date' };
 }
 
+// A pre-release build (6.0.0-beta.3) always looks at pre-releases too; otherwise GitHub's
+// "latest" is the last stable release and a beta would never be offered the next beta.
+function includesPrereleases(currentVersion, betaUpdatesSetting) {
+    return !!betaUpdatesSetting || splitVersion(currentVersion).suffix !== null;
+}
+
+// The highest-versioned published release (GitHub lists by creation date, so a later
+// stable hotfix would otherwise hide a newer beta).
+function newestRelease(releases) {
+    const published = (Array.isArray(releases) ? releases : []).filter(item => item && !item.draft && VERSION_PATTERN.test(normalizeLauncherVersion(item.tag_name)));
+    return published.sort((a, b) => compareLauncherVersions(b.tag_name, a.tag_name))[0] || null;
+}
+
 function parseVersionTargets(values) {
     const rawValues = Array.isArray(values) ? values : String(values || '').split(/[\s,]+/);
     const versions = [];
@@ -122,6 +135,8 @@ module.exports = {
     isTargetingCapableVersion,
     targetsLauncherVersion,
     updateDecision,
+    includesPrereleases,
+    newestRelease,
     parseVersionTargets,
     announcementKey,
     isAnnouncementDismissed,

@@ -6483,7 +6483,7 @@
                         <span>Opt in for Beta Updates</span>
                     </label>
                     <p style="font-size: 11px; color: rgba(255,255,255,0.5); text-align: left; margin-top: 5px;">
-                        Receive notifications for beta releases (-beta) in addition to stable versions.</p>
+                        Receive notifications for beta releases (-beta) in addition to stable versions. While you're running a beta, Sail always offers the newer betas.</p>
                 </div>
 
                 <div style="margin-top: 30px; text-align: center;">
@@ -8574,9 +8574,10 @@
         }
 
         async function fetchLatestLauncherRelease() {
+            const prereleases = LauncherLogic.includesPrereleases(PACKAGE_VERSION, globalSettings.betaUpdates);
             return new Promise((resolve, reject) => {
                 const https = require('https');
-                const apiPath = globalSettings.betaUpdates ? '/repos/Aseoriy/Sail-Launcher/releases' : '/repos/Aseoriy/Sail-Launcher/releases/latest';
+                const apiPath = prereleases ? '/repos/Aseoriy/Sail-Launcher/releases' : '/repos/Aseoriy/Sail-Launcher/releases/latest';
                 https.get({ hostname: 'api.github.com', path: apiPath, headers: { 'User-Agent': 'Sail-Launcher' } }, (res) => {
                     let data = '';
                     res.on('data', chunk => data += chunk);
@@ -8584,8 +8585,8 @@
                         if (res.statusCode < 200 || res.statusCode >= 300) return reject(new Error(`GitHub returned HTTP ${res.statusCode}`));
                         try {
                             const parsed = JSON.parse(data);
-                            const release = globalSettings.betaUpdates && Array.isArray(parsed)
-                                ? parsed.find(item => item && !item.draft) || {}
+                            const release = prereleases && Array.isArray(parsed)
+                                ? LauncherLogic.newestRelease(parsed) || {}
                                 : parsed || {};
                             if (!release.tag_name) throw new Error('No published launcher release was found.');
                             resolve(release);
