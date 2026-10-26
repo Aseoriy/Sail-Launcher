@@ -14984,7 +14984,13 @@
             document.getElementById('cloudSyncOverlay').style.display = 'none';
         };
 
+        // The provider whose browser sign-in is waiting; clicking its button again cancels it.
+        let pendingCloudLinkProvider = null;
         window.linkCloudAccount = async function(provider) {
+            if (pendingCloudLinkProvider === provider) {
+                ipcRenderer.invoke('cloud-cancel-link').catch(() => {});
+                return;
+            }
             // Providers without a built-in app are explained by the main process.
 
             if (globalSettings.customCloudKeys) {
@@ -15003,9 +15009,11 @@
             }
 
             const btn = document.getElementById(`btn-${provider}`);
+            const status = document.getElementById(`status-${provider}`);
             const originalText = btn.innerText;
-            btn.disabled = true;
-            btn.innerText = "Finish in your browser…";
+            btn.innerText = "Cancel sign-in";
+            if (status) status.innerText = 'Finish signing in in your browser…';
+            pendingCloudLinkProvider = provider;
 
             let customCreds = null;
             if (globalSettings.customCloudKeys) {
@@ -15025,9 +15033,10 @@
                 };
             }
 
-            const res = await ipcRenderer.invoke('cloud-link-account', { provider, customCreds });
-            btn.disabled = false;
+            const res = await ipcRenderer.invoke('cloud-link-account', { provider, customCreds })
+                .finally(() => { if (pendingCloudLinkProvider === provider) pendingCloudLinkProvider = null; });
             btn.innerText = originalText;
+            const cancelled = !res.success && /^(Sign-in was cancelled|Another sign-in was started)\./.test(res.error || '');
             if (res.success) {
                 if (res.pending) {
                     const dialogKey = `cloud-oauth-${provider}`;
@@ -15045,7 +15054,7 @@
                 if (!res.pending && globalSettings.autoSettingsSync && !localOnlyPreview) {
                     await importSettingsFromCloud(provider);
                 }
-            } else {
+            } else if (!cancelled) {
                 alert(`Failed to link account: ${res.error}`);
             }
             updateCloudSyncUI();

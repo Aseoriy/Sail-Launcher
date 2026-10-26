@@ -1997,6 +1997,12 @@ ipcMain.handle('cloud-link-account', async (e, { provider, customCreds }) => {
     }
 });
 
+// Stops waiting for a browser sign-in the user abandoned.
+ipcMain.handle('cloud-cancel-link', () => {
+    cloudSync.stopOauthServer(new Error('Sign-in was cancelled.'));
+    return true;
+});
+
 ipcMain.handle('cloud-mediafire-login', async (e, { email, password, appId, apiKey }) => {
     try {
         const profile = await cloudSync.mediaFire.connect(email, password, appId, apiKey);

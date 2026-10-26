@@ -127,7 +127,7 @@ function createSupportedIpcRegistrar(ipcMain, authorize, support) {
         'cancel-backup', 'restore-backup', 'open-backup-folder', 'delete-backup', 'runtime-post-exit-begin', 'runtime-post-exit-update']);
     // Download staging is shared by Sail Cloud and provider restores.
     const cloudSaveHandles = new Set(['cloud-zip-folder', 'cloud-extract-zip', 'cloud-create-download-transfer']);
-    const cloudProviderHandles = new Set(['cloud-link-account', 'cloud-mediafire-login', 'cloud-unlink-account', 'cloud-get-status',
+    const cloudProviderHandles = new Set(['cloud-link-account', 'cloud-cancel-link', 'cloud-mediafire-login', 'cloud-unlink-account', 'cloud-get-status',
         'cloud-upload-save', 'cloud-list-versions', 'cloud-download-save']);
     const discoveryHandles = new Set(['import-steam-games']);
     const shortcutHandles = new Set(['create-shortcut']);
