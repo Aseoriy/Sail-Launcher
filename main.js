@@ -2555,6 +2555,20 @@ const UPDATER_DIR = process.platform === 'linux'
 const UPDATER_EXE = path.join(UPDATER_DIR, 'installer.exe');
 let pendingLinuxUpdate = null; // { kind, file, target, force }
 
+// Installing an update restarts Sail, and a running game, its save work or an active download
+// would hold that restart (Sail would sit on the new files until they finish). Refuse instead.
+function launcherUpdateBlockedReason() {
+    const snapshot = runtimeRecovery ? runtimeRecovery.snapshot() : null;
+    if (snapshot && Object.keys(snapshot.activeSessions || {}).length) return 'Close your game before updating Sail.';
+    if (snapshot && postExitWorkStillRunning(snapshot)) return 'Sail is still saving your game. Update once it has finished.';
+    if (protonManager?.installations?.pendingBindings().length) return 'Wait for the game installation to finish, then update Sail.';
+    if (linuxDownloads?.pendingBindings().length || [...activeDownloads.values()].some(item => item && !item.paused && !item.cancelled)) {
+        return 'Wait for your downloads to finish (or pause them), then update Sail.';
+    }
+    return '';
+}
+ipcMain.handle('launcher-update-blocked', () => launcherUpdateBlockedReason());
+
 ipcMain.handle('linux-update-target', async () => {
     const target = await launcherUpdate.detectLinuxInstall({ packaged: app.isPackaged });
     return { kind: target.kind, reason: target.reason || '' };
@@ -2564,6 +2578,8 @@ ipcMain.handle('linux-update-target', async () => {
 // { asset, force } chosen by the renderer; the asset is checked again here and
 // its published sha256 must match before anything is installed.
 ipcMain.handle('download-update-installer', async (e, request) => {
+    const blocked = launcherUpdateBlockedReason();
+    if (blocked) throw new Error(blocked);
     const wc = e.sender;
     const onProgress = progress => wc.send('update-download-progress', progress);
     // Wipe any stale folder/installer first so we never launch an old build.
@@ -2590,6 +2606,8 @@ ipcMain.handle('download-update-installer', async (e, request) => {
 // files. "--force-run" tells electron-builder's NSIS installer to relaunch the
 // app after a silent install (the same flags electron-updater itself uses).
 ipcMain.handle('run-update-installer', async () => {
+    const blocked = launcherUpdateBlockedReason();
+    if (blocked) throw new Error(blocked);
     if (process.platform === 'linux') {
         const update = pendingLinuxUpdate;
         if (!update || !fs.existsSync(update.file)) throw new Error('The update was not downloaded — download it first.');

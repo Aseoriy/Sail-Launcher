@@ -8807,6 +8807,13 @@
                 closeUpdateModal();
                 return;
             }
+            // A running game, its save work or an active download would hold the restart.
+            const blocked = await ipcRenderer.invoke('launcher-update-blocked').catch(() => '');
+            if (blocked) {
+                const hint = document.getElementById('updHint');
+                hint.textContent = blocked; hint.hidden = false;
+                return;
+            }
             const passwordInstall = info.linuxKind === 'deb' || info.linuxKind === 'rpm';
             btn.disabled = true;
             btn.textContent = info.downloaded ? '🔄 Installing…' : '⏳ Downloading…';
@@ -8840,7 +8847,7 @@
                 await ipcRenderer.invoke('run-update-installer'); // app quits here
             } catch (err) {
                 console.error('Update download/install failed:', err);
-                label.textContent = '❌ ' + (err && err.message ? err.message : 'Update failed');
+                label.textContent = '❌ ' + (err && err.message ? err.message.replace(/^Error invoking remote method '[^']+':\s*(Error:\s*)?/i, '') : 'Update failed');
                 btn.disabled = false;
                 btn.textContent = '↻ Retry';
             } finally {

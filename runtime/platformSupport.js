@@ -133,7 +133,7 @@ function createSupportedIpcRegistrar(ipcMain, authorize, support) {
     const shortcutHandles = new Set(['create-shortcut']);
     const protocolHandles = new Set(['desktop-protocol-status', 'desktop-register-protocol']);
     const autostartHandles = new Set(['get-autostart', 'set-autostart']);
-    const updateHandles = new Set(['linux-update-target', 'download-update-installer', 'run-update-installer', 'cleanup-update-folder']);
+    const updateHandles = new Set(['linux-update-target', 'launcher-update-blocked', 'download-update-installer', 'run-update-installer', 'cleanup-update-folder']);
     const dialogHandles = new Set(LOCAL_DIALOG_CHANNELS);
     const allowed = channel => (support.features.downloads.available && downloadHandles.has(channel)) || LOCAL_HANDLES.has(channel) || (support.features.nativeGames.available && nativeHandles.has(channel))
         || (support.features.accounts.available && accountHandles.has(channel))
