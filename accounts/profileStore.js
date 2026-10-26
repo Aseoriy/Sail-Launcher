@@ -174,7 +174,7 @@ function manifestsEqual(left, right) {
     return JSON.stringify(left) === JSON.stringify(right);
 }
 
-function validateMigrationJournal(journal, migrationRoot) {
+function validateMigrationJournal(journal, migrationRoot, { finished = false } = {}) {
     if (!isPlainObject(journal)) throw new TypeError('Migration journal must be an object.');
     for (const key of Object.keys(journal)) {
         if (PROTOTYPE_KEYS.has(key) || !MIGRATION_JOURNAL_KEYS.has(key)) throw new TypeError(`Migration journal field ${key} is invalid.`);
@@ -190,8 +190,12 @@ function validateMigrationJournal(journal, migrationRoot) {
     const transactionRoot = path.join(migrationRoot, journal.transactionId);
     const expectedBackup = path.join(transactionRoot, 'backup');
     const expectedStage = path.join(transactionRoot, 'stage', 'SailProfiles');
-    if (path.resolve(String(journal.backupRoot || '')) !== path.resolve(expectedBackup)
-        || path.resolve(String(journal.stageRoot || '')) !== path.resolve(expectedStage)) {
+    if (typeof journal.backupRoot !== 'string' || typeof journal.stageRoot !== 'string') throw new TypeError('Migration journal paths are invalid.');
+    // A finished journal is only read, never acted on, so it stays valid when the profile folder
+    // moves (copied to another PC, restored elsewhere, a changed XDG_CONFIG_HOME). Rollback
+    // still requires the exact paths it would touch.
+    if (!finished && (path.resolve(journal.backupRoot) !== path.resolve(expectedBackup)
+        || path.resolve(journal.stageRoot) !== path.resolve(expectedStage))) {
         throw new TypeError('Migration journal paths are invalid.');
     }
     if (!Array.isArray(journal.originalManifest) || journal.originalManifest.length > 250000) {
@@ -641,7 +645,8 @@ class ProfileStore {
         let journal;
         try { journal = fsExtra.readJsonSync(this.journalPath); }
         catch (error) { fail('SAIL_PROFILE_MIGRATION_BLOCKED', 'The Gate A migration journal is unreadable. Profiles remain closed.', error); }
-        try { validateMigrationJournal(journal, this.migrationRoot); }
+        const finished = isPlainObject(journal) && ['committed', 'rolled-back'].includes(journal.status);
+        try { validateMigrationJournal(journal, this.migrationRoot, { finished }); }
         catch (error) { fail('SAIL_PROFILE_MIGRATION_BLOCKED', 'The Gate A migration journal is invalid. Profiles remain closed.', error); }
         if (['committed', 'rolled-back'].includes(journal.status)) return;
         this.rollbackMigration(journal);
