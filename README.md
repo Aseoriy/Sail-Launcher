@@ -49,7 +49,7 @@ Sail runs on Windows and Linux. On Linux, native games launch directly and Windo
 | **Launching** | Executable detection, custom arguments, pre/post-launch scripts, companion apps, administrator mode, high CPU priority, and desktop shortcuts |
 | **Accounts and sync** | Sail accounts, multiple profiles with PINs, Sail Cloud, and scheduled sync with conflict handling |
 | **Downloads** | A download manager with game-source search, pause/resume/retry, archive extraction, installer automation, and automatic library importing |
-| **Cloud saves** | Save-folder discovery, backups with version history, restore tools, and cloud-save syncing to Sail Cloud and other providers (Linux has Sail Cloud only for now) |
+| **Cloud saves** | Save-folder discovery, backups with version history, restore tools, and cloud-save syncing to Sail Cloud, Google Drive, OneDrive, Dropbox, and MediaFire |
 | **Workshop and mods** | Steam Workshop browsing through SteamCMD and custom web sources |
 | **Customization** | Built-in and custom themes, animated backgrounds, custom fonts, tile layouts, a visual UI editor, and frosted-glass effects |
 | **Plugins** | A plugin manager, a settings window for each plugin, and a plugin API for layouts, menus, and themes |
@@ -86,9 +86,10 @@ The `.deb` and `.rpm` pull in what Sail needs and add it to your app menu. On Ub
 
 - You need a 64-bit distribution (Ubuntu 22.04 or newer, or something equivalent) with a normal desktop install.
 - The AppImage needs FUSE 2 (`libfuse2`, `fuse-libs`, or `fuse2`). Without it, run it with `--appimage-extract-and-run`.
-- Accounts need a keyring (KDE Wallet, GNOME Keyring, or KeePassXC). Without one, accounts stay off and everything else still works.
+- Accounts and cloud-save logins need a keyring (KDE Wallet, GNOME Keyring, or KeePassXC). Without one, they stay off and everything else still works.
+- Sail updates itself from **Settings > Check Updates**: the AppImage replaces itself, and the `.deb` and `.rpm` install through your package manager after one password prompt.
 - Windows games run through Proton using [UMU](https://github.com/Open-Wine-Components/umu-launcher). Sail can download GE-Proton and UMU for you in **Settings > Compatibility**, which needs Python 3.
-- Not on Linux yet: Google Drive, OneDrive and Dropbox sync, the Maintenance Center, emulator games, and spell checking.
+- Not on Linux yet: syncing launcher settings through Google Drive, OneDrive and Dropbox (game saves work), the Maintenance Center, emulator games, and spell checking.
 
 Tested on Kubuntu 26.04 (real hardware) and on Ubuntu 24.04, Fedora 44, and Arch Linux in virtual machines. Other distributions should work, but if one doesn't, please [open an issue](https://github.com/Aseoriy/Sail-Launcher/issues/new) with your distribution and desktop.
 
