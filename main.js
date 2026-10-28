@@ -2555,7 +2555,8 @@ ipcMain.handle('open-folder-capability', async (e, payload) => {
 // ============================================================================
 // Auto-updater: download the launcher installer, run it silently, restart.
 // ----------------------------------------------------------------------------
-// The installer lives in %LOCALAPPDATA%\sail-launcher-updater\installer.exe.
+// The installer lives in %LOCALAPPDATA%\sail-launcher-update\installer.exe (not the
+// "-updater" folder, which electron-builder's installer uses for a copy of itself).
 // The SAME NSIS installer serves double duty: double-clicked by a user it shows
 // the normal wizard; run by Sail with "/S --force-run" it installs silently and
 // relaunches the app — so there is only ONE installer and ONE release asset.
@@ -2564,7 +2565,7 @@ ipcMain.handle('open-folder-capability', async (e, payload) => {
 // ============================================================================
 const UPDATER_DIR = process.platform === 'linux'
     ? path.join(process.env.XDG_CACHE_HOME || path.join(os.homedir(), '.cache'), 'sail-launcher-updater')
-    : path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), 'sail-launcher-updater');
+    : path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), launcherUpdate.WINDOWS_UPDATE_FOLDER);
 const UPDATER_EXE = path.join(UPDATER_DIR, 'installer.exe');
 let pendingLinuxUpdate = null; // { kind, file, target, force }
 
@@ -2638,7 +2639,8 @@ ipcMain.handle('run-update-installer', async () => {
         return true;
     }
     if (!fs.existsSync(UPDATER_EXE)) throw new Error('Installer not found — download it first.');
-    const child = spawn(UPDATER_EXE, ['/S', '--updated', '--force-run'], { detached: true, stdio: 'ignore' });
+    const command = launcherUpdate.windowsInstallerCommand(UPDATER_EXE, app.getPath('exe'));
+    const child = spawn(command.file, command.args, command.options);
     child.unref();
     // Give the installer a beat to spin up before we release our file locks.
     setTimeout(() => { isQuitting = true; app.quit(); }, 1500);

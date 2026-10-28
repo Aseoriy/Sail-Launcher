@@ -175,14 +175,33 @@ function appImageUpdatePath(appImage) {
     return path.join(path.dirname(appImage), `.${path.basename(appImage)}.sail-update`);
 }
 
+// electron-builder's Windows installer copies itself to %LOCALAPPDATA%\<name>-updater\installer.exe on
+// every install. Run from that same file, it overwrites itself and fails, so Sail keeps its downloaded
+// installer in a folder of its own.
+const WINDOWS_UPDATE_FOLDER = 'sail-launcher-update';
+
+// Runs the installer silently through cmd.exe so that if it fails, or its admin prompt is declined, Sail
+// is started again instead of staying closed. On success the installer starts Sail itself (--force-run).
+// cmd expands %VARIABLES% even inside quotes, so paths it can't pass safely run the installer directly.
+function windowsInstallerCommand(installerPath, launcherPath, comspec = process.env.ComSpec || 'cmd.exe') {
+    const installerArgs = ['/S', '--updated', '--force-run'];
+    if (/["%\r\n]/.test(String(installerPath) + String(launcherPath))) {
+        return { file: installerPath, args: installerArgs, options: { detached: true, stdio: 'ignore' } };
+    }
+    const line = `""${installerPath}" ${installerArgs.join(' ')} || start "" "${launcherPath}""`;
+    return { file: comspec, args: ['/d', '/s', '/c', line], options: { detached: true, stdio: 'ignore', windowsHide: true, windowsVerbatimArguments: true } };
+}
+
 module.exports = {
     PACKAGE_NAME,
     RELEASE_DOWNLOAD_PREFIX,
+    WINDOWS_UPDATE_FOLDER,
     appImageUpdatePath,
     detectLinuxInstall,
     downloadReleaseFile,
     relaunchAppImage,
     linuxInstallCommand,
     linuxUpdateAsset,
-    runPrivileged
+    runPrivileged,
+    windowsInstallerCommand
 };
