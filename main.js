@@ -6101,6 +6101,9 @@ function runAria2Download(aria2, file, dir, opts, ctl, onProgress) {
             // With 'none', Windows fills the gaps with zeros, which can block aria2
             // (including progress and cancellation) while a large file grows.
             '--file-allocation=trunc',
+            // Pause stops aria2 with a hard kill on Windows, so it never writes its control file on exit.
+            // Saving progress every second lets Resume continue instead of starting over.
+            '--auto-save-interval=1',
             '--max-connection-per-server=' + conns, '--split=' + conns, '--min-split-size=1M', '--check-certificate=true',
             '--max-tries=3', '--retry-wait=3', '--connect-timeout=30', '--timeout=60',
             '--user-agent=' + DL_UA
