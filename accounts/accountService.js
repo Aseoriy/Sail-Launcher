@@ -94,6 +94,18 @@ function identityNameKey(parentId, name) {
     return `${String(parentId || '')}\u0000${String(name || '')}`;
 }
 
+// A bulk upsert sends the union of every row's columns and fills the gaps with null, so one row without
+// created_at fails the whole batch on the not-null column. Rows with the same columns are sent together.
+function rowsByColumns(rows) {
+    const groups = new Map();
+    for (const row of rows) {
+        const key = Object.keys(row).sort().join(',');
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(row);
+    }
+    return [...groups.values()];
+}
+
 function identityTimestamp(row) {
     return Date.parse(row && (row.updatedAt || row.createdAt) || '') || 0;
 }
@@ -939,16 +951,16 @@ class AccountService {
             ...(row.createdAt ? { created_at: row.createdAt } : {}),
             ...(row.updatedAt ? { updated_at: row.updatedAt } : {})
         }));
-        if (profiles.length) {
-            const { error } = await this.client.from('launcher_profiles').upsert(profiles, { onConflict: 'id' });
+        for (const rows of rowsByColumns(profiles)) {
+            const { error } = await this.client.from('launcher_profiles').upsert(rows, { onConflict: 'id' });
             if (error) throw error;
         }
-        if (libraries.length) {
-            const { error } = await this.client.from('launcher_libraries').upsert(libraries, { onConflict: 'id' });
+        for (const rows of rowsByColumns(libraries)) {
+            const { error } = await this.client.from('launcher_libraries').upsert(rows, { onConflict: 'id' });
             if (error) throw error;
         }
-        if (presets.length) {
-            const { error } = await this.client.from('launcher_presets').upsert(presets, { onConflict: 'id' });
+        for (const rows of rowsByColumns(presets)) {
+            const { error } = await this.client.from('launcher_presets').upsert(rows, { onConflict: 'id' });
             if (error) throw error;
         }
         this.remoteIdentityAliases = reconciled.aliases;
