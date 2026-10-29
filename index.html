@@ -15857,7 +15857,6 @@
                             : 'Windows game startup was not confirmed. No playtime was added.');
                     else if (event.outcome === 'launch-failed') platformAvailability.notice('Native launch failed. No playtime or post-game save was added.');
                     else {
-                        platformAvailability.notice(event.activity === 'game' ? 'Windows game completed. Playtime is saved locally.' : 'Native game completed. Playtime is saved locally.');
                         // Only a session that really ran gets a save backup, so a failed start never rotates out a good one.
                         const requirements = postExitRequirements(myGames[index]);
                         if (featureAvailable('saveDiscovery') && (requirements.needsSaveSync || requirements.needsGameConfigSync)) {
