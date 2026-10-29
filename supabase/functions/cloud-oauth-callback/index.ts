@@ -1,6 +1,7 @@
 import { adminClient, supabaseUrl } from '../_shared/supabase.ts'
 
-const launcherRedirect = 'sail-launcher://cloud-callback'
+// Supabase serves HTML from functions as plain text, so the website shows the result and opens the launcher.
+const launcherRedirect = 'https://sail-launcher.sailhub.fyi/cloud-connected'
 const callbackUrl = `${supabaseUrl}/functions/v1/cloud-oauth-callback`
 
 function redirect(params: Record<string, string>) {
