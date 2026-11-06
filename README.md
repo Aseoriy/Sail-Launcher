@@ -89,7 +89,7 @@ The `.deb` and `.rpm` pull in what Sail needs and add it to your app menu. On Ub
 - Accounts and cloud-save logins need a keyring (KDE Wallet, GNOME Keyring, or KeePassXC). Without one, they stay off and everything else still works.
 - Sail updates itself from **Settings > Check Updates**: the AppImage replaces itself, and the `.deb` and `.rpm` install through your package manager after one password prompt.
 - Windows games run through Proton using [UMU](https://github.com/Open-Wine-Components/umu-launcher). Sail can download GE-Proton and UMU for you in **Settings > Compatibility**, which needs Python 3.
-- Not on Linux yet: syncing launcher settings through Google Drive, OneDrive and Dropbox (game saves work), the Maintenance Center, emulator games, and spell checking.
+- Not on Linux yet: syncing launcher settings through Google Drive, OneDrive and Dropbox (game saves work) and the Maintenance Center. Spell checking covers English (US, UK, Canada, Australia).
 
 Tested on Kubuntu 26.04 (real hardware) and on Ubuntu 24.04, Fedora 44, and Arch Linux in virtual machines. Other distributions should work, but if one doesn't, please [open an issue](https://github.com/Aseoriy/Sail-Launcher/issues/new) with your distribution and desktop.
 
