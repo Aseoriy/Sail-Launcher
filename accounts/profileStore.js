@@ -462,6 +462,8 @@ function mergePortableGames(localGames, remoteGames, options = {}) {
         const achievementData = mergeAchievementData(localGame.achievementData, remoteGame.achievementData, remoteGame.steamAppId || localGame.steamAppId);
         if (achievementData) game.achievementData = achievementData;
         game.playtime = Math.max(Number(remoteGame.playtime) || 0, Number(localGame.playtime) || 0);
+        const idlePlaytime = Math.max(Number(remoteGame.idlePlaytime) || 0, Number(localGame.idlePlaytime) || 0);
+        if (idlePlaytime > 0) game.idlePlaytime = idlePlaytime;
         const latestPlayedAt = Math.max(Number(remoteGame.lastPlayed) || 0, Number(localGame.lastPlayed) || 0);
         game.lastPlayed = latestPlayedAt || remoteGame.lastPlayed || localGame.lastPlayed || null;
         game.playtimeSessionIds = [...new Set([
@@ -2143,10 +2145,28 @@ class ProfileStore {
 
     deviceRootStatus(kind) {
         if (!['download-root', 'install-root', 'archive-root'].includes(kind)) fail('SAIL_CAPABILITY_INVALID', 'Unknown device root kind.');
-        return this.capabilityStore.status(this.launcherDeviceScope()).filesystems.find(record => record.label === kind) || {
-            capabilityId: null, revision: 0, state: 'local-setup-required', type: 'filesystem',
-            gameId: 'launcher-device', operations: [], reviewComponents: [], label: kind
-        };
+        const status = this.capabilityStore.status(this.launcherDeviceScope()).filesystems.find(record => record.label === kind);
+        if (!status) {
+            return {
+                capabilityId: null, revision: 0, state: 'local-setup-required', type: 'filesystem',
+                gameId: 'launcher-device', operations: [], reviewComponents: [], label: kind, folderName: ''
+            };
+        }
+        // `label` is the record kind; the settings show the chosen folder's own name.
+        const rootPath = this.deviceRootPath(kind, status);
+        return { ...status, folderName: rootPath ? path.basename(rootPath) || rootPath : '' };
+    }
+
+    // The approved folder's path for main-process use only; '' when none is active or it moved.
+    deviceRootPath(kind, status = null) {
+        const current = status || this.capabilityStore.status(this.launcherDeviceScope()).filesystems.find(record => record.label === kind);
+        if (!current || current.state !== 'active' || !current.operations.length) return '';
+        try {
+            return this.capabilityStore.validateFilesystem({
+                capabilityId: current.capabilityId, expectedRevision: current.revision,
+                operation: current.operations[0], ...this.launcherDeviceScope()
+            }).details.rootPath;
+        } catch (_) { return ''; /* A moved or replaced folder has no usable path. */ }
     }
 
     resolveDeviceRootCapability(request) {

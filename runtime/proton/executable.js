@@ -29,10 +29,25 @@ function validateWindowsExecutable(selected, { expected = null, fixtureRoot = nu
     return identity;
 }
 
+// Zips made on Windows (and some archive tools) drop the executable bit, so a game's start.sh arrives
+// unrunnable. When the person picks one, or Sail's own download setup finds one, restore it like `chmod +x`.
+function makeScriptRunnable(selected) {
+    const real = fs.realpathSync(selected);
+    if (!/\.sh$/i.test(real)) return;
+    const fd = fs.openSync(real, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW), magic = Buffer.alloc(2);
+    try {
+        const stat = fs.fstatSync(fd);
+        if (!stat.isFile() || stat.uid !== process.getuid() || (stat.mode & 0o100)) return;
+        if (fs.readSync(fd, magic, 0, magic.length, 0) !== magic.length || magic.toString('ascii') !== '#!') return;
+        fs.fchmodSync(fd, (stat.mode & 0o7777) | ((stat.mode & 0o444) >> 2));
+    } finally { fs.closeSync(fd); }
+}
+
 function selectLocalExecutable(selected, options = {}) {
+    if (options.makeScriptRunnable) makeScriptRunnable(selected);
     const fd = fs.openSync(selected, 'r'), magic = Buffer.alloc(2);
     try { fs.readSync(fd, magic, 0, magic.length, 0); } finally { fs.closeSync(fd); }
     if (magic.toString('ascii') === 'MZ') return { backend: 'proton-umu', identity: validateWindowsExecutable(selected, options) };
     return { backend: 'native', identity: native.validateNativeExecutable(selected, options) };
 }
-module.exports = { validateWindowsExecutable, selectLocalExecutable };
+module.exports = { validateWindowsExecutable, selectLocalExecutable, makeScriptRunnable };

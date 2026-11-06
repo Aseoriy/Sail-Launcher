@@ -458,10 +458,8 @@ function requestOnce(url, context, address, options) {
         }
 
         totalTimer = setTimeout(() => abort(request, 'TIMEOUT'), options.totalTimeoutMs);
-        // The socket timer below is connection-only and is cleared after TLS. Do not also
-        // use request.setTimeout here: Node keeps that as a post-connect inactivity timer,
-        // which used to kill a valid but temporarily quiet response after eight seconds even
-        // though the operation still had time left on its absolute deadline.
+        // The socket timer only covers connecting and stops after TLS. No request.setTimeout here:
+        // Node keeps it as an idle timer and it killed slow but fine responses after 8s.
         request.on('socket', socket => {
             connectTimer = setTimeout(() => abort(request, 'TIMEOUT'), options.connectTimeoutMs);
             const verifyPeer = () => {
@@ -710,10 +708,8 @@ function createRemoteDataService(options = {}) {
         }
         const response = {
             html: decoded.html,
-            // Search cards need opaque references so the renderer can open their detail
-            // pages. Detail HTML does not: issuing another ~200 references for every
-            // opened game quickly evicted the still-visible search-card references from
-            // the bounded store, making subsequent cards fail until the launcher reloaded.
+            // Only search cards need references. Making ~200 more for every opened detail page pushed
+            // the visible cards' references out of the store and they stopped opening.
             references: context.operation === 'source.search'
                 ? referencesFromHtml(context, decoded.html)
                 : [],

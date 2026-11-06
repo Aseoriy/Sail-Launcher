@@ -45,6 +45,8 @@ function queryCommand(file, args) {
 
 async function detectLinuxInstall({ packaged, env = process.env, execPath = process.execPath, runQuery = queryCommand, exists = fs.existsSync } = {}) {
     if (!packaged) return { kind: null, reason: 'Development builds update from source, not from releases.' };
+    // Flathub owns Flatpak updates; replacing files inside the sandbox is impossible anyway.
+    if (env.FLATPAK_ID) return { kind: null, reason: 'This copy of Sail is a Flatpak, so it updates through Flathub. Update it from your software center (or run flatpak update).' };
     const appImage = env.APPIMAGE;
     if (appImage) {
         let stat = null;
@@ -65,7 +67,11 @@ async function detectLinuxInstall({ packaged, env = process.env, execPath = proc
     let kind = null;
     if (dpkgQuery && (await runQuery(dpkgQuery, ['-S', executable]) || '').startsWith(`${PACKAGE_NAME}:`)) kind = 'deb';
     else if (rpm && await runQuery(rpm, ['-qf', '--queryformat', '%{NAME}', executable]) === PACKAGE_NAME) kind = 'rpm';
-    if (!kind) return { kind: null, reason: 'This copy of Sail was not installed from the AppImage, .deb or .rpm, so it can\'t update itself.' };
+    if (!kind) {
+        const pacman = systemCommand('pacman', exists);
+        if (pacman && await runQuery(pacman, ['-Qqo', executable])) return { kind: null, reason: 'This copy of Sail was installed with pacman (for example from the AUR), so it updates with your system. Update it with your AUR helper (like yay -Syu).' };
+        return { kind: null, reason: 'This copy of Sail was not installed from the AppImage, .deb or .rpm, so it can\'t update itself.' };
+    }
     if (!systemCommand('pkexec', exists)) return { kind: null, reason: `Installing the .${kind} update needs pkexec (polkit), which isn't installed.` };
     return { kind };
 }
@@ -149,10 +155,8 @@ function downloadReleaseFile(url, destination, { onProgress = () => {}, sha256 =
     });
 }
 
-// Electron's relaunch helper runs from Sail's own executable, which for an AppImage
-// lives in a temporary mount that disappears with Sail, so the helper dies with it.
-// Restart from a shell instead: wait for this process to exit (releasing the
-// single-instance lock), then start the AppImage file. Returns false when not an AppImage.
+// An AppImage runs from a temp mount that goes away with Sail, so Electron's relaunch
+// helper dies too. Restart from a shell once we've exited. Returns false if not an AppImage.
 const APPIMAGE_RUNTIME_VARIABLES = ['APPDIR', 'APPIMAGE', 'ARGV0', 'OWD'];
 // Chromium keeps some descriptors (the old mount's files, its sockets) open across exec,
 // which would keep the old mount alive under the new Sail. bash can close any descriptor;

@@ -3,10 +3,8 @@
 const fs = require('node:fs');
 const path = require('node:path');
 
-// A Windows game run through Proton or Wine keeps its saves, and the achievement files that Steam emulators
-// (Goldberg, CODEX and others in repacks) write, inside the game's own Windows environment: a private folder
-// Sail creates per game. That folder is Sail's own, so it can safely be searched for those files without asking
-// for access to anything else on the PC.
+// Proton/Wine games keep saves and emulator achievement files (Goldberg, CODEX...) inside
+// the game's own prefix, which Sail made, so it's fine to search it.
 const BACKEND_FOLDERS = ['prefixes', 'wine-prefixes'];
 const SHARED_USERS = new Set(['public', 'all users', 'default', 'default user']);
 

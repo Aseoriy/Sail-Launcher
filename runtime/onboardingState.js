@@ -7,8 +7,8 @@ const PROTOCOL = 1;
 // Raise this when the first-run setup changes enough that people who finished an older one should see it again.
 const SETUP_VERSION = 1;
 
-// Remembers, on this device only, whether the first-run setup was finished or skipped. It is deliberately
-// not part of the synced settings: finishing setup on one computer says nothing about another.
+// Whether first-run setup was finished or skipped, on this device only. Not synced, since
+// finishing setup on one PC says nothing about another.
 // `existingInstall` tells it whether this device already had launcher data before the setup existed.
 function createOnboardingState({ file, force = false, platform = process.platform, io = fs, write = durableWriteJson, existingInstall = () => false }) {
     function read() {

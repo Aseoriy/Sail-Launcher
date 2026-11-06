@@ -3,6 +3,7 @@
 
     const ipc = require('electron').ipcRenderer;
     const { pathToFileURL } = require('url');
+    const { customBannerUrl } = require('./ui/customBanner');
     const SafeDom = require('./ui/safeDom');
     const { bindAchievementArtwork } = require('./ui/achievementArtwork');
     const { unlockDataMissing, SHORT_NOTE, LONG_NOTE } = require('./ui/achievementNotice');
@@ -84,9 +85,11 @@
     }
 
     function gameArtwork(game) {
-        if (game.customBannerPath) {
-            try { return SafeDom.safeImageUrl(pathToFileURL(String(game.customBannerPath)).href, { allowFile: true }); } catch (_) { return ''; }
-        }
+        const custom = customBannerUrl(game, { safeImageUrl: (value, options) => {
+            if (!options.allowFile) return SafeDom.safeImageUrl(value, options);
+            try { return SafeDom.safeImageUrl(pathToFileURL(value).href, options); } catch (_) { return ''; }
+        }, fileExists: file => { try { return require('fs').statSync(file).isFile(); } catch (_) { return false; } } });
+        if (custom) return custom;
         return SafeDom.safeImageUrl(game.steamHeroUrl || game.steamImageUrl || (game.steamAppId
             ? `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${game.steamAppId}/library_hero.jpg`
             : game.iconData), { allowSteam: true, allowData: true, maxDataLength: 2 * 1024 * 1024 });

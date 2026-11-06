@@ -1,6 +1,6 @@
-/* Kernel-observed Wine main image, measured by the surviving supervisor.
- * This is process activity, not a rendered-frame or successful-gameplay signal.
- * No PID discovered here is ever signaled: Stop retains the subreaper waiters. */
+/* Wine main image as the kernel sees it, tracked by the surviving supervisor.
+ * It shows the process is running, not that frames render. Nothing found here gets
+ * signaled: Stop goes through the subreaper children (and the Flatpak ones in sail-native.c). */
 #include <dirent.h>
 #include <sys/sysmacros.h>
 #include <strings.h>
@@ -151,7 +151,7 @@ static struct game_process *game_find(struct game_process *all, size_t count, pi
 }
 static int game_ancestry(struct game_process *all, size_t count, struct game_process p, int verify) {
     for (size_t depth=0; depth<128; depth++) {
-        if (p.parent==getpid()) return 1;
+        if (p.parent==getpid() || sandbox_owned(p.pid)) return 1;
         struct game_process *parent=game_find(all,count,p.parent);
         if (!parent || parent->pid==p.pid) return 0;
         if (verify) {

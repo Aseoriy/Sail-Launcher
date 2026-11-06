@@ -662,7 +662,7 @@
         @keyframes uie-gradshift { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
         @keyframes uie-shimmer { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }
 
-        /* Anchored <select> dropdown (issue #5) — replaces the old centered "Select Option"
+        /* Anchored <select> dropdown - replaces the old centered "Select Option"
            modal with a popup that animates in place from the control it belongs to. */
         #anchoredSelect { position: fixed; z-index: 100200; min-width: 150px; max-height: 320px; overflow-y: auto; background: color-mix(in srgb, var(--bg-color) 78%, transparent); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); border: 1px solid var(--glass-border, var(--border-color)); border-radius: 11px; box-shadow: 0 16px 44px rgba(0,0,0,0.45); padding: 6px; transform-origin: top center; animation: anchoredSelectIn .14s cubic-bezier(.2,.9,.3,1.2); }
         #anchoredSelect.flip-up { transform-origin: bottom center; animation-name: anchoredSelectInUp; }
@@ -697,7 +697,7 @@
         }
         #anchoredSelect .as-group { font-weight: 700; opacity: 0.5; padding: 9px 9px 3px; font-size: 10.5px; text-transform: uppercase; letter-spacing: .05em; }
 
-        /* Inline help tips in the Theme Editor's Advanced mode (issue #2). */
+        /* Inline help tips in the Theme Editor's Advanced mode. */
         .tc-info-btn { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 50%; border: 1px solid var(--border-color); font-size: 10px; line-height: 1; opacity: 0.65; cursor: pointer; margin-left: 6px; flex-shrink: 0; user-select: none; }
         .tc-info-btn:hover { opacity: 1; border-color: var(--accent); color: var(--accent); }
         .tc-info-text { font-size: 11px; opacity: 0.7; line-height: 1.4; margin: 4px 0 0 0; padding: 6px 9px; background: rgba(128,128,128,0.1); border-radius: 6px; border-left: 2px solid var(--accent); }
@@ -2779,7 +2779,7 @@
             background: var(--bg-color) !important;
         }
 
-        /* Force Translucency (Experimental) — for custom themes whose opaque custom / UI-editor
+        /* Force Translucency (Experimental) - for custom themes whose opaque custom / UI-editor
            background (uiAppBg) would otherwise hide the desktop. Instead of replacing the custom
            background with a flat colour (which made themes "look normal"), we PRESERVE it: the
            real appBg gradient/image is painted onto a fixed body::after backdrop layer and faded
@@ -5020,6 +5020,7 @@
                         placeholder="ROM File Path"><button id="browseRomBtn">Browse</button></div>
                 <div class="input-row"><input type="text" id="romArgs"
                         placeholder="Launch Args (e.g., -fullscreen &quot;%rom%&quot;)" value="&quot;%rom%&quot;"></div>
+                <small id="romLinuxHint" hidden style="display:block; opacity:0.6; margin-top:8px; line-height:1.45;">Pick a Linux emulator. For a Flatpak emulator, pick its launcher in /var/lib/flatpak/exports/bin (or ~/.local/share/flatpak/exports/bin). The ROM is chosen when you save.</small>
             </div>
 
             <div id="customInputsRow" style="margin-top: 15px;">
@@ -6185,6 +6186,20 @@
                 </div>
 
                 <div style="margin-bottom: 20px; border-top: 1px solid var(--border-color); padding-top: 20px;">
+                    <label for="activeIdleMinutesSelect" style="font-size: 12px; opacity:0.6; display:block; margin-bottom:5px;">Count a game as idle after</label>
+                    <div class="input-row">
+                        <select id="activeIdleMinutesSelect">
+                            <option value="2">2 minutes without input</option>
+                            <option value="5">5 minutes without input</option>
+                            <option value="10">10 minutes without input</option>
+                            <option value="15">15 minutes without input</option>
+                            <option value="30">30 minutes without input</option>
+                        </select>
+                    </div>
+                    <small style="display:block; opacity:0.55; margin-top:6px; line-height:1.45;">Playtime still counts the whole time a game is open. Active time leaves out stretches with no keyboard, mouse or controller input (and this device's settings only).</small>
+                </div>
+
+                <div style="margin-bottom: 20px; border-top: 1px solid var(--border-color); padding-top: 20px;">
                     <label style="font-size: 12px; opacity:0.6; display:block; margin-bottom:12px; font-weight:bold; text-transform:uppercase; letter-spacing:0.04em;">Home &amp; Sidebar Pages</label>
                     <label class="toggle-label" tabindex="0" style="margin-bottom:14px;">
                         <input type="checkbox" id="showContinuePlayingToggle" checked>
@@ -6379,6 +6394,15 @@
                         Paths</label>
                     <button class="outline" style="width:100%; font-size:12px; padding:6px;"
                         onclick="openModal('quickPathsModal')">Manage Quick Paths</button>
+                </div>
+
+                <div id="linuxStorageSection" hidden style="margin-bottom: 20px; border-top: 1px solid var(--border-color); padding-top: 20px;">
+                    <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px;">
+                        <h3 style="margin: 0;">Storage on this device</h3>
+                        <button type="button" class="outline" id="linuxStorageRefreshBtn" style="font-size:12px; padding:5px 10px;">Refresh</button>
+                    </div>
+                    <p id="linuxStorageStatus" aria-live="polite" style="font-size: 11px; opacity:0.6; margin: 0 0 10px;">What Sail keeps on this computer.</p>
+                    <div id="linuxStorageList" style="display:flex; flex-direction:column; gap:10px;"></div>
                 </div>
 
                 <div style="margin-bottom: 20px; border-top: 1px solid var(--border-color); padding-top: 20px;">
@@ -7209,12 +7233,8 @@
             window.syncMuteBtn();
         });
 
-        // ========================= Themed icon system =========================
-        // Lucide-style SVG line-icons drawn with `currentColor` so they inherit the active
-        // theme/accent automatically. Emoji call-sites become <span class="app-ic" data-ic="NAME">,
-        // which paintIcons() fills with either the SVG (default) or the original emoji when the
-        // user opts into emoji mode (globalSettings.iconStyle === 'emoji'). Icons are added to the
-        // registry batch-by-batch as more of the UI is converted.
+        // Themed icons: line SVGs using currentColor so they follow the accent. Emoji spots become
+        // <span class="app-ic" data-ic="NAME">, and paintIcons() fills them (or keeps the emoji in emoji mode).
         const ICONS = {
             'chevron-left':  '<path d="M15 18l-6-6 6-6"/>',
             'chevron-right': '<path d="M9 18l6-6-6-6"/>',
@@ -7334,7 +7354,7 @@
                 const name = el.getAttribute('data-ic');
                 if (!name) return;
                 el.innerHTML = mode === 'icons' ? _iconSvg(name) : (ICON_EMOJI[name] || '');
-                // aria-label is the icon NAME, never the emoji — keeping emoji out of attributes so
+                // aria-label is the icon name, never the emoji - keeping emoji out of attributes so
                 // the iconize pass (which only touches text) can never re-scan it.
                 el.setAttribute('aria-label', name);
                 el.setAttribute('data-mode', mode);
@@ -7358,14 +7378,12 @@
             if (emo && !_ICONIZE_SKIP.has(emo) && !(emo in EMOJI_TO_ICON)) EMOJI_TO_ICON[emo] = name;
         });
         // Glyph aliases: alternate emoji that mean the same icon. The dictionary uses ⬅️ for
-        // "Back to Library" while the registry's arrow-left is 🔙 — map both to the same icon.
+        // "Back to Library" while the registry's arrow-left is 🔙 - map both to the same icon.
         [['⬅️', 'arrow-left'], ['⬅', 'arrow-left'], ['◀️', 'rewind']].forEach(([emo, name]) => {
             if (ICONS[name] && !(emo in EMOJI_TO_ICON)) EMOJI_TO_ICON[emo] = name;
         });
-        // Replace any registered emoji inside a chrome label with a themed icon span (icon mode
-        // only). Applied to translated [data-i18n] elements so their dictionary emojis become icons
-        // in every language without editing the dictionary. Safe: only runs on developer-defined
-        // UI labels, never on user content.
+        // Swap registered emoji in UI labels for themed icons (icon mode only). Runs on our own
+        // [data-i18n] labels, never user content.
         function iconizeElement(el) {
             if (!el || _iconMode() !== 'icons') return;
             // Walk TEXT NODES only (never innerHTML) so we can't corrupt attributes or re-scan an
@@ -7503,7 +7521,7 @@
             customFont: '', fontFamily: 'Segoe UI', language: 'english', compactLayout: false,
             exitWhenClosed: false, disableDiscordRpc: false, enableDevTools: false, autoStart: false,
             hideStars: false, legacySettings: false, quickPaths: [], tileShape: 'default', fullTileImage: false, tileSize: 'medium', verticalCards: false,
-            showSurpriseMe: false, showStats: false, showDynamicFolders: true, showFavoritesFolder: true, recentDays: 30,
+            showSurpriseMe: false, showStats: false, showDynamicFolders: true, showFavoritesFolder: true, recentDays: 30, activeIdleMinutes: 5,
             showContinuePlaying: true, showModsPage: true, showWorkshopPage: true, showGameDownloadsPage: true, showDownloadManagerPage: true,
             achievementTrackingEnabled: true, achievementCardBadgesEnabled: true, achievementNotificationsEnabled: true,
             maintenanceEnabled: false, maintenanceGamePageEnabled: true,
@@ -7610,6 +7628,13 @@
             if (seconds < 60) return Math.floor(seconds) + ' s';
             if (seconds < 3600) return Math.floor(seconds / 60) + ' min';
             return (seconds / 3600).toFixed(1) + ' hrs';
+        }
+
+        // Active time is the total minus idle stretches Sail saw, so playtime from before it counted idle stays "active".
+        function formatPlaytimeWithActive(game) {
+            const total = Number(game && game.playtime) || 0;
+            const idle = Math.min(total, Math.max(0, Number(game && game.idlePlaytime) || 0));
+            return idle > 0 ? `${formatPlaytime(total)} played · ${formatPlaytime(total - idle)} active` : formatPlaytime(total);
         }
 
         function escapeHtml(value) {
@@ -7793,14 +7818,42 @@
                 achievements: { total: items.length, unlocked: items.filter(item => item && item.unlocked).length }
             };
         }
+        const sailCustomBanner = require('./ui/customBanner');
+        // The banner file on this device, else the small copy kept with the game; '' falls back to Steam art or the icon.
+        function customBannerUrl(game) {
+            return sailCustomBanner.customBannerUrl(game, { safeImageUrl: SafeDom.safeImageUrl,
+                fileExists: file => { try { return require('fs').statSync(file).isFile(); } catch (_) { return false; } } });
+        }
+        // A new or changed banner file gets a fresh small copy; a banner that only exists as a copy (from another device) is kept.
+        function customBannerForSave(existing, nextPath) {
+            const previousPath = existing && existing.customBannerPath || null;
+            if (!nextPath) return previousPath ? null : existing && existing.customBanner || null;
+            if (nextPath === previousPath && existing.customBanner) return existing.customBanner;
+            try { return sailCustomBanner.portableBanner(require('electron').nativeImage, nextPath) || null; } catch (_) { return null; }
+        }
+        // Banners chosen before 6.0.0-beta.5 have no copy yet; make them one at a time once the library is up.
+        function backfillPortableBanners() {
+            const pending = myGames.filter(game => game.customBannerPath && !game.customBanner);
+            let made = 0;
+            const next = () => {
+                const game = pending.shift();
+                if (!game) { if (made) saveToMemory(); return; }
+                const copy = customBannerForSave({}, game.customBannerPath);
+                if (copy && myGames.includes(game) && !game.customBanner) { game.customBanner = copy; made++; }
+                setTimeout(next, 150);
+            };
+            next();
+        }
+
         // kind: 'hero' (wide banner), 'portrait' (tall cover), 'header' (small wide capsule). Empty string when none exists.
         function sailGameCover(game, kind) {
             if (!game) return '';
             const appId = encodeURIComponent(String(game.steamAppId || ''));
             const steam = game.steamAppId && steamMetadataAvailable();
             if (kind === 'portrait') return steam ? SafeDom.safeImageUrl(`https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${appId}/library_600x900.jpg`, { allowSteam: true }) : '';
-            if (kind === 'header') return steam ? SafeDom.safeImageUrl(game.steamImageUrl || `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${appId}/header.jpg`, { allowSteam: true }) : (game.customBannerPath ? SafeDom.safeImageUrl(game.customBannerPath, { allowFile: true }) : '');
-            if (game.customBannerPath) return SafeDom.safeImageUrl(game.customBannerPath, { allowFile: true });
+            if (kind === 'header') return steam ? SafeDom.safeImageUrl(game.steamImageUrl || `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${appId}/header.jpg`, { allowSteam: true }) : customBannerUrl(game);
+            const custom = customBannerUrl(game);
+            if (custom) return custom;
             if (steam) return SafeDom.safeImageUrl(game.steamHeroUrl || `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${appId}/library_hero.jpg`, { allowSteam: true });
             return game.iconData ? SafeDom.safeImageUrl(game.iconData, { allowData: true, maxDataLength: 2 * 1024 * 1024 }) : '';
         }
@@ -8814,8 +8867,8 @@
                         try {
                             const m = html.match(/const\s+SUPPORTERS\s*=\s*(\[[\s\S]*?\]);/);
                             if (!m) return reject(new Error('Supporter list not found on page'));
-                            // Evaluate the page's own trusted array literal (it's JS — has comments,
-                            // unquoted keys and trailing commas — so JSON.parse won't do).
+                            // Evaluate the page's own trusted array literal (it's JS - has comments,
+                            // unquoted keys and trailing commas - so JSON.parse won't do).
                             const data = new Function('return (' + m[1] + ')')();
                             resolve(Array.isArray(data) ? data : []);
                         } catch (e) { reject(e); }
@@ -11383,6 +11436,7 @@
                 }
                 if (!g.tags) { g.tags = []; modified = true; }
             });
+            setTimeout(backfillPortableBanners, 5000);
             if (customSections.length > 0 && typeof customSections[0] === 'string') {
                 customSections = customSections.map(s => ({ name: s, icon: '📁' }));
                 modified = true;
@@ -11591,6 +11645,8 @@
             { const t = document.getElementById('uiEditorEnabledToggle'); if (t) t.checked = !!globalSettings.uiEditorEnabled; }
             try { reflectUiEditorEnabled(); } catch (e) {}
             document.getElementById('recentDaysSelect').value = globalSettings.recentDays.toString();
+            document.getElementById('activeIdleMinutesSelect').value = String(globalSettings.activeIdleMinutes || 5);
+            ipcRenderer.invoke('activity-set-idle-minutes', globalSettings.activeIdleMinutes || 5).catch(() => {});
 
             document.getElementById('showSocialSidebarToggle').checked = globalSettings.showSocialSidebar;
             document.getElementById('steamApiKeyInput').value = globalSettings.steamApiKey;
@@ -12025,7 +12081,7 @@
                         dropdownContainer.appendChild(btn);
                         hasDropdownButtons = true;
                     } else {
-                        // 'bottom' — stays in the group (already there)
+                        // 'bottom' - stays in the group (already there)
                         group.appendChild(btn);
                     }
                 }
@@ -12488,9 +12544,61 @@
             }
             if (!skipHistory) pushNavState();
             if (tabId === 'compatibility') compatibilityManager.enter().catch(error => { document.getElementById('compatibilityStatus').textContent = error.message; });
+            if (tabId === 'data') linuxStoragePanel.refresh();
         };
 
-        // Developer page — its own top bar with Alerts / Feature Testing sub-tabs.
+        // Settings → Data & Backup on Linux: what Sail keeps on disk, with sizes. Main keeps the paths.
+        const linuxStoragePanel = (() => {
+            const section = document.getElementById('linuxStorageSection');
+            const list = document.getElementById('linuxStorageList');
+            const status = document.getElementById('linuxStorageStatus');
+            let loading = null;
+            const size = bytes => bytes === null ? 'Size unknown' : bytes < 1024 * 1024 ? `${Math.max(0, Math.round(bytes / 1024))} KB`
+                : bytes < 1024 ** 3 ? `${(bytes / 1024 ** 2).toFixed(1)} MB` : `${(bytes / 1024 ** 3).toFixed(2)} GB`;
+            const el = (tag, options, style) => { const node = SafeDom.element(document, tag, options); if (style) node.style.cssText = style; return node; };
+            const row = item => {
+                const actions = el('div', {}, 'display:flex; gap:6px; flex-shrink:0;');
+                if (item.openable) {
+                    const open = el('button', { className: 'outline', text: 'Open folder', type: 'button' }, 'font-size:12px; padding:5px 10px;');
+                    open.addEventListener('click', () => ipcRenderer.invoke('linux-storage-open', item.key).catch(error => { status.textContent = error.message; }));
+                    actions.append(open);
+                }
+                if (item.clearable) {
+                    const clear = el('button', { className: 'outline', text: 'Clear', type: 'button' }, 'font-size:12px; padding:5px 10px;');
+                    clear.addEventListener('click', async () => {
+                        clear.disabled = true;
+                        try { await ipcRenderer.invoke('linux-storage-clear-cache'); status.textContent = 'Launcher cache cleared.'; await refresh(true); }
+                        catch (error) { status.textContent = `The cache could not be cleared: ${error.message}`; }
+                        finally { clear.disabled = false; }
+                    });
+                    actions.append(clear);
+                }
+                const text = el('div', {}, 'min-width:0;');
+                text.append(
+                    el('div', { text: `${item.label} · ${size(item.bytes)}` }, 'font-size:13px; font-weight:600;'),
+                    el('div', { text: item.description }, 'font-size:11px; opacity:0.6; line-height:1.4;'));
+                const wrapper = el('div', {}, 'display:flex; align-items:center; justify-content:space-between; gap:12px;');
+                wrapper.append(text, actions);
+                return wrapper;
+            };
+            async function refresh(keepStatus = false) {
+                if (process.platform !== 'linux') return;
+                section.hidden = false;
+                if (loading) return loading;
+                if (!keepStatus) status.textContent = 'Measuring…';
+                loading = ipcRenderer.invoke('linux-storage-summary').then(items => {
+                    list.replaceChildren(...items.map(row));
+                    const total = items.reduce((sum, item) => sum + (item.bytes || 0), 0);
+                    if (!keepStatus) status.textContent = `Sail uses ${size(total)} on this computer.`;
+                }).catch(error => { status.textContent = `Storage could not be measured: ${error.message}`; })
+                    .finally(() => { loading = null; });
+                return loading;
+            }
+            document.getElementById('linuxStorageRefreshBtn').addEventListener('click', () => refresh());
+            return { refresh };
+        })();
+
+        // Developer page - its own top bar with Alerts / Feature Testing sub-tabs.
         window.switchDevSubTab = function (name) {
             document.querySelectorAll('#tab-alerts .dev-subtab').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('#tab-alerts .dev-subpane').forEach(p => p.classList.remove('active'));
@@ -12500,7 +12608,7 @@
             if (pane) pane.classList.add('active');
         };
 
-        // Feature Testing — runs the REAL download pipeline with a small public sample .zip.
+        // Feature Testing - runs the real download pipeline with a small public sample .zip.
         window.runDownloaderTest = async function () {
             if (!await sailConfirm('This starts a REAL download (a ~2 MB sample .zip) through the full pipeline — it will appear in your downloads and may auto-extract to your install folder. Continue?')) return;
             if (typeof startGameDownload !== 'function') { alert('Downloader is not ready yet.'); return; }
@@ -12558,7 +12666,7 @@
         }
 
         let currentDropdownTarget = null;
-        // Anchored, animated <select> replacement (issue #5). Instead of a centered modal,
+        // Anchored, animated <select> replacement. Instead of a centered modal,
         // the option list pops up directly under (or above, if there's no room) the control
         // it belongs to and animates in. Dismisses on click-outside / Escape / scroll / resize.
         function closeAnchoredSelect() {
@@ -12910,6 +13018,12 @@
             }
         };
 
+        if (process.platform === 'linux') {
+            document.getElementById('romLinuxHint').hidden = false;
+            // A Flatpak Sail cannot start other Flatpaks or see programs outside your home folder.
+            if (process.env.FLATPAK_ID) document.getElementById('romLinuxHint').textContent = 'Pick a Linux emulator in your home folder, like an AppImage. This copy of Sail is a Flatpak, so it can\'t start Flatpak emulators or ones installed system-wide. The ROM is chosen when you save.';
+            document.getElementById('emulatorPath').placeholder = 'Emulator program';
+        }
         document.getElementById('romToggle').addEventListener('change', (e) => {
             if (e.target.checked) { 
                 document.getElementById('platformSelect').value = 'custom'; 
@@ -13361,7 +13475,7 @@
             const heading = SafeDom.element(document, 'h2', { text: 'Game Information' });
             content.replaceChildren(close, heading, SafeDom.element(document, 'div', { text: 'Loading information…' }));
 
-            const formattedPlaytime = formatPlaytime(game.playtime);
+            const formattedPlaytime = formatPlaytimeWithActive(game);
             const lastPlayedStr = game.lastPlayed ? new Date(game.lastPlayed).toLocaleDateString() : 'Never';
             const metadata = [
                 ['Playtime', formattedPlaytime],
@@ -13499,8 +13613,9 @@
             bannerEl.style.display = 'block';
             bannerEl.dataset.triedFallback = "";
 
-            if (game.customBannerPath) {
-                SafeDom.setImageSource(bannerEl, game.customBannerPath, { allowFile: true, hideInvalid: true });
+            const customBanner = customBannerUrl(game);
+            if (customBanner) {
+                SafeDom.setImageSource(bannerEl, customBanner, { allowFile: true, allowData: true, maxDataLength: sailCustomBanner.MAX_BANNER_DATA_URL, hideInvalid: true });
             } else if (game.steamAppId && steamMetadataAvailable()) {
                 const source = SafeDom.safeImageUrl(game.steamHeroUrl, { allowSteam: true })
                     || SafeDom.safeImageUrl(`https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${encodeURIComponent(String(game.steamAppId || ''))}/library_hero.jpg`, { allowSteam: true });
@@ -15406,7 +15521,7 @@
             webview.src = 'about:blank';
 
             document.getElementById('sourcesBrowserPanel').style.display = 'none';
-            // The Sources management page was removed — return to the Download page.
+            // The Sources management page was removed - return to the Download page.
             switchMainTab('downloads');
         };
 
@@ -16282,10 +16397,11 @@
                 card.onmouseleave = clearSquish;
 
                 let imageNode = null;
-                if (game.customBannerPath) {
+                const customBanner = customBannerUrl(game);
+                if (customBanner) {
                     const image = SafeDom.element(document, 'img', { className: 'card-banner' });
                     image.loading = 'lazy'; image.decoding = 'async'; image.alt = '';
-                    if (SafeDom.setImageSource(image, game.customBannerPath, { allowFile: true, hideInvalid: true })) imageNode = image;
+                    if (SafeDom.setImageSource(image, customBanner, { allowFile: true, allowData: true, maxDataLength: sailCustomBanner.MAX_BANNER_DATA_URL, hideInvalid: true })) imageNode = image;
                 } else if (game.steamAppId && steamMetadataAvailable()) {
                     const heroUrl = game.steamHeroUrl || `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${game.steamAppId}/library_hero.jpg`;
                     const fallbackUrl = game.steamImageUrl || `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${game.steamAppId}/header.jpg`;
@@ -16302,7 +16418,7 @@
                 }
                 if (!imageNode) imageNode = SafeDom.element(document, 'div', { className: 'no-image', text: 'No Image' });
 
-                let timeStr = game.playtime > 0 ? ` • ${formatPlaytime(game.playtime)}` : '';
+                let timeStr = game.playtime > 0 ? ` • ${formatPlaytimeWithActive(game)}` : '';
                 let readyStr = (protonFirstLaunchUi.label(game.id) || nativeSessionText(game.id) || linuxDownloadLabel(game.id) || (nativeGamesAvailable() && game.localSetupStatus !== 'active'
                     ? 'Local setup required' : localOnlyPreview && !nativeGamesAvailable() ? 'Game launching unavailable'
                         : (d.ready || 'Ready to Play'))) + timeStr;
@@ -16359,10 +16475,11 @@
             emitSailEvent('library');
         }
 
-        // "Continue playing" featured banner — shows the most recently played
+        // "Continue playing" featured banner - shows the most recently played
         // game at the top of the library home (only on the unfiltered All view).
         function gameCoverUrl(game) {
-            if (game.customBannerPath) return 'file://' + game.customBannerPath.replace(/\\/g, '/');
+            const custom = customBannerUrl(game);
+            if (custom) return custom;
             if (steamMetadataAvailable() && game.steamHeroUrl) return game.steamHeroUrl;
             if (steamMetadataAvailable() && game.steamAppId) return `https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/${game.steamAppId}/library_hero.jpg`;
             if (game.iconData) return game.iconData;
@@ -16386,7 +16503,7 @@
             const g = myGames[bestIdx];
             const cover = gameCoverUrl(g);
             const running = (typeof activeGameIndex !== 'undefined' && activeGameIndex === bestIdx);
-            const hrs = (g.playtime || 0) > 0 ? formatPlaytime(g.playtime) : '';
+            const hrs = (g.playtime || 0) > 0 ? formatPlaytimeWithActive(g) : '';
             const lastStr = g.lastPlayed ? new Date(g.lastPlayed).toLocaleDateString() : '';
             el.style.display = 'block';
             const safeCover = SafeDom.safeImageUrl(cover, {
@@ -16480,10 +16597,10 @@
                         const image = SafeDom.element(document, 'img', { className: 'sidebar-sub-icon' });
                         image.loading = 'lazy'; image.decoding = 'async'; image.alt = '';
                         if (SafeDom.setImageSource(image, imgUrl, { allowSteam: true, hideInvalid: true })) iconNode = image;
-                    } else if (g.customBannerPath) {
+                    } else if (customBannerUrl(g)) {
                         const image = SafeDom.element(document, 'img', { className: 'sidebar-sub-icon' });
                         image.loading = 'lazy'; image.decoding = 'async'; image.alt = '';
-                        if (SafeDom.setImageSource(image, g.customBannerPath, { allowFile: true, hideInvalid: true })) iconNode = image;
+                        if (SafeDom.setImageSource(image, customBannerUrl(g), { allowFile: true, allowData: true, maxDataLength: sailCustomBanner.MAX_BANNER_DATA_URL, hideInvalid: true })) iconNode = image;
                     } else if (g.iconData) {
                         const image = SafeDom.element(document, 'img', { className: 'sidebar-sub-icon' });
                         image.loading = 'lazy'; image.decoding = 'async'; image.alt = '';
@@ -16709,6 +16826,7 @@
                         gogId: platform === 'gog' ? gogId : null,
                         steamImageUrl: steamImageUrl || (existingGame && String(existingGame.steamAppId || '') === String(nextSteamAppId || '') ? existingGame.steamImageUrl : null), steamHeroUrl: steamHeroUrl || (existingGame && String(existingGame.steamAppId || '') === String(nextSteamAppId || '') ? existingGame.steamHeroUrl : null),
                         customBannerPath: document.getElementById('customBannerPath').value || null,
+                        customBanner: customBannerForSave(existingGame, document.getElementById('customBannerPath').value || null),
                         isRom: isRom,
                         shortcutIcon: document.getElementById('shortcutIconPath').value,
                         tags: Array.from(document.querySelectorAll('.game-tag-cb:checked')).map(cb => cb.value),
@@ -16739,6 +16857,10 @@
                             authorityDraft.executableSelectionId = selection.selectionId;
                             authorityDraft.executableBackend = selection.backend;
                         }
+                        if (isRom && nativeGamesAvailable() && authorityDraft.executableBackend === 'proton-umu') {
+                            authorityDraft.executableSelectionId = '';
+                            throw new Error('Choose a Linux emulator for this ROM. Windows emulators through Proton are not supported yet.');
+                        }
                         // Windows setup needs an explicit per-game compatibility choice.
                         // Save metadata and carry the opaque picker receipt to that UI.
                         if (nativeGamesAvailable() && authorityDraft.executableBackend === 'proton-umu') {
@@ -16748,7 +16870,8 @@
                         } else {
                             const configured = await invokeAccount('authority-configure-execution', {
                                 gameId: gameData.id,
-                                ...(nativeGamesAvailable() ? { argv: [] } : { argumentProposal: isRom ? (document.getElementById('romArgs').value || '"%rom%"') : '' }),
+                                ...(nativeGamesAvailable() ? { argv: [], ...(isRom ? { argumentProposal: document.getElementById('romArgs').value || '"%rom%"' } : {}) }
+                                    : { argumentProposal: isRom ? (document.getElementById('romArgs').value || '"%rom%"') : '' }),
                                 ...(authorityDraft.executableSelectionId
                                     ? { baseSelectionId: authorityDraft.executableSelectionId } : {}),
                                 requestRom: isRom,
@@ -16914,6 +17037,10 @@
         document.getElementById('showDynamicFoldersToggle').addEventListener('change', (e) => { globalSettings.showDynamicFolders = e.target.checked; saveToMemory(); renderSidebar(); });
         document.getElementById('showFavoritesFolderToggle').addEventListener('change', (e) => { globalSettings.showFavoritesFolder = e.target.checked; saveToMemory(); renderSidebar(); });
         document.getElementById('recentDaysSelect').addEventListener('change', (e) => { globalSettings.recentDays = parseInt(e.target.value) || 30; saveToMemory(); if (currentFilterSectionId === 'RECENT') renderGames(); });
+        document.getElementById('activeIdleMinutesSelect').addEventListener('change', (e) => {
+            globalSettings.activeIdleMinutes = parseInt(e.target.value) || 5; saveToMemory();
+            ipcRenderer.invoke('activity-set-idle-minutes', globalSettings.activeIdleMinutes).catch(() => {});
+        });
 
         // --- Continue-Playing banner + per-page sidebar visibility (Settings → Interface) ---
         { const t = document.getElementById('showContinuePlayingToggle'); if (t) t.addEventListener('change', (e) => { globalSettings.showContinuePlaying = e.target.checked; saveToMemory(); renderContinuePlaying(); }); }
@@ -16927,7 +17054,7 @@
         // stranded on an invisible tab. Library is always available.
         function applyPageVisibility() {
             const vis = {
-                store: !!globalSettings.showModsPage,                       // "Mods" (plugins hub) — shown by default
+                store: !!globalSettings.showModsPage,                       // "Mods" (plugins hub) - shown by default
                 workshop: globalSettings.showWorkshopPage !== false,
                 downloads: globalSettings.showGameDownloadsPage !== false,  // "Game Downloads"
                 downloadsmgr: globalSettings.showDownloadManagerPage !== false,  // "Download Manager"
@@ -16953,21 +17080,14 @@
         { const t = document.getElementById('mainSidebarSideSelect'); if (t) t.addEventListener('change', (e) => { globalSettings.mainSidebarSide = e.target.value; saveToMemory(); applyLayout(); }); }
         { const t = document.getElementById('friendsBarSideSelect'); if (t) t.addEventListener('change', (e) => { globalSettings.friendsBarSide = e.target.value; saveToMemory(); applyLayout(); }); }
         { const t = document.getElementById('foldersPositionSelect'); if (t) t.addEventListener('change', (e) => { globalSettings.foldersPosition = e.target.value; saveToMemory(); applyLayout(); }); }
-        // Same controls mirrored inside the Theme editor (Advanced view) — keep both in sync.
+        // Same controls mirrored inside the Theme editor (Advanced view) - keep both in sync.
         { const t = document.getElementById('tcLayoutSidebarSide'); if (t) t.addEventListener('change', (e) => { globalSettings.mainSidebarSide = e.target.value; saveToMemory(); applyLayout(); const s = document.getElementById('mainSidebarSideSelect'); if (s) s.value = e.target.value; }); }
         { const t = document.getElementById('tcLayoutFriendsSide'); if (t) t.addEventListener('change', (e) => { globalSettings.friendsBarSide = e.target.value; saveToMemory(); applyLayout(); const s = document.getElementById('friendsBarSideSelect'); if (s) s.value = e.target.value; }); }
         { const t = document.getElementById('tcLayoutFolders'); if (t) t.addEventListener('change', (e) => { globalSettings.foldersPosition = e.target.value; saveToMemory(); applyLayout(); const s = document.getElementById('foldersPositionSelect'); if (s) s.value = e.target.value; }); }
 
-        // ============================================================
-        // EXPERIMENTAL UI EDITOR (issue #2) — full on-canvas editor.
-        // Hover-highlight ANY element, click to select, drag to move (via
-        // transform — never reflows), resize via the corner handle, and
-        // restyle (text colour, solid/gradient background, radius, padding,
-        // opacity, font size, animation). Per-element overrides live in
-        // globalSettings.uiCustom keyed by a stable selector and are applied
-        // through one injected <style>, so everything is 100% reversible.
-        // Gated behind the Experimental "Enable UI Editor" toggle.
-        // ============================================================
+        // Experimental UI editor: hover to highlight, click to select, drag to move, resize from
+        // the corner, restyle in the inspector. Overrides live in globalSettings.uiCustom and go
+        // through one <style>, so everything can be undone. Behind the Experimental toggle.
 
         // ---- Global accent override (kept from the original) -------------
         function applyUiAccent() {
@@ -16993,10 +17113,7 @@
         function uieBuildRule(o, skipGeom) {
             const p = [];
             const tx = o.x || 0, ty = o.y || 0, rot = o.rot || 0;
-            // Position (translate/rotate) always applies. Use the INDEPENDENT `translate`/`rotate`
-            // properties instead of `transform: translate()` so an element's hover/keyframe animations
-            // (which use transform: scale/translateY) keep working after it's moved in the UI editor —
-            // previously the `transform !important` killed them.
+            // Use the separate translate/rotate properties so the element's own transform animations keep working.
             if (tx || ty) p.push('translate: ' + tx + 'px ' + ty + 'px !important');
             if (rot) p.push('rotate: ' + rot + 'deg !important');
             // skipGeom = Force Resizing "reset sizes" mode: drop only the width/height overrides
@@ -17006,10 +17123,8 @@
                 if (o.h != null) p.push('height: ' + o.h + 'px !important', 'min-height: 0 !important');
             }
             if (o.textGrad) {
-                // Gradient TEXT: paint the gradient as the element's background but clip it to the
-                // glyph shapes so the letters carry the gradient while the box stays transparent.
-                // Mutually exclusive with a box background (both use `background`) and with a plain
-                // text colour, so those are skipped when a text gradient is set.
+                // Gradient text: gradient background clipped to the letters. Can't combine with a box
+                // background or a plain text colour, so those get skipped.
                 p.push('background: ' + o.textGrad + ' !important',
                     '-webkit-background-clip: text !important', 'background-clip: text !important',
                     '-webkit-text-fill-color: transparent !important', 'color: transparent !important');
@@ -17018,10 +17133,7 @@
                 if (o.color) p.push('color: ' + o.color + ' !important');
                 if (o.bg) {
                     p.push('background: ' + o.bg + ' !important');
-                    // ONLY enlarge the gradient canvas when we're going to animate its position
-                    // (the "gradshift" preset). A static gradient sized 200% just shows one zoomed
-                    // corner → it looks like a solid fill. Leaving it at the default size renders a
-                    // proper edge-to-edge gradient.
+                    // Only make the gradient bigger when it's animated (gradshift), otherwise it looks like a solid colour.
                     if (/gradient/i.test(o.bg) && o.anim === 'gradshift') p.push('background-size: 200% 200% !important', 'background-attachment: fixed !important');
                 }
             }
@@ -17060,21 +17172,9 @@
             const appBg = SafeDom.safeCssGradient(appBgStore);
             globalSettings.uiAppBgStore = appBgStore;
             globalSettings.uiAppBg = appBg;
-            // The whole-window backdrop lives on <body> (background-color: var(--bg-color));
-            // .main-content-area and .app-container are transparent, so a body gradient shows
-            // through the entire UI. background-attachment: fixed keeps it pinned while content
-            // scrolls. (No 200% sizing — that made the gradient look like a flat colour.)
-            //
-            // Specificity matters here: the DEFAULT Glass style paints its own backdrop via
-            // `body.glassmorphic-mode { background: ... !important }` (specificity 0,1,1), and
-            // custom themes set --bg-color on `body.theme-custom`. A plain `body { ... }` rule —
-            // even with !important — LOSES to those higher-specificity selectors, which is why
-            // the app-background gradient "did nothing" on glass/animated themes. Emitting a
-            // selector list (each part keeps its own specificity, and this stylesheet is appended
-            // last so it wins ties) guarantees the gradient replaces the theme/glass backdrop in
-            // every mode. Disable Translucency uses a two-class selector, so it needs an equally
-            // specific entry here or its flat --bg-color wins despite both rules using !important.
-            // The theme's animated body::before still renders on top of the custom background.
+            // App background gradient goes on <body> (everything above it is transparent), pinned while scrolling.
+            // The selector list has to match the specificity of glass mode, custom themes and
+            // Disable Translucency, or their backdrop wins even with !important.
             if (appBg) blocks.push('body, body.glassmorphic-mode, body.theme-custom, body.glassmorphic-mode.disable-translucency { background: ' + appBg + ' !important; background-attachment: fixed !important; }');
             // Force Translucency reads the live appBg from this variable so it can fade the real
             // custom background over the desktop instead of blanking it. Remove it (rather than
@@ -17086,19 +17186,15 @@
                 if (!st) { st = document.createElement('style'); st.id = 'uiCustomOverride'; document.head.appendChild(st); }
                 st.textContent = blocks.join('\n');
             }
-            // Renamed labels can't be done in CSS — apply them to the live DOM, and keep a
+            // Renamed labels can't be done in CSS - apply them to the live DOM, and keep a
             // MutationObserver running so they re-stick after the app re-renders a view.
             uieApplyTextOverrides();
             uieEnsureTextObserver();
         }
         window.applyUiCustom = applyUiCustom;
 
-        // ---- Renamed text labels (UI editor) -----------------------------
-        // Per-element text overrides live in globalSettings.uiCustom[sel].text. CSS can't set
-        // an element's text, so we write it straight onto the matching node(s). To avoid wiping
-        // an element's child markup (e.g. an icon span beside the label), we only replace the
-        // element's own text node(s); a node with no element children is set wholesale.
-        // the element's own visible text (its direct text nodes only — ignores child elements)
+        // Renamed labels (globalSettings.uiCustom[sel].text). Only replace the element's own text
+        // nodes so icons next to the label survive.
         function uieOwnText(node) {
             if (!node) return '';
             const hasElementChild = Array.prototype.some.call(node.childNodes, n => n.nodeType === 1);
@@ -17197,11 +17293,8 @@
             return parts.length ? parts.join(' > ') : null;
         }
 
-        // ---- "All elements of this type" selector ------------------------
-        // For global sizing/colour: a selector that matches every element of the same kind
-        // as the clicked one. Prefer the element's first real class (e.g. a game tile → its
-        // shared `.game-card` class, so a change hits every tile); fall back to the tag name.
-        // (Editor-chrome `uie-*` classes are skipped — they never appear on app content.)
+        // Selector for "all elements of this type": first real class (like .game-card), else the tag.
+        // uie-* editor classes are skipped.
         function uieTypeSelectorFor(el) {
             if (!el || el.nodeType !== 1) return null;
             const esc = (s) => (window.CSS && CSS.escape) ? CSS.escape(s) : s;
@@ -17211,11 +17304,8 @@
             return (tag && tag !== 'body' && tag !== 'html') ? tag : null;
         }
 
-        // ---- Editor runtime state ----------------------------------------
-        // uieSel       = the selector edits are written to (the "active" one)
-        // uieSelOne    = a selector for JUST the clicked element (#id / nth path)
-        // uieSelAll    = a selector for ALL elements of the same type (.class / tag)
-        // uieScope     = 'one' | 'all' — which of the two uieSel currently points at
+        // uieSel = selector edits go to, uieSelOne = just the clicked element,
+        // uieSelAll = every element of that type, uieScope = 'one' | 'all'.
         let uieActive = false, uieSel = null, uieSelEl = null, uieDrag = null, uieMode = 'element';
         let uieScope = 'one', uieSelOne = null, uieSelAll = null;
         function uieIsChrome(el) { return !!(el && el.closest && el.closest('.uie-chrome')); }
@@ -17358,7 +17448,7 @@
             uieBuildInspector();
             requestAnimationFrame(uieDrawSel);
         }
-        // Explicit deselect (request #2): clears the selection + closes the inspector without
+        // Explicit deselect: clears the selection + closes the inspector without
         // needing to click some random empty spot. Mirrors the first-Escape behaviour.
         function uieDeselect() {
             uieSel = null; uieSelEl = null; uieSelOne = null; uieSelAll = null; uieScope = 'one'; uieMode = 'element';
@@ -17378,18 +17468,15 @@
         function uieOnClick(e) {
             if (!uieActive) return;
             // Let the editor's own chrome AND any open app modal (e.g. a custom select popup)
-            // receive clicks normally — never block their dismiss/confirm buttons.
+            // receive clicks normally - never block their dismiss/confirm buttons.
             if (uieIsChrome(e.target) || (e.target.closest && e.target.closest('.modal'))) return;
             e.preventDefault(); e.stopPropagation();
             let el = document.elementFromPoint(e.clientX, e.clientY);
             if (!el || el === document.body || el === document.documentElement) return;
             uieSelect(uiePickTarget(el));
         }
-        // Escape is a guaranteed way out: first press deselects (closes the inspector), a
-        // second press exits the editor. Prevents ever feeling "stuck".
-        // Q / E and ← / → cycle between pages so the user can edit any page without leaving
-        // the editor (request #2). These are ignored while typing in a field (e.g. the rename
-        // box) so the letters reach the input instead of switching pages.
+        // Esc deselects, Esc again exits the editor. Q/E and arrow keys switch pages,
+        // except while typing in a field.
         function uieOnKey(e) {
             if (!uieActive) return;
             if (e.key === 'Escape') {
@@ -17448,10 +17535,8 @@
             if (d.w != null) set('uieW', d.w); if (d.h != null) set('uieH', d.h);
         }
 
-        // ---- Inspector positioning (drag + dock left/right) — request #4 --
-        // The inspector defaults to the top-right. It can cover the element being edited (e.g.
-        // the friends list), so the user can drag it anywhere by its header, or click the dock
-        // button to snap it to the left edge instead. State is session-only (reset on reopen).
+        // Inspector starts top-right. Drag it by the header or dock it left so it doesn't cover
+        // what you're editing. Resets when the editor reopens.
         let uieInsDock = 'right';      // 'right' | 'left'
         let uieInsPos = null;          // {left, top} once freely dragged; null → use the dock side
         function uieApplyInspectorPos() {
@@ -17501,7 +17586,7 @@
             window.addEventListener('pointermove', move, true);
             window.addEventListener('pointerup', up, true);
         }
-        // Wire the shared header (drag + dock) — call after each inspector innerHTML rebuild.
+        // Wire the shared header (drag + dock) - call after each inspector innerHTML rebuild.
         function uieWireInspectorChrome() {
             const ins = document.getElementById('uieInspector'); if (!ins) return;
             const head = ins.querySelector('#uieInsHead');
@@ -17517,11 +17602,8 @@
             uieFixFieldFocus(ins);
             uieApplyInspectorPos();
         }
-        // Electron soft-focus workaround: the first click into a text field of a freshly-shown
-        // glass panel can fail to take a live caret — you can backspace but typed characters are
-        // dropped and there's no blinking cursor, until you focus another field and come back.
-        // Re-asserting focus (blur→focus) on the first pointerdown clears that soft-focus state
-        // so the very first click always lands a working, typeable caret.
+        // Electron sometimes doesn't give a real caret on the first click into a freshly shown
+        // glass panel. blur + focus on the first pointerdown fixes it.
         function uieFixFieldFocus(container) {
             if (!container) return;
             container.querySelectorAll('input:not([type=range]):not([type=color]), textarea').forEach(f => {
@@ -17556,7 +17638,7 @@
                 uieRenderGradient(body, d, (css) => { d.bg = css; uiePersist(); });
             } else { body.replaceChildren(); }
         }
-        // Text colour / text-gradient body (request #3) — mirrors the Background control.
+        // Text colour / text-gradient body - mirrors the Background control.
         function uieRenderTextBody(d) {
             const body = document.getElementById('uieTextBody'); if (!body) return;
             const t = d.textGrad ? 'grad' : (d.color ? 'solid' : 'none');
@@ -17667,14 +17749,14 @@
             );
             uieRenderBgBody(d);
             uieRenderTextBody(d);
-            uieWireInspectorChrome();   // header drag + dock toggle (request #4)
+            uieWireInspectorChrome();   // header drag + dock toggle
             // scope toggle (this element vs. all of its type) + deselect
             ins.querySelectorAll('#uieScopeSeg button').forEach(b => b.onclick = () => { if (b.disabled) return; uieSetScope(b.getAttribute('data-scope')); });
             { const ds = ins.querySelector('#uieDeselect'); if (ds) ds.onclick = () => uieDeselect(); }
-            // text rename (request #3) — applies straight to the DOM (CSS can't set text)
+            // text rename - applies straight to the DOM (CSS can't set text)
             { const txt = ins.querySelector('#uieText'); if (txt) txt.oninput = () => { d.text = txt.value; uieApplyTextOverrides(); uieEnsureTextObserver(); uieSaveSoon(); }; }
             { const txtR = ins.querySelector('#uieTextRestore'); if (txtR) txtR.onclick = () => { uieRestoreTextOverride(uieSel); const t = ins.querySelector('#uieText'); if (t) t.value = uieSelEl ? uieOwnText(uieSelEl).trim() : ''; uieFlushSave(); }; }
-            // text colour / text-gradient segments (request #3)
+            // text colour / text-gradient segments
             ins.querySelectorAll('#uieTextSeg button').forEach(b => b.onclick = () => {
                 const t = b.getAttribute('data-t');
                 if (t === 'none') { delete d.color; delete d.textGrad; }
@@ -17702,10 +17784,8 @@
             slide('uiePad', 'pad', 'uiePadLab', 'Padding', 'px');
             slide('uieOpacity', 'opacity', 'uieOpacityLab', 'Opacity', '%');
             slide('uieFont', 'fontSize', 'uieFontLab', 'Font size', 'px');
-            // Animation picker is a button group (NOT a native <select>) on purpose: in
-            // glassmorphic mode a <select> pops the app's custom "Select Option" modal, which
-            // renders behind the editor chrome and gets its dismiss clicks eaten — soft-locking
-            // the UI. Inline buttons avoid that entirely.
+            // Buttons instead of a <select>: in glass mode a select opens the custom picker modal,
+            // which ends up behind the editor and can't be closed.
             ins.querySelectorAll('#uieAnimSeg button').forEach(b => b.onclick = () => {
                 d.anim = b.getAttribute('data-anim');
                 ins.querySelectorAll('#uieAnimSeg button').forEach(x => x.classList.toggle('active', x === b));
@@ -17735,14 +17815,11 @@
             );
             uieRenderGradient(ins.querySelector('#uieAppBgBody'), globalSettings.uiAppBgStore, (css) => { globalSettings.uiAppBg = css; applyUiCustom(); uieSaveSoon(); });
             const clr = ins.querySelector('#uieAppBgClear'); if (clr) clr.onclick = () => { globalSettings.uiAppBg = ''; applyUiCustom(); uieFlushSave(); };
-            uieWireInspectorChrome();   // header drag + dock toggle (request #4)
+            uieWireInspectorChrome();   // header drag + dock toggle
         }
 
-        // ---- Page switching while editing (request #2) -------------------
-        // The editable pages are the primary nav tabs that are currently visible (some can be
-        // hidden in settings). Q / ← go to the previous page, E / → to the next — so the user
-        // can edit elements on any page without leaving the editor. The toolbar shows which
-        // page is active. Reading each tab's live label keeps renamed/translated names correct.
+        // Editable pages = the visible nav tabs. Q / left goes back, E / right goes forward.
+        // Uses each tab's live label so renamed/translated names show up right.
         const UIE_PAGE_TABS = [
             { tab: 'library', el: 'tabLibrary' },
             { tab: 'store', el: 'tabStore' },
@@ -18311,10 +18388,8 @@
             // `.game-card { border-radius: ... !important }` (injected later) and the glass style's
             // `body.glassmorphic-mode .game-card` rule; otherwise every shape showed the theme's corners.
             const cards = '#gameGrid .game-card, #sourcesGrid .game-card';
-            // Grid tiles show full-bleed art with a bottom shade behind the title. On curved shapes the shade must
-            // reach the tile's edges (the tile's clip then curves it), and the title, badge and buttons move in
-            // from the curved ends so they are not cut off. The narrower title area leaves no room for the
-            // achievement badge beside the status line, so it moves up next to the favourite star.
+            // Grid tiles: on curved shapes the title shade reaches the edges and the text moves inward
+            // so nothing gets cut off. The achievement badge moves up next to the favourite star.
             const curved = (side, top, bottom, badge = `top: ${top}; bottom: auto; right: calc(${side} + 30px);`) => {
                 const tile = '#gameGrid:not(.list-view) .game-card';
                 return `${tile} { padding: 0 !important; } ${tile} .card-text-area { padding-left: ${side} !important; padding-right: ${side} !important; padding-bottom: ${bottom} !important; }`
@@ -18432,10 +18507,7 @@
         document.getElementById('basicThemeBtn').onclick = () => { document.getElementById('basicThemeView').style.display = 'block'; document.getElementById('advThemeView').style.display = 'none'; document.getElementById('basicThemeBtn').style.borderColor = 'var(--accent)'; document.getElementById('basicThemeBtn').style.opacity = '1'; document.getElementById('advThemeBtn').style.borderColor = 'var(--border-color)'; document.getElementById('advThemeBtn').style.opacity = '0.5'; };
         document.getElementById('advThemeBtn').onclick = () => { document.getElementById('basicThemeView').style.display = 'none'; document.getElementById('advThemeView').style.display = 'block'; document.getElementById('advThemeBtn').style.borderColor = 'var(--accent)'; document.getElementById('advThemeBtn').style.opacity = '1'; document.getElementById('basicThemeBtn').style.borderColor = 'var(--border-color)'; document.getElementById('basicThemeBtn').style.opacity = '0.5'; reflectUiEditorEnabled(); decorateThemeInfoButtons(); };
 
-        // ---- Theme editor "help tips" (issue #2) ----------------------------
-        // Plain-English explanations for every Advanced control. Injected as small
-        // ℹ️ buttons next to each label so a novice knows what each option does.
-        // Keyed by the control's element id.
+        // Help tips for the Advanced theme controls, shown as small info buttons. Keyed by control id.
         const TC_INFO = {
             tcText: 'The colour of all normal text in the app — game titles, labels and menus. Pick something with strong contrast against your background or things get hard to read.',
             tcBorder: 'The colour of the thin lines around cards, inputs and panels. Subtle is usually best; very bright borders make the UI look busy.',
@@ -18534,10 +18606,8 @@
                 glassBorderOpacity: parseInt(document.getElementById('tcGlassBorderOpacity').value),
                 glassBlur: parseInt(document.getElementById('tcGlassBlur').value)
             };
-            // Bake any UI-editor tweaks (moved/resized/recoloured elements, app-background
-            // gradient, accent) into the theme so they survive Export → Import and the
-            // website's one-click "Install" button. These are plain extra JSON keys, so older
-            // builds / the website simply ignore them; applyTheme() restores them when present.
+            // Save UI editor tweaks into the theme so Export/Import and the website Install keep them.
+            // Older versions just ignore the extra keys.
             try {
                 const _clone = (v) => (v == null ? v : JSON.parse(JSON.stringify(v)));
                 const safeUiCustom = SafeDom.safeUiCustom(globalSettings.uiCustom);
@@ -18626,10 +18696,8 @@
                     .game-card, .gp-expandable, .gp-info-box, .modal-content, input[type="text"], input[type="number"], select { border-radius: ${ct.radius || 12}px !important; }
                     button, .action-btn.sidebar-title { border-radius: ${ct.radius ? Math.max(4, ct.radius - 4) : 8}px !important; }
                 `;
-                    // Restore any UI-editor tweaks baked into the theme (Export/Import + website
-                    // install carry these). Every editor override is theme-scoped: missing values
-                    // must reset instead of inheriting the previously selected theme's element
-                    // styles, app background, renamed text, or accent.
+                    // Restore UI editor tweaks from the theme. Missing values reset instead of keeping the
+                    // last theme's styles.
                     try {
                         const _clone = (v) => (v == null ? v : JSON.parse(JSON.stringify(v)));
                         globalSettings.uiCustom = ct.uiCustom ? _clone(ct.uiCustom) : {};
@@ -19591,7 +19659,7 @@
         @keyframes dlPanelIn { from { opacity: 0; transform: translateY(10px) scale(0.995); } to { opacity: 1; transform: none; } }
         @keyframes dlDockIn { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: none; } }
         @keyframes dlDockOut { from { opacity: 1; transform: none; } to { opacity: 0; transform: translateY(30px) scale(0.98); } }
-        /* Smooth collapse/expand of the download popup body (issue #4). */
+        /* Smooth collapse/expand of the download popup body. */
         #dockHeader {
             display: flex;
             align-items: center;
@@ -20260,7 +20328,7 @@
             steamgg: {
                 name: 'SteamGG', color: '#14b8a6',
                 searchUrl: q => `https://steamgg.net/?s=${encodeURIComponent(q)}`,
-                // SteamGG's search page is JS-rendered, but it's WordPress — its REST API
+                // SteamGG's search page is JS-rendered, but it's WordPress - its REST API
                 // returns clean JSON, so we search through that instead of scraping HTML.
                 searchFn: async (query, page) => {
                     const res = await remoteData.searchDownloadSource('steamgg', query, page);
@@ -20275,7 +20343,7 @@
                     return { items, totalPages: (res.pagination && res.pagination.totalPages) || page };
                 },
                 // Game pages render the host buttons (Pixeldrain/Datanode/Akira/Buzzheavier)
-                // server-side as real <a> links — grab every known-host link.
+                // server-side as real <a> links - grab every known-host link.
                 detail: (doc, base) => {
                     const links = [], seen = new Set();
                     doc.querySelectorAll('a[href^="magnet:"]').forEach(a => {
@@ -20520,7 +20588,7 @@
                 chip.setAttribute('aria-pressed', String(on));
             };
             if (wrap.querySelector('.dl-chip')) {
-                // already built — just sync the saved source states
+                // already built - just sync the saved source states
                 wrap.querySelectorAll('.dl-chip').forEach(chip => {
                     const id = chip.dataset.id;
                     styleChip(chip, id);
@@ -21160,10 +21228,8 @@
             const m = (s || '').match(/part0*(\d+)/i) || (s || '').match(/\.(\d{3})(?:\.[a-z0-9]+)?$/i) || (s || '').match(/\.r(\d{2})$/i);
             return m ? parseInt(m[1], 10) : 0;
         }
-        // Higher = better host for the auto 1-click (aria2-friendly, no captcha/token wall).
-        // All supported hosts enter the same one-click resolver pipeline. If a host serves
-        // an interactive challenge, the main process handles it in an isolated browser and
-        // captures only the validated provider download URL.
+        // Higher = better host for 1-click (works with aria2, no captcha). Challenges get handled
+        // by the main process in its own browser window.
         function isExternalBrowserOnlyHost(host) {
             return /(^|\.)akirabox\.(?:com|to)$/i.test(String(host || ''));
         }
@@ -21197,11 +21263,8 @@
             if (/1fichier|hexload|vikingfile|rootz|multiup|bowfile|mega/i.test(host)) return 45;
             return 40;
         }
-        // Group raw links into downloadable "sets": one set per file-host (all its
-        // parts), plus one magnet set. For repack sources (FitGirl) the magnet
-        // is the ONLY complete download (the filehoster links are partial split
-        // parts that need setup.exe + the whole set), so we make it the default —
-        // matching how Black-Pearl handles FitGirl.
+        // Group links into sets: one per host plus one magnet set. For FitGirl the magnet is the
+        // only complete download (host links are split parts), so it's the default.
         function groupDownloadSets(links, sourceId) {
             return DownloadSourceLogic.groupDownloadSets(links, sourceId, {
                 scoreHost: dlHostScore,
@@ -21575,7 +21638,7 @@
             try {
                 if (!item.reference) throw new Error('This source result is no longer authorized. Search again.');
                 const { doc, error: fe } = await dlFetchDoc({ reference: item.reference });
-                if (myToken !== dlDetailToken) return; // user navigated away — abandon
+                if (myToken !== dlDetailToken) return; // user navigated away - abandon
                 if (fe || !doc) error = fe || 'Could not load page';
                 else { links = src.detail(doc, item.url) || []; meta = scrapeMeta(doc, item.url); }
             } catch (e) { error = e.message; }
@@ -21899,7 +21962,7 @@
         }
 
         // Show the animated "working" bar for any active phase (download, extract, install)
-        // so the user always knows something is happening — not just during the download.
+        // so the user always knows something is happening - not just during the download.
         function dlIsBusy(d) { return d.state === 'resolving' || d.state === 'starting' || d.state === 'downloading' || d.state === 'installing' || d.state === 'processing' || d.state === 'cancellation_pending' || d.state === 'installer_running'; }
         function dlIsIndeterminate(d) {
             if (d.state === 'resolving' || d.state === 'starting') return true;
@@ -21907,11 +21970,8 @@
             return d.state === 'downloading' && !(total && total.bytes > 0);
         }
 
-        // Human-readable phase label. Each download moves through distinct phases —
-        // make it obvious which one we're in (downloading the game vs installing it)
-        // and surface as much useful detail as the phase provides.
-        // Small cache pill shown while a download whose debrid link was already resolved
-        // (served instantly from the 24h cache) is resolving/downloading.
+        // Phase label, so it's clear whether it's downloading or installing.
+        // The cache pill shows when the debrid link came from the 24h cache.
         function cachedBadge(d) {
             if (!d || !d.cached) return '';
             const service = String(d.debridService || '').trim().slice(0, 64);
@@ -22180,18 +22240,14 @@
             void refreshDownloadQuarantine();
         });
 
-        // Download history — persisted to sail_library.json so it survives restarts.
+        // Download history - persisted to sail_library.json so it survives restarts.
         // Loaded lazily on first render because globalSettings is read from disk by the
-        // async initApp(), which finishes AFTER this script first runs.
+        // async initApp(), which finishes after this script first runs.
         const dlHistory = [];
         let dlHistoryLoaded = false;
         function ensureDlHistoryLoaded() {
-            // Always merge from the persisted store — this is idempotent (dedupes by id), so it
-            // costs nothing to re-run. The OLD version locked itself "loaded" on the very first
-            // call; if that call happened before globalSettings.dlHistory was populated (e.g. the
-            // dock rendered during early init), history stayed invisible until a NEW download
-            // repopulated the in-memory array. That's the "old downloads invisible until a new
-            // download starts" bug. Re-syncing on every render guarantees it shows on page open.
+            // Merge from the saved store every render (dedupes by id). Loading it only once meant old
+            // downloads stayed hidden if the dock rendered before dlHistory was loaded.
             dlHistoryLoaded = true;
             try {
                 const saved = (window.sailDownloadBridge && window.sailDownloadBridge.getHistory && window.sailDownloadBridge.getHistory()) || [];
@@ -22221,10 +22277,8 @@
             persistDlHistory();
         }
 
-        // Record a non-game download (theme / plugin / workshop mod) into the Download
-        // Manager so EVERYTHING the launcher installs shows up in one place (issue #4).
-        // These come through their own IPC paths (hub-download-file, download-workshop-item)
-        // and finish quickly, so we just log a completed history row with a category tag.
+        // Log themes, plugins and workshop mods in the download manager too, as finished rows
+        // with a category tag.
         function logManagerDownload(rec) {
             try {
                 ensureDlHistoryLoaded();
@@ -22418,7 +22472,7 @@
                 if (st) { st.textContent = fmtState(d); st.title = st.textContent; }
                 renderDownloadSizeWarning(pageRow.querySelector('.dl-size-warning'), d);
             }
-            if (!dockRow && !pageRow) renderDock(); // rows not created yet — fall back
+            if (!dockRow && !pageRow) renderDock(); // rows not created yet - fall back
         }
 
         function renderDock() {
@@ -22442,7 +22496,7 @@
             renderDownloadsPage();
         }
 
-        // ---- Download Manager category filter (issue #4) -----------------
+        // ---- Download Manager category filter -----------------
         // Every download (game / workshop mod / theme / plugin) carries a `category`
         // so the manager can group and filter them in one place.
         let dlMgrFilter = 'all';
@@ -22566,7 +22620,7 @@
         function renderDlFilterBar() {
             const bar = document.getElementById('dlFilterBar'); if (!bar) return;
             const counts = dlCatCounts();
-            // Show the "All" chip plus any category that actually has items — keeps it tidy.
+            // Show the "All" chip plus any category that actually has items - keeps it tidy.
             const cats = DL_CATS.filter(c => c.key === 'all' || (counts[c.key] || 0) > 0);
             if (dlMgrFilter !== 'all' && !cats.some(c => c.key === dlMgrFilter)) dlMgrFilter = 'all';
             bar.style.display = counts.all > 0 ? 'flex' : 'none';
@@ -22631,7 +22685,7 @@
             // Remove existing history section and rebuild it.
             body.querySelectorAll('[data-dlh-section]').forEach(el => el.remove());
             // Don't list a download in History while it's still an active "done" row above
-            // — only show finished/cleared ones (and everything after a restart). Respect the
+            // - only show finished/cleared ones (and everything after a restart). Respect the
             // active category filter so History matches what's shown above.
             const F = dlMgrFilter;
             const visible = dlHistory.filter(h => !dlQueue.has(h.id)
@@ -22670,7 +22724,7 @@
             body.appendChild(sec);
         }
 
-        // Display name of the connected (validated) debrid service, if any — used to show
+        // Display name of the connected (validated) debrid service, if any - used to show
         // "Resolving via TorBox…" the instant a download is clicked, before main replies.
         function activeDebridName() {
             try {
@@ -22822,7 +22876,7 @@
                 patchActiveRow(p.id);
             } else {
                 renderDock();
-                // Completion notification is fired from the 'download-complete' handler — main
+                // Completion notification is fired from the 'download-complete' handler - main
                 // never sends a 'download-progress' with state 'done', so don't gate it here.
             }
             pumpBulkDownloadRetry();
@@ -22843,14 +22897,9 @@
             renderDock();
             pumpBulkDownloadRetry();
         });
-        // Look up a Steam App ID + art for a downloaded game by name, so it's added as a
-        // proper Steam-style library entry (Steam banner/hero art + metadata) instead of a
-        // bare custom row. It still LAUNCHES via its local exe — steamAppId is metadata only.
-        // Repack titles can carry a version after a dash — e.g. "Jitsu Squad - v1.1.0.0",
-        // "Game – Build 12345", "Game (v1.2.3)". That suffix breaks the Steam name lookup
-        // (so the game lands as a bare "custom" entry) and clutters the library name. Strip
-        // it. We only cut at a dash/bracket followed by a version-looking token, so real
-        // numbers inside a title (e.g. "Borderlands 3", "Forza Horizon 5") are preserved.
+        // Find a Steam App ID + art by name so downloaded games get proper art. It still launches
+        // from the local exe. Repack names often end in a version ("Game - v1.1.0.0", "Game (v1.2.3)"),
+        // so cut that off, but only after a dash/bracket so titles like "Borderlands 3" stay intact.
         function cleanDownloadName(name) {
             return DownloadSourceLogic.cleanDownloadedGameName(name);
         }
@@ -22893,7 +22942,7 @@
             d.name = cleanName;
             addToHistory(d);
             renderDock();
-            // Desktop notification — fire HERE (main signals completion via 'download-complete',
+            // Desktop notification - fire here (main signals completion via 'download-complete',
             // never a 'download-progress' with state 'done', so the dock handler never saw it).
             if (settings.notifyOnComplete) {
                 const displayName = cleanName || d.name || 'Your download';
@@ -23019,7 +23068,7 @@
                     ? `Default: ${paths.downloadRoot.replace(require('os').homedir(), '~')}` : 'App-managed default', () => 'App-managed default');
             Promise.all([ipcRenderer.invoke('authority-get-device-root-status', { kind: 'download-root' }).catch(() => null), defaultLabel]).then(([status, fallback]) => {
                 rootInput.value = status && status.state === 'active'
-                    ? `Configured on this PC: ${status.label}`
+                    ? `Configured on this PC: ${status.folderName || 'chosen folder'}`
                     : status && status.state === 'pending-review' ? 'Choose the previous folder again' : fallback;
             });
             document.getElementById('dlMaxSpeedInput').value = s.maxSpeed || 0;
@@ -23171,7 +23220,7 @@
             }
         };
 
-        // Clear Cache button — wipes resolved-link + in-app browser cache via main.
+        // Clear Cache button - wipes resolved-link + in-app browser cache via main.
         window.clearDownloadCache = async function () {
             const btn = document.getElementById('dlClearCacheBtn');
             const orig = btn ? btn.innerHTML : '';

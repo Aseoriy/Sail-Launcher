@@ -16,7 +16,10 @@ function createRuntimeCompletionQueue({ getLibraryKey, getGames, fetchPending, s
             const game = games[index];
             const applied = Array.isArray(game.playtimeSessionIds) ? game.playtimeSessionIds : [];
             if (!applied.includes(pending.id)) {
-                if (pending.creditPlaytime !== false) game.playtime = (Number(game.playtime) || 0) + Math.max(0, Number(pending.durationSeconds) || 0);
+                const duration = Math.max(0, Number(pending.durationSeconds) || 0);
+                if (pending.creditPlaytime !== false) game.playtime = (Number(game.playtime) || 0) + duration;
+                const idle = Math.min(duration, Math.max(0, Number(pending.idleSeconds) || 0));
+                if (pending.creditPlaytime !== false && idle > 0) game.idlePlaytime = (Number(game.idlePlaytime) || 0) + idle;
                 if (pending.creditPlaytime !== false && pending.outcome !== 'launch-failed') game.lastPlayed = Math.max(Number(game.lastPlayed) || 0, Number(pending.startedAt) || 0) || game.lastPlayed;
                 game.playtimeSessionIds = [...applied, pending.id].slice(-50);
                 if (!save()) throw new Error('Playtime remains pending because local state could not be saved.');

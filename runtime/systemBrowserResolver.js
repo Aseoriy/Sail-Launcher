@@ -56,10 +56,8 @@ const VERIFICATION_OBSERVER_SOURCE = `(function(){
     check();
 })()`;
 
-// Provider pages sometimes attach an unrelated advertising target to their real
-// download control. Keep those targets from becoming a second browser page. The
-// Node side still decides whether an HTTPS URL belongs to the active provider;
-// this script only reports the requested navigation and never clicks anything.
+// Some download buttons also open an ad. Don't let that become a second page. Node still
+// decides which HTTPS URLs belong to the host; this script only reports, never clicks.
 const POPUP_GUARD_SOURCE = `(function(){
     if(window.__sailPopupGuardInstalled)return;
     window.__sailPopupGuardInstalled=true;
@@ -608,10 +606,8 @@ async function resolveWithSystemChromium(rawUrl, expression, options = {}) {
                 if (!requestId) return;
                 let candidate = null;
                 try { candidate = new URL(requestUrl); } catch (_) {}
-                // Some providers issue a one-use transfer URL. When explicitly
-                // enabled, capture that approved request before Chromium sends it;
-                // otherwise cancelling the browser download can consume the token
-                // before the caller gets a chance to use it.
+                // Some hosts give a one-use download URL. When enabled, grab it before Chromium requests it,
+                // or cancelling the browser download uses up the token.
                 let interceptedTransfer = false;
                 if (options.interceptTransferRequests === true && candidate
                     && candidate.protocol === 'https:' && !candidate.username && !candidate.password

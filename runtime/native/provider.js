@@ -166,10 +166,8 @@ class NativeProvider {
             if (!receipt.terminal) receipt = await this.verifiedRequest(session, 'STATUS');
             if (!receipt.durable || receipt.receiptErrno) throw protocol.nativeError('SAIL_NATIVE_RECEIPT_WRITE', 'The native supervisor could not durably save its process receipt. Tracking is pending.');
             if (!this.canAccessSession(session)) {
-                // Historical removals/switches may already have stranded this
-                // scope. Retain the actual receipt without inventing a game,
-                // credit or Stop authority; the explicit unresolved exit stays
-                // reachable, including for a terminal receipt awaiting repair.
+                // Older removals/switches can leave this scope stranded. Keep the receipt without making
+                // up a game, credit or Stop target; the unresolved exit still works, even when it needs repair.
                 this.journal.updateNativeSession(session.sessionId, { receipt, phase: 'tracking-lost',
                     error: 'This native session has no accessible game in the active library. Its original profile/library binding is unavailable. Leaving Sail preserves the unresolved receipt and does not stop the game.' });
                 this.onChanged(this.snapshot());

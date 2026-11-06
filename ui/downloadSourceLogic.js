@@ -247,10 +247,9 @@ function isTorrentDownloadSet(set) {
 }
 
 /**
- * Group source links into host/file sets for the detail download modal.
- * `shouldSplitRestrictedMultipart` preserves the renderer's browser-only
- * fallback for restricted hosts, while FitGirl's FuckingFast parts stay as
- * one complete set so the modal can expose one Download all action.
+ * Group links into host/file sets for the download modal.
+ * Restricted multipart hosts can be split for the browser-only fallback; FitGirl's
+ * FuckingFast parts stay together so the modal can offer Download all.
  */
 function groupDownloadSets(links, sourceId, options = {}) {
     const scoreHost = typeof options.scoreHost === 'function' ? options.scoreHost : () => 0;

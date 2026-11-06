@@ -424,7 +424,7 @@ class LinuxDownloads {
         }
         const picked = await this.dialog.showOpenDialog({ title: title + ' (inside the downloaded folder or game environment)', defaultPath: candidates.length ? candidates[0].cwd.realPath : roots.at(-1), properties: ['openFile'] });
         if (picked.canceled || !picked.filePaths?.length) return null;
-        const selected = require('./proton/executable').selectLocalExecutable(picked.filePaths[0], { allowScripts: true, ...(this.getManager() || {}) });
+        const selected = require('./proton/executable').selectLocalExecutable(picked.filePaths[0], { allowScripts: true, ...(this.getManager() || {}), makeScriptRunnable: true });
         const root = roots.find(value => native.withinRoot(selected.identity.realPath, value)); if (!root) throw Error('Choose an executable inside this download or its Windows environment.');
         return { executable: selected.identity, backend: selected.backend, cwd: native.validateWorkingDirectory(path.dirname(selected.identity.realPath), this.getManager() || {}), root };
     }

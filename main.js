@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain: electronIpcMain, dialog, shell, screen, Tray, Menu, session, safeStorage, Notification, net } = require('electron');
+const { app, BrowserWindow, ipcMain: electronIpcMain, dialog, shell, screen, Tray, Menu, session, safeStorage, Notification, net, powerMonitor } = require('electron');
 const { createPlatformSupport, createSupportedIpcRegistrar } = require('./runtime/platformSupport');
 const nativeContext = require('./runtime/native/context').initializeNativeContext(app);
 const platformSupport = createPlatformSupport({ mode: nativeContext.mode, packaged: app.isPackaged && process.env.SAIL_ALLOW_MULTI_INSTANCE !== '1' });
@@ -51,6 +51,8 @@ const { registerLinuxProtocolIpc, DESKTOP_ID } = require('./runtime/linuxProtoco
 const { registerLocalDesktopIpc } = require('./runtime/localDesktop');
 const launcherUpdate = require('./runtime/launcherUpdate');
 const { RecoveryJournal } = require('./runtime/recoveryJournal');
+const { ActivityMonitor } = require('./runtime/activityMonitor');
+const { createControllerActivity } = require('./runtime/controllerActivity');
 const { DownloadJobDirectoryRegistry } = require('./runtime/downloadJobCleanup');
 const { registerDownloadCancellationIpc } = require('./runtime/downloadIpc');
 const { BrowserDownloadIntentRegistry, createBrowserWillDownloadHandler, createPrepareBrowserDownloadHandler } = require('./runtime/browserDownloadIntents');
@@ -174,6 +176,7 @@ const fullscreenControllers = new WeakMap();
 const fullscreenStates = new WeakMap();
 const sailHubGuestContents = new Set();
 let runtimeRecovery = null;
+let activityMonitor = null;
 let nativeProvider = null;
 let protonManager = null;
 let linuxDownloads = null;
@@ -435,6 +438,8 @@ const clientId = '1486922616701849700';
 const SAIL_WEBSITE_URL = 'https://sail-launcher.sailhub.fyi';
 const SAIL_HUB_MODS_ORIGIN = SAIL_WEBSITE_URL;
 const SAIL_HUB_MODS_PARTITION = 'persist:sailhub-mods';
+const SAIL_HUB_PLACEHOLDER_REFRESH_TOKEN = 'sail-launcher-managed';
+let sailHubAuthRefreshTimer = null;
 
 function isSailHubModsUrl(rawUrl) {
     if (typeof rawUrl !== 'string' || !rawUrl) return false;
@@ -454,16 +459,19 @@ async function syncSailHubGuestAuth(guestContents) {
     let session = null;
     try {
         session = accountServices && accountServices.accountService
-            ? await accountServices.accountService.session()
+            ? await accountServices.accountService.sessionForWebsite()
             : null;
     } catch (error) {
         console.error('Sail Hub account session restore failed:', error && error.message || error);
         return;
     }
 
-    const handoff = session && typeof session.access_token === 'string' && typeof session.refresh_token === 'string'
-        ? { access_token: session.access_token, refresh_token: session.refresh_token }
+    // supabase-js needs a refresh token to accept a session; the website gets a placeholder so it can never
+    // rotate (and revoke) the launcher's. The launcher hands over a new access token before this one runs out.
+    const handoff = session
+        ? { access_token: session.access_token, refresh_token: SAIL_HUB_PLACEHOLDER_REFRESH_TOKEN }
         : null;
+    scheduleSailHubGuestAuthRefresh(session);
     const serialized = JSON.stringify(handoff);
     if (accountServices && accountServices.accountService && typeof accountServices.accountService.recordAuth === 'function') accountServices.accountService.recordAuth(handoff ? 'Sail Hub tab: launcher session handed to the website' : 'Sail Hub tab: no launcher session, website signed out');
     const script = `(async (launcherSession) => {
@@ -502,6 +510,15 @@ function notifySailHubGuestAuthChange() {
     for (const guestContents of sailHubGuestContents) {
         syncSailHubGuestAuth(guestContents).catch(() => {});
     }
+}
+
+// Re-sync shortly before the handed-over access token runs out; sessionForWebsite refreshes it at that point.
+function scheduleSailHubGuestAuthRefresh(session) {
+    clearTimeout(sailHubAuthRefreshTimer);
+    sailHubAuthRefreshTimer = null;
+    if (!session || !Number.isFinite(Number(session.expires_at)) || sailHubGuestContents.size === 0) return;
+    const delayMs = Math.max(60, Number(session.expires_at) - Date.now() / 1000 - 240) * 1000;
+    sailHubAuthRefreshTimer = setTimeout(notifySailHubGuestAuthChange, Math.min(delayMs, 2 ** 31 - 1));
 }
 
 let rpc = null;
@@ -755,7 +772,7 @@ function createWindow() {
         show: false,
         webPreferences: { nodeIntegration: true, contextIsolation: false, webSecurity: true, webviewTag: true,
             ...(platformSupport.isolated ? { preload: path.join(__dirname, 'runtime', 'devPreload.cjs') } : {}),
-            ...((process.platform === 'linux' || platformSupport.isolated) ? { spellcheck: false } : {}) }
+            ...(platformSupport.isolated ? { spellcheck: false } : {}) }
     });
     mainWindow = win;
     desktopActivation.resetRenderer();
@@ -1123,17 +1140,10 @@ function createWindow() {
     });
 
     win.on('close', (event) => {
-        if (!isQuitting && !exitWhenClosedSetting && (process.platform !== 'linux' && !platformSupport.isolated || trayAvailable)) {
+        // On Linux a close from outside Sail (taskbar, Alt+F4, a logout) quits like any other app; only
+        // Sail's own close button minimizes. Minimizing here left the window in the taskbar looking stuck.
+        if (!isQuitting && !exitWhenClosedSetting && process.platform !== 'linux' && (!platformSupport.isolated || trayAvailable)) {
             event.preventDefault();
-            if (process.platform === 'linux') {
-                // Plasma closes every window to end the session; quit (saving first) instead of minimizing.
-                require('./runtime/sessionEnding').plasmaSessionEnding().then(ending => {
-                    if (ending) requestApplicationQuit();
-                    // Keep the Linux taskbar entry reachable even if a tray host disappears.
-                    else if (!win.isDestroyed()) win.minimize();
-                });
-                return;
-            }
             if (platformSupport.isolated) win.minimize(); else win.hide();
             return;
         }
@@ -1328,6 +1338,30 @@ let linuxDownloadRoot = null;
 function linuxDefaultDownloadRoot() {
     return linuxDownloadRoot || (linuxDownloadRoot = require('./runtime/linuxDownloads').defaultDownloadRoot({ userData: app.getPath('userData'), home: app.getPath('home') }));
 }
+function linuxStorageOptions() {
+    let configured = '';
+    try { configured = gateAProfileStore().deviceRootPath('download-root'); } catch (_) { /* Profiles still opening. */ }
+    return { userData: app.getPath('userData'), protonRoot: path.join(app.getPath('userData'), 'runtime', 'proton'),
+        downloadRoots: [linuxDefaultDownloadRoot(), configured] };
+}
+ipcMain.handle('linux-storage-summary', () => {
+    if (process.platform !== 'linux') throw new Error('Storage details are shown on Linux only.');
+    return require('./runtime/linuxStorage').storageSummary(linuxStorageOptions());
+});
+ipcMain.handle('linux-storage-open', async (_event, key) => {
+    if (process.platform !== 'linux') throw new Error('Storage details are shown on Linux only.');
+    const failure = await shell.openPath(require('./runtime/linuxStorage').storageFolder(linuxStorageOptions(), String(key || '')));
+    if (failure) throw new Error(failure);
+    return true;
+});
+ipcMain.handle('linux-storage-clear-cache', async () => {
+    if (process.platform !== 'linux') throw new Error('Storage details are shown on Linux only.');
+    for (const target of [session.defaultSession, session.fromPartition(SOURCES_PARTITION), session.fromPartition(SAIL_HUB_MODS_PARTITION)]) {
+        await target.clearCache();
+        await target.clearCodeCaches({});
+    }
+    return true;
+});
 ipcMain.handle('get-common-paths', () => {
     return { appData: app.getPath('appData'), localAppData: process.env.LOCALAPPDATA || app.getPath('appData'), documents: app.getPath('documents'),
         ...(process.platform === 'linux' ? { downloadRoot: linuxDefaultDownloadRoot() } : {}) };
@@ -1403,7 +1437,8 @@ ipcMain.handle('runtime-session-pending', (_event, eventId) => {
     if (!pending) return null;
     const metadata = gateAProfileStore().activeGameMetadata(pending.gameId);
     if (`${metadata.profileId}:${metadata.libraryId}` !== pending.libraryKey) throw new Error('This completion belongs to another profile or library.');
-    return pending;
+    if (pending.creditPlaytime === false || !activityMonitor) return pending;
+    return { ...pending, idleSeconds: Math.min(Math.max(0, Number(pending.durationSeconds) || 0), activityMonitor.idleSecondsFor(pending.sessionId)) };
 });
 ipcMain.handle('runtime-session-acknowledge', (_event, eventId) => {
     if (!runtimeRecovery) return false;
@@ -1413,10 +1448,15 @@ ipcMain.handle('runtime-session-acknowledge', (_event, eventId) => {
         const metadata = gateAProfileStore().activeGameMetadata(pending.gameId);
         if (`${metadata.profileId}:${metadata.libraryId}` !== pending.libraryKey
             || !(metadata.playtimeSessionIds || []).includes(pending.id)) throw new Error('Playtime has not been saved to this game’s durable local profile. Retry saving before acknowledgement.');
-        return runtimeRecovery.acknowledgeSession(eventId, { durableProfileVerified: true });
+        const acknowledged = runtimeRecovery.acknowledgeSession(eventId, { durableProfileVerified: true });
+        if (activityMonitor) activityMonitor.forget(pending.sessionId);
+        return acknowledged;
     }
-    return runtimeRecovery.acknowledgeSession(eventId);
+    const acknowledged = runtimeRecovery.acknowledgeSession(eventId);
+    if (pending && activityMonitor) activityMonitor.forget(pending.sessionId);
+    return acknowledged;
 });
+ipcMain.handle('activity-set-idle-minutes', (_event, minutes) => activityMonitor ? activityMonitor.setIdleMinutes(minutes) : null);
 ipcMain.handle('runtime-post-exit-begin', (_event, payload) => runtimeRecovery ? runtimeRecovery.ensurePostExitJob(payload) : null);
 ipcMain.handle('runtime-post-exit-update', (_event, payload) => {
     const result = runtimeRecovery ? runtimeRecovery.updatePostExitJob(payload) : null;
@@ -2395,8 +2435,10 @@ ipcMain.on('window-set-fullscreen', (e, enabled) => {
 ipcMain.on('window-close', (e, exitWhenClosed) => {
     if (exitWhenClosed || ((process.platform === 'linux' || platformSupport.isolated) && !trayAvailable)) requestApplicationQuit();
     else {
+        // Hide to the tray like on Windows; minimizing left Sail in the Linux taskbar as if the X did nothing.
+        // The tray icon, or opening Sail again from the app menu, brings the window back.
         const win = BrowserWindow.fromWebContents(e.sender);
-        if (process.platform === 'linux' || platformSupport.isolated) win?.minimize(); else win?.hide();
+        if (platformSupport.isolated) win?.minimize(); else win?.hide();
     }
 });
 
@@ -2552,17 +2594,10 @@ ipcMain.handle('open-folder-capability', async (e, payload) => {
     return { success: true, capability: resolved.replacement };
 });
 
-// ============================================================================
-// Auto-updater: download the launcher installer, run it silently, restart.
-// ----------------------------------------------------------------------------
-// The installer lives in %LOCALAPPDATA%\sail-launcher-update\installer.exe (not the
-// "-updater" folder, which electron-builder's installer uses for a copy of itself).
-// The SAME NSIS installer serves double duty: double-clicked by a user it shows
-// the normal wizard; run by Sail with "/S --force-run" it installs silently and
-// relaunches the app — so there is only ONE installer and ONE release asset.
-// On Linux the release AppImage replaces the running one in place, and a .deb or
-// .rpm is installed by the package manager after one pkexec password prompt.
-// ============================================================================
+// Auto-updater. Windows: download the installer to %LOCALAPPDATA%\sail-launcher-update
+// (not -updater, electron-builder uses that one) and run it with /S --force-run, which
+// installs silently and reopens Sail. Same installer as the normal download.
+// Linux: the AppImage gets replaced in place, .deb/.rpm go through pkexec.
 const UPDATER_DIR = process.platform === 'linux'
     ? path.join(process.env.XDG_CACHE_HOME || path.join(os.homedir(), '.cache'), 'sail-launcher-updater')
     : path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), launcherUpdate.WINDOWS_UPDATE_FOLDER);
@@ -2648,7 +2683,7 @@ ipcMain.handle('run-update-installer', async () => {
 });
 
 // Best-effort removal of the updater folder (called on startup once an update
-// has been applied — the installer is no longer running so the exe is unlocked).
+// has been applied - the installer is no longer running so the exe is unlocked).
 ipcMain.handle('cleanup-update-folder', async () => {
     if (process.env.APPIMAGE) {
         try { fs.rmSync(launcherUpdate.appImageUpdatePath(process.env.APPIMAGE), { force: true }); } catch (_) {}
@@ -3198,7 +3233,7 @@ async function resolveSteamMetadataForDownload(gameName, sourceId) {
 }
 
 // ============================================================
-//  Game Download Engine — aria2 + link resolver + post-process
+//  Game Download Engine - aria2 + link resolver + post-process
 // ============================================================
 const ARIA2_DL_URL = 'https://github.com/aria2/aria2/releases/download/release-1.37.0/aria2-1.37.0-win-64bit-build1.zip';
 const DL_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
@@ -3315,7 +3350,7 @@ const AD_BLOCK_HOSTS = [
 ];
 let adBlockEnabled = true;
 const HUMAN_VERIFICATION_RESOURCE_HOSTS = new Set(DEFAULT_VERIFICATION_RESOURCE_HOSTS);
-// hosts that are legitimate download targets — never treat these as ads
+// hosts that are legitimate download targets - never treat these as ads
 const DL_HOST_ALLOW = /(gofile|pixeldrain|datanodes|fuckingfast|1fichier|mediafire|mega\.nz|megadb|qiwi|multiup|bowfile|hexload|vikingfile|rootz|akirabox|filekeeper|fileditch(?:files)?|buzzheavier|bzzhr|steamrip|fitgirl|rutor\.info|1337x)/i;
 function isAdHost(url) {
     try {
@@ -3486,10 +3521,8 @@ async function retainDownloadJobError(jobRef) {
     if (job && !job.cancelled) await downloadJobDirectories.setState(jobRef, 'error');
 }
 
-// --- Host scrapers (pure HTTP — ported from Black-Pearl) ---------------------
-// These resolve a file-host page link directly into a downloadable URL via the
-// host's own API/redirect, WITHOUT opening a browser, so the resolver can never
-// "catch an ad". Each returns an array of { url, kind, headers?, name? } or null.
+// --- Host scrapers (plain HTTP, ported from Black-Pearl). Turn a host page into a direct
+// download link without a browser, so no ads. Return [{ url, kind, headers?, name? }] or null.
 
 // Generic HTTP request with optional body and redirect control. Returns
 // { status, headers, body }. follow:false lets callers read 3xx Location headers.
@@ -4089,10 +4122,8 @@ async function scrapeMediafire(rawUrl) {
     if (m) return [{ url: m[1], kind: 'http' }];
     return null;
 }
-// FileKeeper (filekeeper.net) — XFileSharing-style, but the op=download2 POST 302s
-// to a signed CDN URL (tunnelN.dlproxy.uk) with NO file extension, so the generic
-// scrapeXFS extension check rejects it. Handle it directly: the file code is the
-// first path segment and the real filename is the last segment.
+// FileKeeper: XFileSharing-style, but the download2 POST redirects to a CDN link with no
+// extension, so scrapeXFS rejects it. File code = first path part, name = last.
 async function scrapeFilekeeper(rawUrl) {
     return resolveFileKeeperUrl(rawUrl, {
         request: dlRequest,
@@ -4167,7 +4198,7 @@ async function scrapeXFS(rawUrl, referer) {
     });
 }
 
-// rutor.info — Russian torrent tracker. Fetch the torrent page, pull the magnet link
+// rutor.info - Russian torrent tracker. Fetch the torrent page, pull the magnet link
 // (preferred, works without downloading a .torrent file), or fall back to the direct
 // torrent download URL. Direct /download/{id} links are returned as-is.
 async function scrapeRutor(rawUrl) {
@@ -4202,14 +4233,9 @@ async function scrapeVikingfile(rawUrl) {
     });
 }
 
-// Resolve a (possibly indirect) link into one or more concrete files aria2 can
-// fetch. ALWAYS returns an array of { url, kind, headers?, name? } or null.
-// Host-specific HTTP scrapers run first (no browser → no ads); a single Gofile
-// folder can expand into several part files. Browser intercept is the last resort.
-// Hosts that have a dedicated scraper. If one of these fails we must NOT fall
-// through to the "direct archive" check (their page URLs often end in .bin/.rar
-// and would otherwise download the HTML landing page) nor to the browser (which
-// hangs on their JS/captcha). We just report failure so the user can pick another host.
+// Turn a link into files aria2 can download. Returns [{ url, kind, headers?, name? }] or null.
+// Scrapers first, browser last. Hosts with their own scraper don't fall through to the
+// direct-archive check or the browser when they fail (that grabs the HTML page or hangs on captchas).
 const DL_KNOWN_HOST = /gofile|pixeldrain\.(com|net|in|nl|biz|tech|dev)|datanodes|fuckingfast\.(co|com|net)|mediafire|megadb|filekeeper|fileditch(?:files)?|buzzheavier|bzzhr|akirabox\.(com|to)|multiup\.(?:io|org)|1337x\.|rootz\.so|vikingfile\.com|vik1ngfile\.site/i;
 const DL_MANAGED_RETRY_HOST = /datanodes|fuckingfast\.(?:co|com|net)|filekeeper|fileditch(?:files)?|buzzheavier|bzzhr|akirabox\.(?:com|to)|multiup\.(?:io|org)|1337x\.|rootz\.so|vikingfile\.com|vik1ngfile\.site/i;
 
@@ -4270,13 +4296,9 @@ ipcMain.handle('get-download-link-health', async (_event, payload) => {
     return inspectDownloadLinkHealth(url, sourceId);
 });
 
-// ===================================================================
-// PixelDrain Cloudflare-Worker proxy pool + Debrid services
-// (config is pushed from the renderer via the IPC handlers below)
-// ===================================================================
-// The former public Worker pool is retired: PixelDrain now rejects those proxy
-// requests as hotlinking. Keep user-supplied Workers supported, but never restore
-// or silently retry the known-dead defaults from an older settings file.
+// PixelDrain Worker proxies + debrid services (config comes from the renderer).
+// The old public Worker pool is dead (PixelDrain blocks it as hotlinking), so only
+// user-added Workers are used and the old defaults never come back from old settings.
 const RETIRED_PIXELDRAIN_PROXIES = new Set([
     'https://saillauncher.alissatorz.workers.dev',
     'https://saillauncher2.alissatorz.workers.dev',
@@ -4597,15 +4619,11 @@ const failedDebridSourceLinks = new WeakMap();
 function debridActive() { return !!(debridService && debridKey && DEBRID[debridService]); }
 function debridServiceName() { return (debridService && DEBRID[debridService] && DEBRID[debridService].name) || ''; }
 
-// Resolved-link cache. A debrid service hands back a direct URL that stays valid
-// for a while, so caching it lets a repeat request for the same source link skip
-// the API round-trip and resolve instantly. Keyed by service + original URL (the
-// direct link is service-specific); entries expire after 24h because debrid links
-// go stale. In-memory only — a fresh app session re-resolves, which is the safe
-// default for links that may have already expired.
+// Debrid link cache, keyed by service + original URL. Entries expire after 24h since
+// debrid links go stale. Memory only, so a restart resolves again.
 const DEBRID_CACHE_TTL = 24 * 60 * 60 * 1000;
 const debridCache = new Map(); // key -> { url, name, ts }
-let debridCacheEnabled = true;  // user toggle (Download settings) — off skips get + put
+let debridCacheEnabled = true;  // user toggle (Download settings) - off skips get + put
 function debridCacheKey(link) { return debridService + '\n' + link; }
 function debridCacheGet(link) {
     if (!debridCacheEnabled) return null;
@@ -4812,7 +4830,7 @@ async function resolveDirectUrl(rawUrl, opts) {
         }
         return (r && r.length) ? resolveTorrentDownloads(r, opts) : null; // never fall through for a known host
     }
-    // rutor.info — extract magnet/torrent link from the page. Falls through to the
+    // rutor.info - extract magnet/torrent link from the page. Falls through to the
     // browser interceptor if scraping fails.
     if (/rutor\.info/i.test(rawUrl)) {
         let r = null;
@@ -4866,10 +4884,8 @@ function buildLinkDownError(url, reason) {
     return error;
 }
 
-// Click script: find the real download control while skipping ad links. Prefers
-// anchors that point at an actual file/known host; only then falls back to
-// buttons/elements whose visible text is a download verb. Returns true if it
-// clicked something plausible.
+// Find the real download button and skip ad links: links to files/known hosts first,
+// then buttons with download-ish text. Returns true if it clicked something.
 const INTERCEPT_CLICK_JS = `(function(){
     var FILE=/\\.(zip|rar|7z|bin|iso|exe|torrent|part\\d+)(\\?|#|$)/i;
     var HOST=/gofile|pixeldrain|datanodes|fuckingfast|1fichier|mediafire|mega(\\.nz|db)|qiwi|multiup|bowfile|hexload|vikingfile|rootz|akirabox|buzzheavier|bzzhr|fileditch(files)?|store\\d+\\.gofile|1337x/i;
@@ -4928,11 +4944,8 @@ const FUCKINGFAST_VERIFICATION_STATE_JS = `(function(){
     return {gatePresent:!!gate,verified:!!control&&providerReady,failed:failed};
 })()`;
 
-// FuckingFast can consume the first activation with an ad pop-under and does
-// not always expose its internal cleared flag after Turnstile succeeds. Keep
-// the accepted verification latched in this page and retry the same provider
-// control at the host's measured cadence. DevTools captures the resulting /go
-// HX redirect or /dl request; it never follows an ad target.
+// FuckingFast can eat the first click with an ad pop-under and doesn't always show it passed
+// Turnstile, so keep the verification and retry the same button. DevTools grabs the real /go or /dl request.
 const FUCKINGFAST_SYSTEM_BROWSER_CLICK_JS = `(function(){
     function vis(el){try{return !!el&&el.offsetParent!==null&&el.getClientRects().length>0;}catch(e){return false;}}
     var gate=document.querySelector('.cf-turnstile,iframe[src*="challenges.cloudflare.com"],.h-captcha,.g-recaptcha,[data-sitekey]');
@@ -5039,21 +5052,15 @@ function interceptDownload(url, timeoutMs = 55000, options = {}) {
         }
         timer = setTimeout(() => finish(null, 'timeout'), timeoutMs);
         try {
-            // Reuse the isolated persistent Sources session so clearance/site state
-            // from the in-app browser carries into the one-click handoff. Keep the
-            // renderer unthrottled so provider challenges can finish. Managed hosts
-            // are visible from creation: some provider pages request window.close()
-            // or fail navigation before a delayed show() can run.
+            // Reuse the Sources session so cookies/clearance from the in-app browser carry over.
+            // Don't throttle (challenges need to finish), and show the window right away since some hosts close or fail otherwise.
             win = new BrowserWindow({
                 show: managedHandoffVisible,
                 width: humanVerification ? 680 : 1200,
                 height: humanVerification ? 560 : 800,
                 autoHideMenuBar: true,
                 skipTaskbar: humanVerification,
-                // Keep verification as an independent top-level window. A child of
-                // the transparent frameless launcher can be suppressed by Windows
-                // before a challenged navigation finishes, leaving only the dock
-                // error and no usable browser step.
+                // Separate top-level window: as a child of the frameless launcher, Windows can hide it mid-challenge.
                 parent: humanVerification && mainWindow && !mainWindow.isDestroyed()
                     ? mainWindow
                     : !managedHandoffVisible && mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined,
@@ -5535,10 +5542,10 @@ async function resolveWithManagedHostBrowser(rawUrl, provider, referer, onProgre
 // Find the most likely game executable in a folder, ignoring installers/redists.
 // `gameName` (optional) biases selection toward an exe whose name matches the title.
 function findGameExe(dir, gameName) {
-    // Hard excludes — these are NEVER a game launcher. `setup`/`installer` stay excluded
+    // Hard excludes - these are never a game launcher. `setup`/`installer` stay excluded
     // in every tier so a repack's setup.exe can never become the launch target.
     const skip = /(unins|setup|vc_?redist|vcredist|dxsetup|directx|dotnet|dotnetfx|oalinst|redist|crashreport|crashhandler|uninstall|launcher_settings|notification_helper|quicksfv|sfv|installer)/i;
-    // Soft excludes — usually not the main game, but allowed as a last resort.
+    // Soft excludes - usually not the main game, but allowed as a last resort.
     const soft = /(config|settings|editor|server|benchmark|cleanup|dxdiag|prereq|helper|report)/i;
     const exes = [];
     const walk = (d, depth) => {
@@ -5562,7 +5569,7 @@ function findGameExe(dir, gameName) {
     const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
     const target = norm(gameName);
     // Tier 1: real game exes (not installers/redists). Tier 2 (relaxed) recovers games
-    // whose launcher tripped a soft keyword — but still never an installer/uninstaller.
+    // whose launcher tripped a soft keyword - but still never an installer/uninstaller.
     let pool = exes.filter(e => !e.hard);
     if (!pool.length) return null;
     pool.sort((a, b) => {
@@ -5600,8 +5607,8 @@ function findArchives(dir) {
 }
 
 // Extract a .rar via node-unrar-js (pure-JS, supports RAR4 AND RAR5). The bundled
-// 7za.exe ships WITHOUT the RAR codec — it can't open ANY .rar ("Cannot open the
-// file as archive", exit 2) — so SteamRIP/SteamGG rars must go through unrar instead.
+// 7za.exe ships without the RAR codec - it can't open any .rar ("Cannot open the
+// file as archive", exit 2) - so SteamRIP/SteamGG rars must go through unrar instead.
 async function extractRar(archivePath, destDir, work) {
     if (work) await work.checkpoint();
     if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
@@ -5616,7 +5623,7 @@ async function extractRar(archivePath, destDir, work) {
 async function extractArchive(archivePath, destDir, work) {
     if (work) await work.checkpoint();
     if (/\.rar$/i.test(archivePath)) {
-        // RAR (incl. RAR5) — 7za can't do these at all; use node-unrar-js.
+        // RAR (incl. RAR5) - 7za can't do these at all; use node-unrar-js.
         return extractRar(archivePath, destDir, work).catch((e) => {
             console.error('[extract] unrar failed for', archivePath, '-', e && e.message);
             throw e;
@@ -5664,13 +5671,8 @@ function sniffArchiveExt(file) {
     finally { if (fd !== undefined) { try { fs.closeSync(fd); } catch (e) {} } }
 }
 
-// A link resolved through a debrid service (e.g. SteamRIP, which is debrid-gated)
-// often saves the file WITHOUT a recognisable archive extension — the direct URL
-// is a tokenised hash and there's no Content-Disposition, so aria2 names it after
-// the URL. A SteamRIP .zip then lands as an extension-less blob that findArchives()
-// can't see, so it's never auto-extracted. Sniff the magic bytes of extension-less
-// payload files and rename them with the right extension so the normal extract path
-// (and split-part handling) picks them up exactly like a SteamGG download.
+// Debrid links (like SteamRIP) often save without an extension, so findArchives() misses them
+// and they never get extracted. Check the magic bytes and add the right extension.
 function normalizeArchiveExtensions(dir, depth) {
     if ((depth || 0) > 4) return;
     let ents; try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { return; }
@@ -5679,7 +5681,7 @@ function normalizeArchiveExtensions(dir, depth) {
         if (!en.isFile()) continue;
         const name = en.name;
         if (/^_cover\./i.test(name)) continue;
-        // Leave anything that already carries an archive/installer/media/control extension —
+        // Leave anything that already carries an archive/installer/media/control extension -
         // only truly extension-less (or opaque) blobs are candidates for sniffing.
         if (/\.(zip|rar|7z|bin|iso|exe|msi|cab|pkg|001|002|003|004|005|part\d+|r\d{2}|z\d{2}|aria2|tmp)$/i.test(name)) continue;
         const full = path.join(dir, name);
@@ -5692,7 +5694,7 @@ function normalizeArchiveExtensions(dir, depth) {
     }
 }
 
-// Total size (bytes) of everything under a folder — used for soft install progress.
+// Total size (bytes) of everything under a folder - used for soft install progress.
 function dirSizeBytes(d, depth) {
     if (depth > 8) return 0;
     let total = 0, ents;
@@ -5711,18 +5713,10 @@ function dirSizeBytes(d, depth) {
 function runSilentInstall(installerPath, targetDir, ctl, skipExtras, work) {
     return new Promise((resolve, reject) => {
         try { if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true }); } catch (e) {}
-        // FitGirl installers require admin to install. The policy script checkpoints the
-        // job first, requests one UAC prompt for itself, and then owns the exact elevated
-        // installer process tree so prerequisite handling never targets unrelated setups.
-        //
-        // skipExtras keeps the normal Inno task deselection and also applies a scoped
-        // descendant policy for FitGirl's custom post-install integrity/prerequisite steps.
-        //
-        // Audio: FitGirl installers play background music even under /VERYSILENT.
-        // Rather than muting the WHOLE system, we mute ONLY the installer's own audio
-        // session(s) — its process plus any children — via the per-app ISimpleAudioVolume
-        // COM API, polling because the session appears a moment after launch. Nothing global
-        // is touched, so the user's other audio keeps playing and there's nothing to restore.
+        // FitGirl installers need admin. The policy script saves the job, asks for UAC once, and only
+        // touches its own installer process tree. skipExtras also skips FitGirl's post-install extras.
+        // The installer music gets muted per app (ISimpleAudioVolume on its process + children), not
+        // system-wide, so nothing needs restoring.
         const extras = skipExtras ? ' /NOICONS /TASKS=""' : '';
         const innoArgs = '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /NOCANCEL /SP-' + extras;
 
@@ -5751,7 +5745,7 @@ function runSilentInstall(installerPath, targetDir, ctl, skipExtras, work) {
         catch (e) { return reject(e); }
 
         let proc;
-        // Pass the Unicode paths as env vars — Windows hands these to the child as UTF-16, so a
+        // Pass the Unicode paths as env vars - Windows hands these to the child as UTF-16, so a
         // game folder with accents / apostrophes / CJK characters reaches PowerShell intact.
         const psEnv = Object.assign({}, process.env, {
             SAIL_INSTALLER: installerPath,
@@ -5816,13 +5810,9 @@ function runSilentInstall(installerPath, targetDir, ctl, skipExtras, work) {
     });
 }
 
-// FitGirl installers are InnoSetup bootstrappers: the setup.exe we launch often
-// extracts a second installer to %TEMP%, hands off, and EXITS within a second — so the
-// process we waited on is gone long before the game has finished being written. Polling
-// the process tree alone declares "done" too early, we find no game exe, and the whole
-// install is wrongly reported as failed. Instead, after the launched process exits, watch
-// the destination folder and only consider the install finished once it has STOPPED
-// growing for a sustained window (or nothing was ever written → genuinely failed).
+// FitGirl's setup.exe often unpacks a second installer to %TEMP% and exits right away, so
+// waiting on the process says "done" way too early. Watch the game folder instead and call it
+// done once it stops growing for a while (or failed if nothing was ever written).
 async function waitForDirSettle(dir, ctl, onTick, work) {
     const interval = 2500;          // poll cadence
     const stableMs = 9000;          // size must hold steady this long to count as done
@@ -5854,7 +5844,7 @@ async function waitForDirSettle(dir, ctl, onTick, work) {
 
 // After a successful extraction, delete the source archive(s) we just unpacked so the
 // download folder isn't left holding both the game AND its (often huge) original zip/rar.
-// Only top-level archive files are removed — never the extracted _game folder or cover.
+// Only top-level archive files are removed - never the extracted _game folder or cover.
 function deleteArchiveSources(dir) {
     let ents; try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { return; }
     // primary archives + split-volume siblings (.zip/.7z .001/.002, .partN.rar, .r00/.z01)
@@ -5866,11 +5856,8 @@ function deleteArchiveSources(dir) {
     }
 }
 
-// SteamRIP (and similar pre-installed) zips bundle filler alongside the game: a
-// "read_me" / instructions txt, a "Visit SteamRIP".url internet shortcut, and a
-// _CommonRedist folder of VC++/DirectX installers. After extraction we strip these
-// so the library folder holds only the playable game. Redist removal honours the
-// skipRedist setting (default on) — turn it off to keep the bundled installers.
+// SteamRIP zips come with extras (read_me, a "Visit SteamRIP" shortcut, _CommonRedist).
+// Clean them out after extracting. Redist removal follows the skipRedist setting.
 function cleanExtractedJunk(root, skipRedist) {
     (function walk(d, depth) {
         if (depth > 4) return;
@@ -5938,7 +5925,7 @@ async function postProcessDownloadBody(dir, opts, work) {
     } catch (e) {}
 
     // Give extension-less downloads (debrid-resolved SteamRIP .zips, etc.) the right
-    // archive extension by content, BEFORE we walk/detect — so they auto-extract.
+    // archive extension by content, before we walk/detect - so they auto-extract.
     await work.checkpoint();
     if (opts.autoExtract !== false) {
         try { await runDownloadPreparation('normalize-archives', dir, work); }
@@ -5977,11 +5964,8 @@ async function postProcessDownloadBody(dir, opts, work) {
             archiveValidationFailed = true;
             result.warning = 'Auto-extract failed: ' + extractErr.message + ' The archive is in the game folder — extract it manually.';
         }
-        // CRITICAL: the file list above was captured BEFORE extraction, so it only knew about
-        // the archives in the source folder. A repack can ship setup.exe + fg-*.bin INSIDE that archive
-        // (FitGirl sometimes wraps the installer in a .rar). Re-walk the extracted folder and
-        // append its files so the installer detection below can see them — otherwise needsInstall
-        // is never set and the auto-installer never runs.
+        // The file list was taken before extracting, so re-scan the extracted folder: some repacks
+        // put setup.exe + fg-*.bin inside a .rar, and without this the installer never runs.
         if (result.extracted) {
             const extractedScan = await scanDownloadedPayload(extractTo, opts.gameName, work);
             result.exePath = extractedScan.exePath || initialScan.exePath || '';
@@ -5992,7 +5976,7 @@ async function postProcessDownloadBody(dir, opts, work) {
     if (!result.exePath) result.exePath = initialScan.exePath || '';
 
     // Installer-style payloads (e.g. FitGirl: setup.exe + fg-*.bin parts, often in a
-    // torrent subfolder) aren't auto-extractable but ARE a successful download — the
+    // torrent subfolder) aren't auto-extractable but are a successful download - the
     // user runs the installer. Scan recursively.
     const redist = /(unins|vc_?redist|vcredist|dxsetup|directx|dotnet|dotnetfx|oalinst|quicksfv)/i;
     const hasBin = allFiles.some(f => /\.bin$/i.test(f.name) || /^fg-/i.test(f.name));
@@ -6003,12 +5987,8 @@ async function postProcessDownloadBody(dir, opts, work) {
     // A setup-named executable is installer evidence. An arbitrary utility .exe in a website
     // bundle is not; ordinary game executables are validated separately by findGameExe above.
     const installer = setupExe;
-    // SteamRIP (and similar "pre-installed" sources) ship the game ready to run inside the
-    // zip — there is NO setup.exe to execute. They must be treated as extract-and-play: pick
-    // the real game exe (findGameExe already skips setup/redist/uninstall exes) and never route
-    // them through the repack auto-installer (which would run a non-installer .exe and fail, so
-    // the game would never get added to the library). This is what makes a finished SteamRIP
-    // download land in the library with its exe + Steam art, exactly like a FitGirl install.
+    // Pre-installed sources (SteamRIP etc.) have no setup.exe: pick the game exe and add it
+    // straight to the library instead of running it as an installer.
     const preInstalled = /^(steamrip|steamgg)$/i.test(opts.sourceId || '');
     if (preInstalled) {
         // Already extracted above → result.exePath is the findGameExe pick. If that came back
@@ -6026,10 +6006,8 @@ async function postProcessDownloadBody(dir, opts, work) {
     else if (setupExe && hasBin) { result.exePath = setupExe.full; result.needsInstall = true; }
     else if (!result.exePath && installer) { result.exePath = installer.full; result.needsInstall = true; }
 
-    // Did we actually end up with something playable/installable? A valid archive or a large
-    // file alone is not evidence of a game: hosts can return website/brand bundles that extract
-    // cleanly but contain no executable. Keep archive-only completion exclusively for the
-    // explicit manual-extraction mode, where the user opted out of this automatic validation.
+    // Make sure we actually got a game. Some hosts send bundles that extract fine but have no exe.
+    // Archive-only is only okay in manual extraction mode.
     const hasValidatedPayload = !!result.exePath || !!installer || (opts.autoExtract === false && archives.length > 0);
     result.usable = !archiveValidationFailed && hasValidatedPayload;
     if (!result.usable) {
@@ -6053,10 +6031,8 @@ const DL_SKIP_FILE = /fix[_\s.-]*repair[_\s.-]*steam[_\s.-]*(v\d+[_\s.-]*)?gener
 
 function safeOutName(name) {
     let s = (name || '').replace(/[\\/:*?"<>|]+/g, '').replace(/\s+/g, ' ').trim();
-    // Some debrid responses hand back the filename concatenated with itself, e.g.
-    // "Game-SteamRIP.com.rarGame-SteamRIP.com.rar" → aria2 then saves that doubled name.
-    // Collapse an exact doubling when the half ends in an archive extension (so only the
-    // bug pattern is touched, never a legitimately repetitive title).
+    // Some debrid services return the filename twice ("Game.rarGame.rar"). Undo exact doubles
+    // that end in an archive extension.
     const dup = s.match(/^(.+?\.(?:zip|rar|7z|bin|iso|001))\1$/i);
     if (dup) s = dup[1];
     return s.slice(0, 120);
@@ -6093,7 +6069,7 @@ function cleanPartial(dir, file) {
 function runAria2Download(aria2, file, dir, opts, ctl, onProgress) {
     return new Promise((resolve, reject) => {
         const torrentTarget = file.relativePath ? torrentDownloadTarget(dir, file.relativePath, { createDirectories: true }) : null;
-        // Some hosts hand out single-use token URLs (fuckingfast) — parallel
+        // Some hosts hand out single-use token URLs (fuckingfast) - parallel
         // connections/resume break them, so cap connections for those.
         const conns = file.maxConn || 16;
         const args = [
@@ -6110,16 +6086,11 @@ function runAria2Download(aria2, file, dir, opts, ctl, onProgress) {
             '--max-tries=3', '--retry-wait=3', '--connect-timeout=30', '--timeout=60',
             '--user-agent=' + DL_UA
         ];
-        // FuckingFast currently advertises IPv6 even on Windows hosts without a
-        // usable IPv6 route. aria2 then exits immediately with WSAEADDRNOTAVAIL
-        // before trying the working IPv4 address. Keep this provider-specific so
-        // other download hosts retain their existing address-family behavior.
+        // FuckingFast advertises IPv6 even where it doesn't work, and aria2 then fails with
+        // WSAEADDRNOTAVAIL instead of trying IPv4. Only for this host.
         if (file.disableIpv6 === true) args.push('--disable-ipv6=true');
-        // Name the file ONLY when we have a real archive/game filename. The link
-        // "name" is often just a host label (e.g. "fuckingfast.co") whose ".co"
-        // looks like an extension — using it as --out saved the file as
-        // "fuckingfast.co". When we don't have a good name, omit --out so aria2
-        // uses the server's Content-Disposition filename (the real .bin/.rar).
+        // Only pass --out with a real filename. The link name is often just the host
+        // ("fuckingfast.co"), so otherwise let aria2 use Content-Disposition.
         const VALID_EXT = /\.(zip|rar|7z|bin|iso|exe|msi|cab|pkg|001|002|003|004|005|part\d+|r\d{2}|z\d{2})$/i;
         const outName = safeOutName(file.name || '');
         if (torrentTarget) args.push('--out=' + torrentTarget.name);
@@ -6572,7 +6543,7 @@ ipcMain.handle('download-game', async (e, opts) => {
         }
 
         // Resolve as EARLY as possible: the instant the user starts the download we fire
-        // the resolution (debrid API / scraper) — BEFORE aria2 setup and cover-art fetch —
+        // the resolution (debrid API / scraper) - before aria2 setup and cover-art fetch -
         // so that round-trip overlaps with everything else instead of queuing behind it.
         activeDownloads.set(id, ctl);
         const svcName = opts.skipDebrid ? '' : debridServiceName();
@@ -6881,7 +6852,7 @@ ipcMain.handle('download-game', async (e, opts) => {
                             wc.send('download-progress', { id, state: 'installing', percent: 100, label: 'Finishing up… ' + browserBytes(sz) + ' installed' });
                         }, work);
                         await work.checkpoint();
-                        // The exe occasionally lands a beat after the final byte — retry a couple times.
+                        // The exe occasionally lands a beat after the final byte - retry a couple times.
                         let found = (await scanDownloadedPayload(installTarget, opts.gameName, work)).exePath;
                         for (let t = 0; !found && t < 3; t++) {
                             await new Promise(r => setTimeout(r, 3000));
@@ -6900,7 +6871,7 @@ ipcMain.handle('download-game', async (e, opts) => {
                         res.needsInstall = false;
                         res.installed = true;
                     } else {
-                        // Installer ran but we couldn't find a game exe — keep the repack so
+                        // Installer ran but we couldn't find a game exe - keep the repack so
                         // the user can install it manually; report it instead of faking success.
                         // Clear exePath so setup.exe is never handed back as the launch target.
                         res.installFailed = true;
@@ -6927,10 +6898,8 @@ ipcMain.handle('download-game', async (e, opts) => {
                 return { success: false, payloadRejected: true };
             } else {
                 applyInstallerCompletionPolicy(res, opts);
-                // Never persist a guessed path that no longer exists. Some pre-installed
-                // archives (notably SteamGG) add a provider suffix to their root folder,
-                // e.g. "Discounty - SteamGG.NET". Re-scan the final on-disk tree here so
-                // the library receives the real path instead of a stale/predicted one.
+                // Don't save a guessed path that doesn't exist. Some archives (SteamGG) add a suffix to
+                // the folder ("Discounty - SteamGG.NET"), so re-scan for the real one.
                 if (res.exePath && !fs.existsSync(res.exePath)) res.exePath = '';
                 if (!res.exePath && !res.installFailed) {
                     const finalRoot = (res.folder && fs.existsSync(res.folder)) ? res.folder : dir;
@@ -7044,7 +7013,7 @@ ipcMain.handle('pause-download', async (e, id) => {
 
 // Clear cached data (Download settings → Clear Cache). Wipes the in-memory resolved
 // debrid-link cache and the in-app browser's HTTP cache, so stale/expired links and pages
-// are re-fetched fresh. Does NOT touch the user's settings, library, or downloaded games.
+// are re-fetched fresh. Does not touch the user's settings, library, or downloaded games.
 ipcMain.handle('get-download-cache-size', async () => {
     let bytes = 0;
     try { bytes += await session.defaultSession.getCacheSize(); } catch (e) {}
@@ -7063,10 +7032,8 @@ ipcMain.handle('clear-cache', async () => {
     return { success: true, cleared };
 });
 
-// Scan the common Windows save-game locations for a folder matching `gameName`.
-// Called AFTER the user first plays & exits a downloaded game (saves don't exist at
-// install time). `playedSince` (ms epoch, optional) prefers folders touched during/after
-// the just-finished session. Returns the best-matching folder path, or null.
+// Look for a save folder matching gameName in the usual Windows spots. Runs after the
+// first play. playedSince prefers folders touched since then. Returns a path or null.
 ipcMain.handle('scan-game-saves', async (event, payload) => {
     const input = exactGateAPayload(payload, ['gameId', 'capabilityId', 'expectedRevision', 'playedSince'], 'Save discovery');
     const game = gateAProfileStore().activeGameMetadata(input.gameId);
@@ -7292,6 +7259,12 @@ else {
         try { applyAdBlock(session.defaultSession); } catch (e) {}
         try { applyAdBlock(session.fromPartition(SOURCES_PARTITION)); } catch (e) {}
         runtimeRecovery = new RecoveryJournal(path.join(app.getPath('userData'), 'runtime', 'recovery.json'));
+        activityMonitor = new ActivityMonitor({ filePath: path.join(app.getPath('userData'), 'runtime', 'activity-idle.json'),
+            systemIdleSeconds: () => powerMonitor.getSystemIdleTime(), controllers: createControllerActivity() });
+        setInterval(() => {
+            try { activityMonitor.tick(Object.values(runtimeRecovery.snapshot().activeSessions || {})); }
+            catch (error) { console.error('Active playtime check failed:', error && error.message || error); }
+        }, 15000).unref();
         if (nativeContext.gateway) protonManager = new (require('./runtime/proton/manager').ProtonManager)({
             root: path.join(app.getPath('userData'), 'runtime', 'proton'), fixtureRoot: nativeContext.fixtureRoot });
         if (protonManager) protonManager.downloads = new (require('./runtime/proton/downloads').RuntimeDownloads)({
@@ -7382,6 +7355,8 @@ else {
             if (!platformSupport.features.standaloneWine.available) platformSupport.features.standaloneWine.reason ||= require('./runtime/proton/wine').WINE_PENDING_REASON;
             platformSupport.features.nativeScripts = { available: platformSupport.features.nativeGames.scriptsAvailable === true,
                 reason: platformSupport.features.nativeGames.scriptsAvailable ? '' : require('./runtime/platformSupport').NATIVE_SCRIPT_UNAVAILABLE_REASON };
+            platformSupport.features.emulation = { available: platformSupport.features.nativeGames.available,
+                reason: platformSupport.features.nativeGames.available ? '' : 'Emulator and ROM games need the Linux native launcher, which is unavailable.' };
             platformSupport.features.desktopShortcuts.available = !platformSupport.isolated
                 && platformSupport.features.nativeGames.available;
             if (platformSupport.features.desktopShortcuts.available) platformSupport.features.desktopShortcuts.reason = '';

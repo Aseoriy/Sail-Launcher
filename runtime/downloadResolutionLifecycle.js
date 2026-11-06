@@ -45,10 +45,8 @@ class ManagedVerificationCoordinator {
         this.tail = scheduled.catch(() => null);
         if (!signal) return scheduled;
 
-        // A cancelled item that is still waiting behind another verification must
-        // release its download job immediately. Once a browser owns the task, the
-        // task itself observes the signal and does not settle until that browser is
-        // closed, preserving cancellation/quarantine ordering.
+        // A cancelled item still waiting on another verification lets go of its job right away.
+        // If a browser already has it, the task waits for that browser to close.
         return new Promise((resolve, reject) => {
             let settled = false;
             const finish = (callback, value) => {

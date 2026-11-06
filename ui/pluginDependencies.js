@@ -1,9 +1,8 @@
 'use strict';
 
-// Plugin dependencies. A plugin names itself with an `id` in plugin.json and lists what it needs in
-// `requires`: { "<id>": { "version": "<range>", "hub": "<Sail Hub item id>" } }. Sail starts plugins after
-// what they need, keeps a plugin off while something it needs is missing, and can fetch a missing one from
-// Sail Hub by its item id (never from a URL the plugin names).
+// Plugin dependencies. plugin.json has an `id` and `requires`: { "<id>": { "version": "<range>", "hub": "<Sail Hub item id>" } }.
+// Plugins start after what they need, stay off while something's missing, and a missing one
+// can come from Sail Hub by item id (never a URL from the plugin).
 
 const ID = /^[a-z0-9][a-z0-9-]{0,48}(?:\.[a-z0-9][a-z0-9-]{0,48}){1,3}$/;
 const HUB_ITEM = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

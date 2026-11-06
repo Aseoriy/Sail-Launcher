@@ -1,8 +1,6 @@
 name: Build
 
-# Builds the Windows installer and the Linux packages and keeps them as workflow
-# artifacts. Releases are created by hand from the owner's account with those files,
-# so nothing becomes public until it is reviewed and published.
+# Builds the Windows installer and Linux packages on a tag push. I make the release myself from these.
 on:
   push:
     tags: ['[0-9]*', 'v[0-9]*']

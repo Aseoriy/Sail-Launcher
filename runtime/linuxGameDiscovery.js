@@ -56,9 +56,10 @@ function scan(roots, { fixtureRoot = null, allowScripts = true, prefixRoots = []
                     if (EXCLUDE.test(entry.name) || builtins.has(file) || prefix && /^(?:Program Files(?: \(x86\))?)\/(?:Internet Explorer|Windows Media Player|Windows NT\/Accessories)\//i.test(path.relative(root, file))) continue;
                     if (games.length + installers.length >= 64) { truncated = true; continue; }
                     const stat = fs.lstatSync(file);
-                    if (!/\.exe$/i.test(entry.name) && !(stat.mode & 0o111)) continue;
+                    const script = !prefix && /\.sh$/i.test(entry.name);
+                    if (!/\.exe$/i.test(entry.name) && !script && !(stat.mode & 0o111)) continue;
                     try {
-                        const selected = selectLocalExecutable(file, { fixtureRoot, allowScripts });
+                        const selected = selectLocalExecutable(file, { fixtureRoot, allowScripts, makeScriptRunnable: script && allowScripts });
                         if (selected.identity.realPath !== file) continue;
                         const candidate = { id: crypto.createHash('sha256').update(file).digest('hex'), label: path.relative(root, file), root,
                             executable: selected.identity, backend: selected.backend, cwd: native.validateWorkingDirectory(path.dirname(file), { fixtureRoot }) };

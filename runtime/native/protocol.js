@@ -26,13 +26,17 @@ function validateNativeExecutable(selected, { fixtureRoot = null, expected = nul
     if (expected && (!identityMatches(expected, identity) || path.resolve(selected) !== canonical)) {
         throw nativeError('SAIL_CAPABILITY_PATH_CHANGED', 'The approved executable or its parent path changed. Choose it again.');
     }
-    fs.accessSync(canonical, fs.constants.R_OK | fs.constants.X_OK);
+    try { fs.accessSync(canonical, fs.constants.R_OK | fs.constants.X_OK); } catch (error) {
+        if (error.code !== 'EACCES') throw error;
+        throw nativeError('SAIL_NATIVE_NOT_EXECUTABLE', `${path.basename(canonical)} isn't allowed to run as a program. Choose it again in Sail, or mark it as executable in its file properties.`);
+    }
     const fd = fs.openSync(canonical, 'r');
     try {
         const header = Buffer.alloc(256); const count = fs.readSync(fd, header, 0, header.length, 0);
         const elf = count >= 20 && header.subarray(0, 4).equals(Buffer.from([0x7f, 69, 76, 70]));
         const script = count >= 2 && header[0] === 35 && header[1] === 33;
         if (script && !allowScripts) throw nativeError('SAIL_NATIVE_SCRIPTS_UNAVAILABLE', require('../platformSupport').NATIVE_SCRIPT_UNAVAILABLE_REASON);
+        if (!elf && !script && /\.sh$/i.test(canonical)) throw nativeError('SAIL_NATIVE_FORMAT', `${path.basename(canonical)} has no #! first line, so Linux can't tell which program should run it. Add #!/bin/sh (or #!/bin/bash) as its first line, or choose the game's own executable.`);
         if (!elf && !script) throw nativeError('SAIL_NATIVE_FORMAT', 'Choose a native Linux x64 ELF executable or an executable script with a shebang.');
         if (elf && (header[4] !== 2 || header[5] !== 1 || header.readUInt16LE(18) !== 62)) {
             throw nativeError('SAIL_NATIVE_ARCH', 'This native provider requires a Linux x64 executable.');

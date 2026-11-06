@@ -1,9 +1,8 @@
 'use strict';
 
-// A Steam game can have its achievement list (from Steam's public data) without anyone having told Sail which of
-// them are unlocked. Unlocks come from the player's own Steam account (needs a Steam ID and Web API key) or from
-// files on this PC (Steam's own, or an emulator's). When neither has produced an unlock, "0 of N" is not a result
-// but a gap, and the page says so instead of looking like a fault.
+// A Steam game can have its achievement list without Sail knowing what's unlocked (that needs
+// a Steam ID + API key, or files on this PC). With neither, "0 of N" is missing info, not a
+// result, so the page says that.
 function unlockDataMissing({ game, summary, tracking = true, credentialsReady = false }) {
     const appId = String((game && game.steamAppId) || (game && game.achievementData && game.achievementData.appId) || '').trim();
     return !!appId && tracking !== false && !credentialsReady && !!summary && summary.total > 0 && summary.unlocked === 0;

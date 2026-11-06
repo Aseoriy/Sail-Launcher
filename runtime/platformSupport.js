@@ -12,7 +12,7 @@ const LOCAL_HANDLES = new Set([
     'profiles-update', 'profiles-delete', 'profiles-unlock', 'profiles-switch',
     'profiles-create-library', 'profiles-switch-library', 'profiles-create-preset',
     'profiles-switch-preset', 'authority-get-game-status',
-    'downloaded-game-uninstall-status', 'authority-get-device-root-status', 'onboarding-state', 'onboarding-finish', 'onboarding-hide-rerun', 'fun-spin-cat'
+    'downloaded-game-uninstall-status', 'authority-get-device-root-status', 'linux-storage-summary', 'linux-storage-open', 'linux-storage-clear-cache', 'activity-set-idle-minutes', 'onboarding-state', 'onboarding-finish', 'onboarding-hide-rerun', 'fun-spin-cat'
 ]);
 const LOCAL_EVENTS = new Set([
     'set-exit-behavior', 'set-devtools-setting', 'window-min',
@@ -42,8 +42,9 @@ function createPlatformSupport({ platform = process.platform, arch = process.arc
         ? 'Desktop shortcuts are unavailable until a native Linux game is ready in normal mode.' : '' };
     const nativeRecovery = platform === 'linux' && arch === 'x64' && mode !== 'offline-preview';
     features.nativeRecovery = { available: nativeRecovery, reason: nativeRecovery ? '' : 'Native session recovery is unavailable in this platform mode.' };
-    features.spellcheck = { available: !restricted, reason: restricted
-        ? 'Optional spellchecking is unavailable on Linux and in isolated profiles to prevent native dictionary downloads.' : '' };
+    // Linux uses the English dictionaries bundled with Sail (runtime/nativeSessionPolicy.js) and never downloads any.
+    features.spellcheck = { available: !isolated, reason: isolated
+        ? 'Optional spellchecking is unavailable in isolated profiles to prevent dictionary downloads.' : '' };
     for (const [key, label] of Object.entries({
         nativeGames: 'Native Linux ELF game launching', steamProton: 'Steam-managed Proton',
         standaloneWine: 'Standalone Windows games through Wine', downloads: 'Downloads and installation',
@@ -83,6 +84,8 @@ function createPlatformSupport({ platform = process.platform, arch = process.arc
         features.nativeScripts = { available: !!nativeReadiness.available && nativeReadiness.scriptsAvailable === true,
             reason: nativeReadiness.available && nativeReadiness.scriptsAvailable === true ? '' : NATIVE_SCRIPT_UNAVAILABLE_REASON };
         features.desktopShortcuts.available = !isolated && !!nativeReadiness.available;
+        // A ROM game is a native emulator launch with the ROM in its arguments.
+        features.emulation = { available: !!nativeReadiness.available, reason: nativeReadiness.available ? '' : 'Emulator and ROM games need the Linux native launcher, which is unavailable.' };
         if (features.desktopShortcuts.available) features.desktopShortcuts.reason = '';
     }
     return { platform, arch, isolated, mode, preview, restricted, devProfile: isolated ? process.env.SAIL_DEV_PROFILE || 'default' : null, features };

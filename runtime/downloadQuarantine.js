@@ -251,10 +251,8 @@ class DownloadQuarantineCatalog {
         return summary;
     }
 
-    // Remove only opaque quarantine directories that were discovered beneath a
-    // recorded, canonical Sail staging root.  This deliberately uses lstat and
-    // per-entry identity checks instead of a recursive pathname delete so a
-    // junction, symlink, or replacement path can never broaden the target.
+    // Only remove quarantine folders found under a known Sail staging root. Uses lstat and
+    // per-entry checks instead of a recursive delete so links/junctions can't widen it.
     clear() {
         const result = {
             status: 'cleared',

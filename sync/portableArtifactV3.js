@@ -107,7 +107,8 @@ const PRESET_KEYS = new Set(['id', 'profileId', 'name', 'createdAt', 'updatedAt'
 const GAME_KEYS = new Set([
     'id', 'name', 'platform', 'steamAppId', 'searchSteamAppId', 'epicId', 'gogId',
     'isRom', 'tags', 'isFavorite', 'addedAt', 'playtime', 'lastPlayed',
-    'playtimeSessionIds', 'steamImageUrl', 'steamHeroUrl', 'source',
+    // idlePlaytime and customBanner are read since 6.0.0-beta.5 but only written from 6.0.0, so older Sails never see them.
+    'idlePlaytime', 'customBanner', 'playtimeSessionIds', 'steamImageUrl', 'steamHeroUrl', 'source',
     'sourceIdentifier', 'sourceTitle', 'sourceVersion', 'installedAt',
     'maintenanceHideInformationIssues', 'dependencyRequirements',
     'configSyncEntries', 'achievementData'
@@ -386,6 +387,11 @@ function validateGame(value, path) {
             : stringValue(String(input[key]), `${path}.${key}`, { min: 1, max: key === 'sourceTitle' ? 160 : 80 }));
     }
     if (input.isRom !== undefined) output.isRom = booleanValue(input.isRom, `${path}.isRom`);
+    if (input.customBanner !== undefined && input.customBanner !== null) {
+        // A small JPEG copy of a custom banner (ui/customBanner.js), so it shows on devices without the file.
+        output.customBanner = stringValue(input.customBanner, `${path}.customBanner`, { min: 1, max: 32000, pattern: /^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/ });
+    }
+    if (input.idlePlaytime !== undefined) output.idlePlaytime = numberValue(input.idlePlaytime, `${path}.idlePlaytime`, { min: 0, max: 1000000000000 });
     if (input.installedAt !== undefined && input.installedAt !== null) output.installedAt = timestampValue(input.installedAt, `${path}.installedAt`);
     if (input.maintenanceHideInformationIssues !== undefined) {
         output.maintenanceHideInformationIssues = booleanValue(input.maintenanceHideInformationIssues, `${path}.maintenanceHideInformationIssues`);

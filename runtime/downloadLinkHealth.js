@@ -10,10 +10,8 @@ const {
 } = require('./downloadHostResolvers');
 const { parseSize } = require('../ui/downloadSizeLogic');
 
-// Health checks are deliberately conservative. A host returning a challenge,
-// rate-limit, redirect, or an HTML page is not the same thing as a dead file.
-// Callers may use this module from the main process before starting a download;
-// it never turns an untrusted renderer URL into an unrestricted HTTP request.
+// Health checks are careful: a challenge, rate limit, redirect or HTML page doesn't mean
+// the file is dead. Never turns a renderer URL into an open HTTP request.
 
 const HEALTH_STATES = Object.freeze({
     AVAILABLE: 'available',

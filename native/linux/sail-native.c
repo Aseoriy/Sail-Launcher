@@ -21,6 +21,7 @@
 #include <time.h>
 #include <limits.h>
 #include <stddef.h>
+#include <dirent.h>
 
 /* glibc before 2.36 (Ubuntu 22.04, the oldest build machine) does not declare P_PIDFD. The kernel value has been 3 since
    waitid learned pidfds (Linux 5.4), and newer glibc declares the same value, so this is safe everywhere. */
@@ -34,6 +35,10 @@
 #define MAX_CHILDREN 4096
 #define STOP_GRACE_MS 1500
 #define STOP_LIMIT_MS 6000
+/* Tests build a copy pointing at a temporary file to exercise the Flatpak path. */
+#ifndef SAIL_FLATPAK_INFO
+#define SAIL_FLATPAK_INFO "/.flatpak-info"
+#endif
 extern char **environ;
 
 struct child { pid_t pid; int fd; int term_sent; int kill_sent; };
@@ -126,6 +131,66 @@ static int validate_script_path(void) {
         || selected.st_mtim.tv_nsec != retained.st_mtim.tv_nsec)) { errno = ESTALE; result = -1; }
     int saved = errno; close(fd); errno = saved;
     return result;
+}
+/* In Flatpak, pressure-vessel starts Proton games through the portal in a sub-sandbox
+ * that isn't our child. Its processes carry this session's marker, so they're tracked
+ * and stopped like children. Outside Flatpak there's no marker. */
+static int flatpak_sandbox;
+static char sandbox_marker[160];
+static struct child sandboxed[MAX_CHILDREN];
+static size_t sandboxed_count;
+static uint64_t sandbox_last_scan;
+static int sandbox_owned(pid_t pid) {
+    for (size_t i = 0; i < sandboxed_count; i++) if (sandboxed[i].pid == pid) return 1;
+    return 0;
+}
+static int sandbox_marked(pid_t pid) {
+    char name[64], env[131072]; snprintf(name, sizeof(name), "/proc/%d/environ", pid);
+    int fd = open(name, O_RDONLY | O_CLOEXEC); if (fd < 0) return 0;
+    ssize_t n = read(fd, env, sizeof(env) - 1); close(fd);
+    if (n <= 0) return 0;
+    env[n] = 0; size_t want = strlen(sandbox_marker);
+    for (ssize_t i = 0; i < n;) {
+        size_t length = strnlen(env + i, (size_t)(n - i));
+        if (length == want && !memcmp(env + i, sandbox_marker, want)) return 1;
+        i += (ssize_t)length + 1;
+    }
+    return 0;
+}
+static void sandbox_observe(uint64_t now) {
+    if (!flatpak_sandbox || !exec_succeeded) return;
+    if (!sandbox_last_scan || now - sandbox_last_scan >= 250 || stopping) {
+        sandbox_last_scan = now;
+        DIR *proc = opendir("/proc"); if (!proc) { if (!tracking_error) tracking_error = errno; return; }
+        struct dirent *entry;
+        while ((entry = readdir(proc))) {
+            if (!*entry->d_name || strspn(entry->d_name, "0123456789") != strlen(entry->d_name)) continue;
+            pid_t pid = (pid_t)atoi(entry->d_name); int owned = pid == getpid() || sandbox_owned(pid);
+            for (size_t i = 0; !owned && i < child_count; i++) owned = children[i].pid == pid;
+            if (owned) continue;
+            /* Pin the PID first, then read the marker of the pinned process. */
+            int fd = pidfd_open_owned(pid); if (fd < 0) continue;
+            struct pollfd alive = { .fd = fd, .events = POLLIN };
+            if (!sandbox_marked(pid) || poll(&alive, 1, 0) != 0) { close(fd); continue; }
+            if (sandboxed_count == MAX_CHILDREN) { close(fd); if (!tracking_error) tracking_error = EOVERFLOW; break; }
+            sandboxed[sandboxed_count++] = (struct child){ .pid = pid, .fd = fd };
+        }
+        closedir(proc);
+    }
+    for (size_t i = 0; i < sandboxed_count;) {
+        struct child *process = &sandboxed[i];
+        struct pollfd alive = { .fd = process->fd, .events = POLLIN };
+        if (poll(&alive, 1, 0) != 0) { close(process->fd); sandboxed[i] = sandboxed[--sandboxed_count]; continue; }
+        if (stopping) {
+            int number = now - stop_ms >= STOP_GRACE_MS ? SIGKILL : SIGTERM;
+            int *sent = number == SIGKILL ? &process->kill_sent : &process->term_sent;
+            if (!*sent) {
+                if (signal_handle(process->fd, number) && errno != ESRCH) { if (!tracking_error) tracking_error = errno; }
+                else *sent = 1;
+            }
+        }
+        i++;
+    }
 }
 #include "proton-clock.h"
 static int snapshot(char *buffer, size_t size, int durable) {
@@ -238,9 +303,10 @@ static void observe_children(void) {
         }
         i++;
     }
+    sandbox_observe(now);
     if (exec_succeeded && !tracking_error) elapsed_ms = now - began_ms;
     game_observe(now);
-    if (!child_count && committed) {
+    if (!child_count && !sandboxed_count && committed) {
         siginfo_t info = {0}; errno = 0;
         int result = waitid(P_ALL, 0, &info, WEXITED | WNOHANG | WNOWAIT);
         if (result < 0 && errno == ECHILD && !tracking_error) {
@@ -317,6 +383,7 @@ static void launch_root(void) {
         if (output[0] >= 0) close(output[0]);
         if (output[1] >= 0) close(output[1]);
         if (log_fd >= 0) close(log_fd);
+        if (flatpak_sandbox && putenv(sandbox_marker)) goto exec_failed;
         if (script_launch) {
             /* Accepted normal Linux pathname semantics: a concurrent path
              * replacement after this check is not an inode-pinned launch. */
@@ -408,6 +475,8 @@ int main(int argc, char **argv) {
     alarm(15); if (load_config()) return 65; alarm(0);
     if (setsid() < 0 && getsid(0) != getpid()) return 66;
     if (prctl(PR_SET_CHILD_SUBREAPER, 1) || identity() || open_listener()) return 67;
+    flatpak_sandbox = !access(SAIL_FLATPAK_INFO, F_OK);
+    if (flatpak_sandbox && snprintf(sandbox_marker, sizeof(sandbox_marker), "SAIL_NATIVE_SESSION=%s", session_id) >= (int)sizeof(sandbox_marker)) return 65;
     if (persist_receipt()) return 68;
     char data[2048]; int count = snapshot(data, sizeof(data), 1);
     if (write_exact(STDOUT_FILENO, data, (size_t)count)) return 69;

@@ -5,10 +5,9 @@ const path = require('node:path');
 const { spawn } = require('node:child_process');
 const resolver = require('./systemBrowserResolver');
 
-// Some hosts (FileDitch) run an interactive Cloudflare check that never passes while a debugger is attached
-// to the page. This path opens the installed browser, points it at the page once, detaches, and lets the
-// person finish the check and the download exactly as in an ordinary browser. The browser saves the file
-// into a folder Sail owns, which is then watched until the file is complete.
+// Some hosts (FileDitch) have a Cloudflare check that never passes with a debugger attached.
+// So open the real browser at the page, detach, and let the person finish it. The file lands in
+// a folder Sail watches until it's done.
 
 const POLL_MS = 1000;
 const STALL_MS = 5 * 60 * 1000;

@@ -1,10 +1,7 @@
 'use strict';
 
-// This file is executed in a worker thread by ownedWorker.js.  Keep the worker
-// boundary deliberately small: main.js remains responsible for validating the
-// staging/extraction paths and the worker only performs the RAR operation it is
-// given.  node-unrar-js consumes the archive synchronously, so doing that work
-// here prevents a large RAR from blocking Electron's main event loop.
+// Runs in a worker thread (ownedWorker.js). main.js checks the paths; this only does the
+// RAR extraction so a big RAR doesn't freeze the main process.
 const { parentPort, workerData } = require('node:worker_threads');
 const unrar = require('node-unrar-js');
 

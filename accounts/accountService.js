@@ -34,11 +34,8 @@ function cloudUuid(kind, value, scope = '') {
     return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-// The auth server sends expires_at in its own clock. When the device clock is
-// hours off (common on dual-boot PCs, where Windows reads a UTC hardware clock
-// as local time), every session looks expired: each getSession() refreshes
-// until the server rejects a refresh and auth-js drops the session. Without
-// expires_at, auth-js derives it from expires_in and the local clock.
+// Drop expires_at: it's in the server's clock, and a PC with a wrong clock (dual boot) would
+// think every session is expired. auth-js falls back to expires_in + the local clock.
 async function clockSafeAuthFetch(input, init) {
     const response = await fetch(input, init);
     const url = typeof input === 'string' ? input : String(input && input.url || input || '');
@@ -294,10 +291,8 @@ class SafeStorageAdapter {
 
     load() {
         if (this.cache) return this.cache;
-        // Do not cache an empty result while secure storage is temporarily
-        // unavailable. Electron can report this during startup, and caching
-        // the empty result would hide an existing session for the rest of the
-        // process.
+        // Don't cache an empty result while secure storage isn't ready yet (happens at startup),
+        // or an existing session stays hidden until restart.
         if (!this.isEncryptionAvailable()) return {};
         // A refresh-token rotation can be interrupted while the session is
         // being written. Prefer a complete pending replacement, then the
@@ -471,6 +466,20 @@ class AccountService {
         if (!await this.storage.waitForEncryption()) return null;
         const result = await this.client.auth.getSession();
         return result && result.data && result.data.session || null;
+    }
+
+    // The Sail Hub tab only ever gets the access token. When it also had the refresh token, the website and the
+    // launcher both refreshed the same token, Supabase saw a revoked token reused and signed the launcher out.
+    // The launcher refreshes early instead, so the copy it hands over always has at least minimumSeconds left.
+    async sessionForWebsite(minimumSeconds = 300) {
+        const session = await this.session();
+        if (!session || typeof session.access_token !== 'string') return null;
+        const secondsLeft = Number(session.expires_at) - Date.now() / 1000;
+        if (secondsLeft >= minimumSeconds) return session;
+        const { data, error } = await this.client.auth.refreshSession();
+        if (!error && data && data.session) return data.session;
+        this.recordAuth(`Sail Hub tab: refresh before hand-off failed: ${error && error.name}`);
+        return secondsLeft > 60 ? session : null;
     }
 
     async state() {

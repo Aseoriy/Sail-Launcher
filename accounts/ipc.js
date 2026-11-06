@@ -43,6 +43,14 @@ async function chooseDirectory(dialog, options) {
     return result.canceled ? null : result.filePaths[0];
 }
 
+// Launch Args for a ROM game: %rom% becomes the ROM's path, and the ROM is added at the end if the template never names it.
+function romArguments(template, romPath) {
+    let argv = parseArgumentString(String(template || ''));
+    argv = argv.length ? argv.map(argument => argument.replace(/%rom%/g, romPath)) : [romPath];
+    if (!argv.some(argument => argument.includes(romPath))) argv.push(romPath);
+    return argv;
+}
+
 function formatLaunchArguments(argv) {
     return (argv || []).map(value => /[\s"]/.test(value) || !value
         ? '"' + value.replace(/(\\*)"/g, '$1$1\\"').replace(/(\\+)$/g, '$1$1') + '"'
@@ -593,7 +601,7 @@ function registerAccountIpc({ app, ipcMain, safeStorage, authorizeIpcEvent, dial
         if (!selectedPath) return { canceled: true };
         let backend;
         if (nativeSetup) {
-            const selected = require('../runtime/proton/executable').selectLocalExecutable(selectedPath, nativeSetup);
+            const selected = require('../runtime/proton/executable').selectLocalExecutable(selectedPath, { ...nativeSetup, makeScriptRunnable: nativeSetup.allowScripts });
             backend = selected.backend;
             const canonical = selected.identity.realPath;
             if (canonical !== path.resolve(selectedPath)) {
@@ -858,12 +866,15 @@ function registerAccountIpc({ app, ipcMain, safeStorage, authorizeIpcEvent, dial
         const metadata = profileStore.activeGameMetadata(input.gameId);
         if (nativeSetup) {
             const native = require('../runtime/native/protocol');
-            if (Object.entries(input).some(([key, value]) => (key.startsWith('request') || key === 'useSteamInstallation' || key === 'argumentProposal') && value)) {
-                throw new Error('Native setup requires literal argument arrays. Steam, ROM, scripts, companion, elevation, priority and process-name tracking are unavailable.');
+            // A ROM game is an emulator plus the ROM picked here; its Launch Args template is the one text option allowed.
+            const romSetup = input.requestRom === true && !!input.baseSelectionId;
+            if (Object.entries(input).some(([key, value]) => (key.startsWith('request') && !(romSetup && key === 'requestRom')
+                || key === 'useSteamInstallation' || key === 'argumentProposal' && !romSetup) && value)) {
+                throw new Error('Native setup requires literal argument arrays. Steam, scripts, companion, elevation, priority and process-name tracking are unavailable.');
             }
             const saved = profileStore.localExecutionSetup(input.gameId);
             native.assertNativeOptions(saved.details); native.assertNativeOptions(saved.proposals);
-            const argv = native.validateArgv(input.argv || []);
+            let argv = native.validateArgv(input.argv || []);
             let approved = null;
             let keptWorkingDirectory = '';
             const reference = profileStore.authorityStatus(input.gameId).execution;
@@ -883,7 +894,7 @@ function registerAccountIpc({ app, ipcMain, safeStorage, authorizeIpcEvent, dial
                 ? consumeExecutionSelection(event, input.baseSelectionId, { purpose: 'base', gameId: input.gameId })
                 : approved?.executablePath || await chooseFile(dialog, { title: 'Choose this game’s executable' });
             if (!executablePath) return { canceled: true };
-            const selected = require('../runtime/proton/executable').selectLocalExecutable(executablePath, nativeSetup);
+            const selected = require('../runtime/proton/executable').selectLocalExecutable(executablePath, { ...nativeSetup, makeScriptRunnable: nativeSetup.allowScripts });
             const executable = selected.identity;
             let linuxRuntime;
             if (selected.backend === 'proton-umu') {
@@ -891,6 +902,14 @@ function registerAccountIpc({ app, ipcMain, safeStorage, authorizeIpcEvent, dial
                 const runtime = nativeSetup.protonManager.runtime(input.runtimeId);
                 linuxRuntime = { backend: require('../runtime/proton/wine').runtimeBackend(runtime), runtimeId: runtime.id, dllOverrides: require('../runtime/proton/environment').validateDllOverrides(input.dllOverrides) };
             } else if (input.runtimeId || input.dllOverrides) throw new Error('Proton and Wine DLL overrides apply only to a Windows executable.');
+            let romFolder = '';
+            if (romSetup) {
+                if (linuxRuntime) throw new Error('Choose a Linux emulator for this ROM. Windows emulators through Proton are not supported yet.');
+                const romPath = await chooseFile(dialog, { title: 'Choose the local ROM image' });
+                if (!romPath) return { canceled: true };
+                argv = native.validateArgv(romArguments(input.argumentProposal || '"%rom%"', fs.realpathSync(romPath)));
+                romFolder = path.dirname(fs.realpathSync(romPath));
+            }
             if (!input.baseSelectionId && executable.realPath !== path.resolve(executablePath)) {
                 const decision = await dialog.showMessageBox({ type: 'question', buttons: ['Use this target', 'Cancel'], defaultId: 1, cancelId: 1,
                     message: 'Use the executable this link points to?', detail: executable.realPath });
@@ -898,7 +917,7 @@ function registerAccountIpc({ app, ipcMain, safeStorage, authorizeIpcEvent, dial
             }
             const workingDirectory = input.workingDirectorySelectionId
                 ? consumeExecutionSelection(event, input.workingDirectorySelectionId, { purpose: 'working-directory', gameId: input.gameId })
-                : approved?.workingDirectory || keptWorkingDirectory || (linuxRuntime ? path.dirname(executable.realPath)
+                : approved?.workingDirectory || keptWorkingDirectory || romFolder || (linuxRuntime ? path.dirname(executable.realPath)
                     : await chooseDirectory(dialog, { title: 'Approve this native game’s working directory' }));
             if (linuxRuntime && !approved && !keptWorkingDirectory && !input.workingDirectorySelectionId) {
                 const decision = await dialog.showMessageBox({ type: 'question', buttons: ['Save launch setup', 'Cancel'], defaultId: 0, cancelId: 1,
@@ -947,10 +966,7 @@ function registerAccountIpc({ app, ipcMain, safeStorage, authorizeIpcEvent, dial
             ? formatLaunchArguments(current.argv) : String(input.argumentProposal || '');
         let argv = current && argumentProposal === formatLaunchArguments(current.argv)
             ? current.argv : parseArgumentString(argumentProposal);
-        if (input.requestRom && !current) {
-            argv = argv.length ? argv.map(argument => argument.replace(/%rom%/g, romPath)) : [romPath];
-            if (!argv.some(argument => argument.includes(romPath))) argv.push(romPath);
-        }
+        if (input.requestRom && !current) argv = romArguments(argumentProposal, romPath);
         const scriptFilters = [{ name: 'Local scripts', extensions: ['ps1', 'bat', 'cmd', 'exe'] }];
         const preLaunchScript = input.requestPreLaunchScript ? await chooseFile(dialog, { title: 'Approve a pre-launch script', filters: scriptFilters }) : current && current.preLaunchScript || '';
         if (input.requestPreLaunchScript && !preLaunchScript) return { canceled: true };
