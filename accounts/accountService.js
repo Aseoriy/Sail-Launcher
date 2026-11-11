@@ -4,6 +4,7 @@ const path = require('path');
 const { createClient } = require('@supabase/supabase-js');
 const WebSocket = require('ws');
 const { SailCloudClient, sha256 } = require('./sailCloud');
+const { parseVersionTargets } = require('../ui/launcherLogic');
 const {
     PORTABLE_SCHEMA,
     admitPortableArtifact,
@@ -661,6 +662,59 @@ class AccountService {
         const { error } = await this.client.from(table).insert(row);
         if (error) throw error;
         return { published: true, audience, email: admin.email };
+    }
+
+    async requireAlertAdmin() {
+        const admin = await this.alertAdminState();
+        if (!admin.signedIn) throw new Error('Sign in to your Sail Hub account before using Dev Controls.');
+        if (!admin.authorized) throw new Error('This Sail Hub account is not authorized to publish launcher updates.');
+        return admin;
+    }
+
+    // Rollbacks and re-updates (Dev Controls > Updates). The row is checked again by the database.
+    async publishUpdateDirective(payload = {}) {
+        await this.requireAlertAdmin();
+        const kind = payload.kind === 'reupdate' ? 'reupdate' : payload.kind === 'rollback' ? 'rollback' : null;
+        if (!kind) throw new Error('Choose rollback or re-update.');
+        const parsed = parseVersionTargets(Array.isArray(payload.fromVersions) ? payload.fromVersions : []);
+        if (parsed.invalid.length || parsed.unsupported.length || parsed.duplicates.length) {
+            throw new Error(`Check the version tags: ${[...parsed.invalid, ...parsed.unsupported, ...parsed.duplicates].join(', ')}`);
+        }
+        if (!parsed.versions.length) throw new Error('Add at least one version.');
+        const row = {
+            kind,
+            from_versions: parsed.versions,
+            target_version: null,
+            notes: String(payload.notes || '').slice(0, 131072)
+        };
+        if (kind === 'rollback') {
+            const target = parseVersionTargets([payload.targetVersion || '']);
+            if (target.versions.length !== 1) throw new Error('Enter the version to roll back to.');
+            if (parsed.versions.includes(target.versions[0])) throw new Error('A version cannot roll back to itself.');
+            row.target_version = target.versions[0];
+        }
+        const { data, error } = await this.client.from('launcher_update_directives').insert(row).select('id').single();
+        if (error) throw error;
+        return { published: true, id: data && data.id };
+    }
+
+    async listUpdateDirectives() {
+        await this.requireAlertAdmin();
+        const { data, error } = await this.client.from('launcher_update_directives')
+            .select('id,created_at,kind,from_versions,target_version,notes,active')
+            .order('created_at', { ascending: false })
+            .limit(50);
+        if (error) throw error;
+        return Array.isArray(data) ? data : [];
+    }
+
+    async setUpdateDirectiveActive(payload = {}) {
+        await this.requireAlertAdmin();
+        const id = String(payload.id || '');
+        if (!/^[0-9a-f-]{36}$/i.test(id)) throw new Error('Unknown rollback or re-update.');
+        const { error } = await this.client.from('launcher_update_directives').update({ active: payload.active === true }).eq('id', id);
+        if (error) throw error;
+        return { id, active: payload.active === true };
     }
 
     async listRemoteControlPlane(options = {}) {

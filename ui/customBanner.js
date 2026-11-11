@@ -9,8 +9,12 @@ const BANNER_DATA_URL = /^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/]+={0
 const ATTEMPTS = [[920, 75], [760, 68], [640, 62], [520, 58], [400, 55]];
 
 function portableBanner(nativeImage, filePath) {
-    const image = nativeImage.createFromPath(String(filePath || ''));
-    if (image.isEmpty()) return '';
+    return portableBannerFromImage(nativeImage.createFromPath(String(filePath || '')));
+}
+
+// Electron's createFromPath cannot read WebP, so the renderer decodes those itself and passes the image here.
+function portableBannerFromImage(image) {
+    if (!image || image.isEmpty()) return '';
     const { width } = image.getSize();
     for (const [maxWidth, quality] of ATTEMPTS) {
         const scaled = width > maxWidth ? image.resize({ width: maxWidth, quality: 'good' }) : image;
@@ -34,4 +38,4 @@ function customBannerUrl(game, { fileExists, safeImageUrl }) {
     return isPortableBanner(game.customBanner) ? safeImageUrl(game.customBanner, { allowData: true, maxDataLength: MAX_BANNER_DATA_URL }) : '';
 }
 
-module.exports = { MAX_BANNER_DATA_URL, portableBanner, isPortableBanner, customBannerUrl };
+module.exports = { MAX_BANNER_DATA_URL, portableBanner, portableBannerFromImage, isPortableBanner, customBannerUrl };

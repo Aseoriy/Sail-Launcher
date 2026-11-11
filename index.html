@@ -5020,7 +5020,7 @@
                         placeholder="ROM File Path"><button id="browseRomBtn">Browse</button></div>
                 <div class="input-row"><input type="text" id="romArgs"
                         placeholder="Launch Args (e.g., -fullscreen &quot;%rom%&quot;)" value="&quot;%rom%&quot;"></div>
-                <small id="romLinuxHint" hidden style="display:block; opacity:0.6; margin-top:8px; line-height:1.45;">Pick a Linux emulator. For a Flatpak emulator, pick its launcher in /var/lib/flatpak/exports/bin (or ~/.local/share/flatpak/exports/bin). The ROM is chosen when you save.</small>
+                <small id="romLinuxHint" hidden style="opacity:0.6; margin-top:8px; line-height:1.45;">Pick a Linux emulator. For a Flatpak emulator, pick its launcher in /var/lib/flatpak/exports/bin (or ~/.local/share/flatpak/exports/bin). The ROM is chosen when you save.</small>
             </div>
 
             <div id="customInputsRow" style="margin-top: 15px;">
@@ -6877,6 +6877,7 @@
 
                 <div class="dev-subtabs">
                     <div class="dev-subtab active" tabindex="0" onclick="switchDevSubTab('alerts')"><span class="app-ic" data-ic="megaphone"></span> Alerts</div>
+                    <div class="dev-subtab" tabindex="0" onclick="switchDevSubTab('updates')"><span class="app-ic" data-ic="refresh"></span> Rollbacks</div>
                     <div class="dev-subtab" tabindex="0" onclick="switchDevSubTab('testing')"><span class="app-ic" data-ic="flask"></span> Feature Testing</div>
                 </div>
 
@@ -6949,6 +6950,75 @@
                         <button class="outline" id="publishAlertBtn" onclick="publishAlertFromAdmin()" style="margin-top: 8px; width: 100%; padding: 12px; font-weight: bold; background: var(--accent); color: var(--bg-color); border: none;">📢 Publish Alert</button>
                     </div>
                 </div>
+                </div>
+
+                <div id="dev-sub-updates" class="dev-subpane">
+                <style>
+                    .dev-upd-card { border: 1px solid var(--border-color); border-radius: 8px; padding: 15px; display: flex; flex-direction: column; gap: 12px; background: rgba(255, 255, 255, 0.02); }
+                    .dev-upd-field { display: flex; flex-direction: column; gap: 4px; }
+                    .dev-upd-field > label { font-size: 12px; font-weight: bold; opacity: 0.8; }
+                    .dev-upd-field small { font-size: 11px; opacity: .55; }
+                    #devUpdNotes { padding: 10px; background: var(--bg-color); border: 1px solid var(--border-color); color: var(--text-color); border-radius: 8px; width: 100%; box-sizing: border-box; font-family: inherit; resize: vertical; }
+                    .dev-upd-row { display: flex; gap: 8px; flex-wrap: wrap; }
+                    .dev-upd-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: 8px; font-size: 12px; }
+                    .dev-upd-item.inactive { opacity: .55; }
+                    .dev-upd-item .dev-upd-what { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+                    .dev-upd-item .dev-upd-what span { opacity: .6; font-size: 11px; }
+                    .dev-upd-pill { padding: 2px 8px; border-radius: 999px; border: 1px solid var(--accent); color: var(--accent); font-size: 11px; font-weight: 700; white-space: nowrap; }
+                </style>
+                <h3 style="margin-top: 0;"><span class="app-ic" data-ic="refresh"></span> Rollbacks &amp; Re-updates</h3>
+                <p style="font-size: 13px; opacity: 0.7; margin-bottom: 20px;">Move people off a broken version, or ask everyone on a version to reinstall it after you replaced its installer on GitHub. Only v6.0.0-beta.6 and later see these.</p>
+
+                <div class="dev-upd-card">
+                    <div class="alert-admin-auth">
+                        <div class="alert-admin-account-copy">
+                            <strong>Uses the same authorization as Alerts Manager</strong>
+                            <span>Your signed-in Sail Hub account must be an alerts admin.</span>
+                        </div>
+                        <button type="button" class="outline" onclick="authorizeAlertAdmin()">Authorize</button>
+                    </div>
+                    <div class="alert-auth-status" id="updateAdminStatus" role="status">Authorize the Sail Hub account currently signed into this launcher.</div>
+
+                    <div style="border-top: 1px solid rgba(255, 255, 255, 0.1); padding-top: 12px; margin-top: 8px; display: flex; flex-direction: column; gap: 12px;">
+                        <div class="dev-upd-field">
+                            <label for="devUpdKind">What to publish</label>
+                            <select id="devUpdKind" onchange="updateDevUpdateKindUi()">
+                                <option value="rollback">Rollback: offer another release instead</option>
+                                <option value="reupdate">Re-update: reinstall the same version</option>
+                            </select>
+                        </div>
+                        <div class="dev-upd-field">
+                            <label for="devUpdFromInput" id="devUpdFromLabel">Versions to roll back</label>
+                            <div class="version-target-entry">
+                                <input type="text" id="devUpdFromInput" placeholder="6.0.0-beta.7">
+                                <button type="button" class="outline" onclick="addDevUpdateVersions()">Add</button>
+                            </div>
+                            <div class="version-target-chips" id="devUpdFromChips" aria-live="polite"></div>
+                        </div>
+                        <div class="dev-upd-field" id="devUpdTargetWrap">
+                            <label for="devUpdTarget">Roll back to</label>
+                            <input type="text" id="devUpdTarget" placeholder="6.0.0-beta.6">
+                            <small>Must be a published GitHub release. While this rollback is active, nobody is offered the versions above as an update.</small>
+                        </div>
+                        <div class="dev-upd-field">
+                            <label for="devUpdNotes">What people see (Markdown, shown like release notes)</label>
+                            <textarea id="devUpdNotes" rows="8" placeholder="## Rolling back to beta 6&#10;Beta 7 broke cloud saves, so we're going back for now."></textarea>
+                            <div class="dev-upd-row">
+                                <button type="button" class="outline" onclick="document.getElementById('devUpdNotesFile').click()">📄 Load README (.md / .txt)</button>
+                                <button type="button" class="outline" onclick="previewDevUpdate()">👁 Preview window</button>
+                                <input type="file" id="devUpdNotesFile" accept=".md,.markdown,.txt" hidden onchange="loadDevUpdateNotes(this)">
+                            </div>
+                            <small>Leave it empty to show the GitHub release notes of that version instead.</small>
+                        </div>
+                        <button class="outline" id="publishDevUpdateBtn" onclick="publishDevUpdate()" style="margin-top: 8px; width: 100%; padding: 12px; font-weight: bold; background: var(--accent); color: var(--bg-color); border: none;">↩️ Publish Rollback</button>
+                    </div>
+                </div>
+
+                <div style="display:flex; align-items:center; justify-content:space-between; margin: 20px 0 10px;">
+                    <h4 style="margin:0;">Published</h4>
+                    <button type="button" class="outline" onclick="refreshUpdateDirectives()">↻ Refresh</button>
+                </div>
+                <div id="devUpdList" style="display:flex; flex-direction:column; gap:8px;"><p style="font-size:12px; opacity:.6; margin:0;">Authorize to see what's published.</p></div>
                 </div>
 
                 <div id="dev-sub-testing" class="dev-subpane">
@@ -7831,18 +7901,94 @@
             if (nextPath === previousPath && existing.customBanner) return existing.customBanner;
             try { return sailCustomBanner.portableBanner(require('electron').nativeImage, nextPath) || null; } catch (_) { return null; }
         }
-        // Banners chosen before 6.0.0-beta.5 have no copy yet; make them one at a time once the library is up.
+        // Electron cannot read WebP banners from a path, so Chromium decodes them and the copy is made from that.
+        async function decodedPortableBanner(file) {
+            const bitmap = await createImageBitmap(new Blob([require('fs').readFileSync(file)]));
+            try {
+                const width = Math.min(bitmap.width, 920);
+                const height = Math.max(1, Math.round(bitmap.height * width / bitmap.width));
+                const canvas = document.createElement('canvas');
+                canvas.width = width;
+                canvas.height = height;
+                canvas.getContext('2d').drawImage(bitmap, 0, 0, width, height);
+                return sailCustomBanner.portableBannerFromImage(require('electron').nativeImage.createFromDataURL(canvas.toDataURL('image/png')));
+            } finally {
+                bitmap.close();
+            }
+        }
+        // Banners chosen before 6.0.0-beta.5, and WebP banners, have no copy yet; make them one at a time.
+        let backfillingPortableBanners = false;
         function backfillPortableBanners() {
+            if (backfillingPortableBanners) return;
+            backfillingPortableBanners = true;
             const pending = myGames.filter(game => game.customBannerPath && !game.customBanner);
             let made = 0;
-            const next = () => {
+            const next = async () => {
                 const game = pending.shift();
-                if (!game) { if (made) saveToMemory(); return; }
-                const copy = customBannerForSave({}, game.customBannerPath);
+                if (!game) { backfillingPortableBanners = false; if (made) saveToMemory(); return; }
+                const copy = customBannerForSave({}, game.customBannerPath)
+                    || await decodedPortableBanner(game.customBannerPath).catch(() => '');
                 if (copy && myGames.includes(game) && !game.customBanner) { game.customBanner = copy; made++; }
                 setTimeout(next, 150);
             };
             next();
+        }
+
+        // Games with no banner and no Steam art show their exe's own icon instead of "No Image".
+        // iconData stays on this device (each PC reads its own copy of the game), under the 32 KB device-store limit.
+        async function smallIconData(url) {
+            const blob = await (await fetch(url)).blob();
+            const bitmap = await createImageBitmap(blob);
+            try {
+                for (const size of [128, 96, 64, 48]) {
+                    const scale = Math.min(1, size / Math.max(bitmap.width, bitmap.height));
+                    const canvas = document.createElement('canvas');
+                    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+                    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+                    const context = canvas.getContext('2d');
+                    context.imageSmoothingQuality = 'high';
+                    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+                    const png = canvas.toDataURL('image/png');
+                    if (png.length <= 32000) return png;
+                }
+                return '';
+            } finally {
+                bitmap.close();
+            }
+        }
+        function needsExeIcon(game) {
+            return game && !game.iconData && !game.isRom && game.platform !== 'rom' && !customBannerUrl(game)
+                && !(game.steamAppId && steamMetadataAvailable());
+        }
+        const exeIconTried = new Set();
+        let backfillingExeIcons = false;
+        async function backfillExeIcons() {
+            if (backfillingExeIcons) return;
+            backfillingExeIcons = true;
+            let made = 0;
+            try {
+                for (const game of myGames.filter(needsExeIcon)) {
+                    if (exeIconTried.has(String(game.id))) continue;
+                    try {
+                        const status = await gameAuthorityStatus(game);
+                        const execution = status && status.execution;
+                        // Not set up on this PC (yet): try again once it is.
+                        if (!execution || execution.state !== 'active' || !execution.operations.includes('reveal')) continue;
+                        exeIconTried.add(String(game.id));
+                        const reference = activeAuthorityReference(execution, 'reveal', 'Local setup');
+                        const url = await ipcRenderer.invoke('game-exe-icon', { gameId: String(game.id), ...reference });
+                        const icon = url ? await smallIconData(url) : '';
+                        if (icon && myGames.includes(game) && needsExeIcon(game)) { game.iconData = icon; made++; }
+                    } catch (_) {}
+                    await new Promise(resolve => setTimeout(resolve, 150));
+                }
+            } finally {
+                backfillingExeIcons = false;
+            }
+            if (made) {
+                saveToMemory();
+                if (viewingGameIndex === null) renderGames();
+            }
         }
 
         // kind: 'hero' (wide banner), 'portrait' (tall cover), 'header' (small wide capsule). Empty string when none exists.
@@ -8528,27 +8674,86 @@
             }
         }
 
-        async function fetchLatestLauncherRelease() {
-            const prereleases = LauncherLogic.includesPrereleases(PACKAGE_VERSION, globalSettings.betaUpdates);
+        const LAUNCHER_RELEASES_API = '/repos/Aseoriy/Sail-Launcher/releases';
+        function fetchGithubJson(apiPath) {
             return new Promise((resolve, reject) => {
                 const https = require('https');
-                const apiPath = prereleases ? '/repos/Aseoriy/Sail-Launcher/releases' : '/repos/Aseoriy/Sail-Launcher/releases/latest';
                 https.get({ hostname: 'api.github.com', path: apiPath, headers: { 'User-Agent': 'Sail-Launcher' } }, (res) => {
                     let data = '';
                     res.on('data', chunk => data += chunk);
                     res.on('end', () => {
-                        if (res.statusCode < 200 || res.statusCode >= 300) return reject(new Error(`GitHub returned HTTP ${res.statusCode}`));
-                        try {
-                            const parsed = JSON.parse(data);
-                            const release = prereleases && Array.isArray(parsed)
-                                ? LauncherLogic.newestRelease(parsed) || {}
-                                : parsed || {};
-                            if (!release.tag_name) throw new Error('No published launcher release was found.');
-                            resolve(release);
-                        } catch (error) { reject(error); }
+                        if (res.statusCode < 200 || res.statusCode >= 300) {
+                            const error = new Error(`GitHub returned HTTP ${res.statusCode}`);
+                            error.statusCode = res.statusCode;
+                            return reject(error);
+                        }
+                        try { resolve(JSON.parse(data)); } catch (error) { reject(error); }
                     });
                 }).on('error', reject);
             });
+        }
+
+        // withdrawn: versions with an active rollback, never offered as an update.
+        async function fetchLatestLauncherRelease(withdrawn = []) {
+            const prereleases = LauncherLogic.includesPrereleases(PACKAGE_VERSION, globalSettings.betaUpdates);
+            const fullList = prereleases || withdrawn.length > 0;
+            const parsed = await fetchGithubJson(fullList ? LAUNCHER_RELEASES_API : `${LAUNCHER_RELEASES_API}/latest`);
+            const release = fullList && Array.isArray(parsed)
+                ? LauncherLogic.newestRelease(parsed, { withdrawn, prereleases }) || {}
+                : parsed || {};
+            if (!release.tag_name) throw new Error('No published launcher release was found.');
+            return release;
+        }
+
+        // A release by version; tags are published both with and without a leading v.
+        async function fetchLauncherReleaseByTag(version) {
+            const plain = LauncherLogic.normalizeLauncherVersion(version);
+            for (const tag of [plain, `v${plain}`]) {
+                try {
+                    const release = await fetchGithubJson(`${LAUNCHER_RELEASES_API}/tags/${encodeURIComponent(tag)}`);
+                    if (release && release.tag_name && !release.draft) return release;
+                } catch (error) {
+                    if (error.statusCode !== 404) throw error;
+                }
+            }
+            throw new Error(`v${plain} is not a published release on GitHub.`);
+        }
+
+        // Rollbacks and re-updates published from Dev Controls. Before the backend has the table
+        // (or offline) this is simply empty and updates work as before.
+        async function fetchUpdateDirectives() {
+            const client = getAlertSupabase();
+            if (!client) return [];
+            try {
+                const { data, error } = await client.from('launcher_update_directives')
+                    .select('id,created_at,kind,from_versions,target_version,notes,active')
+                    .eq('active', true).order('created_at', { ascending: false }).limit(100);
+                if (error) throw error;
+                return Array.isArray(data) ? data : [];
+            } catch (error) {
+                console.warn('Rollback check skipped:', error && error.message || error);
+                return [];
+            }
+        }
+
+        // When this version first opened on this PC; a re-update published before that is already installed.
+        function recordVersionFirstSeen() {
+            const seen = globalSettings.versionFirstSeen && typeof globalSettings.versionFirstSeen === 'object' ? globalSettings.versionFirstSeen : {};
+            if (Number.isFinite(seen[PACKAGE_VERSION])) return;
+            seen[PACKAGE_VERSION] = Date.now();
+            const recent = Object.entries(seen).filter(([, at]) => Number.isFinite(at)).sort((a, b) => b[1] - a[1]).slice(0, 10);
+            globalSettings.versionFirstSeen = Object.fromEntries(recent);
+            saveToMemory();
+        }
+
+        async function directiveUpdateInfo(directive) {
+            const version = directive.kind === 'rollback' ? directive.target_version : PACKAGE_VERSION;
+            const release = await fetchLauncherReleaseByTag(version);
+            const info = launcherUpdateInfo(release, true, await linuxUpdateTarget());
+            info.directive = { id: String(directive.id), kind: directive.kind };
+            if (String(directive.notes || '').trim()) info.body = String(directive.notes);
+            info.isDowngrade = LauncherLogic.compareLauncherVersions(info.latestTag, info.currentTag) < 0;
+            return info;
         }
 
         // How this Linux copy can update itself: { kind: 'appimage' | 'deb' | 'rpm' | null, reason }.
@@ -8590,10 +8795,27 @@
                 button.innerText = forceInstall ? '⏳ Finding release…' : '⏳ Checking…';
             }
             try {
-                const response = await fetchLatestLauncherRelease();
+                const directives = await fetchUpdateDirectives();
+                const directive = forceInstall ? null : LauncherLogic.selectUpdateDirective(directives, PACKAGE_VERSION, {
+                    handled: globalSettings.handledUpdateDirectives,
+                    firstSeenAt: globalSettings.versionFirstSeen && globalSettings.versionFirstSeen[PACKAGE_VERSION]
+                });
+                const offerDirective = async () => {
+                    const directiveInfo = await directiveUpdateInfo(directive);
+                    if (!silent && button) {
+                        button.innerText = directive.kind === 'rollback' ? '↩️ Rollback Available' : '♻️ Reinstall Available';
+                        button.style.background = 'var(--accent)';
+                        button.style.color = '#fff';
+                    }
+                    if (!(silent && isUpdateSnoozed())) openUpdateModal(directiveInfo);
+                };
+                // A rollback replaces any update; a re-update only matters when there's nothing newer.
+                if (directive && directive.kind === 'rollback') return await offerDirective();
+                const response = await fetchLatestLauncherRelease(LauncherLogic.withdrawnVersions(directives));
                 const info = launcherUpdateInfo(response, forceInstall, await linuxUpdateTarget());
                 const decision = LauncherLogic.updateDecision(info.latestTag, info.currentTag, forceInstall);
                 const comparison = decision.comparison;
+                if (directive && comparison <= 0) return await offerDirective();
                 if (forceInstall) {
                     if (comparison < 0) {
                         const confirmed = await sailConfirm(`The latest published release is v${info.latestTag}, older than this development build (v${info.currentTag}). Installing it will downgrade Sail Launcher. Continue?`);
@@ -8676,9 +8898,12 @@
             _pendingUpdate = info;
             const modal = document.getElementById('updateModal');
             const title = document.getElementById('updModalTitle');
-            title.textContent = info.forceInstall
-                ? (info.isDowngrade ? '⬇️ Install Older Release' : '♻️ Reinstall Latest Release')
-                : '🚀 Update Available';
+            const directive = info.directive && info.directive.kind;
+            title.textContent = directive === 'rollback' ? '↩️ A rollback has been published'
+                : directive === 'reupdate' ? `♻️ A fixed copy of v${info.latestTag} is out`
+                : info.forceInstall
+                    ? (info.isDowngrade ? '⬇️ Install Older Release' : '♻️ Reinstall Latest Release')
+                    : '🚀 Update Available';
             document.getElementById('updVerCurrent').textContent = 'v' + info.currentTag;
             document.getElementById('updVerLatest').textContent = 'v' + info.latestTag;
             document.getElementById('updNotes').replaceChildren(renderReleaseNotes(info.body));
@@ -8688,17 +8913,21 @@
             document.getElementById('updProgressBar').style.width = '0%';
             document.getElementById('updMuteMenu').style.display = 'none';
             const muteWrap = modal.querySelector('.upd-mute-wrap');
-            if (muteWrap) muteWrap.style.display = info.forceInstall ? 'none' : '';
+            if (muteWrap) muteWrap.style.display = info.forceInstall && !directive ? 'none' : '';
             const hint = document.getElementById('updHint');
-            hint.textContent = !canInstallUpdate(info) ? (info.linuxReason ? `${info.linuxReason} The download page will open instead.` : '')
+            hint.textContent = info.preview ? 'Preview: this is what people on these versions will see.'
+                : !canInstallUpdate(info) ? (info.linuxReason ? `${info.linuxReason} The download page will open instead.` : '')
                 : info.linuxKind === 'deb' || info.linuxKind === 'rpm' ? 'Your system will ask for your password once to install the update.' : '';
             hint.hidden = !hint.textContent;
             const btn = document.getElementById('updNowBtn');
             btn.disabled = false;
-            btn.textContent = !canInstallUpdate(info) ? '🌐 Open Download Page'
+            btn.textContent = directive === 'rollback' ? `↩️ Rollback to v${info.latestTag}`
+                : directive === 'reupdate' ? `♻️ Reinstall v${info.latestTag}`
+                : !canInstallUpdate(info) ? '🌐 Open Download Page'
                 : info.forceInstall
                     ? (info.isDowngrade ? `⬇️ Install v${info.latestTag}` : `♻️ Reinstall v${info.latestTag}`)
                     : '⬇️ Update Now';
+            if (directive && !info.preview && !canInstallUpdate(info)) btn.textContent += ' (download page)';
             modal.classList.add('show');
         }
 
@@ -8748,6 +8977,7 @@
         async function startUpdateDownload() {
             const info = _pendingUpdate;
             if (!info) return;
+            if (info.preview) { closeUpdateModal(); return; }
             const btn = document.getElementById('updNowBtn');
             // No installable asset for this platform? Fall back to opening the download page.
             if (!canInstallUpdate(info)) {
@@ -8791,6 +9021,10 @@
                 // show the "Update complete" window on next launch.
                 globalSettings.pendingUpdateVersion = info.latestTag;
                 globalSettings.updateSnoozeUntil = null; // clear any mute; we're updating now
+                if (info.directive && info.directive.kind === 'reupdate') {
+                    const handled = Array.isArray(globalSettings.handledUpdateDirectives) ? globalSettings.handledUpdateDirectives : [];
+                    globalSettings.handledUpdateDirectives = [...handled.filter(id => id !== info.directive.id), info.directive.id].slice(-50);
+                }
                 saveToMemory();
                 await ipcRenderer.invoke('run-update-installer'); // app quits here
             } catch (err) {
@@ -9018,6 +9252,12 @@
             status.textContent = message;
             status.classList.toggle('authorized', state === 'authorized');
             status.classList.toggle('error', state === 'error');
+            const updateStatus = document.getElementById('updateAdminStatus');
+            if (updateStatus) {
+                updateStatus.textContent = message;
+                updateStatus.classList.toggle('authorized', state === 'authorized');
+                updateStatus.classList.toggle('error', state === 'error');
+            }
             const signOut = document.getElementById('alertAdminSignOutBtn');
             if (signOut) signOut.style.display = alertAdminAuthorized ? '' : 'none';
         }
@@ -9033,6 +9273,7 @@
                 if (!state.authorized) throw new Error('This Sail Hub account is not authorized to publish launcher alerts.');
                 alertAdminAuthorized = true;
                 setAlertAdminStatus(`Authorized as ${state.email}. Uses your encrypted launcher account session.`, 'authorized');
+                refreshUpdateDirectives();
             } catch (error) {
                 alertAdminAuthorized = false;
                 const message = error && error.message || 'Authorization failed.';
@@ -9051,6 +9292,7 @@
         window.lockAlertAdmin = function () {
             alertAdminAuthorized = false;
             setAlertAdminStatus('Alerts Manager locked. Your Sail Hub account remains signed in.');
+            refreshUpdateDirectives();
         };
 
         window.updateAlertAudienceUi = function () {
@@ -9133,6 +9375,159 @@
                 btn.innerText = '📢 Publish Alert';
             }
         }
+
+        // ----- Dev Controls > Rollbacks: rollbacks and re-updates -----
+        let devUpdateVersions = [];
+
+        function renderDevUpdateVersions() {
+            const container = document.getElementById('devUpdFromChips');
+            if (!container) return;
+            container.replaceChildren(...devUpdateVersions.map(version => {
+                const remove = SafeDom.element(document, 'button', { type: 'button', text: '✕', ariaLabel: `Remove v${version}` });
+                remove.addEventListener('click', () => {
+                    devUpdateVersions = devUpdateVersions.filter(item => item !== version);
+                    renderDevUpdateVersions();
+                });
+                return SafeDom.element(document, 'span', { className: 'version-target-chip' }, [SafeDom.element(document, 'span', { text: `v${version}` }), remove]);
+            }));
+        }
+
+        window.updateDevUpdateKindUi = function () {
+            const rollback = document.getElementById('devUpdKind').value === 'rollback';
+            document.getElementById('devUpdTargetWrap').style.display = rollback ? '' : 'none';
+            document.getElementById('devUpdFromLabel').textContent = rollback ? 'Versions to roll back' : 'Versions to reinstall';
+            document.getElementById('publishDevUpdateBtn').textContent = rollback ? '↩️ Publish Rollback' : '♻️ Publish Re-update';
+        };
+
+        window.addDevUpdateVersions = function () {
+            const input = document.getElementById('devUpdFromInput');
+            const parsed = LauncherLogic.parseVersionTargets(input.value);
+            if (parsed.invalid.length) return sailAlert(`Invalid version tag: ${parsed.invalid.join(', ')}`);
+            if (parsed.unsupported.length) return sailAlert(`Too old: ${parsed.unsupported.join(', ')}. Only v6.0.0-beta.6 and later understand rollbacks.`);
+            const fresh = parsed.versions.filter(version => !devUpdateVersions.includes(version));
+            if (!fresh.length) return sailAlert('Enter a version that is not in the list yet.');
+            devUpdateVersions = [...devUpdateVersions, ...fresh];
+            input.value = '';
+            renderDevUpdateVersions();
+        };
+
+        window.loadDevUpdateNotes = async function (input) {
+            const file = input.files && input.files[0];
+            input.value = '';
+            if (!file) return;
+            if (file.size > 128 * 1024) return sailAlert('That file is over 128 KB. Release notes have to be shorter.');
+            document.getElementById('devUpdNotes').value = await file.text();
+        };
+
+        function devUpdateDraft() {
+            const kind = document.getElementById('devUpdKind').value === 'reupdate' ? 'reupdate' : 'rollback';
+            const targetVersion = LauncherLogic.normalizeLauncherVersion(document.getElementById('devUpdTarget').value);
+            return { kind, fromVersions: devUpdateVersions.slice(), targetVersion: kind === 'rollback' ? targetVersion : null, notes: document.getElementById('devUpdNotes').value };
+        }
+
+        function devUpdateDraftProblem(draft) {
+            if (!draft.fromVersions.length) return 'Add at least one version (press Add).';
+            const tooOld = draft.fromVersions.filter(version => LauncherLogic.compareLauncherVersions(version, '6.0.0-beta.6') < 0);
+            if (tooOld.length) return `${tooOld.map(version => `v${version}`).join(', ')} can't receive rollbacks or re-updates (only v6.0.0-beta.6 and later can).`;
+            if (draft.kind === 'rollback') {
+                if (!LauncherLogic.VERSION_PATTERN.test(draft.targetVersion)) return 'Enter the version to roll back to, like 6.0.0-beta.6.';
+                if (draft.fromVersions.includes(draft.targetVersion)) return 'A version cannot roll back to itself.';
+            }
+            return '';
+        }
+
+        window.previewDevUpdate = function () {
+            const draft = devUpdateDraft();
+            const from = draft.fromVersions[0] || PACKAGE_VERSION;
+            const target = draft.kind === 'rollback' ? (draft.targetVersion || '?') : from;
+            openUpdateModal({
+                currentTag: from, latestTag: target, body: draft.notes || '(The GitHub release notes of that version show here.)',
+                directive: { id: 'preview', kind: draft.kind }, forceInstall: true, preview: true
+            });
+        };
+
+        window.publishDevUpdate = async function () {
+            if (!alertAdminAuthorized) return sailAlert('Authorize your Sail Hub admin account first.');
+            const draft = devUpdateDraft();
+            const problem = devUpdateDraftProblem(draft);
+            if (problem) return sailAlert(problem);
+            const btn = document.getElementById('publishDevUpdateBtn');
+            const label = btn.textContent;
+            btn.disabled = true;
+            btn.textContent = 'Checking GitHub…';
+            try {
+                // Whatever people get offered has to exist as a published release.
+                const needed = draft.kind === 'rollback' ? [draft.targetVersion] : draft.fromVersions;
+                for (const version of needed) await fetchLauncherReleaseByTag(version);
+                const list = draft.fromVersions.map(version => `v${version}`).join(', ');
+                const summary = draft.kind === 'rollback'
+                    ? `Everyone on ${list} will be asked to roll back to v${draft.targetVersion}, and nobody will be offered ${list} as an update while this is active.`
+                    : `Everyone on ${list} who installed it before now will be asked to reinstall it. Only do this after the new installer is uploaded to that GitHub release.`;
+                if (!await sailConfirm(`${summary} Publish?`)) return;
+                btn.textContent = 'Publishing…';
+                await invokeAccount('account-publish-update-directive', draft);
+                devUpdateVersions = [];
+                renderDevUpdateVersions();
+                document.getElementById('devUpdTarget').value = '';
+                document.getElementById('devUpdNotes').value = '';
+                await sailAlert(draft.kind === 'rollback' ? 'Rollback published.' : 'Re-update published.');
+                refreshUpdateDirectives();
+            } catch (error) {
+                console.error('Publishing rollback failed:', error);
+                await sailAlert(`Failed to publish: ${error && error.message || 'Unknown error'}`);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = label;
+            }
+        };
+
+        window.refreshUpdateDirectives = async function () {
+            const list = document.getElementById('devUpdList');
+            if (!list) return;
+            if (!alertAdminAuthorized) {
+                list.replaceChildren(SafeDom.element(document, 'p', { text: "Authorize to see what's published." }));
+                return;
+            }
+            try {
+                const rows = await invokeAccount('account-list-update-directives');
+                if (!rows.length) {
+                    list.replaceChildren(SafeDom.element(document, 'p', { text: 'Nothing published yet.' }));
+                    return;
+                }
+                list.replaceChildren(...rows.map(row => {
+                    const versions = (row.from_versions || []).map(version => `v${version}`).join(', ');
+                    const what = row.kind === 'rollback' ? `${versions} → v${row.target_version}` : `Reinstall ${versions}`;
+                    const when = new Date(row.created_at).toLocaleString();
+                    const toggle = SafeDom.element(document, 'button', { type: 'button', className: 'outline', text: row.active ? 'Retract' : 'Restore' });
+                    toggle.addEventListener('click', async () => {
+                        if (row.active && !await sailConfirm(`Retract "${what}"? Launchers stop offering it at their next check.`)) return;
+                        toggle.disabled = true;
+                        try {
+                            await invokeAccount('account-set-update-directive-active', { id: row.id, active: !row.active });
+                            refreshUpdateDirectives();
+                        } catch (error) {
+                            toggle.disabled = false;
+                            sailAlert(`Failed: ${error && error.message || 'Unknown error'}`);
+                        }
+                    });
+                    return SafeDom.element(document, 'div', { className: `dev-upd-item${row.active ? '' : ' inactive'}` }, [
+                        SafeDom.element(document, 'span', { className: 'dev-upd-pill', text: row.kind === 'rollback' ? 'Rollback' : 'Re-update' }),
+                        SafeDom.element(document, 'div', { className: 'dev-upd-what' }, [
+                            SafeDom.element(document, 'strong', { text: what }),
+                            SafeDom.element(document, 'span', { text: `${when}${row.active ? '' : ' · retracted'}` })
+                        ]),
+                        toggle
+                    ]);
+                }));
+            } catch (error) {
+                const message = error && error.message || 'Unknown error';
+                list.replaceChildren(SafeDom.element(document, 'p', {
+                    text: /launcher_update_directives/.test(message)
+                        ? 'The backend does not have rollbacks yet (the Supabase migration is not applied).'
+                        : `Could not load: ${message}`
+                }));
+            }
+        };
 
         function purgeLegacyAlertCredentials() {
             let removed = false;
@@ -11437,6 +11832,7 @@
                 if (!g.tags) { g.tags = []; modified = true; }
             });
             setTimeout(backfillPortableBanners, 5000);
+            setTimeout(backfillExeIcons, 8000);
             if (customSections.length > 0 && typeof customSections[0] === 'string') {
                 customSections = customSections.map(s => ({ name: s, icon: '📁' }));
                 modified = true;
@@ -11916,6 +12312,7 @@
             await linuxDownloadsUi.refresh().catch(error => platformAvailability.notice(error.message));
 
             // Auto-check for updates silently on startup
+            try { recordVersionFirstSeen(); } catch (e) { console.error('Version first-seen record failed:', e); }
             if (featureAvailable('remoteContent')) setTimeout(() => checkForUpdates(true), 3000);
 
             // Intercept click & keyboard focus events on select elements for custom select dropdown modal in glassmorphic mode
@@ -13020,6 +13417,7 @@
 
         if (process.platform === 'linux') {
             document.getElementById('romLinuxHint').hidden = false;
+            document.getElementById('romLinuxHint').style.display = 'block';
             // A Flatpak Sail cannot start other Flatpaks or see programs outside your home folder.
             if (process.env.FLATPAK_ID) document.getElementById('romLinuxHint').textContent = 'Pick a Linux emulator in your home folder, like an AppImage. This copy of Sail is a Flatpak, so it can\'t start Flatpak emulators or ones installed system-wide. The ROM is chosen when you save.';
             document.getElementById('emulatorPath').placeholder = 'Emulator program';
@@ -16835,7 +17233,8 @@
                         playtime: editingIndex === -1 ? 0 : myGames[editingIndex].playtime || 0,
                         lastPlayed: editingIndex === -1 ? null : myGames[editingIndex].lastPlayed || null,
                         playtimeSessionIds: editingIndex === -1 ? [] : (myGames[editingIndex].playtimeSessionIds || []),
-                        iconData: editingIndex === -1 ? null : myGames[editingIndex].iconData || null,
+                        // A newly picked exe gets its own icon read again after saving.
+                        iconData: editingIndex === -1 || authorityDraft.executableSelectionId ? null : myGames[editingIndex].iconData || null,
                         maintenanceHideInformationIssues: editingIndex === -1 ? false : !!myGames[editingIndex].maintenanceHideInformationIssues,
                         saveScanDirectories: editingIndex === -1 ? [] : (myGames[editingIndex].saveScanDirectories || []),
                         configSyncEntries: gameConfigEntriesDraft.map(portableGameConfigEntry),
@@ -16845,6 +17244,7 @@
 
                     if (editingIndex === -1) myGames.push(gameData); else myGames[editingIndex] = gameData;
                     await flushLocalProfile();
+                    if (gameData.customBannerPath && !gameData.customBanner) backfillPortableBanners();
                     if (localAuthorityDraft !== authorityDraft || document.getElementById('addModal').classList.contains('closing')) return;
                     // Keep a new game's identity if local setup needs another try.
                     if (editingIndex === -1) editingIndex = myGames.findIndex(game => game.id === gameData.id);
@@ -16916,6 +17316,8 @@
                     if (localAuthorityDraft !== authorityDraft) return;
                     closeModal('addModal');
                     applyLauncherSnapshot(refreshed);
+                    exeIconTried.delete(String(gameData.id));
+                    backfillExeIcons();
                     if (protonSelectionId) {
                         const gameIndex = myGames.findIndex(game => game.id === gameData.id);
                         if (gameIndex >= 0) {

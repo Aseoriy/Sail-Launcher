@@ -57,9 +57,47 @@ function includesPrereleases(currentVersion, betaUpdatesSetting) {
 
 // The highest-versioned published release (GitHub lists by creation date, so a later
 // stable hotfix would otherwise hide a newer beta).
-function newestRelease(releases) {
-    const published = (Array.isArray(releases) ? releases : []).filter(item => item && !item.draft && VERSION_PATTERN.test(normalizeLauncherVersion(item.tag_name)));
+// Versions that have an active rollback are skipped, and a stable channel skips pre-releases.
+function newestRelease(releases, { withdrawn = [], prereleases = true } = {}) {
+    const skip = new Set((Array.isArray(withdrawn) ? withdrawn : []).map(normalizeLauncherVersion));
+    const published = (Array.isArray(releases) ? releases : []).filter(item => item && !item.draft
+        && (prereleases || !item.prerelease)
+        && VERSION_PATTERN.test(normalizeLauncherVersion(item.tag_name))
+        && !skip.has(normalizeLauncherVersion(item.tag_name)));
     return published.sort((a, b) => compareLauncherVersions(b.tag_name, a.tag_name))[0] || null;
+}
+
+// Every version an active rollback moves people away from: no launcher offers those as an update.
+function withdrawnVersions(directives) {
+    const versions = new Set();
+    (Array.isArray(directives) ? directives : []).forEach(row => {
+        if (row && row.active !== false && row.kind === 'rollback' && Array.isArray(row.from_versions)) {
+            row.from_versions.forEach(version => versions.add(normalizeLauncherVersion(version)));
+        }
+    });
+    return Array.from(versions);
+}
+
+// The rollback or re-update this launcher should offer, or null.
+// handled: re-update ids already reinstalled here. firstSeenAt: when this version first opened here (ms);
+// a copy installed after the re-update was published already has the fixed build.
+function selectUpdateDirective(directives, currentVersion, { handled = [], firstSeenAt = null } = {}) {
+    const current = normalizeLauncherVersion(currentVersion);
+    const done = new Set((Array.isArray(handled) ? handled : []).map(String));
+    const candidates = (Array.isArray(directives) ? directives : []).filter(row => {
+        if (!row || row.active === false || !targetsLauncherVersion(row.from_versions, current)) return false;
+        if (row.kind === 'rollback') {
+            const target = normalizeLauncherVersion(row.target_version);
+            return VERSION_PATTERN.test(target) && target !== current;
+        }
+        if (row.kind !== 'reupdate' || done.has(String(row.id))) return false;
+        const publishedAt = Date.parse(row.created_at || '') || 0;
+        return !(Number.isFinite(firstSeenAt) && firstSeenAt > publishedAt);
+    });
+    // A rollback always wins over a re-update; otherwise the newest one.
+    candidates.sort((a, b) => (a.kind === b.kind ? 0 : a.kind === 'rollback' ? -1 : 1)
+        || (Date.parse(b.created_at || '') || 0) - (Date.parse(a.created_at || '') || 0));
+    return candidates[0] || null;
 }
 
 function parseVersionTargets(values) {
@@ -137,6 +175,8 @@ module.exports = {
     updateDecision,
     includesPrereleases,
     newestRelease,
+    withdrawnVersions,
+    selectUpdateDirective,
     parseVersionTargets,
     announcementKey,
     isAnnouncementDismissed,

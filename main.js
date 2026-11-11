@@ -46,6 +46,7 @@ const { registerAchievementIpc } = require('./achievements/ipc');
 const { findSteamRoot, resolveInstalledSteamApp } = require('./achievements/achievementDiscovery');
 const { discoverSteamLibraries } = require('./runtime/steamDiscovery');
 const { createLinuxGameShortcut } = require('./runtime/linuxDesktopShortcut');
+const { exeIcon } = require('./runtime/exeIcon');
 const { registerAutostartIpc } = require('./runtime/linuxAutostart');
 const { registerLinuxProtocolIpc, DESKTOP_ID } = require('./runtime/linuxProtocol');
 const { registerLocalDesktopIpc } = require('./runtime/localDesktop');
@@ -320,9 +321,14 @@ function startRuntimeMonitor() {
     monitorRuntimeSessions().catch(() => {});
 }
 
-function postExitWorkStillRunning(snapshot) {
+// For updates: work that already failed once, or has made no progress for staleAfterMs, is picked up
+// again on the next start, so it need not hold the update.
+function postExitWorkStillRunning(snapshot, { ignoreRetries = false, staleAfterMs = 0 } = {}) {
+    const now = Date.now();
     return (snapshot.postExitJobs || []).some(job => [job.save, job.config].some(operation =>
         operation && operation.required && ['pending', 'running'].includes(operation.status)
+            && !(ignoreRetries && operation.retrying)
+            && !(staleAfterMs && Number(job.updatedAt) > 0 && now - Number(job.updatedAt) > staleAfterMs)
     ));
 }
 
@@ -2575,6 +2581,30 @@ ipcMain.handle('show-game-local-file', (e, payload) => {
     shell.showItemInFolder(resolved.details.executablePath);
     return true;
 });
+// The game's own icon, for games with no banner or Steam art. '' when there is none.
+ipcMain.handle('game-exe-icon', async (e, payload) => {
+    const input = exactGateAPayload(payload, ['gameId', 'capabilityId', 'expectedRevision'], 'Read game icon');
+    const resolved = gateAProfileStore().resolveExecutionCapability({
+        capabilityId: input.capabilityId,
+        expectedRevision: input.expectedRevision,
+        gameId: input.gameId,
+        operation: 'reveal'
+    });
+    const file = resolved.details.executablePath;
+    if (!file || !fs.existsSync(file)) return '';
+    if (path.extname(file).toLowerCase() === '.exe') {
+        const icon = exeIcon(file);
+        if (icon) return `data:image/x-icon;base64,${icon.toString('base64')}`;
+    }
+    // Windows can still find an icon for .lnk/.bat targets or an exe without resources.
+    if (process.platform !== 'win32') return '';
+    try {
+        const image = await app.getFileIcon(file, { size: 'large' });
+        return image.isEmpty() ? '' : image.toDataURL();
+    } catch (_) {
+        return '';
+    }
+});
 ipcMain.handle('open-folder-capability', async (e, payload) => {
     const input = exactGateAPayload(payload, ['gameId', 'capabilityId', 'expectedRevision'], 'Open local folder');
     const store = gateAProfileStore();
@@ -2609,7 +2639,7 @@ let pendingLinuxUpdate = null; // { kind, file, target, force }
 function launcherUpdateBlockedReason() {
     const snapshot = runtimeRecovery ? runtimeRecovery.snapshot() : null;
     if (snapshot && Object.keys(snapshot.activeSessions || {}).length) return 'Close your game before updating Sail.';
-    if (snapshot && postExitWorkStillRunning(snapshot)) return 'Sail is still saving your game. Update once it has finished.';
+    if (snapshot && postExitWorkStillRunning(snapshot, { ignoreRetries: true, staleAfterMs: 120000 })) return 'Sail is still saving your game. Update once it has finished.';
     if (protonManager?.installations?.pendingBindings().length) return 'Wait for the game installation to finish, then update Sail.';
     if (linuxDownloads?.pendingBindings().length || [...activeDownloads.values()].some(item => item && !item.paused && !item.cancelled)) {
         return 'Wait for your downloads to finish (or pause them), then update Sail.';

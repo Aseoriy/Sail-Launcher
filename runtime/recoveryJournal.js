@@ -509,7 +509,11 @@ class RecoveryJournal {
         if (!target.required && input.required !== true) return clone(job);
         target.required = true;
         const status = cleanText(input.status, 20);
-        if (['pending', 'running', 'retry', 'complete', 'skipped'].includes(status)) target.status = status;
+        if (['pending', 'running', 'retry', 'complete', 'skipped'].includes(status)) {
+            // Remember that this work already failed once, so a later attempt can be told apart from the first.
+            if (target.status === 'retry' && status !== 'retry') target.retrying = true;
+            target.status = status;
+        }
         if (input.stage !== undefined) target.stage = cleanText(input.stage, 80);
         const checkpoint = cleanCheckpoint(input.checkpoint);
         if (checkpoint && !target.checkpoints.includes(checkpoint)) {

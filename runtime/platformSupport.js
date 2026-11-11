@@ -107,7 +107,8 @@ function createSupportedIpcRegistrar(ipcMain, authorize, support) {
         'compatibility-cancel', 'compatibility-remove', 'compatibility-default', 'compatibility-check', 'compatibility-setup',
         'compatibility-dismiss-setup', 'proton-launch-log', 'proton-installation-status', 'proton-prerequisites',
         'proton-run-installer', 'proton-installation-cancel', 'proton-check-online-prerequisites',
-        'proton-install-online-prerequisites', 'proton-cancel-online-prerequisites', 'proton-first-launch-plan', 'proton-first-launch-begin']);
+        'proton-install-online-prerequisites', 'proton-cancel-online-prerequisites', 'proton-first-launch-plan', 'proton-first-launch-begin',
+        'game-exe-icon']);
     const downloadHandles = new Set(['download-game', 'cancel-download', 'pick-download-folder', 'linux-download-import', 'linux-download-list', 'linux-download-adopt', 'linux-download-status', 'linux-download-configure', 'linux-download-open', 'linux-download-resume', 'linux-download-discard', 'get-download-quarantine-summary', 'clear-download-quarantine', 'open-download-quarantine', 'pause-download', 'open-folder-capability', 'uninstall-downloaded-game', 'debrid-validate']);
     // Debrid services (TorBox, Real-Debrid...) belong to downloads; their settings arrive as events.
     const downloadEvents = new Set(['set-debrid-config', 'set-debrid-cache-enabled']);
@@ -117,7 +118,8 @@ function createSupportedIpcRegistrar(ipcMain, authorize, support) {
     const workshopHandles = new Set(['search-steam-workshop', 'download-workshop-item']);
     const pluginHandles = new Set(['hub-download-file', 'extract-zip', 'extract-rar', 'extract-7z', 'create-zip', 'open-file-dialog', 'save-file-dialog']);
     const accountHandles = new Set(['account-alert-admin-state', 'account-change-password', 'account-delete-remote-profile', 'account-list-remote',
-        'account-password-verification', 'account-publish-alert', 'account-reset-password', 'account-sign-in', 'account-sign-out', 'account-sign-up',
+        'account-password-verification', 'account-publish-alert', 'account-publish-update-directive', 'account-list-update-directives',
+        'account-set-update-directive-active','account-reset-password', 'account-sign-in', 'account-sign-out', 'account-sign-up',
         'account-upload-avatar', 'account-upsert-remote', 'account-cloud-delete-file', 'account-cloud-disconnect', 'account-cloud-download-file',
         'account-cloud-link-start', 'account-cloud-list-files', 'account-cloud-list-versions', 'account-cloud-storage-status', 'account-cloud-upload-file',
         'profiles-clear-avatar', 'profiles-set-avatar', 'profiles-clear-protected-settings', 'profiles-export-control-plane', 'profiles-merge-control-plane',

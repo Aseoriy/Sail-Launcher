@@ -331,6 +331,9 @@ function registerAccountIpc({ app, ipcMain, safeStorage, authorizeIpcEvent, dial
     }));
     ipcMain.handle('account-alert-admin-state', guarded('account-alert-admin-state', () => accountService.alertAdminState()));
     ipcMain.handle('account-publish-alert', guarded('account-publish-alert', (_event, payload) => accountService.publishAlert(payload)));
+    ipcMain.handle('account-publish-update-directive', guarded('account-publish-update-directive', (_event, payload) => accountService.publishUpdateDirective(payload)));
+    ipcMain.handle('account-list-update-directives', guarded('account-list-update-directives', () => accountService.listUpdateDirectives()));
+    ipcMain.handle('account-set-update-directive-active', guarded('account-set-update-directive-active', (_event, payload) => accountService.setUpdateDirectiveActive(payload)));
     ipcMain.handle('account-list-remote', guarded('account-list-remote', () => accountService.listRemoteControlPlane()));
     ipcMain.handle('account-upsert-remote', guarded('account-upsert-remote', () => {
         profileStore.initialize();
