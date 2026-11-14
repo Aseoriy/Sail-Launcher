@@ -25,7 +25,7 @@ Sail Launcher is a super cool game/app launcher that has a built in game downloa
 
 It keeps your library, playtime, achievements, saves, and mods in one place, and you can change pretty much how all of it looks. It works with Steam games, non-Steam games, emulators, ROMs, and any other program you want to launch.
 
-Sail runs on Windows and Linux. On Linux, native games launch directly and Windows games run through Proton. Linux is in beta, see the [Linux section](#linux) for what works and what doesn't yet.
+Sail runs on Windows and Linux. On Linux, native games launch directly and Windows games run through Proton. See the [Linux section](#linux) for the details.
 
 ## Preview
 
@@ -44,7 +44,7 @@ Sail runs on Windows and Linux. On Linux, native games launch directly and Windo
 
 | Area | Features |
 | --- | --- |
-| **Library** | Steam library importing, folders, favorites, tags, search and filters, custom artwork, metadata, and playtime tracking |
+| **Library** | Steam library importing, folders, favorites, tags, search and filters, custom artwork, metadata, and playtime tracking with active (non-idle) time |
 | **Achievements** | Local achievement tracking, optional Steam import, official names and artwork, and unlock notifications |
 | **Launching** | Executable detection, custom arguments, pre/post-launch scripts, companion apps, administrator mode, high CPU priority, and desktop shortcuts |
 | **Accounts and sync** | Sail accounts, multiple profiles with PINs, Sail Cloud, and scheduled sync with conflict handling |
@@ -53,7 +53,7 @@ Sail runs on Windows and Linux. On Linux, native games launch directly and Windo
 | **Workshop and mods** | Steam Workshop browsing through SteamCMD and custom web sources |
 | **Customization** | Built-in and custom themes, animated backgrounds, custom fonts, tile layouts, a visual UI editor, and frosted-glass effects |
 | **Plugins** | A plugin manager, a settings window for each plugin, and a plugin API for layouts, menus, and themes |
-| **Linux** | Proton and UMU for Windows games, native Linux games, Steam Workshop, and keyring-backed accounts |
+| **Linux** | Proton and UMU for Windows games, native Linux games and `.sh` launchers, emulators, Steam save importing, self-updates, and keyring-backed accounts |
 
 [View additional feature details](https://sail-launcher.sailhub.fyi/features)
 
@@ -72,7 +72,7 @@ Windows may display a security confirmation for applications downloaded outside 
 
 ### Linux
 
-Sail on Linux is in beta. Grab the package for your distribution from the [latest release](https://github.com/Aseoriy/Sail-Launcher/releases/latest).
+Grab the package for your distribution from the [latest release](https://github.com/Aseoriy/Sail-Launcher/releases/latest).
 
 | Distribution | Package | Install |
 | --- | --- | --- |
@@ -89,7 +89,7 @@ The `.deb` and `.rpm` pull in what Sail needs and add it to your app menu. On Ub
 - Accounts and cloud-save logins need a keyring (KDE Wallet, GNOME Keyring, or KeePassXC). Without one, they stay off and everything else still works.
 - Sail updates itself from **Settings > Check Updates**: the AppImage replaces itself, and the `.deb` and `.rpm` install through your package manager after one password prompt.
 - Windows games run through Proton using [UMU](https://github.com/Open-Wine-Components/umu-launcher). Sail can download GE-Proton and UMU for you in **Settings > Compatibility**, which needs Python 3.
-- Not on Linux yet: syncing launcher settings through Google Drive, OneDrive and Dropbox (game saves work) and the Maintenance Center. Spell checking covers English (US, UK, Canada, Australia).
+- Not on Linux yet: the Maintenance Center, and starting Windows games with plain Wine (use Proton). Spell checking covers English (US, UK, Canada, Australia).
 
 Tested on Kubuntu 26.04 (real hardware) and on Ubuntu 24.04, Fedora 44, and Arch Linux in virtual machines. Other distributions should work, but if one doesn't, please [open an issue](https://github.com/Aseoriy/Sail-Launcher/issues/new) with your distribution and desktop.
 
