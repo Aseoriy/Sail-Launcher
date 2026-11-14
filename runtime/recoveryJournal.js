@@ -450,17 +450,31 @@ class RecoveryJournal {
         if (session.provider !== 'linux-native' || !recordedBoot || !bootId || recordedBoot === bootId) {
             throw new Error('Only a native session from an earlier boot can be closed without its supervisor.');
         }
+        return this.closeNativeSessionAtLastReceipt(found, diskReceipt, 'system-restarted');
+    }
+
+    // Force Stop on a session whose supervisor no longer exists. Nothing can be signaled or
+    // measured anymore, so it closes with the time its last receipt observed.
+    endNativeSessionWithoutSupervisor(sessionId, diskReceipt = null) {
+        const found = findActiveSession(this.state, { sessionId });
+        if (!found) return null;
+        if (found[1].provider !== 'linux-native') throw new Error('Only a native session can be closed without its supervisor.');
+        return this.closeNativeSessionAtLastReceipt(found, diskReceipt, 'supervisor-lost');
+    }
+
+    closeNativeSessionAtLastReceipt(found, diskReceipt, outcome) {
+        const session = found[1];
         let receipt = session.native.receipt;
         if (diskReceipt) {
-            require('./native/protocol').validateReceipt(diskReceipt, sessionId, session.native.owner, session.native.receipt, session.native.executionKind || 'elf', session.native.gameTracking);
+            require('./native/protocol').validateReceipt(diskReceipt, session.sessionId, session.native.owner, session.native.receipt, session.native.executionKind || 'elf', session.native.gameTracking);
             receipt = diskReceipt;
         }
         if (!receipt || !receipt.execSucceeded || receipt.trackingErrno) {
-            return this.completeNativeSession(found, null, { creditPlaytime: false, outcome: 'system-restarted' });
+            return this.completeNativeSession(found, null, { creditPlaytime: false, outcome });
         }
         const policy = require('./proton/session').completionPolicy(session, receipt);
         return this.completeNativeSession(found, receipt, { ...policy,
-            outcome: policy.activity === 'installation' ? 'installation-interrupted' : 'system-restarted' });
+            outcome: policy.activity === 'installation' ? 'installation-interrupted' : outcome });
     }
 
     completeNativeSession([key, session], receipt, policy) {

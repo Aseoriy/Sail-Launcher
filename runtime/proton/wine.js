@@ -2,7 +2,7 @@
 const fs = require('node:fs'), path = require('node:path'), crypto = require('node:crypto');
 const native = require('../native/protocol');
 const { fileIdentity, identityMatches } = require('../../security/capabilityStore');
-const WINE_PENDING_REASON = 'Standalone Wine launching is awaiting process ownership, timing and recovery verification.';
+const WINE_PENDING_REASON = 'Sail cannot start games with plain Wine yet. Choose a Proton version for this game instead.';
 // Wine launching stays off until its remaining acceptance checks pass. SAIL_EXPERIMENTAL_WINE=1 opts a local build in for testing.
 const WINE_LIFECYCLE_VERIFIED = process.env.SAIL_EXPERIMENTAL_WINE === '1';
 const BACKENDS = new Set(['proton-umu', 'wine']);

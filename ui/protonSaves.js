@@ -4,11 +4,13 @@ function showProtonSaves({ document, gameId, invoke, available }) {
     const panel = document.getElementById('protonSavesPanel'), status = document.getElementById('protonSavesStatus');
     const select = document.getElementById('protonSaveSelect'), check = document.getElementById('checkProtonSavesBtn');
     const button = document.getElementById('importProtonSaveBtn');
-    const token = Symbol('proton-saves'); panel.saveToken = token; panel.hidden = !available;
+    // Only a Windows game has a separate save folder to import into; the panel stays hidden until that is known.
+    const token = Symbol('proton-saves'); panel.saveToken = token; panel.hidden = true;
+    let windowsGame = false;
     const current = () => panel.saveToken === token;
     let busy = false;
     async function refresh() {
-        if (!available || busy) return;
+        if (!available || !windowsGame || busy) return;
         busy = true; check.disabled = true; button.disabled = true; status.textContent = 'Checking Steam saves…';
         try {
             const result = await invoke('proton-save-status', { gameId });
@@ -37,8 +39,12 @@ function showProtonSaves({ document, gameId, invoke, available }) {
         } catch (error) { if (current()) { status.textContent = error.message; button.disabled = false; } }
         finally { busy = false; if (current()) check.disabled = false; }
     };
-    if (available) refresh();
-    return { refresh };
+    function setWindowsGame(value) {
+        if (!current()) return;
+        windowsGame = !!value; panel.hidden = !available || !windowsGame;
+        if (!panel.hidden) refresh();
+    }
+    return { refresh, setWindowsGame };
 }
 
 module.exports = { showProtonSaves };

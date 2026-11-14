@@ -100,6 +100,174 @@ function recovery(parent, destination) {
     fs.unlinkSync(file); fs.fsyncSync(parent);
 }
 
+// Imports for any other Steam game. The folders come from a save location lookup and always sit in the Steam
+// prefix's user profile; each is copied to the same place in Sail's prefix.
+const LOCATED_JOURNAL = '.sail-save-import.json';
+const STEAM_PROFILE = ['drive_c', 'users', 'steamuser'];
+const MAX_FOLDERS = 8;
+const UUID = '[a-f0-9-]{36}';
+const segment = name => typeof name === 'string' && /^[^/\u0000-\u001f\u007f]{1,120}$/.test(name) && !['.', '..'].includes(name) && !name.startsWith('.sail-');
+
+function saveUser(backend) {
+    const user = backend === 'wine' ? require('node:os').userInfo().username : 'steamuser';
+    return /^[A-Za-z0-9 _.-]{1,80}$/.test(user) && !['.', '..'].includes(user) ? user : '';
+}
+
+// Wine reads names without regard to case, so a folder that only differs by case is the same folder to the game.
+function existingName(fd, name) {
+    if (present(fdPath(fd, name))) return name;
+    return namesIn(fd).find(item => item.toLowerCase() === name.toLowerCase()) || name;
+}
+
+// Walks down from an open folder one name at a time without following links. Returns a new descriptor and the
+// names that were really used.
+function descend(fd, parts, create = false) {
+    let current = fs.openSync(fdPath(fd), fs.constants.O_RDONLY | fs.constants.O_DIRECTORY);
+    const names = [];
+    try {
+        for (const part of parts) {
+            const name = existingName(current, part);
+            if (create && !present(fdPath(current, name))) fs.mkdirSync(fdPath(current, name), { mode: 0o700 });
+            const next = fs.openSync(fdPath(current, name), fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW);
+            fs.closeSync(current); current = next; names.push(name);
+        }
+        return { fd: current, names };
+    } catch (error) { fs.closeSync(current); throw error; }
+}
+
+function locatedFolders(profile, paths) {
+    let real;
+    try { real = fs.realpathSync(profile); } catch (_) { return []; }
+    const relatives = new Set();
+    for (const item of Array.isArray(paths) ? paths : []) {
+        if (typeof item !== 'string' || !path.isAbsolute(item)) continue;
+        const base = [profile, real].find(root => item.startsWith(root + '/'));
+        if (!base) continue;
+        const parts = path.relative(base, path.resolve(item)).split('/');
+        // The profile's own top-level folders (Documents, AppData\Roaming…) are never a single game's save.
+        if (parts.length < 2 || (parts[0].toLowerCase() === 'appdata' && parts.length < 3) || !parts.every(segment)) continue;
+        relatives.add(parts.join('/'));
+    }
+    const sorted = [...relatives].sort();
+    const folders = [];
+    for (const relative of sorted.filter(item => !sorted.some(other => item.startsWith(other + '/')))) {
+        if (folders.length >= MAX_FOLDERS) break;
+        const folder = path.join(real, relative);
+        let fd;
+        try {
+            fd = directory(folder);
+            const stat = fs.fstatSync(fd);
+            if (namesIn(fd).length) folders.push({ folder, relative, key: [folder, stat.dev, stat.ino] });
+        } catch (_) { /* Missing, linked or oversized folders are not offered. */ }
+        finally { if (fd !== undefined) fs.closeSync(fd); }
+    }
+    return folders;
+}
+
+async function discoverLocated({ appId, discoveryOptions, locate }) {
+    const { libraries, issueCount } = await discoverSteamInstallations(discoveryOptions), candidates = [];
+    const located = await locate({ appId: String(appId), libraries }) || {};
+    for (const library of libraries) {
+        const prefix = path.join(library, 'steamapps', 'compatdata', String(appId));
+        const folders = locatedFolders(path.join(prefix, 'pfx', ...STEAM_PROFILE), located.folders);
+        if (!folders.length) continue;
+        candidates.push({ id: hash(JSON.stringify(folders.map(item => item.key))), prefix, folder: folders[0].folder,
+            folders: folders.map(({ folder, relative }) => ({ folder, relative })),
+            label: `Steam save · ${library}`, busy: sourceBusy(prefix) });
+    }
+    return { supported: true, candidates, issueCount, reason: candidates.length ? 'Steam saves found. Close the game in Steam and Sail before importing.'
+        : located.known ? 'No save for this game was found in the detected Steam libraries.'
+            : 'Sail does not know where this game keeps its saves, so it cannot import them from Steam.' };
+}
+
+function readJournal(file) {
+    const input = fs.openSync(file, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+    try {
+        const stat = fs.fstatSync(input);
+        if (!stat.isFile() || stat.uid !== process.getuid() || stat.size > 4096) throw Error('Invalid save import recovery record.');
+        return JSON.parse(fs.readFileSync(input, 'utf8'));
+    } finally { fs.closeSync(input); }
+}
+
+// Puts a half-finished import back the way it was: the previous save returns and the staged copy is removed.
+function recoverLocated(root) {
+    const file = fdPath(root, LOCATED_JOURNAL);
+    if (!present(file)) return;
+    const record = readJournal(file), parts = typeof record.parent === 'string' ? record.parent.split('/') : [];
+    if (parts.length < 4 || parts[0] !== 'drive_c' || parts[1] !== 'users' || !parts.every(segment) || !segment(record.destination)
+        || !new RegExp(`^\\.sail-save-stage-${UUID}$`).test(record.stage)
+        || typeof record.backup !== 'string' || !record.backup.startsWith(record.destination + '.sail-backup-')
+        || !new RegExp(`^${UUID}$`).test(record.backup.slice(record.destination.length + 13))) throw Error('Invalid save import recovery paths.');
+    const parent = descend(root, parts).fd;
+    try {
+        const dest = fdPath(parent, record.destination), stage = fdPath(parent, record.stage), backup = fdPath(parent, record.backup);
+        if (!present(dest) && present(backup)) fs.renameSync(backup, dest);
+        if (!present(dest) && !present(stage)) throw Error('Save import recovery needs attention; retained files were not removed.');
+        if (present(stage)) fs.rmSync(stage, { recursive: true });
+        fs.fsyncSync(parent);
+    } finally { fs.closeSync(parent); }
+    fs.unlinkSync(file); fs.fsyncSync(root);
+}
+
+function importFolder({ root, profile, item, sourcePrefix, assertIdle, checkpoint }) {
+    const parts = item.relative.split('/'), name = parts.pop();
+    if (!parts.length || ![...parts, name].every(segment)) throw Error('The Steam save folder is unsupported.');
+    const opened = descend(profile.fd, parts, true), parent = opened.fd;
+    const destination = existingName(parent, name);
+    const stageName = '.sail-save-stage-' + crypto.randomUUID(), backupName = destination + '.sail-backup-' + crypto.randomUUID();
+    const stage = fdPath(parent, stageName), dest = fdPath(parent, destination), backup = fdPath(parent, backupName);
+    let source, journalWritten = false;
+    try {
+        source = directory(item.folder);
+        fs.mkdirSync(stage, { mode: 0o700 });
+        const copied = tree(source, stage);
+        if (!copied.length) throw Error('The Steam save is empty.');
+        if (JSON.stringify(copied) !== JSON.stringify(tree(source))) throw Error('The Steam save changed during import. Close the game and retry.');
+        if (fs.realpathSync(fdPath(source)) !== item.folder) throw Error('A save directory moved during import. Scan again.');
+        if (present(dest)) {
+            const current = fs.openSync(dest, fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW);
+            try { tree(current); } finally { fs.closeSync(current); }
+        }
+        assertIdle();
+        if (sourceBusy(sourcePrefix)) throw Error('Close the game in Steam before importing its save.');
+        const record = { parent: [...profile.names, ...opened.names].join('/'), destination, stage: stageName, backup: backupName };
+        const journal = fs.openSync(fdPath(root, LOCATED_JOURNAL), fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_NOFOLLOW, 0o600);
+        try { fs.writeFileSync(journal, JSON.stringify(record)); fs.fsyncSync(journal); } finally { fs.closeSync(journal); }
+        fs.fsyncSync(root); journalWritten = true; checkpoint('prepared');
+        const hadSave = present(dest);
+        if (hadSave) fs.renameSync(dest, backup);
+        fs.fsyncSync(parent); checkpoint('backed-up');
+        fs.renameSync(stage, dest); fs.fsyncSync(parent); checkpoint('installed');
+        fs.unlinkSync(fdPath(root, LOCATED_JOURNAL)); fs.fsyncSync(root);
+        return hadSave ? backupName : '';
+    } catch (error) {
+        if (journalWritten) recoverLocated(root);
+        else if (present(stage)) fs.rmSync(stage, { recursive: true });
+        throw error;
+    } finally { if (source !== undefined) fs.closeSync(source); fs.closeSync(parent); }
+}
+
+function importLocated({ prefix, backend, candidate, assertIdle, checkpoint }) {
+    const user = saveUser(backend);
+    if (!user || !Array.isArray(candidate.folders) || !candidate.folders.length || candidate.folders.length > MAX_FOLDERS) throw Error('The Steam save is unsupported.');
+    assertIdle();
+    if (sourceBusy(candidate.prefix)) throw Error('Close the game in Steam before importing its save.');
+    const current = locatedFolders(path.join(candidate.prefix, 'pfx', ...STEAM_PROFILE), candidate.folders.map(item => item.folder));
+    if (hash(JSON.stringify(current.map(item => item.key))) !== candidate.id) throw Error('The Steam save folder changed. Scan again.');
+    let root, profile;
+    try { root = directory(prefix); profile = descend(root, ['drive_c', 'users', user]); }
+    catch (_) { if (root !== undefined) fs.closeSync(root); throw Error('Launch this game once through Sail, then close it before importing the Steam save.'); }
+    try {
+        recoverLocated(root);
+        const backups = [];
+        for (const item of current) {
+            const backup = importFolder({ root, profile, item, sourcePrefix: candidate.prefix, assertIdle, checkpoint });
+            if (backup) backups.push(path.join(prefix, ...profile.names, path.dirname(item.relative), backup));
+        }
+        return { imported: true, backup: backups.join(', '), reason: 'Steam save imported. Your next Sail launch will use it.' };
+    } finally { fs.closeSync(profile.fd); fs.closeSync(root); }
+}
+
 function sourceBusy(prefix) {
     for (const pid of fs.readdirSync('/proc').filter(name => /^\d+$/.test(name))) {
         try {
@@ -124,9 +292,10 @@ function rule(appId, executable, backend = 'proton-umu') {
     return { destination: name, relative: `drive_c/users/${user}/AppData/Local` };
 }
 
-async function discoverSaves({ appId, executable, discoveryOptions = {} }) {
+async function discoverSaves({ appId, executable, discoveryOptions = {}, locate = null }) {
     const mapping = rule(appId, executable);
-    if (!mapping) return { supported: false, candidates: [], reason: 'Automatic Steam save import is currently available for Geometry Dash.' };
+    if (!mapping && typeof locate === 'function' && /^[1-9]\d{0,9}$/.test(String(appId || ''))) return discoverLocated({ appId, discoveryOptions, locate });
+    if (!mapping) return { supported: false, candidates: [], reason: 'Steam save import needs the game’s Steam App ID.' };
     const { libraries, issueCount } = await discoverSteamInstallations(discoveryOptions), candidates = [];
     for (const library of libraries) {
         const prefix = path.join(library, 'steamapps', 'compatdata', String(appId));
@@ -145,6 +314,7 @@ async function discoverSaves({ appId, executable, discoveryOptions = {} }) {
 }
 
 function importSave({ prefix, executable, backend = 'proton-umu', candidate, assertIdle = () => {}, checkpoint = () => {} }) {
+    if (candidate && candidate.folders) return importLocated({ prefix, backend, candidate, assertIdle, checkpoint });
     const mapping = rule('322170', executable, backend);
     if (!mapping) throw Error('The game executable has an unsupported save folder name.');
     assertIdle();
@@ -187,6 +357,9 @@ function importSave({ prefix, executable, backend = 'proton-umu', candidate, ass
 }
 
 function recoverSaveImport(prefix, executable, backend = 'proton-umu') {
+    let root;
+    try { root = directory(prefix); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+    if (root !== undefined) { try { recoverLocated(root); } finally { fs.closeSync(root); } }
     const mapping = rule('322170', executable, backend);
     if (!mapping) return;
     let parent;

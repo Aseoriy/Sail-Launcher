@@ -107,7 +107,8 @@ const PRESET_KEYS = new Set(['id', 'profileId', 'name', 'createdAt', 'updatedAt'
 const GAME_KEYS = new Set([
     'id', 'name', 'platform', 'steamAppId', 'searchSteamAppId', 'epicId', 'gogId',
     'isRom', 'tags', 'isFavorite', 'addedAt', 'playtime', 'lastPlayed',
-    // idlePlaytime and customBanner are read since 6.0.0-beta.5 but only written from 6.0.0, so older Sails never see them.
+    // idlePlaytime and customBanner are read since 6.0.0-beta.5 and written since 6.0.0. Sails older than beta 5
+    // refuse a library that has them, which is why the betas only read them.
     'idlePlaytime', 'customBanner', 'playtimeSessionIds', 'steamImageUrl', 'steamHeroUrl', 'source',
     'sourceIdentifier', 'sourceTitle', 'sourceVersion', 'installedAt',
     'maintenanceHideInformationIssues', 'dependencyRequirements',
@@ -389,7 +390,7 @@ function validateGame(value, path) {
     if (input.isRom !== undefined) output.isRom = booleanValue(input.isRom, `${path}.isRom`);
     if (input.customBanner !== undefined && input.customBanner !== null) {
         // A small JPEG copy of a custom banner (ui/customBanner.js), so it shows on devices without the file.
-        output.customBanner = stringValue(input.customBanner, `${path}.customBanner`, { min: 1, max: 32000, pattern: /^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/ });
+        output.customBanner = stringValue(input.customBanner, `${path}.customBanner`, { min: 1, max: 32000, pattern: PORTABLE_BANNER });
     }
     if (input.idlePlaytime !== undefined) output.idlePlaytime = numberValue(input.idlePlaytime, `${path}.idlePlaytime`, { min: 0, max: 1000000000000 });
     if (input.installedAt !== undefined && input.installedAt !== null) output.installedAt = timestampValue(input.installedAt, `${path}.installedAt`);
@@ -789,7 +790,26 @@ function legacyGame(value, index, diagnostics, path) {
     }
     const achievementData = legacyAchievementData(value.achievementData, candidate.steamAppId, diagnostics, `${path}.achievementData`);
     if (achievementData) candidate.achievementData = achievementData;
+    // Idle time can never be more than the playtime it is part of.
+    const idlePlaytime = Number(value.idlePlaytime);
+    if (Number.isFinite(idlePlaytime) && idlePlaytime > 0) candidate.idlePlaytime = Math.min(idlePlaytime, candidate.playtime);
+    // A banner copy that is not a small image stays on the device instead of failing the whole game.
+    if (typeof value.customBanner === 'string' && value.customBanner.length <= 32000 && PORTABLE_BANNER.test(value.customBanner)) candidate.customBanner = value.customBanner;
     return safeLegacy(() => validateGame(candidate, path), diagnostics, path, gameId, null);
+}
+
+// Banner copies are the only large thing in a game entry. Past this total the rest stay on the device,
+// so a library with hundreds of custom banners still syncs.
+const PORTABLE_BANNER = /^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}$/;
+const PORTABLE_BANNER_BUDGET = 2 * 1024 * 1024;
+function withinBannerBudget(games) {
+    let used = 0;
+    for (const game of games) {
+        if (!game.customBanner) continue;
+        if (used + game.customBanner.length > PORTABLE_BANNER_BUDGET) delete game.customBanner;
+        else used += game.customBanner.length;
+    }
+    return games;
 }
 
 function defaultSyncSettings() {
@@ -892,8 +912,8 @@ function adaptLegacySnapshot(raw, context = {}, diagnostics = diagnosticsFor(raw
     const ctx = canonicalContext(context);
     const snapshot = isPlainObject(raw) ? raw : {};
     trackUnknownKeys(snapshot, '$', new Set(['schemaVersion', 'myGames', 'customSections', 'globalSettings']), diagnostics);
-    const games = (Array.isArray(snapshot.myGames) ? snapshot.myGames : []).slice(0, LIMITS.games)
-        .map((game, index) => legacyGame(game, index, diagnostics, `$.myGames[${index}]`)).filter(Boolean);
+    const games = withinBannerBudget((Array.isArray(snapshot.myGames) ? snapshot.myGames : []).slice(0, LIMITS.games)
+        .map((game, index) => legacyGame(game, index, diagnostics, `$.myGames[${index}]`)).filter(Boolean));
     const sections = (Array.isArray(snapshot.customSections) ? snapshot.customSections : []).slice(0, LIMITS.sections)
         .map((section, index) => legacySection(section, index, diagnostics, `$.customSections[${index}]`)).filter(Boolean);
     const artifact = validatePortableArtifact({
@@ -941,8 +961,8 @@ function adaptLegacyControlPlane(raw, diagnostics = diagnosticsFor('legacy-contr
         if (!profileIds.has(profileId)) { recordDrop(diagnostics, `$.libraries[${index}]`, 'profileId', 'unknown-profile'); continue; }
         const catalog = isPlainObject(row.catalog) ? row.catalog : {};
         trackUnknownKeys(catalog, `$.libraries[${index}].catalog`, new Set(['games', 'sections', 'schemaVersion']), diagnostics);
-        const games = (Array.isArray(catalog.games) ? catalog.games : []).slice(0, LIMITS.games)
-            .map((game, gameIndex) => legacyGame(game, gameIndex, diagnostics, `$.libraries[${index}].catalog.games[${gameIndex}]`)).filter(Boolean);
+        const games = withinBannerBudget((Array.isArray(catalog.games) ? catalog.games : []).slice(0, LIMITS.games)
+            .map((game, gameIndex) => legacyGame(game, gameIndex, diagnostics, `$.libraries[${index}].catalog.games[${gameIndex}]`)).filter(Boolean));
         const sections = (Array.isArray(catalog.sections) ? catalog.sections : []).slice(0, LIMITS.sections)
             .map((section, sectionIndex) => legacySection(section, sectionIndex, diagnostics, `$.libraries[${index}].catalog.sections[${sectionIndex}]`)).filter(Boolean);
         const candidate = { id: row.id, profileId, name: row.name || 'Imported Library', games, sections };

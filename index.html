@@ -7160,6 +7160,8 @@
         const localOnlyPreview = process.env.SAIL_DEV_ISOLATED === '1' || process.platform === 'linux';
         // Linux enables features one by one; Windows is never restricted.
         const featureAvailable = name => !localOnlyPreview || !!platformAvailability.support?.features?.[name]?.available;
+        // Launcher settings sync (Sail Cloud or a linked provider) runs wherever cloud sync does, Linux included.
+        const launcherSyncUnavailable = () => !featureAvailable('cloudSync');
         let localProfileLoaded = false;
         const platformAvailability = require('./ui/platformAvailability').installPlatformAvailability(document, ipcRenderer);
         const desktopProtocol = require('./ui/desktopProtocol').installDesktopProtocol({
@@ -7714,7 +7716,7 @@
         }
 
         const dict = {
-            english: { library: "Library", folders: "Folders", allGames: "All Games", favs: "Favorites", new: "+ New", sysSpecs: "💻 System Specs", settings: "⚙️ Settings", addGame: "+ Add Game", search: "🔍 Search games...", showAll: "Show All", steamOnly: "Steam Only", customOnly: "Custom Only", ready: "Ready to Play", play: "▶ Play", stop: "🛑 Force Stop", sync: "☁️ Sync Saves", manage: "⚙️ Manage Game", about: "About This Game", reqs: "System Requirements", backLib: "⬅️ Back to Library", myLibrary: "My Library", appearance: "🎨 Appearance", system: "⚙️ System", advanced: "🛠️ Advanced", dataBackup: "💾 Data & Backup", appTheme: "App Theme", edit: "✏️ Edit", exportTheme: "📤 Export Theme", importTheme: "📥 Import Theme", appFont: "App Font", importCustomFont: "Import Custom Font...", autoStart: "Start Sail Launcher on PC Boot", exitWhenClosed: "Exit When Closed (Off = Minimize to Tray)", disableDiscordRpc: "Disable Discord RPC", compactPage: "Compact Game Page (Moves details to Info button)", systemLang: "System Language", autoCloudSyncFolder: "Auto-Cloud Sync Folder", launcherData: "Launcher Data", export: "📤 Export", import: "📥 Import", wipe: "🧨 Wipe", checkUpdates: "Check Updates", isSteam: "Is this game on Steam?", gameName: "Game Name", customCover: "Custom Cover Image (Optional)", steamAppId: "Steam App ID", gamePath: "Game .exe, .bat, or .lnk Path", shortcutIcon: "Shortcut Icon (.ico, .exe) (Optional)", localSave: "Local Save Folder (Optional)", driveSave: "Drive Save Folder (Overrides Default)", saveGame: "Save Game", tileShape: "Game Tile Shape", tileSize: "Game Tile Size", recentlyPlayed: "Recently Played", unplayed: "Never Played", bigPicture: "📺 Big Picture", extra: "✨ Extra", showSurpriseMe: "Show 'Surprise Me' Button", showDynamicFolders: "Show Dynamic Folders (Recently Played / Never Played)", showFavoritesFolder: "Show Favorites Folder in Sidebar", recentDays: "Recently Played Timeframe", stats: "📊 Stats", selectMode: "🎯 Select Mode", selectAll: "Select All", deselectAll: "Deselect All", deleteSelected: "🗑️ Delete Selected", cancel: "Cancel", gamesSelected: "games selected" },
+            english: { gamePathLinux: "Game Path (Linux program, .sh, AppImage, or .exe)", library: "Library", folders: "Folders", allGames: "All Games", favs: "Favorites", new: "+ New", sysSpecs: "💻 System Specs", settings: "⚙️ Settings", addGame: "+ Add Game", search: "🔍 Search games...", showAll: "Show All", steamOnly: "Steam Only", customOnly: "Custom Only", ready: "Ready to Play", play: "▶ Play", stop: "🛑 Force Stop", sync: "☁️ Sync Saves", manage: "⚙️ Manage Game", about: "About This Game", reqs: "System Requirements", backLib: "⬅️ Back to Library", myLibrary: "My Library", appearance: "🎨 Appearance", system: "⚙️ System", advanced: "🛠️ Advanced", dataBackup: "💾 Data & Backup", appTheme: "App Theme", edit: "✏️ Edit", exportTheme: "📤 Export Theme", importTheme: "📥 Import Theme", appFont: "App Font", importCustomFont: "Import Custom Font...", autoStart: "Start Sail Launcher on PC Boot", exitWhenClosed: "Exit When Closed (Off = Minimize to Tray)", disableDiscordRpc: "Disable Discord RPC", compactPage: "Compact Game Page (Moves details to Info button)", systemLang: "System Language", autoCloudSyncFolder: "Auto-Cloud Sync Folder", launcherData: "Launcher Data", export: "📤 Export", import: "📥 Import", wipe: "🧨 Wipe", checkUpdates: "Check Updates", isSteam: "Is this game on Steam?", gameName: "Game Name", customCover: "Custom Cover Image (Optional)", steamAppId: "Steam App ID", gamePath: "Game .exe, .bat, or .lnk Path", shortcutIcon: "Shortcut Icon (.ico, .exe) (Optional)", localSave: "Local Save Folder (Optional)", driveSave: "Drive Save Folder (Overrides Default)", saveGame: "Save Game", tileShape: "Game Tile Shape", tileSize: "Game Tile Size", recentlyPlayed: "Recently Played", unplayed: "Never Played", bigPicture: "📺 Big Picture", extra: "✨ Extra", showSurpriseMe: "Show 'Surprise Me' Button", showDynamicFolders: "Show Dynamic Folders (Recently Played / Never Played)", showFavoritesFolder: "Show Favorites Folder in Sidebar", recentDays: "Recently Played Timeframe", stats: "📊 Stats", selectMode: "🎯 Select Mode", selectAll: "Select All", deselectAll: "Deselect All", deleteSelected: "🗑️ Delete Selected", cancel: "Cancel", gamesSelected: "games selected" },
             spanish: { library: "Biblioteca", folders: "Carpetas", allGames: "Todos los juegos", favs: "Favoritos", new: "+ Nuevo", sysSpecs: "💻 Especificaciones", settings: "⚙️ Ajustes", addGame: "+ Añadir juego", search: "🔍 Buscar...", showAll: "Mostrar todo", steamOnly: "Solo Steam", customOnly: "Personalizados", ready: "Listo para jugar", play: "▶ Jugar", stop: "🛑 Detener", sync: "☁️ Sincronizar", manage: "⚙️ Gestionar", about: "Acerca del juego", reqs: "Requisitos", backLib: "⬅️ Volver", myLibrary: "Mi Biblioteca", appearance: "🎨 Apariencia", system: "⚙️ Sistema", advanced: "🛠️ Avanzado", dataBackup: "💾 Datos y Copia", appTheme: "Tema de la aplicación", edit: "✏️ Editar", exportTheme: "📤 Exportar Tema", importTheme: "📥 Importar Tema", appFont: "Fuente", importCustomFont: "Importar fuente...", autoStart: "Iniciar con Windows", exitWhenClosed: "Salir al cerrar (Desactivado = Minimizar)", disableDiscordRpc: "Desactivar Discord RPC", compactPage: "Página de juego compacta", systemLang: "Idioma del sistema", autoCloudSyncFolder: "Carpeta de sincronización", launcherData: "Datos del Launcher", export: "📤 Exportar", import: "📥 Importar", wipe: "🧨 Borrar todo", checkUpdates: "Buscar actualizaciones", isSteam: "¿Es de Steam?", gameName: "Nombre del juego", customCover: "Carátula (Opcional)", steamAppId: "App ID de Steam", gamePath: "Ruta del juego (.exe, .bat, .lnk)", shortcutIcon: "Icono de acceso directo (Opcional)", localSave: "Carpeta de guardado local", driveSave: "Carpeta de nube", saveGame: "Guardar Juego", tileShape: "Forma del icono", tileSize: "Tamaño del icono", recentlyPlayed: "Jugado recientemente", unplayed: "Nunca jugado", bigPicture: "📺 Pantalla Completa", extra: "✨ Extra", showSurpriseMe: "Mostrar botón 'Sorpréndeme'", showDynamicFolders: "Mostrar carpetas dinámicas", showFavoritesFolder: "Mostrar carpeta Favoritos", recentDays: "Período de Recientemente Jugado", stats: "📊 Estadísticas" },
             french: { library: "Bibliothèque", folders: "Dossiers", allGames: "Tous les jeux", favs: "Favoris", new: "+ Nouveau", sysSpecs: "💻 Système", settings: "⚙️ Paramètres", addGame: "+ Ajouter", search: "🔍 Rechercher...", showAll: "Tout afficher", steamOnly: "Steam uniq.", customOnly: "Personnalisé", ready: "Prêt à jouer", play: "▶ Jouer", stop: "🛑 Arrêter", sync: "☁️ Synchroniser", manage: "⚙️ Gérer", about: "À propos", reqs: "Configuration", backLib: "⬅️ Retour", myLibrary: "Ma Bibliothèque", appearance: "🎨 Apparence", system: "⚙️ Système", advanced: "🛠️ Avancé", dataBackup: "💾 Données & Sauvegarde", appTheme: "Thème de l'application", edit: "✏️ Éditer", exportTheme: "📤 Exporter", importTheme: "📥 Importer", appFont: "Police", importCustomFont: "Importer une police...", autoStart: "Démarrer avec Windows", exitWhenClosed: "Quitter à la fermeture (Désactivé = Réduire)", disableDiscordRpc: "Désactiver Discord RPC", compactPage: "Page de jeu compacte", systemLang: "Langue du système", autoCloudSyncFolder: "Dossier de synchronisation", launcherData: "Données du Lanceur", export: "📤 Exporter", import: "📥 Importer", wipe: "🧨 Effacer", checkUpdates: "Vérifier les MAJ", isSteam: "Jeu Steam ?", gameName: "Nom du jeu", customCover: "Affiche (Optionnel)", steamAppId: "App ID Steam", gamePath: "Chemin du jeu (.exe, .bat, .lnk)", shortcutIcon: "Icône de raccourci (Optionnel)", localSave: "Dossier de sauvegarde", driveSave: "Dossier Cloud", saveGame: "Sauvegarder", tileShape: "Forme de la tuile", tileSize: "Taille de la tuile", recentlyPlayed: "Récemment joué", unplayed: "Jamais joué", bigPicture: "📺 Grand écran", extra: "✨ Extra", showSurpriseMe: "Afficher le bouton 'Surprenez-moi'", showDynamicFolders: "Afficher les dossiers dynamiques", showFavoritesFolder: "Afficher le dossier Favoris", recentDays: "Période Récemment joué", stats: "📊 Stats" },
             german: { library: "Bibliothek", folders: "Ordner", allGames: "Alle Spiele", favs: "Favoriten", new: "+ Neu", sysSpecs: "💻 System", settings: "⚙️ Einstellungen", addGame: "+ Hinzufügen", search: "🔍 Suchen...", showAll: "Alle", steamOnly: "Nur Steam", customOnly: "Benutzerdef.", ready: "Bereit", play: "▶ Spielen", stop: "🛑 Stoppen", sync: "☁️ Sync", manage: "⚙️ Verwalten", about: "Über das Spiel", reqs: "Systemanforderungen", backLib: "⬅️ Zurück", myLibrary: "Meine Bibliothek", appearance: "🎨 Aussehen", system: "⚙️ System", advanced: "🛠️ Erweitert", dataBackup: "💾 Daten & Backup", appTheme: "App-Design", edit: "✏️ Bearbeiten", exportTheme: "📤 Exportieren", importTheme: "📥 Importieren", appFont: "Schriftart", importCustomFont: "Eigene Schriftart...", autoStart: "Mit Windows starten", exitWhenClosed: "Beenden beim Schließen (Aus = Minimieren)", disableDiscordRpc: "Discord RPC deaktivieren", compactPage: "Kompakte Spieleseite", systemLang: "Systemsprache", autoCloudSyncFolder: "Cloud-Sync-Ordner", launcherData: "Launcher-Daten", export: "📤 Exportieren", import: "📥 Importieren", wipe: "🧨 Löschen", checkUpdates: "Nach Updates suchen", isSteam: "Ist dieses Spiel auf Steam?", gameName: "Spielname", customCover: "Eigenes Cover (Optional)", steamAppId: "Steam App ID", gamePath: "Spielpfad (.exe, .bat, .lnk)", shortcutIcon: "Verknüpfungssymbol (Optional)", localSave: "Lokaler Speicherordner", driveSave: "Cloud-Speicherordner", saveGame: "Spiel speichern", tileShape: "Kachelform", tileSize: "Kachelgröße", recentlyPlayed: "Zuletzt gespielt", unplayed: "Nie gespielt", bigPicture: "📺 Vollbildmodus", extra: "✨ Extra", showSurpriseMe: "Button 'Überrasch mich' anzeigen", showDynamicFolders: "Dynamische Ordner anzeigen", showFavoritesFolder: "Favoriten-Ordner anzeigen", recentDays: "Zuletzt gespielt Zeitraum", stats: "📊 Statistiken" },
@@ -7750,7 +7752,9 @@
             ['settingsModal', 'pluginManagerModal', 'themeModal', 'gameSettingsModal', 'gamePageView'].forEach(id => { const el = document.getElementById(id); if (el) iconizeElement(el); });
             document.querySelectorAll('[data-i18n-ph]').forEach(el => {
                 const key = el.getAttribute('data-i18n-ph');
-                if (d[key]) el.placeholder = d[key];
+                // The Linux picker takes any program; .bat and .lnk are Windows-only.
+                if (key === 'gamePath' && process.platform === 'linux' && d[key]) el.placeholder = d.gamePathLinux || d[key].replace('.exe, .bat, .lnk', '.exe, .sh, AppImage');
+                else if (d[key]) el.placeholder = d[key];
             });
             updateSelectCount();
             renderSidebar();
@@ -8866,25 +8870,9 @@
 
         // Release notes are remote text. Rebuild a small block structure without
         // interpreting inline HTML, URLs, attributes, or event syntax.
+        // Markdown from the GitHub release, built as plain elements (ui/releaseNotes.js).
         function renderReleaseNotes(md) {
-            const fragment = document.createDocumentFragment();
-            const source = typeof md === 'string' ? md.slice(0, 128 * 1024) : '';
-            if (!source.trim()) {
-                fragment.append(SafeDom.element(document, 'p', { className: 'upd-empty', text: 'No release notes were provided for this version.' }));
-                return fragment;
-            }
-            for (const raw of source.split(/\r?\n/).slice(0, 4000)) {
-                const line = raw.slice(0, 8192);
-                if (!line.trim()) continue;
-                const heading = /^(#{1,4})\s+(.*)$/.exec(line);
-                const bullet = /^\s*[-*+]\s+(.*)$/.exec(line);
-                const quote = /^\s*>\s?(.*)$/.exec(line);
-                if (heading) fragment.append(SafeDom.element(document, `h${heading[1].length}`, { className: 'upd-h', text: heading[2] }));
-                else if (bullet) fragment.append(SafeDom.element(document, 'p', { className: 'upd-p', text: `• ${bullet[1]}` }));
-                else if (quote) fragment.append(SafeDom.element(document, 'blockquote', { className: 'upd-quote', text: quote[1] }));
-                else fragment.append(SafeDom.element(document, 'p', { className: 'upd-p', text: line }));
-            }
-            return fragment;
+            return require('./ui/releaseNotes').renderReleaseNotes(document, md);
         }
 
         let _pendingUpdate = null; // { currentTag, latestTag, body, htmlUrl, assetUrl, linuxKind, linuxAsset, linuxReason, forceInstall, isDowngrade }
@@ -10947,7 +10935,7 @@
         let syncV2IntervalHandle = null;
         let syncManualInFlight = null;
         function scheduleSyncV2Interval() {
-            if (localOnlyPreview) return;
+            if (process.env.SAIL_DEV_ISOLATED === '1') return;
             clearInterval(syncV2IntervalHandle);
             const settings = normalizedSyncV2();
             if (settings.configIntervalMinutes > 0) {
@@ -11586,7 +11574,7 @@
         }
 
         window.runManualLauncherSync = async function (trigger = 'manual') {
-            if (localOnlyPreview) { previewUnavailable('Cloud synchronization'); return; }
+            if (launcherSyncUnavailable()) { previewUnavailable('Cloud synchronization'); return; }
             if (syncManualInFlight) {
                 setSyncV2Status('A sync is already running. Please wait for it to finish.');
                 return syncManualInFlight;
@@ -12675,7 +12663,7 @@
 
         let configSyncDebounceTimer = null;
         function queueConfigSync() {
-            if (localOnlyPreview) return;
+            if (launcherSyncUnavailable()) return;
             const mode = normalizedSyncV2().configChangeMode;
             if (mode === 'off') return;
             clearTimeout(configSyncDebounceTimer);
@@ -12694,7 +12682,7 @@
         let configSyncPending = false;
 
         async function syncConfigToCloud(trigger = 'automatic', { replaceCloud = false } = {}) {
-            if (localOnlyPreview) return;
+            if (launcherSyncUnavailable()) return;
             if (!globalSettings.cloudAutoSync && !replaceCloud) {
                 if (['manual', 'retry'].includes(trigger)) setSyncConfidenceStatus('config', 'paused');
                 return;
@@ -12777,7 +12765,7 @@
         }
 
         async function syncConfigFromCloudIfNeeded() {
-            if (localOnlyPreview) return;
+            if (launcherSyncUnavailable()) return;
             if (!globalSettings.cloudAutoSync) return;
             if (!normalizedSyncV2().configOnStartup) return;
             try {
@@ -12891,7 +12879,7 @@
                     await flushLocalProfile();
                     if (activeExitAttempt !== id) return;
                 } while (revision !== localStateRevision);
-                if (!localOnlyPreview) await syncConfigToCloudPromise();
+                if (!launcherSyncUnavailable()) await syncConfigToCloudPromise();
                 if (activeExitAttempt !== id) return;
                 while (revision !== localStateRevision) {
                     revision = localStateRevision;
@@ -14326,7 +14314,9 @@
             removeSailData.disabled = false;
             keepSailData.disabled = false;
             // Linux keeps a Windows game's saves in its own Windows environment (Proton prefix).
-            const linuxEnvironment = () => process.platform !== 'linux' ? ''
+            // A native Linux game has none, so the line is only shown once the game is known to be a Windows one.
+            let windowsGame = false;
+            const linuxEnvironment = () => !windowsGame ? ''
                 : removeSailData.checked ? ' Its Windows environment (Proton prefix) and any saves inside it are removed too.'
                 : ' Its Windows environment (Proton prefix) and any saves inside it are kept.';
             const refreshDataChoices = () => {
@@ -14349,6 +14339,15 @@
             removeSailData.onchange = refreshDataChoices;
             keepSailData.onchange = refreshDataChoices;
             refreshDataChoices();
+            if (process.platform === 'linux') {
+                const gameId = String(game.id);
+                prompt.dataset.gameId = gameId;
+                invokeAccount('authority-get-native-setup', { gameId }).then(setup => {
+                    if (prompt.dataset.gameId !== gameId || !['proton-umu', 'wine'].includes(setup && setup.backend)) return;
+                    windowsGame = true;
+                    refreshDataChoices();
+                }).catch(() => {});
+            }
             progress.textContent = '';
             confirm.disabled = false;
             cancel.disabled = false;
@@ -14381,7 +14380,8 @@
                     renderGames();
                     const extra = result.warning ? `\n\n${result.warning}` : '';
                     const kept = result.keepSailData ? ' Its Sail data was kept for a later reinstall.' : '';
-                    await sailAlert(`“${result.gameName || game.name}” was uninstalled and removed from your library.${kept}${extra}`);
+                    await sailAlert(`“${result.gameName || game.name}” was uninstalled and removed from your library.${kept}${extra}`,
+                        { title: 'Game uninstalled', tone: result.warning ? 'warning' : 'success' });
                 } catch (error) {
                     const uninstallError = error && error.message
                         ? error.message.replace(/^Error invoking remote method '[^']+':\s*Error:\s*/i, '')
@@ -14501,6 +14501,7 @@
                         if (!result || result.state !== 'active') throw new Error('Launch options could not be saved.');
                         gameLaunchSettingsDrafts.delete(view.key);
                         game.localSetupStatus = 'active';
+                        backfillExeIcons();
                         if (gameLaunchSettingsView && gameLaunchSettingsView.draft === draft
                             && view.key === gameLaunchSettingsKey(game)) await loadGameLaunchSettings(game);
                     }
@@ -14627,7 +14628,7 @@
                     getRequest: operation => executionAuthorityReference(game, operation),
                     onChanged: async () => receiveNativeState(await ipcRenderer.invoke('runtime-recovery-state')) });
                 const protonSaves = require('./ui/protonSaves').showProtonSaves({ document, gameId: String(game.id), invoke: invokeAccount,
-                    available: nativeGamesAvailable() && String(game.steamAppId || '') === '322170' });
+                    available: nativeGamesAvailable() && /^[1-9]\d{0,9}$/.test(String(game.steamAppId || '')) });
                 for (const id of ['perGameAdminToggle', 'highPriorityToggle', 'browseCompanionBtn', 'browsePreLaunchBtn', 'browsePostLaunchBtn']) {
                     document.getElementById(id).disabled = nativeGamesAvailable();
                 }
@@ -14638,7 +14639,7 @@
                         dllOverridesInput.value = setup.dllOverrides || '';
                         document.getElementById('nativeLaunchPaths').textContent = `Executable: ${setup.executable || 'selected for first setup'}. Working folder: ${setup.workingDirectory || 'executable’s folder (shown when saving)'}.`;
                         protonSetup.setSelected(setup.runtimeId, ['proton-umu', 'wine'].includes(setup.backend) || selectedExecutableBackend === 'proton-umu');
-                        protonSaves.refresh();
+                        protonSaves.setWindowsGame(['proton-umu', 'wine'].includes(setup.backend));
                         protonInstallation.refresh().catch(() => {});
                         launchArgsInput.title = 'JSON array of literal arguments. Empty strings are preserved; no shell is used.';
                         localExecutionStatus.textContent = executableSelectionId ? 'Windows game added. Choose Proton or Wine, then update local launch setup.' : setup.reason || `${['proton-umu', 'wine'].includes(setup.backend) ? 'Windows executable' : 'Native executable'}: ${setup.executable || 'choose when applying'}. Working directory: ${setup.workingDirectory || 'choose independently when applying'}.`;
@@ -14679,7 +14680,9 @@
                             const refreshed = await invokeAccount('profiles-load-active');
                             const refreshedGame = (refreshed.snapshot.myGames || []).find(item => item.id === game.id);
                             if (refreshedGame) Object.assign(game, refreshedGame);
-                            protonSaves.refresh();
+                            protonSaves.setWindowsGame(!!document.getElementById('protonRuntimeSelect').value);
+                            // The exe icon can only be read once the game is set up on this PC.
+                            backfillExeIcons();
                             protonInstallation.refresh().catch(() => {});
                         }
                     } catch (error) {
@@ -15488,8 +15491,7 @@
                 } else {
                     alert(`Successfully linked ${provider} account: ${res.email}`);
                 }
-                // Linux syncs game saves only; launcher settings sync is not on Linux yet.
-                if (!res.pending && globalSettings.autoSettingsSync && !localOnlyPreview) {
+                if (!res.pending && globalSettings.autoSettingsSync && !launcherSyncUnavailable()) {
                     await importSettingsFromCloud(provider);
                 }
             } else if (!cancelled) {
@@ -16508,6 +16510,7 @@
                         capabilityId: reference.capabilityId, expectedRevision: reference.expectedRevision });
                     if (result.event) await handleRuntimeSessionEnded(result.event);
                     receiveNativeState(await ipcRenderer.invoke('runtime-recovery-state'));
+                    if (result.phase === 'supervisor-lost') platformAvailability.notice('Sail lost track of this game, so it could not close it. If the game is still open, close it yourself. Playtime was saved up to the last check.');
                 } catch (error) {
                     // Reconcile an uncertain reply; a later explicit Stop reads
                     // fresh permission. Never replay the consumed action here.
@@ -25462,6 +25465,8 @@
         #updNotes li { margin: 4px 0; }
         #updNotes a.upd-link { color: var(--accent); text-decoration: none; }
         #updNotes a.upd-link:hover { text-decoration: underline; }
+        #updNotes table.upd-table { border-collapse: collapse; margin: 10px 0; font-size: 12.5px; }
+        #updNotes .upd-table th, #updNotes .upd-table td { border: 1px solid var(--border-color); padding: 4px 10px; text-align: left; }
         #updNotes code { background: color-mix(in srgb, var(--accent) 14%, transparent); padding: 1px 6px; border-radius: 5px; font-family: 'Consolas', monospace; font-size: 12.5px; }
         #updNotes pre.upd-pre { background: color-mix(in srgb, var(--bg-color) 70%, #000 8%); border: 1px solid var(--border-color); border-radius: 8px; padding: 12px; overflow-x: auto; margin: 10px 0; }
         #updNotes pre.upd-pre code { background: none; padding: 0; }

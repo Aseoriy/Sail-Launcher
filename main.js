@@ -40,6 +40,8 @@ const cloudSync = require('./cloudSync');
 const { registerMaintenanceIpc } = require('./maintenance/ipc');
 const { detectLudusaviSaveCandidates, loadLudusaviManifest } = require('./maintenance/ludusavi');
 const { scanSaveCandidates } = require('./maintenance/saveScanner');
+// Sail's own data folder (downloads, Windows environments) is never offered as a game's save folder.
+require('./maintenance/saveScanner').setExcludedRoots([app.getPath('userData')]);
 const { nativeCommonSaveRoots, windowsCommonSaveRoots, windowsSaveEnvironments, xdgFolders } = require('./runtime/linuxSaveLocations');
 const { registerAccountIpc } = require('./accounts/ipc');
 const { registerAchievementIpc } = require('./achievements/ipc');
@@ -993,9 +995,15 @@ function createWindow() {
     for (const downloadSession of downloadSessions) downloadSession.on('will-download', handleSessionDownload);
 
     win.webContents.on('context-menu', (e, props) => {
+        const template = require('./runtime/spellcheckMenu').spellingMenuTemplate(props, {
+            replace: suggestion => win.webContents.replaceMisspelling(suggestion),
+            addToDictionary: word => win.webContents.session.addWordToSpellCheckerDictionary(word)
+        });
         if (devToolsEnabled) {
-            Menu.buildFromTemplate([{ label: 'Inspect Element', click: () => win.webContents.inspectElement(props.x, props.y) }]).popup(win);
+            if (template.length) template.push({ type: 'separator' });
+            template.push({ label: 'Inspect Element', click: () => win.webContents.inspectElement(props.x, props.y) });
         }
+        if (template.length) Menu.buildFromTemplate(template).popup({ window: win });
     });
 
     win.webContents.on('before-input-event', (event, input) => {
@@ -1735,12 +1743,7 @@ ipcMain.handle('check-backup', (e, payload) => {
                 let dateStr = f.slice(prefix.length, -4);
                 let parsedDate = null;
                 if (dateStr.length === 19) {
-                    const year = dateStr.slice(0, 4);
-                    const month = dateStr.slice(5, 7);
-                    const day = dateStr.slice(8, 10);
-                    const hour = dateStr.slice(11, 13);
-                    const min = dateStr.slice(14, 16);
-                    parsedDate = `${year}-${month}-${day} ${hour}:${min}`;
+                    parsedDate = require('./runtime/saveVersionTime').localSaveVersionTime(dateStr);
                 }
                 const capability = store.createBackupFileCapability(input.gameId, backupPath);
                 backups.push({ filename: f, date: parsedDate || dateStr, capabilityId: capability.capabilityId, revision: capability.revision });
@@ -1961,7 +1964,7 @@ ipcMain.handle('list-save-versions', (e, payload) => {
                     let dateStr = f.slice(prefix.length, -4);
                     let parsedDate = null;
                     if (dateStr.length === 19) {
-                        parsedDate = `${dateStr.slice(0, 4)}-${dateStr.slice(5, 7)}-${dateStr.slice(8, 10)} ${dateStr.slice(11, 13)}:${dateStr.slice(14, 16)}`;
+                        parsedDate = require('./runtime/saveVersionTime').localSaveVersionTime(dateStr);
                     }
                     const capability = store.createBackupFileCapability(input.gameId, backupPath);
                     versions.push({ filename: f, date: parsedDate || dateStr, capabilityId: capability.capabilityId, revision: capability.revision });
@@ -2117,10 +2120,12 @@ async function hydratePortableCloudToken(provider, customCreds) {
     if (customCreds || !accountServices || !['google', 'dropbox'].includes(provider)) return;
     const account = await accountServices.accountService.state();
     if (!account.signedIn) return;
+    // A provider linked only on this PC has no account connection, so it keeps its local token.
+    const remote = await accountServices.accountService.listRemoteControlPlane();
+    const connection = (remote.connections || []).find(item => item.provider === provider && item.status === 'connected');
+    if (!connection) return;
     const token = await accountServices.accountService.portableCloudAccess(provider);
     if (!token || !token.access_token) return;
-    const remote = await accountServices.accountService.listRemoteControlPlane();
-    const connection = (remote.connections || []).find(item => item.provider === provider);
     cloudSync.saveTokens(provider, {
         access_token: token.access_token,
         email: connection && connection.provider_account_label || `${provider} account`

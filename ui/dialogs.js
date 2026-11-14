@@ -8,6 +8,9 @@
     function classify(message, requestedTone) {
         if (requestedTone) return requestedTone;
         const value = String(message || '').toLowerCase();
+        // A message that says how it went is not judged by its wording ("removed" is not a warning there).
+        if (/^✅/u.test(value)) return 'success';
+        if (/^(❌|⚠)/u.test(value)) return 'danger';
         if (/delete|remove|overwrite|reset|clear|hide all|warning|cannot be undone|failed|error|permanent/.test(value)) return 'danger';
         if (/success|complete|exported|linked|up to date/.test(value)) return 'success';
         return 'info';
@@ -18,6 +21,16 @@
         if (kind === 'alert') return 'Got it';
         if (tone === 'danger') return 'Continue';
         return 'Confirm';
+    }
+
+    // "Please confirm" belongs to a question. A notice with nothing to answer gets a title that says what it is.
+    function titleFor(tone, kind, message) {
+        if (tone === 'success') return 'All set';
+        if (tone === 'danger' && kind === 'alert') {
+            return /fail|error|could not|couldn[’']t|unable|cannot/i.test(String(message || '')) ? 'Something went wrong' : 'Heads up';
+        }
+        if (tone === 'danger') return 'Please confirm';
+        return kind === 'confirm' ? 'Quick confirmation' : 'Heads up';
     }
 
     function iconFor(tone, kind) {
@@ -67,7 +80,7 @@
         const title = document.createElement('h2');
         title.className = 'sail-dialog-title';
         title.id = `sail-dialog-title-${Date.now()}`;
-        title.textContent = options.title || (tone === 'danger' ? 'Please confirm' : tone === 'success' ? 'All set' : kind === 'confirm' ? 'Quick confirmation' : 'Heads up');
+        title.textContent = options.title || titleFor(tone, kind, options.message);
         const message = document.createElement('div');
         message.className = 'sail-dialog-message';
         message.textContent = String(options.message == null ? '' : options.message).replace(/^[✅❌ℹ️⚠️]+\s*/u, '');

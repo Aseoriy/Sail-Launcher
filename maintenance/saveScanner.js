@@ -38,9 +38,17 @@ function candidateScore(dirPath, gameTarget, source, parentMatched, stat) {
     return { score, reason: exact ? 'Folder name exactly matches the game.' : partial ? 'Folder name resembles the game.' : 'Save-like folder found inside the installation or a matching game folder.' };
 }
 
+// Folders that are never save locations, whatever they are called: Sail's own data folder holds
+// downloads, Windows environments and session records named after games.
+let excludedRoots = [];
+function setExcludedRoots(roots) {
+    excludedRoots = (roots || []).filter(Boolean).map(root => path.resolve(root).toLowerCase());
+}
+
 async function scanSaveCandidates(input = {}, options = {}) {
     const target = normalizeName(input.gameName);
     if (target.length < 3) return [];
+    const excluded = new Set([...excludedRoots, ...(input.excludeRoots || []).filter(Boolean).map(root => path.resolve(root).toLowerCase())]);
     const roots = [];
     if (input.includeInstallRoot !== false && input.installRoot) roots.push({ root: input.installRoot, source: 'installation', maxDepth: 7 });
     for (const root of input.customRoots || []) if (root) roots.push({ root, source: 'custom', maxDepth: 6 });
@@ -78,6 +86,7 @@ async function scanSaveCandidates(input = {}, options = {}) {
                 if (visited++ >= maxVisited) break;
                 if (!entry.isDirectory() || entry.isSymbolicLink() || SKIP_NAMES.test(entry.name)) continue;
                 const full = path.join(current.dir, entry.name);
+                if (excluded.has(full.toLowerCase())) continue;
                 let stat; try { stat = await fs.promises.lstat(full); } catch (_) { continue; }
                 if (!stat.isDirectory() || stat.isSymbolicLink()) continue;
                 const normalized = normalizeName(entry.name);
@@ -96,4 +105,4 @@ async function scanSaveCandidates(input = {}, options = {}) {
     return candidates.sort((a, b) => b.score - a.score || String(b.modifiedAt).localeCompare(String(a.modifiedAt))).slice(0, 100);
 }
 
-module.exports = { defaultSaveRoots, normalizeName, scanSaveCandidates };
+module.exports = { defaultSaveRoots, normalizeName, scanSaveCandidates, setExcludedRoots };

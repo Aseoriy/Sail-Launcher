@@ -68,7 +68,8 @@ function showProtonSetup({ document, gameId, invoke, available, selectedRuntimeI
             option.disabled = true; select.append(option); select.value = selection;
         }
         syncModNote();
-        status.textContent = result.reason || 'Choose the compatibility version for this game.';
+        status.textContent = result.reason || (select.value && select.selectedOptions[0]
+            ? `This game uses ${select.selectedOptions[0].textContent}.` : 'Choose the compatibility version for this game.');
         await refreshEnvironment();
     };
     const register = async (discoveryId, backend = 'proton-umu') => {

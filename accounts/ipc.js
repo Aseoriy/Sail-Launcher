@@ -742,9 +742,27 @@ function registerAccountIpc({ app, ipcMain, safeStorage, authorizeIpcEvent, dial
         }
         assertProfileMutationAllowed?.({ type: 'remove-game', scope: context.scope });
     }
+    // Where Steam's copy of a game keeps its saves, from the same save location database the save folder
+    // suggestions use. Only folders inside Steam's own Windows environment for that game are looked at.
+    async function steamSaveFolders(context, { appId, libraries }) {
+        const { detectLudusaviSaveCandidates, findManifestGame, loadLudusaviManifest } = require('../maintenance/ludusavi');
+        let loaded;
+        try {
+            loaded = await loadLudusaviManifest({ cachePath: path.join(app.getPath('userData'), 'ludusavi_manifest.yaml'), fetchImpl: globalThis.fetch });
+        } catch (_) { throw Error('Sail could not load the save location database. Check your connection, then check for saves again.'); }
+        const lookup = { gameName: context.metadata.name, steamAppId: appId }, folders = [];
+        const environments = require('../runtime/linuxSaveLocations').windowsSaveEnvironments({ steamAppId: appId, steamLibraries: libraries });
+        for (const environment of environments) {
+            const result = detectLudusaviSaveCandidates(loaded.manifest, lookup, { env: environment.env, homePath: environment.homePath,
+                documentsPath: environment.documentsPath, savedGamesPath: environment.savedGamesPath, caseInsensitive: true });
+            folders.push(...result.candidates.map(candidate => candidate.path));
+        }
+        return { known: !!findManifestGame(loaded.manifest, lookup), folders };
+    }
     async function protonSaveDiscovery(context) {
         return require('../runtime/proton/saves').discoverSaves({ appId: context.metadata.steamAppId,
-            executable: context.details.executablePath, discoveryOptions: context.manager.discoveryOptions });
+            executable: context.details.executablePath, discoveryOptions: context.manager.discoveryOptions,
+            locate: request => steamSaveFolders(context, request) });
     }
     ipcMain.handle('proton-save-status', guarded('proton-save-status', async (_event, payload) => {
         const input = exactPayload(payload, ['gameId'], 'Proton saves');
@@ -763,8 +781,13 @@ function registerAccountIpc({ app, ipcMain, safeStorage, authorizeIpcEvent, dial
         const candidate = status.candidates.find(item => item.id === input.candidateId);
         if (!candidate) throw Error('The Steam save changed or disappeared. Check for saves again.');
         const decision = await dialog.showMessageBox({ type: 'question', buttons: ['Import Steam save', 'Cancel'], defaultId: 1, cancelId: 1,
-            message: 'Import your Geometry Dash save from Steam?',
-            detail: `Close Geometry Dash in Steam and Sail first. Progress, account state and Geode settings from this folder will replace Sail’s copy. Sail keeps a backup of its previous save; Steam’s files stay untouched. This is a one-time copy, not ongoing synchronization.\n\nSource: ${candidate.folder}` });
+            ...(candidate.folders ? {
+                message: `Import the Steam save for “${String(context.metadata.name || 'this game')}”?`,
+                detail: `Close the game in Steam and Sail first. The save folders below will replace Sail’s copy of them. Sail keeps a backup of anything it replaces; Steam’s files stay untouched. This is a one-time copy, not ongoing synchronization.\n\nSource:\n${candidate.folders.map(item => item.folder).join('\n')}`
+            } : {
+                message: 'Import your Geometry Dash save from Steam?',
+                detail: `Close Geometry Dash in Steam and Sail first. Progress, account state and Geode settings from this folder will replace Sail’s copy. Sail keeps a backup of its previous save; Steam’s files stay untouched. This is a one-time copy, not ongoing synchronization.\n\nSource: ${candidate.folder}`
+            }) });
         if (decision.response !== 0) return { canceled: true };
         assertSaveImportIdle(context);
         return require('../runtime/proton/saves').importSave({ prefix: context.manager.savePrefix(context.scope, context.details.linuxRuntime.runtimeId),

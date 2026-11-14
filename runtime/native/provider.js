@@ -150,6 +150,27 @@ class NativeProvider {
         this.onChanged(this.snapshot());
         return { event, session: null };
     }
+    // True only when the recorded supervisor's PID no longer exists. A PID that exists with a
+    // different identity stays unresolved: that is a mismatch, not proof.
+    supervisorGone(session) {
+        const owner = session.native.owner;
+        if (!owner) return false;
+        try { protocol.processIdentity(owner.supervisorPid); return false; }
+        catch (error) { return error.code === 'ENOENT' || error.code === 'ESRCH'; }
+    }
+    // Without its supervisor a session can never finish or be stopped (logging out ends the
+    // supervisor without a restart). Force Stop closes it with the time its last receipt observed.
+    endWithoutSupervisor(session) {
+        let receipt = null;
+        try { receipt = this.receiptFromDisk(session); } catch (_) { /* The journal's last receipt remains. */ }
+        let event;
+        try { event = this.journal.endNativeSessionWithoutSupervisor(session.sessionId, receipt); } catch (_) {
+            event = this.journal.endNativeSessionWithoutSupervisor(session.sessionId);
+        }
+        if (event) this.onEnded(event);
+        this.onChanged(this.snapshot());
+        return { event, session: null };
+    }
     async inspect(session) {
         try {
             const ended = this.endIfPreviousBoot(session);
@@ -260,6 +281,7 @@ class NativeProvider {
             if (typeof authorize !== 'function' || !this.canAccessSession(session)) throw protocol.nativeError('SAIL_NATIVE_AUTHORITY', 'Stop requires current permission for this game in its active library.');
             const ended = this.endIfPreviousBoot(session);
             if (ended) return { requested: false, complete: true, phase: 'system-restarted', ...ended };
+            if (this.supervisorGone(session)) return { requested: false, complete: true, phase: 'supervisor-lost', ...this.endWithoutSupervisor(session) };
             this.receiptFromDisk(session);
             this.assertOwner(session);
             // Main rechecks the current sender/profile and consumes permission
